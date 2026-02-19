@@ -1,0 +1,289 @@
+# sft-wick
+
+Wick's theorem contractions for statistical field theory perturbative calculations.
+
+`sft-wick` automates the computation of perturbative expansions in the MSR (Martin-Siggia-Rose) formalism for stochastic differential equations. Given an observable and an interaction action, it applies Wick's theorem to express arbitrary field moments in terms of two-point propagators — the correlation function C and the response function R.
+
+## Installation
+
+```bash
+pip install -e ".[dev]"
+```
+
+Dependencies: `networkx`, `matplotlib`. For development: `pytest`, `pytest-cov`.
+
+## Quick Start
+
+```python
+from sft_wick import Field, Vertex, Action, compute_moment
+
+# Define scalar fields
+phi = Field('phi', 'physical')
+psi = Field('psi', 'response')
+
+# Compute <psi(x) phi(x) phi(x) phi(x)>_{S_0}
+obs = [psi('x'), phi('x'), phi('x'), phi('x')]
+result = compute_moment(obs, Action(vertices=[]), order=0)
+print(result.order(0).to_latex())
+# Output: 3 R(x, x) C(x, x)
+```
+
+## Background
+
+In the MSR formalism for SDEs, path-integral averages involve two types of fields:
+
+- **Physical field** φ (phi): the field of interest
+- **Response field** ψ (psi): the auxiliary conjugate field
+
+The free two-point functions (propagators) are:
+
+| Contraction | Propagator | Meaning |
+|---|---|---|
+| ⟨φ\_i(x) φ\_j(x')⟩\_{S₀} | C\_{ij}(x, x') | Correlation function |
+| ⟨φ\_i(x) ψ\_j(x')⟩\_{S₀} | R\_{ij}(x, x') | Response (Green's) function |
+| ⟨ψ\_i(x) ψ\_j(x')⟩\_{S₀} | 0 | Vanishes by construction |
+
+Since the MSR partition function Z = 1, the perturbative expansion is simply:
+
+```
+⟨O⟩_S = Σ_{n=0}^{N} (-1)^n / n! ⟨O S_int^n⟩_{S_0}
+```
+
+Each term is evaluated via **Wick's theorem**: the expectation of a product of fields equals the sum over all complete pairings of the product of two-point functions.
+
+## Usage Guide
+
+### 1. Defining Fields
+
+```python
+from sft_wick import Field
+
+# Scalar fields (single component)
+phi = Field('phi', 'physical')
+psi = Field('psi', 'response')
+
+# Multi-component fields
+phi = Field('phi', 'physical', n_components=3)
+psi = Field('psi', 'response', n_components=3)
+```
+
+### 2. Creating Field Operators
+
+Field operators are concrete instances with bound component indices and spatial arguments.
+
+```python
+# Scalar: phi(spatial_arg)
+op = phi('x')          # φ(x)
+
+# Multi-component: phi(component_index, spatial_arg)
+op = phi('a', 'x')     # φ_a(x)
+op = psi('b', 'y')     # ψ_b(y)
+```
+
+### 3. Defining Interaction Vertices
+
+Vertices represent terms in the interaction action S\_int.
+
+```python
+from sft_wick import Vertex
+
+# Local vertex: ∫ F_{ijk} φ_i(x) φ_j(x) ψ_k(x) dx
+# All fields share the same spatial argument.
+v1 = Vertex(fields=[phi, phi, psi], coupling='F')
+
+# Non-local vertex: ∬ K_{ij}(x, x') ψ_i(x) ψ_j(x') dx dx'
+# Each field gets its own spatial argument.
+v2 = Vertex(fields=[psi, psi], coupling='K', local=False)
+```
+
+### 4. Computing Perturbative Expansions
+
+```python
+from sft_wick import Action, compute_moment
+
+action = Action(vertices=[v1])
+obs = [psi('a', 'x'), phi('b', 'x'), phi('c', 'x'), phi('d', 'x')]
+
+result = compute_moment(obs, action, order=1)
+
+# Access individual orders
+print(result.order(0).to_latex())
+print(result.order(1).to_latex())
+
+# Full result
+print(result.to_latex())
+```
+
+### 5. Feynman Diagrams
+
+Each non-vanishing Wick contraction corresponds to a Feynman diagram:
+
+- **Vertices** (■): interaction points from S\_int
+- **External points** (●): observable field operators
+- **C propagator** (blue solid line): correlation φ-φ
+- **R propagator** (red dashed arrow): response φ-ψ
+
+```python
+# Draw all diagrams
+result.draw_diagrams()
+
+# Draw only diagrams at a specific order
+result.draw_diagrams(order=1)
+
+# Access diagram topology
+for d_info in result.diagrams_by_order[1]:
+    fd = d_info.to_feynman_diagram()
+    print(fd.summary())
+    print(f"  Loops: {fd.n_loops}, Connected: {fd.is_connected}")
+```
+
+### 6. LaTeX Formatting
+
+```python
+from sft_wick import LaTeXFormatter
+
+# Default names
+print(result.order(0).to_latex())
+# C_{ab}(x, y)
+
+# Custom propagator names
+fmt = LaTeXFormatter(propagator_names={
+    'C': 'G',
+    'R': r'R^{\mathrm{ret}}'
+})
+print(fmt.format(result.order(0)))
+# G_{ab}(x, y)
+
+# LaTeX align environment for order-by-order display
+print(fmt.format_aligned(result.order_terms))
+```
+
+### 7. Direct Wick Contraction
+
+For low-level access without the perturbative machinery:
+
+```python
+from sft_wick import wick_contract, contract_pair
+
+# Contract a product of fields
+ops = [phi('a', 'x'), phi('b', 'y'), phi('c', 'z'), phi('d', 'w')]
+expr, pairings = wick_contract(ops)
+print(expr.to_latex())
+# C_{ab}(x, y) C_{cd}(z, w) + C_{ac}(x, z) C_{bd}(y, w) + C_{ad}(x, w) C_{bc}(y, z)
+
+# Contract a single pair
+prop = contract_pair(phi('a', 'x'), psi('b', 'y'))
+print(prop.to_latex())
+# R_{ab}(x, y)
+```
+
+## Examples
+
+### Zeroth-Order Moment
+
+```python
+phi = Field('phi', 'physical')
+psi = Field('psi', 'response')
+
+obs = [psi('x'), phi('x'), phi('x'), phi('x')]
+result = compute_moment(obs, Action(vertices=[]), order=0)
+print(result.order(0).to_latex())
+# 3 R(x, x) C(x, x)
+```
+
+The three terms arise because ψ can pair with any of the three φ's (producing R), and the remaining two φ's pair together (producing C).
+
+### First-Order Perturbation
+
+```python
+phi = Field('phi', 'physical')
+psi = Field('psi', 'response')
+
+v = Vertex(fields=[phi, psi], coupling='g')
+action = Action(vertices=[v])
+
+obs = [phi('x'), phi('y')]
+result = compute_moment(obs, action, order=1)
+print(result.order(1).to_latex())
+# ∫ dy₀ (-g) [R(x, y₀) C(y, y₀) + R(y, y₀) C(x, y₀) + R(y₀, y₀) C(x, y)]
+```
+
+### Multi-Component Four-Point Function
+
+```python
+phi = Field('phi', 'physical', n_components=3)
+
+obs = [phi('a', 'x'), phi('b', 'y'), phi('c', 'z'), phi('d', 'w')]
+result = compute_moment(obs, Action(vertices=[]), order=0)
+print(result.order(0).to_latex())
+# C_{ab}(x, y) C_{cd}(z, w) + C_{ac}(x, z) C_{bd}(y, w) + C_{ad}(x, w) C_{bc}(y, z)
+```
+
+### Non-Local Interaction
+
+```python
+phi = Field('phi', 'physical', n_components=2)
+psi = Field('psi', 'response', n_components=2)
+
+v_nonlocal = Vertex(fields=[psi, psi], coupling='K', local=False)
+action = Action(vertices=[v_nonlocal])
+
+obs = [phi('a', 'x'), phi('b', 'y')]
+result = compute_moment(obs, action, order=1)
+```
+
+## API Reference
+
+### Core Functions
+
+| Function | Description |
+|---|---|
+| `compute_moment(observable, action, order)` | Perturbative expansion of ⟨O⟩\_S up to given order |
+| `wick_contract(operators)` | Apply Wick's theorem to a product of field operators |
+| `contract_pair(op1, op2)` | Contract two field operators into a propagator |
+| `simplify(expr)` | Simplify an expression (flatten, collect terms, eliminate zeros) |
+| `reset_uid_counter()` | Reset field operator UID counter (for reproducible tests) |
+
+### Classes
+
+| Class | Description |
+|---|---|
+| `Field` | Field declaration (name, type, component count) |
+| `FieldOperator` | Concrete field instance with bound index and position |
+| `Vertex` | Interaction vertex template (local or non-local) |
+| `VertexInstance` | Instantiated vertex with fresh internal indices |
+| `Action` | Collection of vertices defining S\_int |
+| `PerturbativeResult` | Result container with order-by-order expressions and diagrams |
+| `FeynmanDiagram` | Graph representation of a diagram (networkx MultiGraph) |
+| `DiagramRenderer` | Matplotlib-based diagram visualizer |
+| `LaTeXFormatter` | Configurable LaTeX output |
+
+### Expression Types
+
+| Type | Description | Example LaTeX |
+|---|---|---|
+| `Rational(num, den)` | Exact rational number | `\frac{1}{2}` |
+| `Symbol(name, indices, spatial_args)` | Named tensor/coupling | `F_{ijk}` |
+| `Propagator(kind, il, ir, sl, sr)` | Two-point function | `C_{ab}(x, y)` |
+| `Sum(terms)` | Sum of expressions | `a + b + c` |
+| `Product(factors)` | Product of expressions | `a b c` |
+| `SumOverIndex(index, dim, body)` | Index summation | `\sum_{i=1}^{N} ...` |
+| `IntegralOver(var, body)` | Spatial integration | `\int dx ...` |
+| `KroneckerDelta(i, j)` | Component delta | `δ_{ij}` |
+| `DiracDelta(x, y)` | Spatial delta | `δ(x - y)` |
+
+## Design Notes
+
+- **No SymPy dependency**: Uses a custom lightweight expression tree with `fractions.Fraction` for exact rational arithmetic.
+- **Frozen dataclasses**: All expression types are immutable and hashable, safe for use in sets and dicts.
+- **Unique operator IDs**: Each `FieldOperator` carries a unique integer ID, so that two copies of φ\_a(x) in the same product are properly distinguished during contraction.
+- **Optimized contraction**: The `generate_valid_pairings` algorithm exploits the MSR constraint (ψ-ψ = 0) to skip zero-valued pairings entirely, significantly reducing the combinatorial search space.
+- **Feynman diagrams**: Built on `networkx.MultiGraph` (supporting multiple edges between the same pair of nodes) with `matplotlib` rendering.
+
+## Testing
+
+```bash
+pytest tests/ -v
+```
+
+46 tests covering expressions, fields, propagators, Wick contractions, perturbative expansion, and simplification.
