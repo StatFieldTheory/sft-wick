@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sft-wick"
+version = "0.1.0"
+description = "Wick's theorem contractions for statistical field theory perturbative calculations"
+requires-python = ">=3.10"
+dependencies = [
+    "networkx>=3.0",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sft_wick"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

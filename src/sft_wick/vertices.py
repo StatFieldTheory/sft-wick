@@ -1,0 +1,167 @@
+"""Vertex definitions and vertex instantiation.
+
+A Vertex is a template for an interaction term in S_int.
+A VertexInstance is a concrete instantiation with freshly assigned indices.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Sequence
+
+from .expressions import Symbol
+from .fields import Field, FieldOperator
+from .indices import IndexContext
+
+
+@dataclass(frozen=True)
+class Vertex:
+    """A vertex (interaction term) in S_int.
+
+    Examples:
+        # Local vertex: int F_{ijk} phi_i(x) phi_j(x) psi_k(x) dx
+        Vertex(fields=[phi, phi, psi], coupling='F')
+
+        # Non-local vertex: iint K_{ij}(x,x') psi_i(x) psi_j(x') dx dx'
+        Vertex(fields=[psi, psi], coupling='K', local=False)
+    """
+
+    fields: tuple[Field, ...]
+    coupling: str
+    local: bool = True
+
+    def __init__(
+        self,
+        fields: Sequence[Field],
+        coupling: str,
+        local: bool = True,
+    ):
+        object.__setattr__(self, "fields", tuple(fields))
+        object.__setattr__(self, "coupling", coupling)
+        object.__setattr__(self, "local", local)
+
+    @property
+    def n_fields(self) -> int:
+        return len(self.fields)
+
+    @property
+    def n_physical(self) -> int:
+        return sum(1 for f in self.fields if f.is_physical)
+
+    @property
+    def n_response(self) -> int:
+        return sum(1 for f in self.fields if f.is_response)
+
+
+@dataclass
+class VertexInstance:
+    """A concrete instance of a vertex with freshly-assigned indices.
+
+    Created during perturbative expansion when we instantiate copies of S_int.
+    """
+
+    vertex: Vertex
+    field_operators: list[FieldOperator]
+    coupling_symbol: Symbol
+    spatial_variables: list[str]
+    component_indices: list[str]
+    copy_id: int
+
+    @classmethod
+    def instantiate(
+        cls,
+        vertex: Vertex,
+        idx_ctx: IndexContext,
+        copy_id: int,
+    ) -> VertexInstance:
+        """Create a concrete vertex instance with fresh indices.
+
+        For a local vertex: all fields share one spatial variable.
+        For a non-local vertex: each field gets its own spatial variable.
+        """
+        operators: list[FieldOperator] = []
+        comp_indices: list[str] = []
+        spatial_vars: list[str] = []
+
+        if vertex.local:
+            # All fields share the same spatial argument
+            shared_spatial = idx_ctx.fresh_spatial_variable()
+            spatial_vars.append(shared_spatial)
+
+            for f in vertex.fields:
+                if f.is_scalar:
+                    op = FieldOperator(
+                        field=f,
+                        component_index=None,
+                        spatial_arg=shared_spatial,
+                        uid=-1,  # placeholder, will be set below
+                    )
+                else:
+                    comp_idx = idx_ctx.fresh_component_index()
+                    comp_indices.append(comp_idx)
+                    op = FieldOperator(
+                        field=f,
+                        component_index=comp_idx,
+                        spatial_arg=shared_spatial,
+                        uid=-1,
+                    )
+                operators.append(op)
+        else:
+            # Each field gets its own spatial argument
+            for f in vertex.fields:
+                spatial = idx_ctx.fresh_spatial_variable()
+                spatial_vars.append(spatial)
+
+                if f.is_scalar:
+                    op = FieldOperator(
+                        field=f,
+                        component_index=None,
+                        spatial_arg=spatial,
+                        uid=-1,
+                    )
+                else:
+                    comp_idx = idx_ctx.fresh_component_index()
+                    comp_indices.append(comp_idx)
+                    op = FieldOperator(
+                        field=f,
+                        component_index=comp_idx,
+                        spatial_arg=spatial,
+                        uid=-1,
+                    )
+                operators.append(op)
+
+        # Assign unique UIDs
+        from .fields import _uid_counter
+
+        final_operators: list[FieldOperator] = []
+        for op in operators:
+            final_op = FieldOperator(
+                field=op.field,
+                component_index=op.component_index,
+                spatial_arg=op.spatial_arg,
+                uid=next(_uid_counter),
+            )
+            final_operators.append(final_op)
+
+        # Build coupling symbol with appropriate indices and spatial args
+        if vertex.local:
+            coupling_symbol = Symbol(
+                name=vertex.coupling,
+                indices=tuple(comp_indices),
+                spatial_args=(),
+            )
+        else:
+            coupling_symbol = Symbol(
+                name=vertex.coupling,
+                indices=tuple(comp_indices),
+                spatial_args=tuple(spatial_vars),
+            )
+
+        return cls(
+            vertex=vertex,
+            field_operators=final_operators,
+            coupling_symbol=coupling_symbol,
+            spatial_variables=spatial_vars,
+            component_indices=comp_indices,
+            copy_id=copy_id,
+        )
