@@ -10,9 +10,17 @@ from .vertices import Vertex
 
 
 class Action:
-    """Represents S_int = sum of vertex terms.
+    r"""The interaction action :math:`S_{\mathrm{int}}` as a sum of vertex terms.
 
-    The free action S_0 is implicit (it defines the propagator rules).
+    The free action :math:`S_0` is implicit --- it defines the propagator
+    rules (C and R).  The ``Action`` stores only the interaction vertices.
+
+    Args:
+        vertices: List of :class:`~sft_wick.vertices.Vertex` templates
+            that make up :math:`S_{\mathrm{int}}`.
+
+    Attributes:
+        vertices: The stored list of vertex templates.
     """
 
     def __init__(self, vertices: list[Vertex]) -> None:

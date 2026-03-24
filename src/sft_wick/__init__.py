@@ -18,9 +18,11 @@ from .action import Action
 from .diagrams import FeynmanDiagram
 from .drawing import DiagramRenderer
 from .expressions import (
+    I,
     ZERO,
     ONE,
     Expr,
+    ImaginaryUnit,
     IntegralOver,
     Product,
     Propagator,
@@ -28,24 +30,28 @@ from .expressions import (
     Sum,
     SumOverIndex,
     Symbol,
+    apply_response_phase,
 )
 from .fields import Field, FieldOperator, FieldType, reset_uid_counter
 from .indices import IndexContext
 from .latex import LaTeXFormatter
-from .perturbation import PerturbativeResult, compute_moment
+from .perturbation import DiagramTerm, PerturbativeResult, compute_moment
 from .propagators import contract_pair
-from .simplify import simplify
+from .simplify import collect_by_diagram, collect_by_topology, diagonal_propagators, simplify
 from .vertices import Vertex, VertexInstance
 from .wick import wick_contract
 
 __all__ = [
     "Action",
     "DiagramRenderer",
+    "DiagramTerm",
     "Expr",
     "FeynmanDiagram",
     "Field",
     "FieldOperator",
     "FieldType",
+    "I",
+    "ImaginaryUnit",
     "IndexContext",
     "IntegralOver",
     "LaTeXFormatter",
@@ -60,8 +66,12 @@ __all__ = [
     "Vertex",
     "VertexInstance",
     "ZERO",
+    "apply_response_phase",
+    "collect_by_diagram",
+    "collect_by_topology",
     "compute_moment",
     "contract_pair",
+    "diagonal_propagators",
     "reset_uid_counter",
     "simplify",
     "wick_contract",

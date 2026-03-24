@@ -7,7 +7,9 @@ Each diagram is a MultiGraph where:
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass, field
+from itertools import permutations, product as iter_product
 from typing import Any, Sequence
 
 import networkx as nx
@@ -32,7 +34,17 @@ class FeynmanDiagram:
         component: str | None = None,
         spatial: str = "",
     ) -> str:
-        """Add an external point (observable field) to the diagram."""
+        """Add an external point (observable field) to the diagram.
+
+        Args:
+            label: Display label for the node.
+            field_type: ``"physical"`` or ``"response"``.
+            component: Component index (``None`` for scalar fields).
+            spatial: Spatial argument string.
+
+        Returns:
+            The unique node ID assigned to this external point.
+        """
         node_id = f"ext_{self._node_counter}"
         self._node_counter += 1
         self.graph.add_node(
@@ -51,7 +63,16 @@ class FeynmanDiagram:
         copy_id: int = 0,
         spatial_vars: Sequence[str] = (),
     ) -> str:
-        """Add an interaction vertex to the diagram."""
+        """Add an interaction vertex to the diagram.
+
+        Args:
+            coupling: Coupling constant name (e.g. ``"F"``, ``"g"``).
+            copy_id: Which copy of the vertex in the expansion.
+            spatial_vars: Spatial integration variables for this vertex.
+
+        Returns:
+            The unique node ID assigned to this vertex.
+        """
         node_id = f"vert_{self._node_counter}"
         self._node_counter += 1
         self.graph.add_node(
@@ -73,8 +94,24 @@ class FeynmanDiagram:
         index_right: str | None = None,
         spatial_left: str = "",
         spatial_right: str = "",
+        phi_end: str | None = None,
+        psi_end: str | None = None,
     ) -> None:
-        """Add a propagator edge between two nodes."""
+        """Add a propagator edge between two nodes.
+
+        Args:
+            node1: Source node ID.
+            node2: Target node ID.
+            kind: ``"C"`` for correlation or ``"R"`` for response.
+            index_left: Left component index (``None`` for scalars).
+            index_right: Right component index (``None`` for scalars).
+            spatial_left: Left spatial argument.
+            spatial_right: Right spatial argument.
+            phi_end: For R propagators, the node ID on the physical
+                (φ) side.  ``None`` for C propagators.
+            psi_end: For R propagators, the node ID on the response
+                (ψ) side.  ``None`` for C propagators.
+        """
         self.graph.add_edge(
             node1,
             node2,
@@ -83,6 +120,8 @@ class FeynmanDiagram:
             index_right=index_right,
             spatial_left=spatial_left,
             spatial_right=spatial_right,
+            phi_end=phi_end,
+            psi_end=psi_end,
         )
 
     @property
@@ -114,7 +153,18 @@ class FeynmanDiagram:
         vertex_instances: list[VertexInstance],
         pairing: Pairing,
     ) -> FeynmanDiagram:
-        """Construct a diagram from a Wick contraction pairing."""
+        """Construct a diagram from a Wick contraction pairing.
+
+        Args:
+            observable_ops: External field operators.
+            vertex_instances: Instantiated interaction vertices.
+            pairing: Tuple of ``(i, j)`` index pairs from Wick
+                contraction.
+
+        Returns:
+            A fully-constructed ``FeynmanDiagram`` with external nodes,
+            vertex nodes, and propagator edges.
+        """
         diagram = cls()
 
         # Build the full operator list (same order as in wick contraction)
@@ -127,8 +177,15 @@ class FeynmanDiagram:
 
         # Add external nodes
         for op in observable_ops:
+            # Build a short LaTeX-style label for display
+            name = r"\phi" if op.is_physical else r"\psi"
+            if op.component_index is not None:
+                label = rf"${name}_{{{op.component_index}}}({op.spatial_arg})$"
+            else:
+                label = rf"${name}({op.spatial_arg})$"
+
             node_id = diagram.add_external_point(
-                label=repr(op),
+                label=label,
                 field_type=op.field_type.value,
                 component=op.component_index,
                 spatial=op.spatial_arg,
@@ -145,6 +202,13 @@ class FeynmanDiagram:
             )
             vi_to_node[vi.copy_id] = node_id
             for op in vi.field_operators:
+                if op.uid in uid_to_node:
+                    raise ValueError(
+                        f"UID collision: vertex operator {op} has the same "
+                        f"uid={op.uid} as a previously registered operator. "
+                        f"Call reset_uid_counter() before creating fields, "
+                        f"not between field creation and compute_moment()."
+                    )
                 uid_to_node[op.uid] = node_id
 
         # Add edges for each contraction pair
@@ -154,6 +218,16 @@ class FeynmanDiagram:
             if prop is not None:
                 node_a = uid_to_node[op_i.uid]
                 node_b = uid_to_node[op_j.uid]
+
+                # Track R-propagator direction (which end is φ, which is ψ)
+                phi_end = None
+                psi_end = None
+                if prop.kind == "R":
+                    if op_i.is_physical:
+                        phi_end, psi_end = node_a, node_b
+                    else:
+                        phi_end, psi_end = node_b, node_a
+
                 diagram.add_propagator(
                     node_a,
                     node_b,
@@ -162,15 +236,116 @@ class FeynmanDiagram:
                     index_right=prop.index_right,
                     spatial_left=prop.spatial_left,
                     spatial_right=prop.spatial_right,
+                    phi_end=phi_end,
+                    psi_end=psi_end,
                 )
 
         return diagram
 
-    def summary(self) -> str:
-        """Short textual description of the diagram topology."""
+    def canonical_form(self) -> tuple:
+        """Return a hashable canonical form for this diagram's topology.
+
+        Two diagrams have the same canonical form if and only if they
+        are isomorphic under relabeling of vertex nodes that share the
+        same coupling type.  External nodes are distinguished by their
+        position in the observable.  Edge kind (C/R) and R-direction
+        are structural; component indices and spatial arguments on
+        edges are ignored.
+
+        Returns:
+            A hashable tuple ``(ext_meta, vert_meta, edges)`` that is
+            identical for topologically equivalent diagrams.
+        """
+        g = self.graph
+        ext_nodes = self.external_nodes
+        vert_nodes = self.vertex_nodes
+
+        # External nodes are distinguishable — label them 0..N-1
+        ext_label: dict[str, int] = {}
+        for i, n in enumerate(ext_nodes):
+            ext_label[n] = i
+
+        # Group vertex nodes by coupling type
+        coupling_groups: dict[str, list[str]] = defaultdict(list)
+        for n in vert_nodes:
+            coupling_groups[g.nodes[n]["coupling"]].append(n)
+
+        sorted_couplings = sorted(coupling_groups.keys())
+        group_lists = [coupling_groups[c] for c in sorted_couplings]
+
+        # Try all permutations within each coupling group
+        perm_generators = [permutations(grp) for grp in group_lists]
+
+        best: tuple | None = None
+
+        for perm_combo in iter_product(*perm_generators):
+            label_map = dict(ext_label)
+            counter = len(ext_nodes)
+            for group_perm in perm_combo:
+                for node in group_perm:
+                    label_map[node] = counter
+                    counter += 1
+
+            edges: list[tuple] = []
+            for u, v, data in g.edges(data=True):
+                kind = data["kind"]
+                if kind == "C":
+                    lu, lv = label_map[u], label_map[v]
+                    edges.append(("C", min(lu, lv), max(lu, lv)))
+                else:
+                    # R is directed: use phi_end / psi_end if available
+                    pe = data.get("phi_end")
+                    se = data.get("psi_end")
+                    if pe is not None and se is not None:
+                        edges.append(("R", label_map[pe], label_map[se]))
+                    else:
+                        # Fallback: use storage order
+                        edges.append(("R", label_map[u], label_map[v]))
+
+            form = tuple(sorted(edges))
+            if best is None or form < best:
+                best = form
+
+        # If no vertices (and thus no permutations to try), handle the
+        # trivial case where iter_product produces exactly one empty combo
+        if best is None:
+            label_map = dict(ext_label)
+            edges = []
+            for u, v, data in g.edges(data=True):
+                kind = data["kind"]
+                lu, lv = label_map.get(u, -1), label_map.get(v, -1)
+                if kind == "C":
+                    edges.append(("C", min(lu, lv), max(lu, lv)))
+                else:
+                    pe = data.get("phi_end")
+                    se = data.get("psi_end")
+                    if pe is not None and se is not None:
+                        edges.append(("R", label_map.get(pe, -1), label_map.get(se, -1)))
+                    else:
+                        edges.append(("R", lu, lv))
+            best = tuple(sorted(edges))
+
+        ext_meta = tuple(
+            (g.nodes[n]["field_type"], g.nodes[n].get("component"), g.nodes[n]["spatial"])
+            for n in ext_nodes
+        )
+        vert_meta = tuple((c, len(coupling_groups[c])) for c in sorted_couplings)
+
+        return (ext_meta, vert_meta, best)
+
+    def summary(self, short: bool = False) -> str:
+        """Short textual description of the diagram topology.
+
+        Args:
+            short: If ``True``, return a compact single-line summary
+                suitable for subplot titles.
+        """
         n_ext = len(self.external_nodes)
         n_vert = len(self.vertex_nodes)
         n_edges = self.graph.number_of_edges()
         loops = self.n_loops
+        if short:
+            conn = "conn" if self.is_connected else "disc"
+            return f"{n_ext}ext, {n_vert}vert, {n_edges}prop, {loops}L, {conn}"
         conn = "connected" if self.is_connected else "disconnected"
         return f"Diagram: {n_ext} external, {n_vert} vertices, {n_edges} propagators, {loops} loops, {conn}"

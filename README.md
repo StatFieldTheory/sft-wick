@@ -2,7 +2,7 @@
 
 Wick's theorem contractions for statistical field theory perturbative calculations.
 
-`sft-wick` automates the computation of perturbative expansions in the MSR (Martin-Siggia-Rose) formalism for stochastic differential equations. Given an observable and an interaction action, it applies Wick's theorem to express arbitrary field moments in terms of two-point propagators — the correlation function C and the response function R.
+`sft-wick` automates the computation of perturbative expansions in the path integral formalism for stochastic differential equations. Given an observable and an interaction action, it applies Wick's theorem to express arbitrary field moments in terms of two-point propagators — the correlation function C and the response function R.
 
 ## Installation
 
@@ -238,9 +238,12 @@ result = compute_moment(obs, action, order=1)
 
 | Function | Description |
 |---|---|
-| `compute_moment(observable, action, order)` | Perturbative expansion of ⟨O⟩\_S up to given order |
-| `wick_contract(operators)` | Apply Wick's theorem to a product of field operators |
-| `contract_pair(op1, op2)` | Contract two field operators into a propagator |
+| `compute_moment(observable, action, order, ito=True, response_phase=True, collect_topology=True)` | Perturbative expansion of ⟨O⟩\_S up to given order |
+| `wick_contract(operators, ito=True)` | Apply Wick's theorem to a product of field operators |
+| `contract_pair(op1, op2, ito=True)` | Contract two field operators into a propagator |
+| `apply_response_phase(expr)` | Multiply each term by (−i)^n for n response propagators |
+| `collect_by_diagram(expr)` | Group terms by Feynman diagram isomorphism, factor out propagators |
+| `collect_by_topology(expr)` | Alias for `collect_by_diagram` (backward compat) |
 | `simplify(expr)` | Simplify an expression (flatten, collect terms, eliminate zeros) |
 | `reset_uid_counter()` | Reset field operator UID counter (for reproducible tests) |
 
@@ -257,6 +260,7 @@ result = compute_moment(obs, action, order=1)
 | `FeynmanDiagram` | Graph representation of a diagram (networkx MultiGraph) |
 | `DiagramRenderer` | Matplotlib-based diagram visualizer |
 | `LaTeXFormatter` | Configurable LaTeX output |
+| `ImaginaryUnit` | The imaginary unit i, used in phase factors |
 
 ### Expression Types
 
@@ -265,6 +269,7 @@ result = compute_moment(obs, action, order=1)
 | `Rational(num, den)` | Exact rational number | `\frac{1}{2}` |
 | `Symbol(name, indices, spatial_args)` | Named tensor/coupling | `F_{ijk}` |
 | `Propagator(kind, il, ir, sl, sr)` | Two-point function | `C_{ab}(x, y)` |
+| `ImaginaryUnit()` | Imaginary unit | `\mathrm{i}` |
 | `Sum(terms)` | Sum of expressions | `a + b + c` |
 | `Product(factors)` | Product of expressions | `a b c` |
 | `SumOverIndex(index, dim, body)` | Index summation | `\sum_{i=1}^{N} ...` |
@@ -272,12 +277,37 @@ result = compute_moment(obs, action, order=1)
 | `KroneckerDelta(i, j)` | Component delta | `δ_{ij}` |
 | `DiracDelta(x, y)` | Spatial delta | `δ(x - y)` |
 
+## Conventions and Options
+
+### Itô prescription (`ito=True`, default)
+
+By default, the Itô discretisation convention Θ(0)=0 is applied:
+
+- **Equal-point R vanishes**: R(x,x) = 0 — eliminates self-response contractions and intra-vertex tadpoles in local vertices.
+- **Causal R-loops vanish**: Any closed loop of response propagators R(a,b)R(b,c)...R(z,a) = 0, since this would require a cyclic time ordering t\_a > t\_b > ... > t\_a, which is impossible for the retarded propagator.
+
+Pass `ito=False` to keep these terms symbolic.
+
+### Response phase convention (`response_phase=True`, default)
+
+The MSR convention ⟨φ(a) ψ(b)⟩ = −i R(a,b) is implemented by multiplying each term by (−i)^n, where n is the number of response propagators R in that term. This is applied after simplification so that like-term collection is unaffected.
+
+Pass `response_phase=False` to get raw R propagators without the phase factor.
+
+### Diagram-based term collection (`collect_topology=True`, default)
+
+Terms whose Feynman diagrams are isomorphic — under relabeling of dummy integration variables and accounting for C propagator symmetry C(x,y) = C(y,x) — are grouped together. The algorithm computes a canonical graph form for each term by trying all permutations of internal spatial variables. Propagators are factored out with canonical component indices, and coupling coefficients are summed with appropriately permuted indices to produce expressions like (F\_{ijk} + F\_{ikj}) R C.
+
+At second order and above, spatial-variable relabeling (e.g. y\_0 ↔ y\_1 for two copies of the same vertex) merges additional equivalent pairings.
+
+Pass `collect_topology=False` to keep all pairings expanded individually.
+
 ## Design Notes
 
 - **No SymPy dependency**: Uses a custom lightweight expression tree with `fractions.Fraction` for exact rational arithmetic.
 - **Frozen dataclasses**: All expression types are immutable and hashable, safe for use in sets and dicts.
 - **Unique operator IDs**: Each `FieldOperator` carries a unique integer ID, so that two copies of φ\_a(x) in the same product are properly distinguished during contraction.
-- **Optimized contraction**: The `generate_valid_pairings` algorithm exploits the MSR constraint (ψ-ψ = 0) to skip zero-valued pairings entirely, significantly reducing the combinatorial search space.
+- **Optimized contraction**: Two engines are available. The operator-level engine (`generate_valid_pairings`) skips ψ-ψ pairings at construction time. The spatial-level engine (`wick_contract_spatial`, used by default when `collect_topology=True`) enumerates spatial topologies instead of operator-level pairings, computing a multiplicity for each — this avoids the combinatorial explosion from component-index routing and provides orders-of-magnitude speedup at high perturbative orders.
 - **Feynman diagrams**: Built on `networkx.MultiGraph` (supporting multiple edges between the same pair of nodes) with `matplotlib` rendering.
 
 ## Testing
@@ -286,4 +316,4 @@ result = compute_moment(obs, action, order=1)
 pytest tests/ -v
 ```
 
-46 tests covering expressions, fields, propagators, Wick contractions, perturbative expansion, and simplification.
+114 tests covering expressions, fields, propagators, Wick contractions (operator-level and spatial-level), perturbative expansion, simplification, diagram-based collection, Itô prescription, causal R-loop elimination, and response phase convention.
