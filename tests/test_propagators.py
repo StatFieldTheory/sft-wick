@@ -67,3 +67,53 @@ def test_scalar_phi_phi():
     assert prop.kind == "C"
     assert prop.index_left is None
     assert prop.index_right is None
+
+
+# --- Itô prescription tests ---
+
+
+def test_ito_phi_psi_equal_point_vanishes():
+    """R(x, x) = 0 under the Itô prescription Theta(0) = 0."""
+    phi = Field("phi", "physical", n_components=3)
+    psi = Field("psi", "response", n_components=3)
+    op1 = phi("a", "x")
+    op2 = psi("b", "x")  # same spatial arg
+    assert contract_pair(op1, op2, ito=True) is None
+
+
+def test_ito_psi_phi_equal_point_vanishes():
+    """R(x, x) = 0 under Itô, regardless of operator order."""
+    phi = Field("phi", "physical", n_components=3)
+    psi = Field("psi", "response", n_components=3)
+    op1 = psi("b", "x")
+    op2 = phi("a", "x")  # same spatial arg
+    assert contract_pair(op1, op2, ito=True) is None
+
+
+def test_ito_phi_psi_different_points_survives():
+    """R(x, y) is non-zero under Itô when x != y."""
+    phi = Field("phi", "physical", n_components=3)
+    psi = Field("psi", "response", n_components=3)
+    op1 = phi("a", "x")
+    op2 = psi("b", "y")  # different spatial arg
+    prop = contract_pair(op1, op2, ito=True)
+    assert prop is not None
+    assert prop.kind == "R"
+
+
+def test_ito_does_not_affect_C():
+    """C(x, x) is unaffected by the Itô prescription."""
+    phi = Field("phi", "physical", n_components=3)
+    op1 = phi("a", "x")
+    op2 = phi("b", "x")  # same spatial arg
+    prop = contract_pair(op1, op2, ito=True)
+    assert prop is not None
+    assert prop.kind == "C"
+
+
+def test_ito_does_not_affect_psi_psi():
+    """psi-psi still vanishes (unchanged by Itô)."""
+    psi = Field("psi", "response", n_components=3)
+    op1 = psi("a", "x")
+    op2 = psi("b", "x")
+    assert contract_pair(op1, op2, ito=True) is None

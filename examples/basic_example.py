@@ -4,7 +4,11 @@ Demonstrates:
 1. Scalar field Wick contraction (zeroth order)
 2. Multi-component field Wick contraction
 3. Perturbative expansion with interaction vertices
-4. Feynman diagram generation
+4. Multi-component with cubic vertex
+5. Non-local vertex
+6. Custom LaTeX formatting
+7. Ito prescription (R(x,x)=0 and causal R-loop elimination)
+8. Response phase convention (-i)^n
 """
 
 from sft_wick import (
@@ -14,6 +18,7 @@ from sft_wick import (
     compute_moment,
     reset_uid_counter,
     LaTeXFormatter,
+    apply_response_phase,
 )
 
 # ============================================================
@@ -160,3 +165,72 @@ result = compute_moment(obs, Action(vertices=[]), order=0)
 formatter = LaTeXFormatter(propagator_names={"C": "G", "R": r"R^{\mathrm{ret}}"})
 print(f"Default: {result.order(0).to_latex()}")
 print(f"Custom:  {formatter.format(result.order(0))}")
+print()
+
+# ============================================================
+# Example 7: Itô prescription
+# R(x,x) = 0 and causal R-loops R(a,b)R(b,a) = 0
+# ============================================================
+print("=" * 60)
+print("Example 7: Itô prescription")
+print("=" * 60)
+
+reset_uid_counter()
+
+phi = Field("phi", "physical")
+psi = Field("psi", "response")
+
+obs = [psi("x"), phi("x"), phi("x"), phi("x")]
+
+# With Itô (default): R(x,x) = 0, so equal-point contractions vanish
+result_ito = compute_moment(obs, Action(vertices=[]), order=0)
+print(f"With Itô:    {result_ito.order(0).to_latex()}")
+
+# Without Itô: R(x,x) kept symbolic
+result_no_ito = compute_moment(
+    obs, Action(vertices=[]), order=0, ito=False, response_phase=False
+)
+print(f"Without Itô: {result_no_ito.order(0).to_latex()}")
+
+# Causal R-loop elimination at first order
+reset_uid_counter()
+v = Vertex(fields=[phi, psi], coupling="g")
+action = Action(vertices=[v])
+obs = [phi("x"), phi("y")]
+
+result_ito = compute_moment(obs, action, order=1, response_phase=False)
+result_no_ito = compute_moment(obs, action, order=1, ito=False, response_phase=False)
+n_ito = len(result_ito.diagrams_by_order.get(1, []))
+n_no_ito = len(result_no_ito.diagrams_by_order.get(1, []))
+print(f"Order-1 diagrams with Itô: {n_ito}, without: {n_no_ito}")
+print()
+
+# ============================================================
+# Example 8: Response phase convention (-i)^n
+# MSR convention: <phi(a) psi(b)> = -i R(a,b)
+# ============================================================
+print("=" * 60)
+print("Example 8: Response phase convention")
+print("<phi psi> = -i R  =>  each term gets (-i)^n")
+print("=" * 60)
+
+reset_uid_counter()
+
+phi = Field("phi", "physical")
+psi = Field("psi", "response")
+
+obs = [phi("x"), psi("y")]
+
+# With response phase (default): includes -i factor
+result_phase = compute_moment(obs, Action(vertices=[]), order=0, ito=False)
+print(f"With phase:    {result_phase.order(0).to_latex()}")
+
+# Without response phase: raw R propagator
+result_raw = compute_moment(
+    obs, Action(vertices=[]), order=0, ito=False, response_phase=False
+)
+print(f"Without phase: {result_raw.order(0).to_latex()}")
+
+# Manual application of phase
+manual = apply_response_phase(result_raw.order(0))
+print(f"Manual phase:  {manual.to_latex()}")

@@ -97,7 +97,7 @@ def test_wick_four_phi():
 
 
 def test_wick_scalar_psi_phi_phi_phi():
-    """<psi(x) phi(x) phi(x) phi(x)>_0 = 3 R(x,x) C(x,x).
+    """<psi(x) phi(x) phi(x) phi(x)>_0 = 3 R(x,x) C(x,x) without Itô.
 
     This is the user's example. 4 operators with 1 psi and 3 phi.
     The psi must pair with one of the 3 phi's (R), the other 2 phi's pair (C).
@@ -106,7 +106,7 @@ def test_wick_scalar_psi_phi_phi_phi():
     phi = Field("phi", "physical")
     psi = Field("psi", "response")
     ops = [psi("x"), phi("x"), phi("x"), phi("x")]
-    result, pairings = wick_contract(ops)
+    result, pairings = wick_contract(ops, ito=False)
     assert len(pairings) == 3
 
     # All 3 pairings produce the same propagator structure: R(x,x) * C(x,x)
@@ -174,3 +174,136 @@ def test_valid_pairings_equals_filtered_all():
             brute_force_valid.add(_normalize_pairing(p))
 
     assert valid == brute_force_valid
+
+
+# --- Itô prescription tests ---
+
+
+def test_wick_ito_all_equal_point_psi_phi_vanishes():
+    """<psi(x) phi(x) phi(x) phi(x)>_0 = 0 under Itô.
+
+    All operators are at 'x', so every R(x,x) vanishes, killing all pairings.
+    """
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    ops = [psi("x"), phi("x"), phi("x"), phi("x")]
+    result, pairings = wick_contract(ops, ito=True)
+    assert result.to_latex() == "0"
+    assert len(pairings) == 0
+
+
+def test_wick_ito_different_points_survives():
+    """<phi(x) psi(y)>_0 = R(x,y) survives under Itô when x != y."""
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    ops = [phi("x"), psi("y")]
+    result, pairings = wick_contract(ops, ito=True)
+    assert isinstance(result, Propagator)
+    assert result.kind == "R"
+    assert len(pairings) == 1
+
+
+def test_wick_ito_pure_phi_unaffected():
+    """<phi(x) phi(x)>_0 = C(x,x) is unaffected by Itô."""
+    phi = Field("phi", "physical")
+    ops = [phi("x"), phi("x")]
+    result, pairings = wick_contract(ops, ito=True)
+    assert isinstance(result, Propagator)
+    assert result.kind == "C"
+    assert len(pairings) == 1
+
+
+def test_wick_ito_mixed_points_partial_elimination():
+    """<psi(x) phi(x) phi(y) phi(y)>_0 under Itô.
+
+    psi(x) paired with phi(x) -> R(x,x) = 0  (eliminated)
+    psi(x) paired with phi(y) -> R(y,x) != 0  (2 choices, each with C(x,y) or C(y,y))
+    So 2 pairings survive instead of 3.
+    """
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    ops = [psi("x"), phi("x"), phi("y"), phi("y")]
+
+    # Without Itô: 3 pairings
+    _, pairings_default = wick_contract(ops, ito=False)
+    assert len(pairings_default) == 3
+
+    # With Itô: psi(x)-phi(x) pairs are killed
+    _, pairings_ito = wick_contract(ops, ito=True)
+    assert len(pairings_ito) == 2
+
+
+# --- Causal R-loop vanishing tests ---
+
+
+def test_causal_r_loop_2_cycle():
+    """R(x,y) R(y,x) = 0 by causality (Theta(t) Theta(-t) = 0).
+
+    <phi(x) psi(y) phi(y) psi(x)> has pairings including one where
+    phi(x)-psi(y) → R(x,y) and phi(y)-psi(x) → R(y,x), which should vanish.
+    """
+    from sft_wick.wick import evaluate_pairing
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    ops = [phi("x"), psi("y"), phi("y"), psi("x")]
+
+    # Pairing (0,1)(2,3): phi(x)-psi(y)→R(x,y), phi(y)-psi(x)→R(y,x) → 2-cycle!
+    result = evaluate_pairing(ops, ((0, 1), (2, 3)), ito=True)
+    assert result is None  # killed by causal vanishing
+
+    # Pairing (0,3)(2,1): phi(x)-psi(x)→R(x,x)=0 by Itô
+    result2 = evaluate_pairing(ops, ((0, 3), (2, 1)), ito=True)
+    assert result2 is None  # killed by Itô equal-point rule
+
+
+def test_causal_r_loop_2_cycle_without_ito():
+    """R(x,y) R(y,x) is NOT eliminated when ito=False."""
+    from sft_wick.wick import evaluate_pairing
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    ops = [phi("x"), psi("y"), phi("y"), psi("x")]
+
+    result = evaluate_pairing(ops, ((0, 1), (2, 3)), ito=False)
+    assert result is not None
+
+
+def test_causal_r_loop_3_cycle():
+    """R(a,b) R(b,c) R(c,a) = 0 by causality (cyclic time ordering impossible).
+
+    Build operators that produce a 3-cycle when contracted.
+    """
+    from sft_wick.wick import _has_r_cycle
+    from sft_wick import Propagator
+
+    # Simulate a 3-cycle: R(x,y), R(y,z), R(z,x)
+    props = [
+        Propagator("R", None, None, "x", "y"),
+        Propagator("R", None, None, "y", "z"),
+        Propagator("R", None, None, "z", "x"),
+    ]
+    assert _has_r_cycle(props) is True
+
+
+def test_causal_r_no_cycle():
+    """R(x,y) R(y,z) with no back-edge is NOT a cycle."""
+    from sft_wick.wick import _has_r_cycle
+    from sft_wick import Propagator
+
+    props = [
+        Propagator("R", None, None, "x", "y"),
+        Propagator("R", None, None, "y", "z"),
+    ]
+    assert _has_r_cycle(props) is False
+
+
+def test_causal_c_propagators_ignored():
+    """C propagators don't participate in R-cycle detection."""
+    from sft_wick.wick import _has_r_cycle
+    from sft_wick import Propagator
+
+    # C(x,y) and C(y,x) — not R, so no cycle
+    props = [
+        Propagator("C", None, None, "x", "y"),
+        Propagator("C", None, None, "y", "x"),
+    ]
+    assert _has_r_cycle(props) is False

@@ -148,9 +148,9 @@ class Symbol(Expr):
     def to_latex(self) -> str:
         s = self.name
         if self.indices:
-            s += "_{" + "".join(self.indices) + "}"
+            s += "_{" + "".join(_latex_index(i) for i in self.indices) + "}"
         if self.spatial_args:
-            s += "(" + ", ".join(self.spatial_args) + ")"
+            s += "(" + ", ".join(_latex_index(a) for a in self.spatial_args) + ")"
         return s
 
     def __eq__(self, other: object) -> bool:
@@ -187,8 +187,8 @@ class Propagator(Expr):
     def to_latex(self) -> str:
         s = self.kind
         if self.index_left is not None and self.index_right is not None:
-            s += "_{" + self.index_left + self.index_right + "}"
-        s += "(" + self.spatial_left + ", " + self.spatial_right + ")"
+            s += "_{" + _latex_index(self.index_left) + _latex_index(self.index_right) + "}"
+        s += "(" + _latex_index(self.spatial_left) + ", " + _latex_index(self.spatial_right) + ")"
         return s
 
     def __eq__(self, other: object) -> bool:
@@ -291,7 +291,7 @@ class SumOverIndex(Expr):
     body: Expr
 
     def to_latex(self) -> str:
-        return rf"\sum_{{{self.index_name}=1}}^{{{self.dimension}}} {self.body.to_latex()}"
+        return rf"\sum_{{{_latex_index(self.index_name)}=1}}^{{{self.dimension}}} {self.body.to_latex()}"
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, SumOverIndex):
@@ -312,7 +312,7 @@ class IntegralOver(Expr):
     body: Expr
 
     def to_latex(self) -> str:
-        return rf"\int \mathrm{{d}}{self.variable}\, {self.body.to_latex()}"
+        return rf"\int \mathrm{{d}}{_latex_index(self.variable)}\, {self.body.to_latex()}"
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, IntegralOver):
@@ -335,7 +335,7 @@ class KroneckerDelta(Expr):
     index2: str
 
     def to_latex(self) -> str:
-        return rf"\delta_{{{self.index1}{self.index2}}}"
+        return rf"\delta_{{{_latex_index(self.index1)}{_latex_index(self.index2)}}}"
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, KroneckerDelta):
@@ -366,8 +366,147 @@ class DiracDelta(Expr):
 
 
 # ---------------------------------------------------------------------------
+# Imaginary unit
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ImaginaryUnit(Expr):
+    r"""The imaginary unit :math:`\mathrm{i}`.
+
+    Used to represent the phase factor :math:`(-\mathrm{i})^n` that arises
+    from the MSR convention :math:`\langle\phi\,\psi\rangle \propto -\mathrm{i}\,R`.
+    """
+
+    def to_latex(self) -> str:
+        return r"\mathrm{i}"
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, ImaginaryUnit):
+            return True
+        return NotImplemented
+
+    def __hash__(self) -> int:
+        return hash(ImaginaryUnit)
+
+
+I = ImaginaryUnit()
+"""Module-level constant for the imaginary unit."""
+
+
+# ---------------------------------------------------------------------------
+# Response phase utility
+# ---------------------------------------------------------------------------
+
+def _count_r_deep(expr: Expr) -> int:
+    """Count R propagators recursively through the expression tree.
+
+    For a **Sum**, returns the count from the first term (within a
+    single vertex combination all surviving pairings have the same R
+    count).  Returns -1 if terms disagree.
+    """
+    if isinstance(expr, Propagator):
+        return 1 if expr.kind == "R" else 0
+    if isinstance(expr, Product):
+        return sum(_count_r_deep(f) for f in expr.factors)
+    if isinstance(expr, Sum) and expr.terms:
+        first = _count_r_deep(expr.terms[0])
+        if all(_count_r_deep(t) == first for t in expr.terms[1:]):
+            return first
+        return -1  # terms disagree
+    if isinstance(expr, (IntegralOver, SumOverIndex)):
+        return _count_r_deep(expr.body)
+    return 0
+
+
+def apply_response_phase(expr: Expr) -> Expr:
+    r"""Multiply each term by :math:`(-\mathrm{i})^n` where *n* is the
+    number of response propagators *R* in that term.
+
+    This implements the MSR convention
+    :math:`\langle\phi(a)\,\psi(b)\rangle = -\mathrm{i}\,R(a,b)`.
+
+    The phase is **absorbed into the existing rational coefficient**
+    so that the factored form of the expression is preserved.  For
+    example, :math:`(-\mathrm{i})^3 = \mathrm{i}` applied to a term
+    with prefactor :math:`-\tfrac{1}{6}` yields
+    :math:`-\tfrac{\mathrm{i}}{6}`.
+    """
+    if isinstance(expr, Sum):
+        return Sum(tuple(apply_response_phase(t) for t in expr.terms))
+
+    if isinstance(expr, Product):
+        n_r = _count_r_deep(expr)
+        if n_r <= 0:
+            return expr  # 0 R's or disagreeing terms
+        r = n_r % 4
+        if r == 0:
+            return expr
+
+        factors = list(expr.factors)
+
+        # Find the existing Rational coefficient (if any)
+        rat_idx = next(
+            (i for i, f in enumerate(factors) if isinstance(f, Rational)),
+            None,
+        )
+
+        # (-i)^n phase rules applied to existing coefficient c:
+        #   r=1: (-i)   → coeff becomes -c, insert i
+        #   r=2: (-1)   → coeff becomes -c
+        #   r=3: (+i)   → coeff stays  c, insert i
+        if r in (1, 2):
+            # Negate the rational coefficient
+            if rat_idx is not None:
+                old = factors[rat_idx]
+                factors[rat_idx] = Rational(-old.numerator, old.denominator)
+            else:
+                factors.insert(0, Rational(-1, 1))
+                rat_idx = 0
+
+        if r in (1, 3):
+            # Insert imaginary unit right after the rational
+            insert_pos = (rat_idx + 1) if rat_idx is not None else 0
+            factors.insert(insert_pos, ImaginaryUnit())
+
+        # Drop Rational(1) — it's the identity and just adds clutter.
+        factors = [f for f in factors
+                   if not (isinstance(f, Rational) and f.is_one)]
+        if not factors:
+            return ONE
+
+        return Product(tuple(factors))
+
+    if isinstance(expr, Propagator) and expr.kind == "R":
+        return Product((Rational(-1, 1), ImaginaryUnit(), expr))
+
+    if isinstance(expr, IntegralOver):
+        return IntegralOver(expr.variable, apply_response_phase(expr.body))
+
+    if isinstance(expr, SumOverIndex):
+        return SumOverIndex(
+            expr.index_name, expr.dimension, apply_response_phase(expr.body)
+        )
+
+    return expr
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _latex_index(name: str) -> str:
+    """Escape an index name for LaTeX.
+
+    Converts ``i_0`` to ``i_{0}``, ``i_10`` to ``i_{10}``, ``y_0`` to
+    ``y_{0}``, etc.  Single-character names (``a``, ``b``) are
+    returned unchanged.
+    """
+    if "_" in name:
+        prefix, suffix = name.split("_", 1)
+        return prefix + "_{" + suffix + "}"
+    return name
+
 
 def _flatten_sum(terms: Sequence[Expr]) -> tuple[Expr, ...]:
     """Recursively flatten nested Sums."""
