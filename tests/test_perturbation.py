@@ -419,7 +419,7 @@ def test_diagram_term_evaluate_coupling():
     action = Action(vertices=[v])
 
     obs = [phi("a", "x")]
-    result = compute_moment(obs, action, order=1, response_phase=False)
+    result = compute_moment(obs, action, order=1)
 
     dt = result.diagram_terms(1)[0]
 
@@ -428,9 +428,11 @@ def test_diagram_term_evaluate_coupling():
     F[0, 1, 2] = 6.0
 
     arr = dt.evaluate_coupling({"F": F})
-    # prefactor is -1, so result[0,1,2] should be -6.0
+    # rational_prefactor = -1, n_response = 1 → phase = (-i)^1 = -i
+    # full prefactor = (-1) × (-i) = i, so result[0,1,2] = 6j
     assert arr.shape == (3, 3, 3)
-    assert arr[0, 1, 2] == pytest.approx(-6.0)
+    assert arr.dtype == complex
+    assert arr[0, 1, 2] == pytest.approx(6j)
     # Total nonzero entries: only (0,1,2) since coupling is F_{i0,i1,i2}
     assert np.count_nonzero(arr) == 1
 

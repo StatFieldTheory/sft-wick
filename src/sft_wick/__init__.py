@@ -35,6 +35,13 @@ from .expressions import (
 from .fields import Field, FieldOperator, FieldType, reset_uid_counter
 from .indices import IndexContext
 from .latex import LaTeXFormatter
+from .evaluate import (
+    DiagramIntegrand,
+    PropagatorCache,
+    PropagatorModel,
+    SpatialStructure,
+    analyze_spatial,
+)
 from .perturbation import DiagramTerm, PerturbativeResult, compute_moment
 from .propagators import contract_pair
 from .simplify import collect_by_diagram, collect_by_topology, diagonal_propagators, simplify
@@ -43,6 +50,7 @@ from .wick import wick_contract
 
 __all__ = [
     "Action",
+    "DiagramIntegrand",
     "DiagramRenderer",
     "DiagramTerm",
     "Expr",
@@ -59,13 +67,17 @@ __all__ = [
     "PerturbativeResult",
     "Product",
     "Propagator",
+    "PropagatorCache",
+    "PropagatorModel",
     "Rational",
     "Sum",
+    "SpatialStructure",
     "SumOverIndex",
     "Symbol",
     "Vertex",
     "VertexInstance",
     "ZERO",
+    "analyze_spatial",
     "apply_response_phase",
     "collect_by_diagram",
     "collect_by_topology",
