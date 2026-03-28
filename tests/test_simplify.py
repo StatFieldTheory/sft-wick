@@ -360,11 +360,11 @@ class TestDiagonalPropagators:
             SumOverIndex("i_1", 3, Product((F, R))),
         )
         result = diagonal_propagators(expr, diag_R=True)
-        # i_0 should be eliminated (substituted → a)
-        # Result should have SumOverIndex for i_1 only, with Rational(3) absorbed
+        # i_0 eliminated by δ_{a,i_0}: sum collapses to one term, no factor of N
+        # surviving index is canonically renamed to i_0
         assert isinstance(result, SumOverIndex)
-        assert result.index_name == "i_1"
-        # The body should contain F_{a, i_1} and R_{a,a}
+        assert result.index_name == "i_0"
+        # The body should contain F_{a, i_0} and R_{a,a} — no extra Rational factor
         body = result.body
         assert isinstance(body, Product)
         props = [f for f in body.factors if isinstance(f, Propagator)]
@@ -372,10 +372,10 @@ class TestDiagonalPropagators:
         assert len(props) == 1
         assert props[0].index_left == "a"
         assert props[0].index_right == "a"
-        assert syms[0].indices == ("a", "i_1")
-        # Should have Rational(3) from eliminating i_0
+        assert syms[0].indices == ("a", "i_0")
+        # No spurious Rational(3): the diagonal selects one term, not N terms
         rats = [f for f in body.factors if isinstance(f, Rational)]
-        assert len(rats) == 1 and rats[0] == Rational(3)
+        assert len(rats) == 0
 
     def test_diag_C_substitutes_index(self):
         """diag_C pins the C-propagator indices equal."""
@@ -411,20 +411,20 @@ class TestDiagonalPropagators:
         )
         result = diagonal_propagators(expr, diag_R=True, diag_C=True)
         # i_0 → a (from R), i_2 → i_1 (from C) → 2 indices eliminated
-        # Only i_1 remains as summation index
+        # Only one index remains; canonically renamed to i_0
         assert isinstance(result, SumOverIndex)
-        assert result.index_name == "i_1"
+        assert result.index_name == "i_0"
         # The body should be IntegralOver wrapping a Product
         body = result.body
         assert isinstance(body, IntegralOver)
         inner = body.body
         assert isinstance(inner, Product)
-        # Coefficient: -1 × 3 × 3 = -9
+        # Coefficient unchanged at -1: diagonal selects one term per constraint, no extra N factor
         rats = [f for f in inner.factors if isinstance(f, Rational)]
-        assert len(rats) == 1 and rats[0] == Rational(-9)
-        # F should have indices (a, i_1, i_1)
+        assert len(rats) == 1 and rats[0] == Rational(-1)
+        # F should have indices (a, i_0, i_0)
         syms = [f for f in inner.factors if isinstance(f, Symbol)]
-        assert syms[0].indices == ("a", "i_1", "i_1")
+        assert syms[0].indices == ("a", "i_0", "i_0")
 
     def test_external_external_produces_delta(self):
         """When both indices are external, a KroneckerDelta is inserted."""
@@ -462,14 +462,18 @@ class TestDiagonalPropagators:
             IntegralOver("y_0", R),
         )
         result = diagonal_propagators(expr, diag_R=True)
-        # i_0 eliminated → factor of 3
+        # i_0 eliminated by δ_{a,i_0}: sum collapses to one term, no factor of 3
         assert isinstance(result, IntegralOver)
         body = result.body
-        assert isinstance(body, Product)
-        rats = [f for f in body.factors if isinstance(f, Rational)]
-        assert rats[0] == Rational(3)
-        props = [f for f in body.factors if isinstance(f, Propagator)]
+        # Body may be a bare Propagator or Product after simplification
+        props = [body] if isinstance(body, Propagator) else [
+            f for f in body.factors if isinstance(f, Propagator)
+        ]
         assert props[0].index_left == "a" and props[0].index_right == "a"
+        # No spurious Rational(3) factor
+        if isinstance(body, Product):
+            rats = [f for f in body.factors if isinstance(f, Rational)]
+            assert all(r == Rational(1) for r in rats)
 
 
 class TestDiagonalComputeMoment:
@@ -522,8 +526,8 @@ class TestDiagonalComputeMoment:
         dt = r.diagram_terms(1)
         assert len(dt) == 1
         assert len(dt[0].summation_indices) == 1
-        # Prefactor should include dimension factors: -1 × 3^2 = -9
-        assert dt[0].rational_prefactor == Rational(-9)
+        # Prefactor unchanged at -1: diagonal collapses sums, no extra N factors
+        assert dt[0].rational_prefactor == Rational(-1)
 
     def test_diagram_term_evaluate_with_fixed_indices(self):
         """evaluate_coupling with fixed_indices works after diagonal."""
@@ -575,8 +579,9 @@ class TestDiagonalComputeMoment:
         dt_diag = dt_orig.apply_diagonal(diag_R=True, diag_C=True)
 
         assert len(dt_diag.summation_indices) == 1
-        assert dt_diag.rational_prefactor == Rational(-9)
-        # Propagators should have equal indices
+        # Prefactor unchanged at -1: diagonal collapses sums, no extra N factors
+        assert dt_diag.rational_prefactor == Rational(-1)
+        # Propagators should have equal indices after diagonal
         for p in dt_diag.propagators:
             if p.index_left is not None:
                 assert p.index_left == p.index_right

@@ -327,37 +327,18 @@ def _canonical_diagram_form(
         ))
         return form, {}
 
-    # Degree-sequence pruning: group internal variables by their
-    # connectivity signature so only permutations within groups of
-    # identical signatures are tried.  This reduces k! to ∏ g_i!.
-    var_sig: dict[str, tuple] = {}
-    for v in internal:
-        edges: list[tuple] = []
-        for p in props:
-            if p.spatial_left == v:
-                is_self = p.spatial_right == v
-                is_ext_other = p.spatial_right not in integration_vars
-                edges.append(("L", p.kind, is_self, is_ext_other))
-            if p.spatial_right == v and p.spatial_left != v:
-                is_ext_other = p.spatial_left not in integration_vars
-                edges.append(("R", p.kind, False, is_ext_other))
-        var_sig[v] = tuple(sorted(edges))
-
-    # Group by signature
-    sig_to_vars: dict[tuple, list[str]] = defaultdict(list)
-    for v in internal:
-        sig_to_vars[var_sig[v]].append(v)
-    sig_groups = list(sig_to_vars.values())
-
     best_form: tuple[tuple[str, str, str], ...] | None = None
     best_mapping: dict[str, str] = {}
 
-    # Only permute within groups of identical degree signatures
-    for group_perms in iterproduct(*(permutations(g) for g in sig_groups)):
-        mapping: dict[str, str] = {}
-        for orig_group, perm_group in zip(sig_groups, group_perms):
-            for orig, target in zip(orig_group, perm_group):
-                mapping[orig] = target
+    # Try all permutations of internal variables (k! where k = |internal| ≤ 4
+    # in practice, so at most 24 iterations).  Signature-based pruning is
+    # deliberately avoided: local 1-hop signatures only capture graph
+    # automorphisms, not the cross-graph relabelings needed for canonical
+    # form minimization, and can incorrectly prevent the true minimum from
+    # being found (e.g. when two nodes have different local degrees but the
+    # graph is still isomorphic to another via a cross-signature permutation).
+    for perm in permutations(internal):
+        mapping: dict[str, str] = dict(zip(internal, perm))
         edges_list: list[tuple[str, str, str]] = []
         for p in props:
             sl = mapping.get(p.spatial_left, p.spatial_left)
@@ -743,9 +724,14 @@ collect_by_topology = collect_by_diagram
 
 
 def diagonal_propagators(
-    expr: Expr, *, diag_R: bool = False, diag_C: bool = False,
+    expr: Expr,
+    *,
+    diag_R: bool = False,
+    diag_C: bool = False,
+    iso_R: bool = False,
+    iso_C: bool = False,
 ) -> Expr:
-    r"""Enforce diagonal propagator constraints.
+    r"""Enforce diagonal and/or isotropic propagator constraints.
 
     When ``diag_R=True``, response propagators are diagonal:
     :math:`R_{ij}(x,y) = \delta_{ij}\,R(x,y)`.  This substitutes the
@@ -754,28 +740,37 @@ def diagonal_propagators(
 
     When ``diag_C=True``, the same is done for correlation propagators.
 
-    Redundant :class:`~sft_wick.expressions.SumOverIndex` wrappers
-    (whose index no longer appears in the body) are replaced by a factor
-    of the dimension.
+    When ``iso_R=True`` (implies ``diag_R=True``), all diagonal R entries
+    are further assumed equal: :math:`R_{ii}(x,y) = R(x,y)`.  The
+    remaining component index is dropped from R propagators entirely.
+
+    When ``iso_C=True`` (implies ``diag_C=True``), the same for C.
 
     Args:
         expr: Expression to simplify.
         diag_R: Enforce diagonal response propagators.
         diag_C: Enforce diagonal correlation propagators.
+        iso_R: Enforce isotropic (index-free) response propagators.
+        iso_C: Enforce isotropic (index-free) correlation propagators.
 
     Returns:
-        Simplified expression with diagonal constraints applied.
+        Simplified expression with the requested constraints applied.
     """
+    diag_R = diag_R or iso_R
+    diag_C = diag_C or iso_C
     if not diag_R and not diag_C:
         return expr
-    result = _diag_walk(expr, diag_R, diag_C, {})
-    return simplify(result)
+    result = _diag_walk(expr, diag_R, diag_C, iso_R, iso_C, {})
+    result = simplify(result)
+    return _canonical_expr_indices(result)
 
 
 def _diag_walk(
     expr: Expr,
     diag_R: bool,
     diag_C: bool,
+    iso_R: bool,
+    iso_C: bool,
     sum_dims: dict[str, int],
 ) -> Expr:
     """Recursively walk expression, applying diagonal propagator constraints.
@@ -785,17 +780,17 @@ def _diag_walk(
     """
     if isinstance(expr, SumOverIndex):
         new_sum_dims = {**sum_dims, expr.index_name: expr.dimension}
-        new_body = _diag_walk(expr.body, diag_R, diag_C, new_sum_dims)
+        new_body = _diag_walk(expr.body, diag_R, diag_C, iso_R, iso_C, new_sum_dims)
         if not _expr_uses_index(new_body, expr.index_name):
-            return _multiply_into(new_body, expr.dimension)
+            return new_body
         return SumOverIndex(expr.index_name, expr.dimension, new_body)
 
     if isinstance(expr, IntegralOver):
-        new_body = _diag_walk(expr.body, diag_R, diag_C, sum_dims)
+        new_body = _diag_walk(expr.body, diag_R, diag_C, iso_R, iso_C, sum_dims)
         return IntegralOver(expr.variable, new_body)
 
     if isinstance(expr, Sum):
-        new_terms = [_diag_walk(t, diag_R, diag_C, sum_dims) for t in expr.terms]
+        new_terms = [_diag_walk(t, diag_R, diag_C, iso_R, iso_C, sum_dims) for t in expr.terms]
         new_terms = [t for t in new_terms if not _is_zero(t)]
         if not new_terms:
             return ZERO
@@ -806,9 +801,9 @@ def _diag_walk(
     if isinstance(expr, Product):
         has_props = any(isinstance(f, Propagator) for f in expr.factors)
         if has_props:
-            return _diag_product(expr.factors, diag_R, diag_C, sum_dims)
+            return _diag_product(expr.factors, diag_R, diag_C, iso_R, iso_C, sum_dims)
         new_factors = [
-            _diag_walk(f, diag_R, diag_C, sum_dims) for f in expr.factors
+            _diag_walk(f, diag_R, diag_C, iso_R, iso_C, sum_dims) for f in expr.factors
         ]
         return Product(tuple(new_factors))
 
@@ -817,10 +812,13 @@ def _diag_walk(
         if (
             expr.index_left is not None
             and expr.index_right is not None
-            and expr.index_left != expr.index_right
         ):
-            if (expr.kind == "R" and diag_R) or (expr.kind == "C" and diag_C):
-                return _diag_product((expr,), diag_R, diag_C, sum_dims)
+            if expr.index_left != expr.index_right:
+                if (expr.kind == "R" and diag_R) or (expr.kind == "C" and diag_C):
+                    return _diag_product((expr,), diag_R, diag_C, iso_R, iso_C, sum_dims)
+            elif expr.index_left == expr.index_right:
+                if (expr.kind == "R" and iso_R) or (expr.kind == "C" and iso_C):
+                    return Propagator(expr.kind, None, None, expr.spatial_left, expr.spatial_right)
         return expr
 
     return expr
@@ -830,9 +828,11 @@ def _diag_product(
     factors: tuple[Expr, ...],
     diag_R: bool,
     diag_C: bool,
+    iso_R: bool,
+    iso_C: bool,
     sum_dims: dict[str, int],
 ) -> Expr:
-    """Apply diagonal constraints to a Product that contains Propagators."""
+    """Apply diagonal (and optionally isotropic) constraints to a Product that contains Propagators."""
     sum_idx_set = set(sum_dims.keys())
 
     constraints: list[tuple[str, str]] = []
@@ -889,9 +889,50 @@ def _diag_product(
                 a, b = sorted(pair)
                 new_factors.append(KroneckerDelta(a, b))
 
+    # Isotropic: strip equal component indices from R/C propagators
+    if iso_R or iso_C:
+        new_factors = [
+            Propagator(f.kind, None, None, f.spatial_left, f.spatial_right)
+            if (
+                isinstance(f, Propagator)
+                and f.index_left is not None
+                and f.index_left == f.index_right
+                and ((f.kind == "R" and iso_R) or (f.kind == "C" and iso_C))
+            )
+            else f
+            for f in new_factors
+        ]
+
     if len(new_factors) == 1:
         return new_factors[0]
     return Product(tuple(new_factors))
+
+
+def _canonical_expr_indices(expr: Expr) -> Expr:
+    """Rename SumOverIndex variables to i_0, i_1, ... in DFS first-appearance order."""
+    seen: list[str] = []
+    seen_set: set[str] = set()
+
+    def _collect(e: Expr) -> None:
+        if isinstance(e, SumOverIndex):
+            if e.index_name not in seen_set:
+                seen.append(e.index_name)
+                seen_set.add(e.index_name)
+            _collect(e.body)
+        elif isinstance(e, IntegralOver):
+            _collect(e.body)
+        elif isinstance(e, Product):
+            for child in e.factors:
+                _collect(child)
+        elif isinstance(e, Sum):
+            for child in e.terms:
+                _collect(child)
+
+    _collect(expr)
+    rename = {old: f"i_{j}" for j, old in enumerate(seen) if old != f"i_{j}"}
+    if not rename:
+        return expr
+    return _apply_index_sub(expr, rename)
 
 
 def _apply_index_sub(expr: Expr, sub: dict[str, str]) -> Expr:
@@ -920,6 +961,17 @@ def _apply_index_sub(expr: Expr, sub: dict[str, str]) -> Expr:
         if i1 == expr.index1 and i2 == expr.index2:
             return expr
         return KroneckerDelta(i1, i2)
+    if isinstance(expr, SumOverIndex):
+        new_name = sub.get(expr.index_name, expr.index_name)
+        new_body = _apply_index_sub(expr.body, sub)
+        if new_name == expr.index_name and new_body is expr.body:
+            return expr
+        return SumOverIndex(new_name, expr.dimension, new_body)
+    if isinstance(expr, IntegralOver):
+        new_body = _apply_index_sub(expr.body, sub)
+        if new_body is expr.body:
+            return expr
+        return IntegralOver(expr.variable, new_body)
     return expr
 
 

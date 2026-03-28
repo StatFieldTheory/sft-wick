@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from math import factorial
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 from .action import Action
 from .expressions import (
     ZERO,
@@ -21,6 +23,7 @@ from .expressions import (
     Sum,
     SumOverIndex,
     Symbol,
+    _latex_index,
     apply_response_phase,
 )
 from .fields import FieldOperator, FieldType
@@ -101,16 +104,31 @@ class PerturbativeResult:
     def to_latex(self) -> str:
         """Generate LaTeX for the full result, order by order.
 
+        When diagram terms are available (the default ``collect_topology=True``
+        path), each order is rendered as a sum of fully-wrapped diagram
+        contributions — with summation indices, integration variables,
+        response phase, and prefactor all explicit.
+
+        Falls back to the raw symbolic expression when diagram terms are
+        not populated.
+
         Returns:
             A multi-line string with one ``O(n): <latex>`` line per
             non-zero order.
         """
-        parts: list[str] = []
+        lines: list[str] = []
         for n in sorted(self.order_terms.keys()):
-            expr = self.order_terms[n]
-            if not _is_zero(expr):
-                parts.append(f"O({n}): {expr.to_latex()}")
-        return "\n".join(parts)
+            dts = self.diagram_terms_by_order.get(n, [])
+            if dts:
+                term_strs = [dt.to_latex() for dt in dts]
+                combined = " + ".join(term_strs) if len(term_strs) == 1 else \
+                    " \\\\\n    + ".join(term_strs)
+                lines.append(f"O({n}): {combined}")
+            else:
+                expr = self.order_terms[n]
+                if not _is_zero(expr):
+                    lines.append(f"O({n}): {expr.to_latex()}")
+        return "\n".join(lines)
 
     def draw_diagrams(self, order: int | None = None, **kwargs) -> None:
         """Draw Feynman diagrams using matplotlib.
@@ -233,6 +251,28 @@ class DiagramTerm:
     summation_indices: tuple[tuple[str, int], ...]
     n_response: int
 
+    @property
+    def propagator_indices(self) -> tuple[tuple[str, int], ...]:
+        """Summation indices that appear in at least one propagator."""
+        prop_idx_set: set[str] = set()
+        for p in self.propagators:
+            if p.index_left:
+                prop_idx_set.add(p.index_left)
+            if p.index_right:
+                prop_idx_set.add(p.index_right)
+        return tuple(item for item in self.summation_indices if item[0] in prop_idx_set)
+
+    @property
+    def coupling_only_indices(self) -> tuple[tuple[str, int], ...]:
+        """Summation indices that appear only in the coupling sum, not in any propagator."""
+        prop_idx_set: set[str] = set()
+        for p in self.propagators:
+            if p.index_left:
+                prop_idx_set.add(p.index_left)
+            if p.index_right:
+                prop_idx_set.add(p.index_right)
+        return tuple(item for item in self.summation_indices if item[0] not in prop_idx_set)
+
     def spatial_topology(self) -> list[tuple[str, str, str]]:
         """Return ``(kind, spatial_left, spatial_right)`` for each propagator."""
         return [
@@ -250,57 +290,99 @@ class DiagramTerm:
     ) -> "numpy.ndarray":
         """Substitute numeric coupling tensor values and return an array.
 
+        The output is indexed by **propagator indices** only.  For each
+        combination of propagator index values the coupling sum is
+        evaluated by summing over **coupling-only indices** (indices that
+        appear in the coupling expression but in no propagator).  This
+        matches the natural contraction order: fix the propagator legs,
+        then sum the vertex factors internally.
+
         Args:
             coupling_values: ``{name: array}`` mapping coupling names to
                 NumPy arrays.  For a rank-3 coupling ``F``, the array
                 shape should be ``(N, N, N)`` where *N* is the number
                 of field components.
             fixed_indices: Optional ``{index_name: int_value}`` for
-                indices pinned by diagonal constraints (e.g. observable
-                component indices).
+                indices pinned by external constraints (e.g. observable
+                component indices like ``{'1': 0}``).
 
         Returns:
-            NumPy array indexed by the summation indices (shape equals
-            the product of component dimensions), with
-            ``rational_prefactor`` already applied.
+            NumPy array with shape ``(dim_i0, dim_i1, ...)`` for the
+            propagator indices, with ``rational_prefactor`` and the MSR
+            response phase ``(-i)^n_response`` already applied.  Returns
+            a 0-d array when there are no propagator indices.  The result
+            is complex whenever ``n_response % 4 in {1, 3}`` or the
+            coupling tensors are complex-valued.
         """
         import numpy as np
 
-        pref = self.rational_prefactor.numerator / self.rational_prefactor.denominator
+        phase = self.response_phase_factor()  # (-i)^n_response
+        pref = phase * (self.rational_prefactor.numerator / self.rational_prefactor.denominator)
         base_map: dict[str, int] = dict(fixed_indices) if fixed_indices else {}
+        dtype = complex if (
+            isinstance(pref, complex) or
+            any(np.iscomplexobj(v) for v in coupling_values.values())
+        ) else float
 
-        if not self.summation_indices:
-            val = _eval_symbolic(self.coupling_sum, coupling_values, base_map)
-            return np.array(pref * val)
+        prop_idx = self.propagator_indices    # outer axes of result
+        coup_idx = self.coupling_only_indices  # summed internally
 
-        shape = tuple(dim for _, dim in self.summation_indices)
-        result = np.zeros(shape)
-        for multi_idx in np.ndindex(*shape):
-            index_map = dict(base_map)
-            for (name, _), val in zip(self.summation_indices, multi_idx):
-                index_map[name] = val
-            result[multi_idx] = _eval_symbolic(
-                self.coupling_sum, coupling_values, index_map,
-            )
+        prop_shape = tuple(dim for _, dim in prop_idx)
+        coup_shape = tuple(dim for _, dim in coup_idx)
+
+        def _sum_coupling(prop_map: dict[str, int]) -> "numpy.number":
+            """Evaluate coupling_sum with prop_map fixed, summing over coup_idx."""
+            if not coup_idx:
+                return dtype(_eval_symbolic(self.coupling_sum, coupling_values, prop_map))
+            total = dtype(0)
+            for cidx in np.ndindex(*coup_shape):
+                index_map = {**prop_map,
+                             **{name: v for (name, _), v in zip(coup_idx, cidx)}}
+                total += dtype(_eval_symbolic(self.coupling_sum, coupling_values, index_map))
+            return total
+
+        if not prop_idx:
+            # No propagator indices → scalar result
+            val = _sum_coupling(base_map)
+            return np.array(pref * val, dtype=dtype)
+
+        result = np.zeros(prop_shape, dtype=dtype)
+        for pidx in np.ndindex(*prop_shape):
+            prop_map = {**base_map,
+                        **{name: v for (name, _), v in zip(prop_idx, pidx)}}
+            result[pidx] = _sum_coupling(prop_map)
         return pref * result
 
     def apply_diagonal(
-        self, *, diag_R: bool = False, diag_C: bool = False,
+        self,
+        *,
+        diag_R: bool = False,
+        diag_C: bool = False,
+        iso_R: bool = False,
+        iso_C: bool = False,
     ) -> "DiagramTerm":
-        """Return a new term with diagonal propagator constraints applied.
+        """Return a new term with diagonal (and optionally isotropic) propagator constraints applied.
 
         Eliminates summation indices that are pinned by diagonal
         propagators and substitutes index equalities into the coupling
-        expression.  The ``rational_prefactor`` is multiplied by the
-        dimension of each eliminated index.
+        expression.  The delta constraint collapses the double sum into
+        a single sum, so no extra factor is applied.
+
+        With ``iso_R=True`` (implies ``diag_R=True``), the remaining equal
+        component indices are stripped from R propagators entirely, expressing
+        the assumption that all diagonal R entries are the same scalar R.
 
         Args:
             diag_R: Enforce diagonal response propagators.
             diag_C: Enforce diagonal correlation propagators.
+            iso_R: Enforce isotropic (index-free) response propagators.
+            iso_C: Enforce isotropic (index-free) correlation propagators.
 
         Returns:
             A new :class:`DiagramTerm` with reduced summation indices.
         """
+        diag_R = diag_R or iso_R
+        diag_C = diag_C or iso_C
         if not diag_R and not diag_C:
             return self
 
@@ -365,34 +447,121 @@ class DiagramTerm:
             if name not in eliminated
         )
 
-        # Multiply prefactor by dimension for each eliminated index
-        pref_num = self.rational_prefactor.numerator
-        pref_den = self.rational_prefactor.denominator
-        for idx_name in eliminated:
-            pref_num *= sum_idx_dims[idx_name]
+        # Isotropic: strip equal component indices from R/C propagators
+        if iso_R or iso_C:
+            new_props = [
+                Propagator(p.kind, None, None, p.spatial_left, p.spatial_right)
+                if (
+                    p.index_left is not None
+                    and p.index_left == p.index_right
+                    and ((p.kind == "R" and iso_R) or (p.kind == "C" and iso_C))
+                )
+                else p
+                for p in new_props
+            ]
+
+        # Canonical rename: surviving summation indices → i_0, i_1, … in appearance order.
+        # Scan propagators first (left-to-right, left-index before right-index),
+        # then coupling_sum for any index that only lives there.
+        surviving_set = {name for name, _ in new_sum_indices}
+        ordered: list[str] = []
+        ordered_set: set[str] = set()
+        for p in new_props:
+            for idx in (p.index_left, p.index_right):
+                if idx and idx in surviving_set and idx not in ordered_set:
+                    ordered.append(idx)
+                    ordered_set.add(idx)
+        for idx in _collect_index_order(new_coupling, surviving_set):
+            if idx not in ordered_set:
+                ordered.append(idx)
+                ordered_set.add(idx)
+        rename = {old: f"i_{j}" for j, old in enumerate(ordered)}
+        if rename:
+            new_coupling = _apply_index_sub(new_coupling, rename)
+            new_props = [_apply_index_sub(p, rename) for p in new_props]
+            dim_map = dict(new_sum_indices)
+            new_sum_indices = tuple((rename[name], dim_map[name]) for name in ordered)
 
         return DiagramTerm(
             propagators=tuple(new_props),
             coupling_sum=new_coupling,
-            rational_prefactor=Rational(pref_num, pref_den),
+            rational_prefactor=self.rational_prefactor,
             integration_vars=self.integration_vars,
             summation_indices=new_sum_indices,
             n_response=self.n_response,
         )
 
     def to_latex(self) -> str:
-        """LaTeX representation of this diagram term."""
-        parts: list[str] = []
-        pref = self.rational_prefactor
-        if not pref.is_one:
-            parts.append(pref.to_latex())
-        parts.append(f"({self.coupling_sum.to_latex()})")
+        r"""Full LaTeX representation including summations, integrals, and phase.
+
+        Renders the complete contribution::
+
+            \sum_{i_0} ... \int dy_0 ... coeff × (coupling) × propagators
+
+        where *coeff* combines the rational prefactor and the MSR phase
+        ``(-i)^{n_R}`` into a single coefficient.
+        """
+        body_parts: list[str] = []
+
+        # --- combined coefficient: rational_prefactor × (-i)^n_response ---
+        coeff_latex = _coeff_latex(self.rational_prefactor, self.n_response)
+        if coeff_latex:
+            body_parts.append(coeff_latex)
+
+        body_parts.append(f"({self.coupling_sum.to_latex()})")
         for p in self.propagators:
-            parts.append(p.to_latex())
-        return " ".join(parts)
+            body_parts.append(p.to_latex())
+        body = " ".join(body_parts)
+
+        # --- wrap with integrals (innermost first in the list) ---
+        for var in reversed(self.integration_vars):
+            body = rf"\int \mathrm{{d}}{_latex_index(var)}\, {body}"
+
+        # --- wrap with summations (innermost first in the list) ---
+        for name, dim in reversed(self.summation_indices):
+            body = rf"\sum_{{{_latex_index(name)}=1}}^{{{dim}}} {body}"
+
+        return body
 
     def __repr__(self) -> str:
         return self.to_latex()
+
+    # --- Thin delegation methods for numerical evaluation pipeline ---
+
+    def analyze_spatial(self) -> "SpatialStructure":
+        """Analyze R-propagator connectivity and time orderings.
+
+        Returns a :class:`~sft_wick.evaluate.SpatialStructure` describing
+        direction identification groups, causal time orderings, and
+        surviving integration variables.
+        """
+        from .evaluate import analyze_spatial
+        return analyze_spatial(self)
+
+    def build_integrand(
+        self,
+        coupling_values: dict,
+        fixed_indices: dict[str, int] | None = None,
+    ) -> "DiagramIntegrand":
+        """Build a :class:`~sft_wick.evaluate.DiagramIntegrand` for numerical evaluation.
+
+        Combines coupling coefficient evaluation (Step 1) with spatial
+        structure analysis (Step 2) into a ready-to-evaluate object.
+
+        Args:
+            coupling_values: Coupling tensor arrays (e.g. ``{'F': F_code}``).
+            fixed_indices: Optional pinned index values.
+
+        Returns:
+            A :class:`DiagramIntegrand` that can evaluate the integrand at
+            specific time/direction coordinates.
+        """
+        from .evaluate import DiagramIntegrand, analyze_spatial
+        spatial = analyze_spatial(self)
+        coeff = self.evaluate_coupling(coupling_values, fixed_indices)
+        return DiagramIntegrand(
+            diagram_term=self, spatial=spatial, coupling_array=coeff,
+        )
 
 
 def compute_moment(
@@ -404,6 +573,8 @@ def compute_moment(
     collect_topology: bool = True,
     diag_R: bool = False,
     diag_C: bool = False,
+    iso_R: bool = False,
+    iso_C: bool = False,
 ) -> PerturbativeResult:
     r"""Compute the perturbative expansion of an observable.
 
@@ -442,11 +613,18 @@ def compute_moment(
         diag_C: If ``True``, enforce diagonal correlation propagators
             :math:`C_{ij} = \delta_{ij} C`, eliminating one summation
             index per C propagator.
+        iso_R: If ``True`` (implies ``diag_R``), further assume all
+            diagonal R entries are equal, :math:`R_{ii} = R`.  The
+            component index is dropped from R propagators entirely.
+        iso_C: If ``True`` (implies ``diag_C``), the same for C.
 
     Returns:
         A :class:`PerturbativeResult` containing order-by-order
         expressions, a combined total, and Feynman diagram information.
     """
+    diag_R = diag_R or iso_R
+    diag_C = diag_C or iso_C
+
     order_terms: dict[int, Expr] = {}
     diagrams_by_order: dict[int, list[DiagramInfo]] = {}
     dt_by_order: dict[int, list[DiagramTerm]] = {}
@@ -626,7 +804,7 @@ def compute_moment(
             # (Hybrid path: _collect_grouped_wick already produced coupling sums)
             if diag_R or diag_C:
                 simplified = diagonal_propagators(
-                    simplified, diag_R=diag_R, diag_C=diag_C,
+                    simplified, diag_R=diag_R, diag_C=diag_C, iso_R=iso_R, iso_C=iso_C,
                 )
             order_terms[n] = (
                 apply_response_phase(simplified) if response_phase
@@ -637,7 +815,7 @@ def compute_moment(
 
         if diag_R or diag_C:
             order_dterms = [
-                dt.apply_diagonal(diag_R=diag_R, diag_C=diag_C)
+                dt.apply_diagonal(diag_R=diag_R, diag_C=diag_C, iso_R=iso_R, iso_C=iso_C)
                 for dt in order_dterms
             ]
 
@@ -1171,6 +1349,33 @@ def _extract_diagram_records(
     return records
 
 
+def _collect_index_order(expr: Expr, summation_set: set[str]) -> list[str]:
+    """Return summation index names that appear in *expr*, in DFS first-appearance order."""
+    seen: list[str] = []
+    seen_set: set[str] = set()
+
+    def _visit(e: Expr) -> None:
+        if isinstance(e, Symbol):
+            for idx in e.indices:
+                if idx in summation_set and idx not in seen_set:
+                    seen.append(idx)
+                    seen_set.add(idx)
+        elif isinstance(e, Propagator):
+            for idx in (e.index_left, e.index_right):
+                if idx and idx in summation_set and idx not in seen_set:
+                    seen.append(idx)
+                    seen_set.add(idx)
+        elif isinstance(e, Product):
+            for child in e.factors:
+                _visit(child)
+        elif isinstance(e, Sum):
+            for child in e.terms:
+                _visit(child)
+
+    _visit(expr)
+    return seen
+
+
 def _eval_symbolic(
     expr: Expr,
     symbol_values: dict,
@@ -1186,18 +1391,31 @@ def _eval_symbolic(
             names to concrete integer values.
 
     Returns:
-        The numeric value as a float.
+        The numeric value as a float or complex.
     """
     if isinstance(expr, Rational):
         return expr.numerator / expr.denominator
     if isinstance(expr, Symbol):
         arr = symbol_values[expr.name]
         if expr.indices:
-            idx = tuple(index_map[i] for i in expr.indices)
-            return float(arr[idx])
-        return float(arr)
+            def _resolve(i: str) -> int:
+                if i in index_map:
+                    return index_map[i]
+                # Literal observable component (e.g. '1', '2') — 1-indexed convention
+                try:
+                    return int(i) - 1
+                except ValueError:
+                    raise KeyError(
+                        f"Index '{i}' not found in index_map and is not a literal integer. "
+                        "Pass it via the fixed_indices argument of evaluate_coupling()."
+                    ) from None
+            idx = tuple(_resolve(i) for i in expr.indices)
+            val = arr[idx]
+        else:
+            val = arr
+        return complex(val) if np.iscomplexobj(arr) else float(val)
     if isinstance(expr, Product):
-        result = 1.0
+        result: complex | float = 1.0
         for f in expr.factors:
             result *= _eval_symbolic(f, symbol_values, index_map)
         return result
@@ -1210,3 +1428,44 @@ def _eval_symbolic(
 
 def _is_zero(expr: Expr) -> bool:
     return isinstance(expr, Rational) and expr.is_zero
+
+
+def _coeff_latex(pref: Rational, n_response: int) -> str:
+    r"""Render ``rational_prefactor × (-i)^{n_response}`` as a single LaTeX token.
+
+    Combines the sign of the rational with the phase so that the output
+    is a clean fraction like ``\frac{\mathrm{i}}{6}`` rather than two
+    separate tokens ``\mathrm{i} -\frac{1}{6}``.
+    """
+    from fractions import Fraction
+
+    # Phase by n_response mod 4:
+    #   0 → +1,  1 → -i,  2 → -1,  3 → +i
+    # Represent as (real_sign, is_imag):
+    #   0 → (+1, False), 1 → (-1, True), 2 → (-1, False), 3 → (+1, True)
+    phase_sign = [1, -1, -1, 1][n_response % 4]
+    is_imag = (n_response % 2) == 1
+
+    # Effective rational = pref × phase_sign  (absorb sign into numerator)
+    f = Fraction(pref.numerator * phase_sign, pref.denominator)
+    num, den = abs(f.numerator), f.denominator
+    negative = f < 0
+
+    # Build the numerator string
+    if is_imag and num == 1:
+        num_str = r"\mathrm{i}"
+    elif is_imag:
+        num_str = rf"{num}\,\mathrm{{i}}"
+    else:
+        num_str = str(num)
+
+    # Assemble
+    sign = "-" if negative else ""
+    if num == 0:
+        return "0"
+    if den == 1 and num_str == "1" and not is_imag:
+        # coefficient is ±1 → omit (sign is still prepended if negative)
+        return f"{sign}1" if negative else ""
+    if den == 1:
+        return f"{sign}{num_str}"
+    return rf"{sign}\frac{{{num_str}}}{{{den}}}"
