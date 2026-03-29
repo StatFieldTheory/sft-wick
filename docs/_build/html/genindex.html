@@ -234,6 +234,7 @@
 <li class="toctree-l2"><a class="reference internal" href="api/propagators.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.propagators</span></code> — Propagator Contraction Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/perturbation.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.perturbation</span></code> — Perturbative Expansion Driver</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/simplify.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.simplify</span></code> — Expression Simplification</a></li>
+<li class="toctree-l2"><a class="reference internal" href="api/evaluate.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.evaluate</span></code> — Numerical Evaluation Pipeline</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/diagrams.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.diagrams</span></code> — Feynman Diagram Representation</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/drawing.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.drawing</span></code> — Diagram Rendering</a></li>
 <li class="toctree-l2"><a class="reference internal" href="api/indices.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.indices</span></code> — Index Management</a></li>
@@ -292,9 +293,17 @@
 </li>
         <li><a href="api/diagrams.html#sft_wick.diagrams.FeynmanDiagram.add_vertex">add_vertex() (sft_wick.diagrams.FeynmanDiagram method)</a>
 </li>
+        <li><a href="api/action.html#sft_wick.action.Action.all_vertex_combinations">all_vertex_combinations() (sft_wick.action.Action method)</a>
+</li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="api/action.html#sft_wick.action.Action.all_vertex_combinations">all_vertex_combinations() (sft_wick.action.Action method)</a>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.analyze_spatial">analyze_spatial() (in module sft_wick.evaluate)</a>
+
+        <ul>
+          <li><a href="api/perturbation.html#sft_wick.perturbation.DiagramTerm.analyze_spatial">(sft_wick.perturbation.DiagramTerm method)</a>
+</li>
+        </ul></li>
+        <li><a href="api/perturbation.html#sft_wick.perturbation.DiagramTerm.apply_diagonal">apply_diagonal() (sft_wick.perturbation.DiagramTerm method)</a>
 </li>
         <li><a href="api/expressions.html#sft_wick.expressions.apply_response_phase">apply_response_phase() (in module sft_wick.expressions)</a>
 </li>
@@ -317,6 +326,10 @@
 </li>
         </ul></li>
     </ul></td>
+    <td style="width: 33%; vertical-align: top;"><ul>
+        <li><a href="api/perturbation.html#sft_wick.perturbation.DiagramTerm.build_integrand">build_integrand() (sft_wick.perturbation.DiagramTerm method)</a>
+</li>
+    </ul></td>
   </tr></table>
 </section>
 
@@ -324,9 +337,17 @@
   <h2>C</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.PropagatorCache.C_diagonal">C_diagonal() (sft_wick.evaluate.PropagatorCache method)</a>
+</li>
         <li><a href="api/wick.html#sft_wick.wick.SpatialTopology.c_edges">c_edges (sft_wick.wick.SpatialTopology attribute)</a>
 </li>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.SpatialStructure.c_propagators">c_propagators (sft_wick.evaluate.SpatialStructure attribute)</a>
+</li>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.PropagatorCache.C_value">C_value() (sft_wick.evaluate.PropagatorCache method)</a>
+</li>
         <li><a href="api/diagrams.html#sft_wick.diagrams.FeynmanDiagram.canonical_form">canonical_form() (sft_wick.diagrams.FeynmanDiagram method)</a>
+</li>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.PropagatorCache.clear_cache">clear_cache() (sft_wick.evaluate.PropagatorCache method)</a>
 </li>
         <li><a href="api/perturbation.html#sft_wick.perturbation.DiagramInfo.coefficient">coefficient (sft_wick.perturbation.DiagramInfo attribute)</a>
 </li>
@@ -334,10 +355,10 @@
 </li>
         <li><a href="api/simplify.html#sft_wick.simplify.collect_by_topology">collect_by_topology() (in module sft_wick.simplify)</a>
 </li>
-        <li><a href="api/fields.html#sft_wick.fields.FieldOperator.component_index">component_index (sft_wick.fields.FieldOperator attribute)</a>
-</li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
+        <li><a href="api/fields.html#sft_wick.fields.FieldOperator.component_index">component_index (sft_wick.fields.FieldOperator attribute)</a>
+</li>
         <li><a href="api/vertices.html#sft_wick.vertices.VertexInstance.component_indices">component_indices (sft_wick.vertices.VertexInstance attribute)</a>
 </li>
         <li><a href="api/perturbation.html#sft_wick.perturbation.compute_moment">compute_moment() (in module sft_wick.perturbation)</a>
@@ -347,6 +368,12 @@
         <li><a href="api/vertices.html#sft_wick.vertices.VertexInstance.copy_id">copy_id (sft_wick.vertices.VertexInstance attribute)</a>
 </li>
         <li><a href="api/vertices.html#sft_wick.vertices.Vertex.coupling">coupling (sft_wick.vertices.Vertex attribute)</a>
+</li>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.DiagramIntegrand.coupling_array">coupling_array (sft_wick.evaluate.DiagramIntegrand attribute)</a>
+</li>
+        <li><a href="api/perturbation.html#sft_wick.perturbation.DiagramTerm.coupling_only_indices">coupling_only_indices (sft_wick.perturbation.DiagramTerm property)</a>
+</li>
+        <li><a href="api/perturbation.html#id1">coupling_sum (sft_wick.perturbation.DiagramTerm attribute)</a>, <a href="api/perturbation.html#sft_wick.perturbation.DiagramTerm.coupling_sum">[1]</a>
 </li>
         <li><a href="api/vertices.html#sft_wick.vertices.VertexInstance.coupling_symbol">coupling_symbol (sft_wick.vertices.VertexInstance attribute)</a>
 </li>
@@ -360,17 +387,35 @@
     <td style="width: 33%; vertical-align: top;"><ul>
         <li><a href="api/expressions.html#sft_wick.expressions.Rational.denominator">denominator (sft_wick.expressions.Rational attribute)</a>
 </li>
+        <li><a href="api/evaluate.html#id4">diag_C (sft_wick.evaluate.PropagatorModel attribute)</a>, <a href="api/evaluate.html#sft_wick.evaluate.PropagatorModel.diag_C">[1]</a>
+</li>
+        <li><a href="api/simplify.html#sft_wick.simplify.diagonal_propagators">diagonal_propagators() (in module sft_wick.simplify)</a>
+</li>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.DiagramIntegrand.diagram_term">diagram_term (sft_wick.evaluate.DiagramIntegrand attribute)</a>
+</li>
+        <li><a href="api/perturbation.html#sft_wick.perturbation.PerturbativeResult.diagram_terms">diagram_terms() (sft_wick.perturbation.PerturbativeResult method)</a>
+</li>
         <li><a href="api/perturbation.html#sft_wick.perturbation.DiagramInfo">DiagramInfo (class in sft_wick.perturbation)</a>
+</li>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.DiagramIntegrand">DiagramIntegrand (class in sft_wick.evaluate)</a>
 </li>
         <li><a href="api/drawing.html#sft_wick.drawing.DiagramRenderer">DiagramRenderer (class in sft_wick.drawing)</a>
 </li>
         <li><a href="api/perturbation.html#sft_wick.perturbation.PerturbativeResult.diagrams_by_order">diagrams_by_order (sft_wick.perturbation.PerturbativeResult attribute)</a>
 </li>
-        <li><a href="api/expressions.html#sft_wick.expressions.SumOverIndex.dimension">dimension (sft_wick.expressions.SumOverIndex attribute)</a>
-</li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
+        <li><a href="api/perturbation.html#sft_wick.perturbation.DiagramTerm">DiagramTerm (class in sft_wick.perturbation)</a>
+</li>
+        <li><a href="api/expressions.html#sft_wick.expressions.SumOverIndex.dimension">dimension (sft_wick.expressions.SumOverIndex attribute)</a>
+</li>
         <li><a href="api/expressions.html#sft_wick.expressions.DiracDelta">DiracDelta (class in sft_wick.expressions)</a>
+</li>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.SpatialStructure.direction_groups">direction_groups (sft_wick.evaluate.SpatialStructure attribute)</a>
+</li>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.SpatialStructure.direction_integration_vars">direction_integration_vars (sft_wick.evaluate.SpatialStructure attribute)</a>
+</li>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.SpatialStructure.direction_map">direction_map (sft_wick.evaluate.SpatialStructure attribute)</a>
 </li>
         <li><a href="api/util.html#sft_wick._util.double_factorial">double_factorial() (in module sft_wick._util)</a>
 </li>
@@ -388,6 +433,10 @@
   <h2>E</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.DiagramIntegrand.evaluate">evaluate() (sft_wick.evaluate.DiagramIntegrand method)</a>
+</li>
+        <li><a href="api/perturbation.html#sft_wick.perturbation.DiagramTerm.evaluate_coupling">evaluate_coupling() (sft_wick.perturbation.DiagramTerm method)</a>
+</li>
         <li><a href="api/wick.html#sft_wick.wick.evaluate_pairing">evaluate_pairing() (in module sft_wick.wick)</a>
 </li>
     </ul></td>
@@ -395,6 +444,8 @@
         <li><a href="api/expressions.html#sft_wick.expressions.Expr">Expr (class in sft_wick.expressions)</a>
 </li>
         <li><a href="api/diagrams.html#sft_wick.diagrams.FeynmanDiagram.external_nodes">external_nodes (sft_wick.diagrams.FeynmanDiagram property)</a>
+</li>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.SpatialStructure.external_points">external_points (sft_wick.evaluate.SpatialStructure attribute)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -484,11 +535,15 @@
 </li>
         <li><a href="api/expressions.html#sft_wick.expressions.Symbol.indices">indices (sft_wick.expressions.Symbol attribute)</a>
 </li>
-    </ul></td>
-    <td style="width: 33%; vertical-align: top;"><ul>
         <li><a href="api/vertices.html#sft_wick.vertices.VertexInstance.instantiate">instantiate() (sft_wick.vertices.VertexInstance class method)</a>
 </li>
         <li><a href="api/expressions.html#sft_wick.expressions.IntegralOver">IntegralOver (class in sft_wick.expressions)</a>
+</li>
+    </ul></td>
+    <td style="width: 33%; vertical-align: top;"><ul>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.DiagramIntegrand.integration_bounds">integration_bounds() (sft_wick.evaluate.DiagramIntegrand method)</a>
+</li>
+        <li><a href="api/perturbation.html#id3">integration_vars (sft_wick.perturbation.DiagramTerm attribute)</a>, <a href="api/perturbation.html#sft_wick.perturbation.DiagramTerm.integration_vars">[1]</a>
 </li>
         <li><a href="api/diagrams.html#sft_wick.diagrams.FeynmanDiagram.is_connected">is_connected (sft_wick.diagrams.FeynmanDiagram property)</a>
 </li>
@@ -510,6 +565,8 @@
 </li>
         <li><a href="api/expressions.html#sft_wick.expressions.Rational.is_zero">is_zero (sft_wick.expressions.Rational property)</a>
 </li>
+        <li><a href="api/evaluate.html#id3">iso_R (sft_wick.evaluate.PropagatorModel attribute)</a>, <a href="api/evaluate.html#sft_wick.evaluate.PropagatorModel.iso_R">[1]</a>
+</li>
     </ul></td>
   </tr></table>
 </section>
@@ -518,10 +575,12 @@
   <h2>K</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="api/expressions.html#sft_wick.expressions.Propagator.kind">kind (sft_wick.expressions.Propagator attribute)</a>
+        <li><a href="api/evaluate.html#id1">kappa2 (sft_wick.evaluate.PropagatorModel attribute)</a>, <a href="api/evaluate.html#sft_wick.evaluate.PropagatorModel.kappa2">[1]</a>
 </li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
+        <li><a href="api/expressions.html#sft_wick.expressions.Propagator.kind">kind (sft_wick.expressions.Propagator attribute)</a>
+</li>
         <li><a href="api/expressions.html#sft_wick.expressions.KroneckerDelta">KroneckerDelta (class in sft_wick.expressions)</a>
 </li>
     </ul></td>
@@ -546,6 +605,8 @@
   <h2>M</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.DiagramIntegrand.make_scipy_integrand">make_scipy_integrand() (sft_wick.evaluate.DiagramIntegrand method)</a>
+</li>
         <li>
     module
 
@@ -557,6 +618,8 @@
           <li><a href="api/diagrams.html#module-sft_wick.diagrams">sft_wick.diagrams</a>
 </li>
           <li><a href="api/drawing.html#module-sft_wick.drawing">sft_wick.drawing</a>
+</li>
+          <li><a href="api/evaluate.html#module-sft_wick.evaluate">sft_wick.evaluate</a>
 </li>
           <li><a href="api/expressions.html#module-sft_wick.expressions">sft_wick.expressions</a>
 </li>
@@ -589,8 +652,12 @@
   <h2>N</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="api/fields.html#sft_wick.fields.Field.n_components">n_components (sft_wick.fields.Field attribute)</a>
+        <li><a href="api/evaluate.html#id2">n_components (sft_wick.evaluate.PropagatorModel attribute)</a>, <a href="api/evaluate.html#sft_wick.evaluate.PropagatorModel.n_components">[1]</a>
+
+        <ul>
+          <li><a href="api/fields.html#sft_wick.fields.Field.n_components">(sft_wick.fields.Field attribute)</a>
 </li>
+        </ul></li>
         <li><a href="api/vertices.html#sft_wick.vertices.Vertex.n_fields">n_fields (sft_wick.vertices.Vertex property)</a>
 </li>
         <li><a href="api/diagrams.html#sft_wick.diagrams.FeynmanDiagram.n_loops">n_loops (sft_wick.diagrams.FeynmanDiagram property)</a>
@@ -599,8 +666,12 @@
 </li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="api/vertices.html#sft_wick.vertices.Vertex.n_response">n_response (sft_wick.vertices.Vertex property)</a>
+        <li><a href="api/perturbation.html#id5">n_response (sft_wick.perturbation.DiagramTerm attribute)</a>, <a href="api/perturbation.html#sft_wick.perturbation.DiagramTerm.n_response">[1]</a>
+
+        <ul>
+          <li><a href="api/vertices.html#sft_wick.vertices.Vertex.n_response">(sft_wick.vertices.Vertex property)</a>
 </li>
+        </ul></li>
         <li><a href="api/expressions.html#sft_wick.expressions.Symbol.name">name (sft_wick.expressions.Symbol attribute)</a>
 
         <ul>
@@ -641,13 +712,21 @@
 </li>
         <li><a href="api/fields.html#sft_wick.fields.FieldType.PHYSICAL">PHYSICAL (sft_wick.fields.FieldType attribute)</a>
 </li>
-    </ul></td>
-    <td style="width: 33%; vertical-align: top;"><ul>
         <li><a href="api/expressions.html#sft_wick.expressions.Product">Product (class in sft_wick.expressions)</a>
 </li>
         <li><a href="api/drawing.html#sft_wick.drawing.DiagramRenderer.PROP_STYLES">PROP_STYLES (sft_wick.drawing.DiagramRenderer attribute)</a>
 </li>
+    </ul></td>
+    <td style="width: 33%; vertical-align: top;"><ul>
         <li><a href="api/expressions.html#sft_wick.expressions.Propagator">Propagator (class in sft_wick.expressions)</a>
+</li>
+        <li><a href="api/perturbation.html#sft_wick.perturbation.DiagramTerm.propagator_indices">propagator_indices (sft_wick.perturbation.DiagramTerm property)</a>
+</li>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.PropagatorCache">PropagatorCache (class in sft_wick.evaluate)</a>
+</li>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.PropagatorModel">PropagatorModel (class in sft_wick.evaluate)</a>
+</li>
+        <li><a href="api/perturbation.html#id0">propagators (sft_wick.perturbation.DiagramTerm attribute)</a>, <a href="api/perturbation.html#sft_wick.perturbation.DiagramTerm.propagators">[1]</a>
 </li>
     </ul></td>
   </tr></table>
@@ -659,13 +738,25 @@
     <td style="width: 33%; vertical-align: top;"><ul>
         <li><a href="api/wick.html#sft_wick.wick.SpatialTopology.r_edges">r_edges (sft_wick.wick.SpatialTopology attribute)</a>
 </li>
-        <li><a href="api/expressions.html#sft_wick.expressions.Rational">Rational (class in sft_wick.expressions)</a>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.PropagatorCache.R_product">R_product() (sft_wick.evaluate.PropagatorCache method)</a>
+</li>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.SpatialStructure.r_propagators">r_propagators (sft_wick.evaluate.SpatialStructure attribute)</a>
+</li>
+        <li><a href="api/evaluate.html#id0">R_time (sft_wick.evaluate.PropagatorModel attribute)</a>, <a href="api/evaluate.html#sft_wick.evaluate.PropagatorModel.R_time">[1]</a>
+</li>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.PropagatorCache.R_time">R_time() (sft_wick.evaluate.PropagatorCache method)</a>
 </li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
+        <li><a href="api/expressions.html#sft_wick.expressions.Rational">Rational (class in sft_wick.expressions)</a>
+</li>
+        <li><a href="api/perturbation.html#id2">rational_prefactor (sft_wick.perturbation.DiagramTerm attribute)</a>, <a href="api/perturbation.html#sft_wick.perturbation.DiagramTerm.rational_prefactor">[1]</a>
+</li>
         <li><a href="api/fields.html#sft_wick.fields.reset_uid_counter">reset_uid_counter() (in module sft_wick.fields)</a>
 </li>
         <li><a href="api/fields.html#sft_wick.fields.FieldType.RESPONSE">RESPONSE (sft_wick.fields.FieldType attribute)</a>
+</li>
+        <li><a href="api/perturbation.html#sft_wick.perturbation.DiagramTerm.response_phase_factor">response_phase_factor() (sft_wick.perturbation.DiagramTerm method)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -704,6 +795,13 @@
 </li>
         </ul></li>
         <li>
+    sft_wick.evaluate
+
+        <ul>
+          <li><a href="api/evaluate.html#module-sft_wick.evaluate">module</a>
+</li>
+        </ul></li>
+        <li>
     sft_wick.expressions
 
         <ul>
@@ -738,8 +836,6 @@
           <li><a href="api/perturbation.html#module-sft_wick.perturbation">module</a>
 </li>
         </ul></li>
-    </ul></td>
-    <td style="width: 33%; vertical-align: top;"><ul>
         <li>
     sft_wick.propagators
 
@@ -747,6 +843,8 @@
           <li><a href="api/propagators.html#module-sft_wick.propagators">module</a>
 </li>
         </ul></li>
+    </ul></td>
+    <td style="width: 33%; vertical-align: top;"><ul>
         <li>
     sft_wick.simplify
 
@@ -770,6 +868,8 @@
         </ul></li>
         <li><a href="api/simplify.html#sft_wick.simplify.simplify">simplify() (in module sft_wick.simplify)</a>
 </li>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.DiagramIntegrand.spatial">spatial (sft_wick.evaluate.DiagramIntegrand attribute)</a>
+</li>
         <li><a href="api/fields.html#sft_wick.fields.FieldOperator.spatial_arg">spatial_arg (sft_wick.fields.FieldOperator attribute)</a>
 </li>
         <li><a href="api/expressions.html#sft_wick.expressions.Symbol.spatial_args">spatial_args (sft_wick.expressions.Symbol attribute)</a>
@@ -778,13 +878,19 @@
 </li>
         <li><a href="api/expressions.html#sft_wick.expressions.Propagator.spatial_right">spatial_right (sft_wick.expressions.Propagator attribute)</a>
 </li>
+        <li><a href="api/perturbation.html#sft_wick.perturbation.DiagramTerm.spatial_topology">spatial_topology() (sft_wick.perturbation.DiagramTerm method)</a>
+</li>
         <li><a href="api/vertices.html#sft_wick.vertices.VertexInstance.spatial_variables">spatial_variables (sft_wick.vertices.VertexInstance attribute)</a>
+</li>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.SpatialStructure">SpatialStructure (class in sft_wick.evaluate)</a>
 </li>
         <li><a href="api/wick.html#sft_wick.wick.SpatialTopology">SpatialTopology (class in sft_wick.wick)</a>
 </li>
         <li><a href="api/expressions.html#sft_wick.expressions.Sum">Sum (class in sft_wick.expressions)</a>
 </li>
         <li><a href="api/diagrams.html#sft_wick.diagrams.FeynmanDiagram.summary">summary() (sft_wick.diagrams.FeynmanDiagram method)</a>
+</li>
+        <li><a href="api/perturbation.html#id4">summation_indices (sft_wick.perturbation.DiagramTerm attribute)</a>, <a href="api/perturbation.html#sft_wick.perturbation.DiagramTerm.summation_indices">[1]</a>
 </li>
         <li><a href="api/expressions.html#sft_wick.expressions.SumOverIndex">SumOverIndex (class in sft_wick.expressions)</a>
 </li>
@@ -798,15 +904,23 @@
   <h2>T</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
+        <li><a href="api/evaluate.html#id5">t_min (sft_wick.evaluate.PropagatorModel attribute)</a>, <a href="api/evaluate.html#sft_wick.evaluate.PropagatorModel.t_min">[1]</a>
+</li>
         <li><a href="api/expressions.html#sft_wick.expressions.Sum.terms">terms (sft_wick.expressions.Sum attribute)</a>
+</li>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.SpatialStructure.time_integration_vars">time_integration_vars (sft_wick.evaluate.SpatialStructure attribute)</a>
+</li>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.SpatialStructure.time_orderings">time_orderings (sft_wick.evaluate.SpatialStructure attribute)</a>
 </li>
         <li><a href="api/perturbation.html#sft_wick.perturbation.DiagramInfo.to_feynman_diagram">to_feynman_diagram() (sft_wick.perturbation.DiagramInfo method)</a>
 </li>
         <li><a href="api/expressions.html#sft_wick.expressions.Rational.to_fraction">to_fraction() (sft_wick.expressions.Rational method)</a>
 </li>
-        <li><a href="api/expressions.html#sft_wick.expressions.DiracDelta.to_latex">to_latex() (sft_wick.expressions.DiracDelta method)</a>
+        <li><a href="api/evaluate.html#sft_wick.evaluate.DiagramIntegrand.to_latex">to_latex() (sft_wick.evaluate.DiagramIntegrand method)</a>
 
         <ul>
+          <li><a href="api/expressions.html#sft_wick.expressions.DiracDelta.to_latex">(sft_wick.expressions.DiracDelta method)</a>
+</li>
           <li><a href="api/expressions.html#sft_wick.expressions.Expr.to_latex">(sft_wick.expressions.Expr method)</a>
 </li>
           <li><a href="api/expressions.html#sft_wick.expressions.ImaginaryUnit.to_latex">(sft_wick.expressions.ImaginaryUnit method)</a>
@@ -826,6 +940,8 @@
           <li><a href="api/expressions.html#sft_wick.expressions.SumOverIndex.to_latex">(sft_wick.expressions.SumOverIndex method)</a>
 </li>
           <li><a href="api/expressions.html#sft_wick.expressions.Symbol.to_latex">(sft_wick.expressions.Symbol method)</a>
+</li>
+          <li><a href="api/perturbation.html#sft_wick.perturbation.DiagramTerm.to_latex">(sft_wick.perturbation.DiagramTerm method)</a>
 </li>
           <li><a href="api/perturbation.html#sft_wick.perturbation.PerturbativeResult.to_latex">(sft_wick.perturbation.PerturbativeResult method)</a>
 </li>

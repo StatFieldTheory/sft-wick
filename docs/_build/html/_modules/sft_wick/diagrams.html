@@ -235,6 +235,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../../api/propagators.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.propagators</span></code> — Propagator Contraction Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../api/perturbation.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.perturbation</span></code> — Perturbative Expansion Driver</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../api/simplify.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.simplify</span></code> — Expression Simplification</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/evaluate.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.evaluate</span></code> — Numerical Evaluation Pipeline</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../api/diagrams.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.diagrams</span></code> — Feynman Diagram Representation</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../api/drawing.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.drawing</span></code> — Diagram Rendering</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../api/indices.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.indices</span></code> — Index Management</a></li>
@@ -494,6 +495,13 @@
             <span class="p">)</span>
             <span class="n">vi_to_node</span><span class="p">[</span><span class="n">vi</span><span class="o">.</span><span class="n">copy_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">node_id</span>
             <span class="k">for</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">vi</span><span class="o">.</span><span class="n">field_operators</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">op</span><span class="o">.</span><span class="n">uid</span> <span class="ow">in</span> <span class="n">uid_to_node</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;UID collision: vertex operator </span><span class="si">{</span><span class="n">op</span><span class="si">}</span><span class="s2"> has the same &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;uid=</span><span class="si">{</span><span class="n">op</span><span class="o">.</span><span class="n">uid</span><span class="si">}</span><span class="s2"> as a previously registered operator. &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;Call reset_uid_counter() before creating fields, &quot;</span>
+                        <span class="sa">f</span><span class="s2">&quot;not between field creation and compute_moment().&quot;</span>
+                    <span class="p">)</span>
                 <span class="n">uid_to_node</span><span class="p">[</span><span class="n">op</span><span class="o">.</span><span class="n">uid</span><span class="p">]</span> <span class="o">=</span> <span class="n">node_id</span>
 
         <span class="c1"># Add edges for each contraction pair</span>

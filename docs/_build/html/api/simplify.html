@@ -3,7 +3,7 @@
   <head><meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="sft_wick.diagrams — Feynman Diagram Representation" href="diagrams.html"><link rel="prev" title="sft_wick.perturbation — Perturbative Expansion Driver" href="perturbation.html">
+<link rel="index" title="Index" href="../genindex.html"><link rel="search" title="Search" href="../search.html"><link rel="next" title="sft_wick.evaluate — Numerical Evaluation Pipeline" href="evaluate.html"><link rel="prev" title="sft_wick.perturbation — Perturbative Expansion Driver" href="perturbation.html">
 
     <!-- Generated with Sphinx 9.1.0 and Furo 2025.12.19 -->
         <title>sft_wick.simplify — Expression Simplification - sft-wick</title>
@@ -236,6 +236,7 @@
 <li class="toctree-l2"><a class="reference internal" href="propagators.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.propagators</span></code> — Propagator Contraction Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="perturbation.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.perturbation</span></code> — Perturbative Expansion Driver</a></li>
 <li class="toctree-l2 current current-page"><a class="current reference internal" href="#"><code class="docutils literal notranslate"><span class="pre">sft_wick.simplify</span></code> — Expression Simplification</a></li>
+<li class="toctree-l2"><a class="reference internal" href="evaluate.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.evaluate</span></code> — Numerical Evaluation Pipeline</a></li>
 <li class="toctree-l2"><a class="reference internal" href="diagrams.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.diagrams</span></code> — Feynman Diagram Representation</a></li>
 <li class="toctree-l2"><a class="reference internal" href="drawing.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.drawing</span></code> — Diagram Rendering</a></li>
 <li class="toctree-l2"><a class="reference internal" href="indices.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.indices</span></code> — Index Management</a></li>
@@ -381,6 +382,38 @@ outer coupling symbols, producing a sum of permuted couplings.</p></li>
 </dl>
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py" id="sft_wick.simplify.diagonal_propagators">
+<span class="sig-prename descclassname"><span class="pre">sft_wick.simplify.</span></span><span class="sig-name descname"><span class="pre">diagonal_propagators</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">expr</span></span></em>, <em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">diag_R</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">diag_C</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">iso_R</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">iso_C</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/sft_wick/simplify.html#diagonal_propagators"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#sft_wick.simplify.diagonal_propagators" title="Link to this definition">¶</a></dt>
+<dd><p>Enforce diagonal and/or isotropic propagator constraints.</p>
+<p>When <code class="docutils literal notranslate"><span class="pre">diag_R=True</span></code>, response propagators are diagonal:
+<span class="math notranslate nohighlight">\(R_{ij}(x,y) = \delta_{ij}\,R(x,y)\)</span>.  This substitutes the
+constraint <span class="math notranslate nohighlight">\(i = j\)</span> into couplings and propagators, eliminating
+one summation index per constrained propagator.</p>
+<p>When <code class="docutils literal notranslate"><span class="pre">diag_C=True</span></code>, the same is done for correlation propagators.</p>
+<p>When <code class="docutils literal notranslate"><span class="pre">iso_R=True</span></code> (implies <code class="docutils literal notranslate"><span class="pre">diag_R=True</span></code>), all diagonal R entries
+are further assumed equal: <span class="math notranslate nohighlight">\(R_{ii}(x,y) = R(x,y)\)</span>.  The
+remaining component index is dropped from R propagators entirely.</p>
+<p>When <code class="docutils literal notranslate"><span class="pre">iso_C=True</span></code> (implies <code class="docutils literal notranslate"><span class="pre">diag_C=True</span></code>), the same for C.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>expr</strong> (<a class="reference internal" href="expressions.html#sft_wick.expressions.Expr" title="sft_wick.expressions.Expr"><em>Expr</em></a>) – Expression to simplify.</p></li>
+<li><p><strong>diag_R</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Enforce diagonal response propagators.</p></li>
+<li><p><strong>diag_C</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Enforce diagonal correlation propagators.</p></li>
+<li><p><strong>iso_R</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Enforce isotropic (index-free) response propagators.</p></li>
+<li><p><strong>iso_C</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Enforce isotropic (index-free) correlation propagators.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>Simplified expression with the requested constraints applied.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="expressions.html#sft_wick.expressions.Expr" title="sft_wick.expressions.Expr"><em>Expr</em></a></p>
+</dd>
+</dl>
+</dd></dl>
+
 </section>
 
         </article>
@@ -388,12 +421,12 @@ outer coupling symbols, producing a sum of permuted couplings.</p></li>
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="diagrams.html">
+          <a class="next-page" href="evaluate.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title"><code class="docutils literal notranslate"><span class="pre">sft_wick.diagrams</span></code> — Feynman Diagram Representation</div>
+                <div class="title"><code class="docutils literal notranslate"><span class="pre">sft_wick.evaluate</span></code> — Numerical Evaluation Pipeline</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
@@ -442,6 +475,7 @@ outer coupling symbols, producing a sum of permuted couplings.</p></li>
 <li><a class="reference internal" href="#sft_wick.simplify.simplify"><code class="docutils literal notranslate"><span class="pre">simplify()</span></code></a></li>
 <li><a class="reference internal" href="#sft_wick.simplify.collect_by_diagram"><code class="docutils literal notranslate"><span class="pre">collect_by_diagram()</span></code></a></li>
 <li><a class="reference internal" href="#sft_wick.simplify.collect_by_topology"><code class="docutils literal notranslate"><span class="pre">collect_by_topology()</span></code></a></li>
+<li><a class="reference internal" href="#sft_wick.simplify.diagonal_propagators"><code class="docutils literal notranslate"><span class="pre">diagonal_propagators()</span></code></a></li>
 </ul>
 </li>
 </ul>
@@ -460,5 +494,7 @@ outer coupling symbols, producing a sum of permuted couplings.</p></li>
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../_static/copybutton.js?v=f281be69"></script>
     <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+    <script>window.MathJax = {"tex": {"inlineMath": [["$", "$"], ["\\(", "\\)"]], "processEscapes": true, "macros": {"braket": ["\\langle #1 \\rangle", 1], "sint": "S_{\\mathrm{int}}"}}, "options": {"ignoreHtmlClass": "tex2jax_ignore|mathjax_ignore|document", "processHtmlClass": "tex2jax_process|mathjax_process|math|output_area"}}</script>
+    <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-mml-chtml.js"></script>
     </body>
 </html>

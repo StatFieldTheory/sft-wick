@@ -245,6 +245,8 @@ class PropagatorCache:
         self.model = model
         self.quad_opts = quad_opts or {}
         self._c_cache: dict[tuple, np.ndarray] = {}
+        self._c_splines: list | None = None
+        self._c_table_range: tuple[float, float] | None = None
 
     def R_time(self, t_left: float, t_right: float) -> float | np.ndarray:
         """Evaluate R_time(t_left, t_right).
@@ -278,7 +280,9 @@ class PropagatorCache:
     ) -> np.ndarray:
         """Compute the full C matrix ``C_{ab}(n1, t1; n2, t2)``.
 
-        Uses ``scipy.integrate.dblquad``::
+        If :meth:`precompute_C_table` has been called and ``t1``, ``t2``
+        are within the table range, uses fast spline interpolation.
+        Otherwise falls back to ``scipy.integrate.dblquad``::
 
             C_{ab} = ∫_{t_min}^{t1} dλ' ∫_{t_min}^{t2} dλ''
                      R_time(t1,λ') κ_{ab}(n1,λ'; n2,λ'') R_time(t2,λ'')
@@ -286,6 +290,12 @@ class PropagatorCache:
         Returns:
             ``(N, N)`` array.
         """
+        # Fast path: spline table
+        if self._c_splines is not None and self.model.diag_C:
+            lo, hi = self._c_table_range  # type: ignore[misc]
+            if lo <= t1 <= hi and lo <= t2 <= hi:
+                return self._C_value_from_table(t1, t2)
+
         from scipy.integrate import dblquad
 
         m = self.model
@@ -350,17 +360,88 @@ class PropagatorCache:
         """Return diagonal ``[C_{00}, C_{11}, …]`` as a 1D array.
 
         If ``n_prime`` and ``t2`` are None, uses equal-point ``C(n,t; n,t)``.
+        Uses spline table when available for fast lookup.
         """
         if n_prime is None:
             n_prime = n
         if t2 is None:
             t2 = t1
+        # Fast path: spline table
+        if self._c_splines is not None:
+            lo, hi = self._c_table_range  # type: ignore[misc]
+            if lo <= t1 <= hi and lo <= t2 <= hi:
+                return self._C_diagonal_from_table(t1, t2)
         C_mat = self.C_value(n, t1, n_prime, t2)
         return np.diag(C_mat)
 
     def clear_cache(self) -> None:
-        """Clear the C value cache."""
+        """Clear the C value cache and spline table."""
         self._c_cache.clear()
+        self._c_splines = None
+        self._c_table_range = None
+
+    def precompute_C_table(
+        self,
+        t_max: float,
+        n_grid: int = 100,
+        direction: Any = 0,
+    ) -> None:
+        """Pre-compute C on a grid and build spline interpolators.
+
+        For ``iso_R + diag_C`` with direction-independent ``kappa2``,
+        ``C_{aa}(t1, t2)`` depends only on ``(t1, t2)``.  This method
+        evaluates C on an ``n_grid × n_grid`` grid via ``dblquad``,
+        then builds a :class:`~scipy.interpolate.RectBivariateSpline`
+        for each diagonal component.
+
+        After calling this, :meth:`C_value` and :meth:`C_diagonal`
+        use fast spline interpolation instead of ``dblquad``.
+
+        Args:
+            t_max: Upper bound of the time grid.
+            n_grid: Number of grid points per axis (default 100).
+            direction: Direction value to use for kappa2 evaluation.
+        """
+        from scipy.interpolate import RectBivariateSpline
+
+        m = self.model
+        N = m.n_components
+        t_min = m.t_min
+        ts = np.linspace(t_min, t_max, n_grid)
+
+        # Build grid for each diagonal component
+        grids = [np.zeros((n_grid, n_grid)) for _ in range(N)]
+
+        for i in range(n_grid):
+            for j in range(n_grid):
+                C_mat = self.C_value(direction, ts[i], direction, ts[j])
+                for a in range(N):
+                    grids[a][i, j] = C_mat[a, a]
+
+        self._c_splines = [
+            RectBivariateSpline(ts, ts, grids[a])
+            for a in range(N)
+        ]
+        self._c_table_range = (t_min, t_max)
+
+    @property
+    def has_table(self) -> bool:
+        """Whether a pre-computed C table is available."""
+        return self._c_splines is not None
+
+    def _C_diagonal_from_table(self, t1: float, t2: float) -> np.ndarray:
+        """Look up C diagonal from spline table."""
+        return np.array([
+            float(s(t1, t2, grid=False)) for s in self._c_splines  # type: ignore[union-attr]
+        ])
+
+    def _C_value_from_table(self, t1: float, t2: float) -> np.ndarray:
+        """Look up C matrix from spline table (diagonal only)."""
+        N = self.model.n_components
+        C_mat = np.zeros((N, N))
+        for a, s in enumerate(self._c_splines):  # type: ignore[union-attr]
+            C_mat[a, a] = float(s(t1, t2, grid=False))
+        return C_mat
 
 
 # ---------------------------------------------------------------------------
@@ -420,14 +501,19 @@ class DiagramIntegrand:
         if not prop_idx:
             # No propagator indices → scalar coupling, evaluate C without indices
             c_val = 1.0
-            for sp_l, sp_r, _, _ in spatial.c_propagators:
+            for sp_l, sp_r, il, ir in spatial.c_propagators:
                 dir_l = spatial.direction_map[sp_l]
                 dir_r = spatial.direction_map[sp_r]
                 n_l = directions.get(dir_l, directions.get(sp_l))
                 n_r = directions.get(dir_r, directions.get(sp_r))
                 C_mat = cache.C_value(n_l, times[sp_l], n_r, times[sp_r])
-                c_val *= C_mat.trace()  # scalar contraction for isotropic C
-            return complex(r_val * float(coeff) * c_val)
+                a = self._resolve_component(il, {})
+                b = self._resolve_component(ir, {})
+                if a is not None and b is not None:
+                    c_val *= C_mat[a, b]
+                else:
+                    c_val *= C_mat.trace()
+            return complex(r_val * complex(coeff) * c_val)
 
         # --- Map each C propagator to its propagator-index axis ---
         idx_names = [name for name, _ in prop_idx]
@@ -476,8 +562,12 @@ class DiagramIntegrand:
                 continue
             axis = idx_name_to_axis.get(idx_name)
             if axis is None:
-                # Index not in propagator_indices (shouldn't happen normally)
-                contracted = contracted * c_diag.sum()
+                # Literal index (e.g. '1') not in summation — resolve directly
+                a = DiagramIntegrand._resolve_component(idx_name, {})
+                if a is not None:
+                    contracted = contracted * c_diag[a]
+                else:
+                    contracted = contracted * c_diag.sum()
                 continue
 
             # Broadcast c_diag along the correct axis
@@ -758,3 +848,245 @@ class DiagramIntegrand:
             result = " ".join(parts) + r" \quad " + body
 
         return result
+
+    def integrate_moment_qmc(
+        self,
+        lambda_f: float,
+        cache: PropagatorCache,
+        t_min: float = 0.0,
+        direction: Any = 0,
+        n_samples: int = 2**14,
+        seed: int | None = None,
+    ) -> tuple[float, float]:
+        """Integrate over all time variables using Quasi-Monte Carlo.
+
+        Maps the unit hypercube ``[0, 1]^d`` to the causal integration
+        domain using the time-ordering DAG.  External (observable) times
+        are integrated freely over ``[t_min, lambda_f]``; internal
+        (vertex) times are bounded by their causal parents.
+
+        Uses Sobol sequences (``scipy.stats.qmc.Sobol``) for
+        low-discrepancy sampling.
+
+        Args:
+            lambda_f: Upper integration limit for external times.
+            cache: A :class:`PropagatorCache` (ideally with
+                :meth:`~PropagatorCache.precompute_C_table` called).
+            t_min: Lower time bound (default 0).
+            direction: Direction value for all spatial points.
+            n_samples: Number of Sobol samples (should be a power of 2).
+            seed: Random seed for the Sobol sequence.
+
+        Returns:
+            ``(estimate, std_error)`` where ``std_error`` is estimated
+            from 8 batched sub-means.
+        """
+        from scipy.stats import qmc
+
+        spatial = self.spatial
+        # Variable ordering: [ext..., int_outermost, ..., int_innermost]
+        # We want parents before children so we can compute bounds.
+        # time_integration_vars is innermost-first; reverse for parents-first.
+        int_vars_parents_first = list(reversed(spatial.time_integration_vars))
+        ext_vars = list(spatial.external_points)
+        all_vars = ext_vars + int_vars_parents_first
+        n_ext = len(ext_vars)
+        n_total = len(all_vars)
+
+        if n_total == 0:
+            dir_vars = set(spatial.direction_map.values())
+            directions = {d: direction for d in dir_vars}
+            val = self.evaluate({}, directions, cache)
+            return (val.real, 0.0)
+
+        # Build causal parent map for internal vars
+        # For each internal var, its upper bound = min(parent times)
+        parent_map: dict[str, list[str]] = defaultdict(list)
+        for earlier, later in spatial.time_orderings:
+            if earlier in int_vars_parents_first:
+                parent_map[earlier].append(later)
+
+        # Direction map
+        dir_vars = set(spatial.direction_map.values())
+        directions = {d: direction for d in dir_vars}
+
+        # Generate Sobol samples in [0,1]^d
+        sampler = qmc.Sobol(d=n_total, seed=seed)
+        u_samples = sampler.random(n_samples)  # (n_samples, n_total)
+
+        # Evaluate integrand at each sample point
+        values = np.empty(n_samples)
+        span = lambda_f - t_min
+
+        for s in range(n_samples):
+            u = u_samples[s]
+            times: dict[str, float] = {}
+            jacobian = 1.0
+
+            # External vars: free in [t_min, lambda_f]
+            for k in range(n_ext):
+                t = t_min + u[k] * span
+                times[ext_vars[k]] = t
+                jacobian *= span
+
+            # Internal vars: bounded by causal parents
+            for k, var in enumerate(int_vars_parents_first):
+                idx = n_ext + k
+                parents = parent_map.get(var, [])
+                if parents:
+                    hi = min(times[p] for p in parents if p in times)
+                else:
+                    hi = lambda_f
+                lo = t_min
+                width = hi - lo
+                if width <= 0:
+                    jacobian = 0.0
+                    times[var] = lo
+                else:
+                    times[var] = lo + u[idx] * width
+                    jacobian *= width
+
+            if jacobian == 0.0:
+                values[s] = 0.0
+                continue
+
+            result = self.evaluate(times, directions, cache)
+            val = result.real if result.imag == 0 else abs(result)
+            values[s] = val * jacobian
+
+        estimate = float(np.mean(values))
+
+        # Standard error from 8 batched sub-means
+        n_batches = min(8, n_samples)
+        batch_size = n_samples // n_batches
+        batch_means = np.array([
+            np.mean(values[i * batch_size:(i + 1) * batch_size])
+            for i in range(n_batches)
+        ])
+        std_error = float(np.std(batch_means, ddof=1) / np.sqrt(n_batches))
+
+        return (estimate, std_error)
+
+    def integrate_moment_nquad(
+        self,
+        lambda_f: float,
+        cache: PropagatorCache,
+        t_min: float = 0.0,
+        direction: Any = 0,
+    ) -> tuple[float, float]:
+        """Integrate over all time variables using nested adaptive quadrature.
+
+        Uses ``scipy.integrate.nquad`` with causal ordering bounds.
+        Accurate but slow for high-dimensional integrals.
+
+        Args:
+            lambda_f: Upper integration limit for external times.
+            cache: A :class:`PropagatorCache`.
+            t_min: Lower time bound (default 0).
+            direction: Direction value for all spatial points.
+
+        Returns:
+            ``(estimate, error_estimate)`` from nquad.
+        """
+        from scipy.integrate import nquad as _nquad
+
+        spatial = self.spatial
+        int_vars = list(spatial.time_integration_vars)
+        ext_vars = list(spatial.external_points)
+        all_vars = int_vars + ext_vars
+        n_int = len(int_vars)
+        n_total = len(all_vars)
+
+        dir_vars = set(spatial.direction_map.values())
+        directions = {d: direction for d in dir_vars}
+
+        if n_total == 0:
+            val = self.evaluate({}, directions, cache)
+            return (val.real if val.imag == 0 else abs(val), 0.0)
+
+        def f(*args: float) -> float:
+            times = {var: args[i] for i, var in enumerate(all_vars)}
+            result = self.evaluate(times, directions, cache)
+            return result.real if result.imag == 0 else abs(result)
+
+        # Causal bounds for internal vars
+        upper_bounds: dict[str, list[str]] = defaultdict(list)
+        for earlier, later in spatial.time_orderings:
+            if earlier in int_vars:
+                upper_bounds[earlier].append(later)
+
+        ranges: list = []
+        for i, var in enumerate(all_vars):
+            if i >= n_int:
+                ranges.append((t_min, lambda_f))
+            else:
+                ub_sources = upper_bounds.get(var, [])
+                if not ub_sources:
+                    ranges.append((t_min, lambda_f))
+                else:
+                    def make_bound(
+                        ub: list[str], avars: list[str],
+                        lo: float, hi: float, cur_i: int,
+                    ) -> Callable:
+                        def bound_func(*later_args: float) -> tuple[float, float]:
+                            hi_vals = []
+                            for src in ub:
+                                j = avars.index(src) - cur_i - 1
+                                if 0 <= j < len(later_args):
+                                    hi_vals.append(later_args[j])
+                                else:
+                                    hi_vals.append(hi)
+                            return (lo, min(hi_vals))
+                        return bound_func
+                    ranges.append(make_bound(ub_sources, all_vars, t_min, lambda_f, i))
+
+        val, err = _nquad(f, ranges)
+        return (val, err)
+
+
+def integrate_moment(
+    integrand: DiagramIntegrand,
+    lambda_f: float,
+    cache: PropagatorCache,
+    t_min: float = 0.0,
+    direction: Any = 0,
+    method: str = "qmc",
+    n_samples: int = 2**14,
+    seed: int | None = None,
+) -> tuple[float, float]:
+    """Integrate a diagram's contribution over all time variables.
+
+    Convenience wrapper around
+    :meth:`DiagramIntegrand.integrate_moment_qmc` and
+    :meth:`DiagramIntegrand.integrate_moment_nquad`.
+
+    For best performance, call
+    :meth:`PropagatorCache.precompute_C_table` before integrating.
+
+    Args:
+        integrand: A :class:`DiagramIntegrand` built from a
+            :class:`~sft_wick.perturbation.DiagramTerm`.
+        lambda_f: Upper integration limit for external times.
+        cache: A :class:`PropagatorCache`.
+        t_min: Lower time bound (default 0).
+        direction: Direction value for all spatial points.
+        method: ``'qmc'`` (default, Quasi-Monte Carlo with Sobol)
+            or ``'nquad'`` (nested adaptive quadrature).
+        n_samples: Number of Sobol samples (QMC only, should be
+            a power of 2).
+        seed: Random seed for reproducibility (QMC only).
+
+    Returns:
+        ``(estimate, error)`` tuple.
+    """
+    if method == "qmc":
+        return integrand.integrate_moment_qmc(
+            lambda_f, cache, t_min=t_min, direction=direction,
+            n_samples=n_samples, seed=seed,
+        )
+    elif method == "nquad":
+        return integrand.integrate_moment_nquad(
+            lambda_f, cache, t_min=t_min, direction=direction,
+        )
+    else:
+        raise ValueError(f"Unknown method {method!r}; use 'qmc' or 'nquad'")

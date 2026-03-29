@@ -236,6 +236,7 @@
 <li class="toctree-l2"><a class="reference internal" href="propagators.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.propagators</span></code> — Propagator Contraction Rules</a></li>
 <li class="toctree-l2 current current-page"><a class="current reference internal" href="#"><code class="docutils literal notranslate"><span class="pre">sft_wick.perturbation</span></code> — Perturbative Expansion Driver</a></li>
 <li class="toctree-l2"><a class="reference internal" href="simplify.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.simplify</span></code> — Expression Simplification</a></li>
+<li class="toctree-l2"><a class="reference internal" href="evaluate.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.evaluate</span></code> — Numerical Evaluation Pipeline</a></li>
 <li class="toctree-l2"><a class="reference internal" href="diagrams.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.diagrams</span></code> — Feynman Diagram Representation</a></li>
 <li class="toctree-l2"><a class="reference internal" href="drawing.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.drawing</span></code> — Diagram Rendering</a></li>
 <li class="toctree-l2"><a class="reference internal" href="indices.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.indices</span></code> — Index Management</a></li>
@@ -294,7 +295,7 @@
 using Wick’s theorem for each order.</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="sft_wick.perturbation.PerturbativeResult">
-<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">sft_wick.perturbation.</span></span><span class="sig-name descname"><span class="pre">PerturbativeResult</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">order_terms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">total</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">diagrams_by_order</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/sft_wick/perturbation.html#PerturbativeResult"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#sft_wick.perturbation.PerturbativeResult" title="Link to this definition">¶</a></dt>
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">sft_wick.perturbation.</span></span><span class="sig-name descname"><span class="pre">PerturbativeResult</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">order_terms</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">total</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">diagrams_by_order</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">diagram_terms_by_order</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/sft_wick/perturbation.html#PerturbativeResult"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#sft_wick.perturbation.PerturbativeResult" title="Link to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
 <p>Container for the result of a perturbative calculation.</p>
 <p>Stores the symbolic expression at each perturbative order together
@@ -305,6 +306,7 @@ with the corresponding Feynman diagrams.</p>
 <li><p><strong>order_terms</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><a class="reference internal" href="expressions.html#sft_wick.expressions.Expr" title="sft_wick.expressions.Expr"><em>Expr</em></a><em>]</em>)</p></li>
 <li><p><strong>total</strong> (<a class="reference internal" href="expressions.html#sft_wick.expressions.Expr" title="sft_wick.expressions.Expr"><em>Expr</em></a>)</p></li>
 <li><p><strong>diagrams_by_order</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a><em>[</em><a class="reference internal" href="#sft_wick.perturbation.DiagramInfo" title="sft_wick.perturbation.DiagramInfo"><em>DiagramInfo</em></a><em>]</em><em>]</em>)</p></li>
+<li><p><strong>diagram_terms_by_order</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)"><em>list</em></a><em>[</em><a class="reference internal" href="#sft_wick.perturbation.DiagramTerm" title="sft_wick.perturbation.DiagramTerm"><em>DiagramTerm</em></a><em>]</em><em>] </em><em>| </em><em>None</em>)</p></li>
 </ul>
 </dd>
 </dl>
@@ -347,9 +349,36 @@ order has no contribution.</p>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="sft_wick.perturbation.PerturbativeResult.diagram_terms">
+<span class="sig-name descname"><span class="pre">diagram_terms</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">order</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/sft_wick/perturbation.html#PerturbativeResult.diagram_terms"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#sft_wick.perturbation.PerturbativeResult.diagram_terms" title="Link to this definition">¶</a></dt>
+<dd><p>Structured diagram contributions for numerical evaluation.</p>
+<p>Each <a class="reference internal" href="#sft_wick.perturbation.DiagramTerm" title="sft_wick.perturbation.DiagramTerm"><code class="xref py py-class docutils literal notranslate"><span class="pre">DiagramTerm</span></code></a> carries the propagators, coupling
+coefficient, prefactor, and index structure needed to evaluate
+a single Feynman diagram numerically.</p>
+<p>Populated when <code class="docutils literal notranslate"><span class="pre">collect_topology=True</span></code> (the default).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>order</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>) – The perturbative order.</p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of <a class="reference internal" href="#sft_wick.perturbation.DiagramTerm" title="sft_wick.perturbation.DiagramTerm"><code class="xref py py-class docutils literal notranslate"><span class="pre">DiagramTerm</span></code></a> at that order, or empty list.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)">list</a>[<a class="reference internal" href="#sft_wick.perturbation.DiagramTerm" title="sft_wick.perturbation.DiagramTerm"><em>DiagramTerm</em></a>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="sft_wick.perturbation.PerturbativeResult.to_latex">
 <span class="sig-name descname"><span class="pre">to_latex</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/sft_wick/perturbation.html#PerturbativeResult.to_latex"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#sft_wick.perturbation.PerturbativeResult.to_latex" title="Link to this definition">¶</a></dt>
 <dd><p>Generate LaTeX for the full result, order by order.</p>
+<p>When diagram terms are available (the default <code class="docutils literal notranslate"><span class="pre">collect_topology=True</span></code>
+path), each order is rendered as a sum of fully-wrapped diagram
+contributions — with summation indices, integration variables,
+response phase, and prefactor all explicit.</p>
+<p>Falls back to the raw symbolic expression when diagram terms are
+not populated.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Returns<span class="colon">:</span></dt>
 <dd class="field-odd"><p>A multi-line string with one <code class="docutils literal notranslate"><span class="pre">O(n):</span> <span class="pre">&lt;latex&gt;</span></code> line per
@@ -447,9 +476,284 @@ nodes, vertices, and propagator edges.</p>
 
 </dd></dl>
 
+<dl class="py class">
+<dt class="sig sig-object py" id="sft_wick.perturbation.DiagramTerm">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">sft_wick.perturbation.</span></span><span class="sig-name descname"><span class="pre">DiagramTerm</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">propagators</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">coupling_sum</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rational_prefactor</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">integration_vars</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">summation_indices</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_response</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/sft_wick/perturbation.html#DiagramTerm"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#sft_wick.perturbation.DiagramTerm" title="Link to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>A single Feynman diagram’s contribution, structured for numerical evaluation.</p>
+<p>The full contribution is:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>rational_prefactor × response_phase_factor × coupling_sum × ∏ propagators
+</pre></div>
+</div>
+<p>summed over <code class="docutils literal notranslate"><span class="pre">summation_indices</span></code> and integrated over <code class="docutils literal notranslate"><span class="pre">integration_vars</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>propagators</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><em>tuple</em></a><em>[</em><a class="reference internal" href="expressions.html#sft_wick.expressions.Propagator" title="sft_wick.expressions.Propagator"><em>Propagator</em></a><em>, </em><em>...</em><em>]</em>)</p></li>
+<li><p><strong>coupling_sum</strong> (<a class="reference internal" href="expressions.html#sft_wick.expressions.Expr" title="sft_wick.expressions.Expr"><em>Expr</em></a>)</p></li>
+<li><p><strong>rational_prefactor</strong> (<a class="reference internal" href="expressions.html#sft_wick.expressions.Rational" title="sft_wick.expressions.Rational"><em>Rational</em></a>)</p></li>
+<li><p><strong>integration_vars</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><em>tuple</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><em>...</em><em>]</em>)</p></li>
+<li><p><strong>summation_indices</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><em>tuple</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><em>tuple</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>]</em><em>, </em><em>...</em><em>]</em>)</p></li>
+<li><p><strong>n_response</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a>)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="sft_wick.perturbation.DiagramTerm.propagators">
+<span class="sig-name descname"><span class="pre">propagators</span></span><a class="headerlink" href="#sft_wick.perturbation.DiagramTerm.propagators" title="Link to this definition">¶</a></dt>
+<dd><p>Tuple of propagators forming the diagram.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)">tuple</a>[<a class="reference internal" href="expressions.html#sft_wick.expressions.Propagator" title="sft_wick.expressions.Propagator">sft_wick.expressions.Propagator</a>, …]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="sft_wick.perturbation.DiagramTerm.coupling_sum">
+<span class="sig-name descname"><span class="pre">coupling_sum</span></span><a class="headerlink" href="#sft_wick.perturbation.DiagramTerm.coupling_sum" title="Link to this definition">¶</a></dt>
+<dd><p>Symbolic coupling expression (sum of permuted
+couplings), <strong>without</strong> the rational prefactor.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="expressions.html#sft_wick.expressions.Expr" title="sft_wick.expressions.Expr">sft_wick.expressions.Expr</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="sft_wick.perturbation.DiagramTerm.rational_prefactor">
+<span class="sig-name descname"><span class="pre">rational_prefactor</span></span><a class="headerlink" href="#sft_wick.perturbation.DiagramTerm.rational_prefactor" title="Link to this definition">¶</a></dt>
+<dd><p>The <code class="docutils literal notranslate"><span class="pre">(-1)^n</span> <span class="pre">/</span> <span class="pre">n!</span> <span class="pre">×</span> <span class="pre">multinomial</span></code> coefficient.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="expressions.html#sft_wick.expressions.Rational" title="sft_wick.expressions.Rational">sft_wick.expressions.Rational</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="sft_wick.perturbation.DiagramTerm.integration_vars">
+<span class="sig-name descname"><span class="pre">integration_vars</span></span><a class="headerlink" href="#sft_wick.perturbation.DiagramTerm.integration_vars" title="Link to this definition">¶</a></dt>
+<dd><p>Spatial variables to integrate over.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)">tuple</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)">str</a>, …]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="sft_wick.perturbation.DiagramTerm.summation_indices">
+<span class="sig-name descname"><span class="pre">summation_indices</span></span><a class="headerlink" href="#sft_wick.perturbation.DiagramTerm.summation_indices" title="Link to this definition">¶</a></dt>
+<dd><p><code class="docutils literal notranslate"><span class="pre">(index_name,</span> <span class="pre">dimension)</span></code> pairs for component
+index summations.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)">tuple</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)">tuple</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)">str</a>, <a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)">int</a>], …]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="sft_wick.perturbation.DiagramTerm.n_response">
+<span class="sig-name descname"><span class="pre">n_response</span></span><a class="headerlink" href="#sft_wick.perturbation.DiagramTerm.n_response" title="Link to this definition">¶</a></dt>
+<dd><p>Number of R propagators (determines the response phase).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)">int</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id0">
+<span class="sig-name descname"><span class="pre">propagators</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference internal" href="expressions.html#sft_wick.expressions.Propagator" title="sft_wick.expressions.Propagator"><span class="pre">Propagator</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#id0" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id1">
+<span class="sig-name descname"><span class="pre">coupling_sum</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="expressions.html#sft_wick.expressions.Expr" title="sft_wick.expressions.Expr"><span class="pre">Expr</span></a></span><a class="headerlink" href="#id1" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id2">
+<span class="sig-name descname"><span class="pre">rational_prefactor</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="expressions.html#sft_wick.expressions.Rational" title="sft_wick.expressions.Rational"><span class="pre">Rational</span></a></span><a class="headerlink" href="#id2" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id3">
+<span class="sig-name descname"><span class="pre">integration_vars</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#id3" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id4">
+<span class="sig-name descname"><span class="pre">summation_indices</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#id4" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id5">
+<span class="sig-name descname"><span class="pre">n_response</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a></span><a class="headerlink" href="#id5" title="Link to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="sft_wick.perturbation.DiagramTerm.propagator_indices">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">propagator_indices</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#sft_wick.perturbation.DiagramTerm.propagator_indices" title="Link to this definition">¶</a></dt>
+<dd><p>Summation indices that appear in at least one propagator.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="sft_wick.perturbation.DiagramTerm.coupling_only_indices">
+<span class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">coupling_only_indices</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)"><span class="pre">tuple</span></a><span class="p"><span class="pre">[</span></span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><span class="pre">str</span></a><span class="p"><span class="pre">,</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><span class="pre">int</span></a><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="p"><span class="pre">...</span></span><span class="p"><span class="pre">]</span></span></span><a class="headerlink" href="#sft_wick.perturbation.DiagramTerm.coupling_only_indices" title="Link to this definition">¶</a></dt>
+<dd><p>Summation indices that appear only in the coupling sum, not in any propagator.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="sft_wick.perturbation.DiagramTerm.spatial_topology">
+<span class="sig-name descname"><span class="pre">spatial_topology</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/sft_wick/perturbation.html#DiagramTerm.spatial_topology"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#sft_wick.perturbation.DiagramTerm.spatial_topology" title="Link to this definition">¶</a></dt>
+<dd><p>Return <code class="docutils literal notranslate"><span class="pre">(kind,</span> <span class="pre">spatial_left,</span> <span class="pre">spatial_right)</span></code> for each propagator.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#list" title="(in Python v3.14)">list</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#tuple" title="(in Python v3.14)">tuple</a>[<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)">str</a>, <a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)">str</a>, <a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)">str</a>]]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="sft_wick.perturbation.DiagramTerm.response_phase_factor">
+<span class="sig-name descname"><span class="pre">response_phase_factor</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/sft_wick/perturbation.html#DiagramTerm.response_phase_factor"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#sft_wick.perturbation.DiagramTerm.response_phase_factor" title="Link to this definition">¶</a></dt>
+<dd><p>Return <code class="docutils literal notranslate"><span class="pre">(-i)^n_response</span></code> as a complex number.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/functions.html#complex" title="(in Python v3.14)">complex</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="sft_wick.perturbation.DiagramTerm.evaluate_coupling">
+<span class="sig-name descname"><span class="pre">evaluate_coupling</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">coupling_values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fixed_indices</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/sft_wick/perturbation.html#DiagramTerm.evaluate_coupling"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#sft_wick.perturbation.DiagramTerm.evaluate_coupling" title="Link to this definition">¶</a></dt>
+<dd><p>Substitute numeric coupling tensor values and return an array.</p>
+<p>The output is indexed by <strong>propagator indices</strong> only.  For each
+combination of propagator index values the coupling sum is
+evaluated by summing over <strong>coupling-only indices</strong> (indices that
+appear in the coupling expression but in no propagator).  This
+matches the natural contraction order: fix the propagator legs,
+then sum the vertex factors internally.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>coupling_values</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a>) – <code class="docutils literal notranslate"><span class="pre">{name:</span> <span class="pre">array}</span></code> mapping coupling names to
+NumPy arrays.  For a rank-3 coupling <code class="docutils literal notranslate"><span class="pre">F</span></code>, the array
+shape should be <code class="docutils literal notranslate"><span class="pre">(N,</span> <span class="pre">N,</span> <span class="pre">N)</span></code> where <em>N</em> is the number
+of field components.</p></li>
+<li><p><strong>fixed_indices</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>] </em><em>| </em><em>None</em>) – Optional <code class="docutils literal notranslate"><span class="pre">{index_name:</span> <span class="pre">int_value}</span></code> for
+indices pinned by external constraints (e.g. observable
+component indices like <code class="docutils literal notranslate"><span class="pre">{'1':</span> <span class="pre">0}</span></code>).</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>NumPy array with shape <code class="docutils literal notranslate"><span class="pre">(dim_i0,</span> <span class="pre">dim_i1,</span> <span class="pre">...)</span></code> for the
+propagator indices, with <code class="docutils literal notranslate"><span class="pre">rational_prefactor</span></code> and the MSR
+response phase <code class="docutils literal notranslate"><span class="pre">(-i)^n_response</span></code> already applied.  Returns
+a 0-d array when there are no propagator indices.  The result
+is complex whenever <code class="docutils literal notranslate"><span class="pre">n_response</span> <span class="pre">%</span> <span class="pre">4</span> <span class="pre">in</span> <span class="pre">{1,</span> <span class="pre">3}</span></code> or the
+coupling tensors are complex-valued.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>numpy.ndarray</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="sft_wick.perturbation.DiagramTerm.apply_diagonal">
+<span class="sig-name descname"><span class="pre">apply_diagonal</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">diag_R</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">diag_C</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">iso_R</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">iso_C</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/sft_wick/perturbation.html#DiagramTerm.apply_diagonal"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#sft_wick.perturbation.DiagramTerm.apply_diagonal" title="Link to this definition">¶</a></dt>
+<dd><p>Return a new term with diagonal (and optionally isotropic) propagator constraints applied.</p>
+<p>Eliminates summation indices that are pinned by diagonal
+propagators and substitutes index equalities into the coupling
+expression.  The delta constraint collapses the double sum into
+a single sum, so no extra factor is applied.</p>
+<p>With <code class="docutils literal notranslate"><span class="pre">iso_R=True</span></code> (implies <code class="docutils literal notranslate"><span class="pre">diag_R=True</span></code>), the remaining equal
+component indices are stripped from R propagators entirely, expressing
+the assumption that all diagonal R entries are the same scalar R.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>diag_R</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Enforce diagonal response propagators.</p></li>
+<li><p><strong>diag_C</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Enforce diagonal correlation propagators.</p></li>
+<li><p><strong>iso_R</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Enforce isotropic (index-free) response propagators.</p></li>
+<li><p><strong>iso_C</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – Enforce isotropic (index-free) correlation propagators.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A new <a class="reference internal" href="#sft_wick.perturbation.DiagramTerm" title="sft_wick.perturbation.DiagramTerm"><code class="xref py py-class docutils literal notranslate"><span class="pre">DiagramTerm</span></code></a> with reduced summation indices.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="#sft_wick.perturbation.DiagramTerm" title="sft_wick.perturbation.DiagramTerm"><em>DiagramTerm</em></a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="sft_wick.perturbation.DiagramTerm.to_latex">
+<span class="sig-name descname"><span class="pre">to_latex</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/sft_wick/perturbation.html#DiagramTerm.to_latex"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#sft_wick.perturbation.DiagramTerm.to_latex" title="Link to this definition">¶</a></dt>
+<dd><p>Full LaTeX representation including summations, integrals, and phase.</p>
+<p>Renders the complete contribution:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span>\sum_{i_0} ... \int dy_0 ... coeff × (coupling) × propagators
+</pre></div>
+</div>
+<p>where <em>coeff</em> combines the rational prefactor and the MSR phase
+<code class="docutils literal notranslate"><span class="pre">(-i)^{n_R}</span></code> into a single coefficient.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)">str</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="sft_wick.perturbation.DiagramTerm.analyze_spatial">
+<span class="sig-name descname"><span class="pre">analyze_spatial</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/sft_wick/perturbation.html#DiagramTerm.analyze_spatial"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#sft_wick.perturbation.DiagramTerm.analyze_spatial" title="Link to this definition">¶</a></dt>
+<dd><p>Analyze R-propagator connectivity and time orderings.</p>
+<p>Returns a <a class="reference internal" href="evaluate.html#sft_wick.evaluate.SpatialStructure" title="sft_wick.evaluate.SpatialStructure"><code class="xref py py-class docutils literal notranslate"><span class="pre">SpatialStructure</span></code></a> describing
+direction identification groups, causal time orderings, and
+surviving integration variables.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="evaluate.html#sft_wick.evaluate.SpatialStructure" title="sft_wick.evaluate.SpatialStructure">SpatialStructure</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="sft_wick.perturbation.DiagramTerm.build_integrand">
+<span class="sig-name descname"><span class="pre">build_integrand</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">coupling_values</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fixed_indices</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/sft_wick/perturbation.html#DiagramTerm.build_integrand"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#sft_wick.perturbation.DiagramTerm.build_integrand" title="Link to this definition">¶</a></dt>
+<dd><p>Build a <a class="reference internal" href="evaluate.html#sft_wick.evaluate.DiagramIntegrand" title="sft_wick.evaluate.DiagramIntegrand"><code class="xref py py-class docutils literal notranslate"><span class="pre">DiagramIntegrand</span></code></a> for numerical evaluation.</p>
+<p>Combines coupling coefficient evaluation (Step 1) with spatial
+structure analysis (Step 2) into a ready-to-evaluate object.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>coupling_values</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a>) – Coupling tensor arrays (e.g. <code class="docutils literal notranslate"><span class="pre">{'F':</span> <span class="pre">F_code}</span></code>).</p></li>
+<li><p><strong>fixed_indices</strong> (<a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#dict" title="(in Python v3.14)"><em>dict</em></a><em>[</em><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><em>str</em></a><em>, </em><a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><em>int</em></a><em>] </em><em>| </em><em>None</em>) – Optional pinned index values.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>A <code class="xref py py-class docutils literal notranslate"><span class="pre">DiagramIntegrand</span></code> that can evaluate the integrand at
+specific time/direction coordinates.</p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><a class="reference internal" href="evaluate.html#sft_wick.evaluate.DiagramIntegrand" title="sft_wick.evaluate.DiagramIntegrand">DiagramIntegrand</a></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
 <dl class="py function">
 <dt class="sig sig-object py" id="sft_wick.perturbation.compute_moment">
-<span class="sig-prename descclassname"><span class="pre">sft_wick.perturbation.</span></span><span class="sig-name descname"><span class="pre">compute_moment</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">observable</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">action</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">order</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ito</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">response_phase</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">collect_topology</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/sft_wick/perturbation.html#compute_moment"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#sft_wick.perturbation.compute_moment" title="Link to this definition">¶</a></dt>
+<span class="sig-prename descclassname"><span class="pre">sft_wick.perturbation.</span></span><span class="sig-name descname"><span class="pre">compute_moment</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">observable</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">action</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">order</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ito</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">response_phase</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">collect_topology</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">diag_R</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">diag_C</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">iso_R</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">iso_C</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/sft_wick/perturbation.html#compute_moment"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#sft_wick.perturbation.compute_moment" title="Link to this definition">¶</a></dt>
 <dd><p>Compute the perturbative expansion of an observable.</p>
 <p>Evaluates</p>
 <div class="math-wrapper docutils container">
@@ -480,6 +784,16 @@ convention <span class="math notranslate nohighlight">\(\langle\phi\,\psi\rangle
 same propagator spatial structure and factor out the
 propagators, summing the coupling coefficients with
 appropriately permuted indices.</p></li>
+<li><p><strong>diag_R</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – If <code class="docutils literal notranslate"><span class="pre">True</span></code>, enforce diagonal response propagators
+<span class="math notranslate nohighlight">\(R_{ij} = \delta_{ij} R\)</span>, eliminating one summation
+index per R propagator.</p></li>
+<li><p><strong>diag_C</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – If <code class="docutils literal notranslate"><span class="pre">True</span></code>, enforce diagonal correlation propagators
+<span class="math notranslate nohighlight">\(C_{ij} = \delta_{ij} C\)</span>, eliminating one summation
+index per C propagator.</p></li>
+<li><p><strong>iso_R</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – If <code class="docutils literal notranslate"><span class="pre">True</span></code> (implies <code class="docutils literal notranslate"><span class="pre">diag_R</span></code>), further assume all
+diagonal R entries are equal, <span class="math notranslate nohighlight">\(R_{ii} = R\)</span>.  The
+component index is dropped from R propagators entirely.</p></li>
+<li><p><strong>iso_C</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><em>bool</em></a>) – If <code class="docutils literal notranslate"><span class="pre">True</span></code> (implies <code class="docutils literal notranslate"><span class="pre">diag_C</span></code>), the same for C.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Returns<span class="colon">:</span></dt>
@@ -555,6 +869,7 @@ expressions, a combined total, and Feynman diagram information.</p>
 <li><a class="reference internal" href="#sft_wick.perturbation.PerturbativeResult.total"><code class="docutils literal notranslate"><span class="pre">PerturbativeResult.total</span></code></a></li>
 <li><a class="reference internal" href="#sft_wick.perturbation.PerturbativeResult.diagrams_by_order"><code class="docutils literal notranslate"><span class="pre">PerturbativeResult.diagrams_by_order</span></code></a></li>
 <li><a class="reference internal" href="#sft_wick.perturbation.PerturbativeResult.order"><code class="docutils literal notranslate"><span class="pre">PerturbativeResult.order()</span></code></a></li>
+<li><a class="reference internal" href="#sft_wick.perturbation.PerturbativeResult.diagram_terms"><code class="docutils literal notranslate"><span class="pre">PerturbativeResult.diagram_terms()</span></code></a></li>
 <li><a class="reference internal" href="#sft_wick.perturbation.PerturbativeResult.to_latex"><code class="docutils literal notranslate"><span class="pre">PerturbativeResult.to_latex()</span></code></a></li>
 <li><a class="reference internal" href="#sft_wick.perturbation.PerturbativeResult.draw_diagrams"><code class="docutils literal notranslate"><span class="pre">PerturbativeResult.draw_diagrams()</span></code></a></li>
 </ul>
@@ -566,6 +881,30 @@ expressions, a combined total, and Feynman diagram information.</p>
 <li><a class="reference internal" href="#sft_wick.perturbation.DiagramInfo.coefficient"><code class="docutils literal notranslate"><span class="pre">DiagramInfo.coefficient</span></code></a></li>
 <li><a class="reference internal" href="#sft_wick.perturbation.DiagramInfo.order"><code class="docutils literal notranslate"><span class="pre">DiagramInfo.order</span></code></a></li>
 <li><a class="reference internal" href="#sft_wick.perturbation.DiagramInfo.to_feynman_diagram"><code class="docutils literal notranslate"><span class="pre">DiagramInfo.to_feynman_diagram()</span></code></a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#sft_wick.perturbation.DiagramTerm"><code class="docutils literal notranslate"><span class="pre">DiagramTerm</span></code></a><ul>
+<li><a class="reference internal" href="#sft_wick.perturbation.DiagramTerm.propagators"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.propagators</span></code></a></li>
+<li><a class="reference internal" href="#sft_wick.perturbation.DiagramTerm.coupling_sum"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.coupling_sum</span></code></a></li>
+<li><a class="reference internal" href="#sft_wick.perturbation.DiagramTerm.rational_prefactor"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.rational_prefactor</span></code></a></li>
+<li><a class="reference internal" href="#sft_wick.perturbation.DiagramTerm.integration_vars"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.integration_vars</span></code></a></li>
+<li><a class="reference internal" href="#sft_wick.perturbation.DiagramTerm.summation_indices"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.summation_indices</span></code></a></li>
+<li><a class="reference internal" href="#sft_wick.perturbation.DiagramTerm.n_response"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.n_response</span></code></a></li>
+<li><a class="reference internal" href="#id0"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.propagators</span></code></a></li>
+<li><a class="reference internal" href="#id1"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.coupling_sum</span></code></a></li>
+<li><a class="reference internal" href="#id2"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.rational_prefactor</span></code></a></li>
+<li><a class="reference internal" href="#id3"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.integration_vars</span></code></a></li>
+<li><a class="reference internal" href="#id4"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.summation_indices</span></code></a></li>
+<li><a class="reference internal" href="#id5"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.n_response</span></code></a></li>
+<li><a class="reference internal" href="#sft_wick.perturbation.DiagramTerm.propagator_indices"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.propagator_indices</span></code></a></li>
+<li><a class="reference internal" href="#sft_wick.perturbation.DiagramTerm.coupling_only_indices"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.coupling_only_indices</span></code></a></li>
+<li><a class="reference internal" href="#sft_wick.perturbation.DiagramTerm.spatial_topology"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.spatial_topology()</span></code></a></li>
+<li><a class="reference internal" href="#sft_wick.perturbation.DiagramTerm.response_phase_factor"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.response_phase_factor()</span></code></a></li>
+<li><a class="reference internal" href="#sft_wick.perturbation.DiagramTerm.evaluate_coupling"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.evaluate_coupling()</span></code></a></li>
+<li><a class="reference internal" href="#sft_wick.perturbation.DiagramTerm.apply_diagonal"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.apply_diagonal()</span></code></a></li>
+<li><a class="reference internal" href="#sft_wick.perturbation.DiagramTerm.to_latex"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.to_latex()</span></code></a></li>
+<li><a class="reference internal" href="#sft_wick.perturbation.DiagramTerm.analyze_spatial"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.analyze_spatial()</span></code></a></li>
+<li><a class="reference internal" href="#sft_wick.perturbation.DiagramTerm.build_integrand"><code class="docutils literal notranslate"><span class="pre">DiagramTerm.build_integrand()</span></code></a></li>
 </ul>
 </li>
 <li><a class="reference internal" href="#sft_wick.perturbation.compute_moment"><code class="docutils literal notranslate"><span class="pre">compute_moment()</span></code></a></li>

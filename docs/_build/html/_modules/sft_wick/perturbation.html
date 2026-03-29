@@ -235,6 +235,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../../api/propagators.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.propagators</span></code> — Propagator Contraction Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../api/perturbation.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.perturbation</span></code> — Perturbative Expansion Driver</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../api/simplify.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.simplify</span></code> — Expression Simplification</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../api/evaluate.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.evaluate</span></code> — Numerical Evaluation Pipeline</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../api/diagrams.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.diagrams</span></code> — Feynman Diagram Representation</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../api/drawing.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.drawing</span></code> — Diagram Rendering</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../../api/indices.html"><code class="docutils literal notranslate"><span class="pre">sft_wick.indices</span></code> — Index Management</a></li>
@@ -285,8 +286,11 @@
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
 
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">math</span><span class="w"> </span><span class="kn">import</span> <span class="n">factorial</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">TYPE_CHECKING</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">.action</span><span class="w"> </span><span class="kn">import</span> <span class="n">Action</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.expressions</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
@@ -299,18 +303,22 @@
     <span class="n">Sum</span><span class="p">,</span>
     <span class="n">SumOverIndex</span><span class="p">,</span>
     <span class="n">Symbol</span><span class="p">,</span>
+    <span class="n">_latex_index</span><span class="p">,</span>
     <span class="n">apply_response_phase</span><span class="p">,</span>
 <span class="p">)</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">.fields</span><span class="w"> </span><span class="kn">import</span> <span class="n">FieldOperator</span><span class="p">,</span> <span class="n">reset_uid_counter</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.fields</span><span class="w"> </span><span class="kn">import</span> <span class="n">FieldOperator</span><span class="p">,</span> <span class="n">FieldType</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.indices</span><span class="w"> </span><span class="kn">import</span> <span class="n">IndexContext</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.propagators</span><span class="w"> </span><span class="kn">import</span> <span class="n">contract_pair</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.simplify</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">_apply_index_sub</span><span class="p">,</span>
     <span class="n">_canonical_diagram_form</span><span class="p">,</span>
     <span class="n">_match_propagators_after_spatial</span><span class="p">,</span>
     <span class="n">collect_by_diagram</span><span class="p">,</span>
+    <span class="n">diagonal_propagators</span><span class="p">,</span>
     <span class="n">simplify</span><span class="p">,</span>
 <span class="p">)</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">.vertices</span><span class="w"> </span><span class="kn">import</span> <span class="n">VertexInstance</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">.wick</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pairing</span><span class="p">,</span> <span class="n">SpatialSignature</span><span class="p">,</span> <span class="n">_canonical_edge</span><span class="p">,</span> <span class="n">wick_contract</span><span class="p">,</span> <span class="n">wick_contract_grouped</span><span class="p">,</span> <span class="n">wick_contract_spatial</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.wick</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pairing</span><span class="p">,</span> <span class="n">SpatialSignature</span><span class="p">,</span> <span class="n">wick_contract</span><span class="p">,</span> <span class="n">wick_contract_spatial</span>
 
 <span class="k">if</span> <span class="n">TYPE_CHECKING</span><span class="p">:</span>
     <span class="k">pass</span>
@@ -337,10 +345,14 @@
         <span class="n">order_terms</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">Expr</span><span class="p">],</span>
         <span class="n">total</span><span class="p">:</span> <span class="n">Expr</span><span class="p">,</span>
         <span class="n">diagrams_by_order</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">DiagramInfo</span><span class="p">]],</span>
+        <span class="n">diagram_terms_by_order</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">DiagramTerm</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">order_terms</span> <span class="o">=</span> <span class="n">order_terms</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">total</span> <span class="o">=</span> <span class="n">total</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">diagrams_by_order</span> <span class="o">=</span> <span class="n">diagrams_by_order</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">diagram_terms_by_order</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">DiagramTerm</span><span class="p">]]</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">diagram_terms_by_order</span> <span class="ow">or</span> <span class="p">{}</span>
+        <span class="p">)</span>
 
 <div class="viewcode-block" id="PerturbativeResult.order">
 <a class="viewcode-back" href="../../api/perturbation.html#sft_wick.perturbation.PerturbativeResult.order">[docs]</a>
@@ -357,21 +369,56 @@
         <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">order_terms</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">ZERO</span><span class="p">)</span></div>
 
 
+<div class="viewcode-block" id="PerturbativeResult.diagram_terms">
+<a class="viewcode-back" href="../../api/perturbation.html#sft_wick.perturbation.PerturbativeResult.diagram_terms">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">diagram_terms</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">order</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">DiagramTerm</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Structured diagram contributions for numerical evaluation.</span>
+
+<span class="sd">        Each :class:`DiagramTerm` carries the propagators, coupling</span>
+<span class="sd">        coefficient, prefactor, and index structure needed to evaluate</span>
+<span class="sd">        a single Feynman diagram numerically.</span>
+
+<span class="sd">        Populated when ``collect_topology=True`` (the default).</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            order: The perturbative order.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            List of :class:`DiagramTerm` at that order, or empty list.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">diagram_terms_by_order</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">order</span><span class="p">,</span> <span class="p">[])</span></div>
+
+
 <div class="viewcode-block" id="PerturbativeResult.to_latex">
 <a class="viewcode-back" href="../../api/perturbation.html#sft_wick.perturbation.PerturbativeResult.to_latex">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">to_latex</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;Generate LaTeX for the full result, order by order.</span>
 
+<span class="sd">        When diagram terms are available (the default ``collect_topology=True``</span>
+<span class="sd">        path), each order is rendered as a sum of fully-wrapped diagram</span>
+<span class="sd">        contributions — with summation indices, integration variables,</span>
+<span class="sd">        response phase, and prefactor all explicit.</span>
+
+<span class="sd">        Falls back to the raw symbolic expression when diagram terms are</span>
+<span class="sd">        not populated.</span>
+
 <span class="sd">        Returns:</span>
 <span class="sd">            A multi-line string with one ``O(n): &lt;latex&gt;`` line per</span>
 <span class="sd">            non-zero order.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
-        <span class="n">parts</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">lines</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">order_terms</span><span class="o">.</span><span class="n">keys</span><span class="p">()):</span>
-            <span class="n">expr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">order_terms</span><span class="p">[</span><span class="n">n</span><span class="p">]</span>
-            <span class="k">if</span> <span class="ow">not</span> <span class="n">_is_zero</span><span class="p">(</span><span class="n">expr</span><span class="p">):</span>
-                <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;O(</span><span class="si">{</span><span class="n">n</span><span class="si">}</span><span class="s2">): </span><span class="si">{</span><span class="n">expr</span><span class="o">.</span><span class="n">to_latex</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
-        <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span></div>
+            <span class="n">dts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">diagram_terms_by_order</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="p">[])</span>
+            <span class="k">if</span> <span class="n">dts</span><span class="p">:</span>
+                <span class="n">term_strs</span> <span class="o">=</span> <span class="p">[</span><span class="n">dt</span><span class="o">.</span><span class="n">to_latex</span><span class="p">()</span> <span class="k">for</span> <span class="n">dt</span> <span class="ow">in</span> <span class="n">dts</span><span class="p">]</span>
+                <span class="n">combined</span> <span class="o">=</span> <span class="s2">&quot; + &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">term_strs</span><span class="p">)</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">term_strs</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span> <span class="k">else</span> \
+                    <span class="s2">&quot; </span><span class="se">\\\\\n</span><span class="s2">    + &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">term_strs</span><span class="p">)</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;O(</span><span class="si">{</span><span class="n">n</span><span class="si">}</span><span class="s2">): </span><span class="si">{</span><span class="n">combined</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">expr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">order_terms</span><span class="p">[</span><span class="n">n</span><span class="p">]</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">_is_zero</span><span class="p">(</span><span class="n">expr</span><span class="p">):</span>
+                    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;O(</span><span class="si">{</span><span class="n">n</span><span class="si">}</span><span class="s2">): </span><span class="si">{</span><span class="n">expr</span><span class="o">.</span><span class="n">to_latex</span><span class="p">()</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span></div>
 
 
 <div class="viewcode-block" id="PerturbativeResult.draw_diagrams">
@@ -477,6 +524,371 @@
 
 
 
+<div class="viewcode-block" id="DiagramTerm">
+<a class="viewcode-back" href="../../api/perturbation.html#sft_wick.perturbation.DiagramTerm">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">DiagramTerm</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;A single Feynman diagram&#39;s contribution, structured for numerical evaluation.</span>
+
+<span class="sd">    The full contribution is::</span>
+
+<span class="sd">        rational_prefactor × response_phase_factor × coupling_sum × ∏ propagators</span>
+
+<span class="sd">    summed over ``summation_indices`` and integrated over ``integration_vars``.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        propagators: Tuple of propagators forming the diagram.</span>
+<span class="sd">        coupling_sum: Symbolic coupling expression (sum of permuted</span>
+<span class="sd">            couplings), **without** the rational prefactor.</span>
+<span class="sd">        rational_prefactor: The ``(-1)^n / n! × multinomial`` coefficient.</span>
+<span class="sd">        integration_vars: Spatial variables to integrate over.</span>
+<span class="sd">        summation_indices: ``(index_name, dimension)`` pairs for component</span>
+<span class="sd">            index summations.</span>
+<span class="sd">        n_response: Number of R propagators (determines the response phase).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">propagators</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">Propagator</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+    <span class="n">coupling_sum</span><span class="p">:</span> <span class="n">Expr</span>
+    <span class="n">rational_prefactor</span><span class="p">:</span> <span class="n">Rational</span>
+    <span class="n">integration_vars</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+    <span class="n">summation_indices</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span>
+    <span class="n">n_response</span><span class="p">:</span> <span class="nb">int</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">propagator_indices</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Summation indices that appear in at least one propagator.&quot;&quot;&quot;</span>
+        <span class="n">prop_idx_set</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">propagators</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">index_left</span><span class="p">:</span>
+                <span class="n">prop_idx_set</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">index_left</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">index_right</span><span class="p">:</span>
+                <span class="n">prop_idx_set</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">index_right</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">item</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">summation_indices</span> <span class="k">if</span> <span class="n">item</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">in</span> <span class="n">prop_idx_set</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">coupling_only_indices</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Summation indices that appear only in the coupling sum, not in any propagator.&quot;&quot;&quot;</span>
+        <span class="n">prop_idx_set</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">propagators</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">index_left</span><span class="p">:</span>
+                <span class="n">prop_idx_set</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">index_left</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">index_right</span><span class="p">:</span>
+                <span class="n">prop_idx_set</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">index_right</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">item</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">summation_indices</span> <span class="k">if</span> <span class="n">item</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">prop_idx_set</span><span class="p">)</span>
+
+<div class="viewcode-block" id="DiagramTerm.spatial_topology">
+<a class="viewcode-back" href="../../api/perturbation.html#sft_wick.perturbation.DiagramTerm.spatial_topology">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">spatial_topology</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return ``(kind, spatial_left, spatial_right)`` for each propagator.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">[</span>
+            <span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">kind</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">spatial_left</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">spatial_right</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">propagators</span>
+        <span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="DiagramTerm.response_phase_factor">
+<a class="viewcode-back" href="../../api/perturbation.html#sft_wick.perturbation.DiagramTerm.response_phase_factor">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">response_phase_factor</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">complex</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return ``(-i)^n_response`` as a complex number.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">[</span><span class="mf">1.0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="n">j</span><span class="p">,</span> <span class="o">-</span><span class="mf">1.0</span><span class="p">,</span> <span class="mi">1</span><span class="n">j</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">n_response</span> <span class="o">%</span> <span class="mi">4</span><span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="DiagramTerm.evaluate_coupling">
+<a class="viewcode-back" href="../../api/perturbation.html#sft_wick.perturbation.DiagramTerm.evaluate_coupling">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">evaluate_coupling</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">coupling_values</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+        <span class="n">fixed_indices</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;numpy.ndarray&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Substitute numeric coupling tensor values and return an array.</span>
+
+<span class="sd">        The output is indexed by **propagator indices** only.  For each</span>
+<span class="sd">        combination of propagator index values the coupling sum is</span>
+<span class="sd">        evaluated by summing over **coupling-only indices** (indices that</span>
+<span class="sd">        appear in the coupling expression but in no propagator).  This</span>
+<span class="sd">        matches the natural contraction order: fix the propagator legs,</span>
+<span class="sd">        then sum the vertex factors internally.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            coupling_values: ``{name: array}`` mapping coupling names to</span>
+<span class="sd">                NumPy arrays.  For a rank-3 coupling ``F``, the array</span>
+<span class="sd">                shape should be ``(N, N, N)`` where *N* is the number</span>
+<span class="sd">                of field components.</span>
+<span class="sd">            fixed_indices: Optional ``{index_name: int_value}`` for</span>
+<span class="sd">                indices pinned by external constraints (e.g. observable</span>
+<span class="sd">                component indices like ``{&#39;1&#39;: 0}``).</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            NumPy array with shape ``(dim_i0, dim_i1, ...)`` for the</span>
+<span class="sd">            propagator indices, with ``rational_prefactor`` and the MSR</span>
+<span class="sd">            response phase ``(-i)^n_response`` already applied.  Returns</span>
+<span class="sd">            a 0-d array when there are no propagator indices.  The result</span>
+<span class="sd">            is complex whenever ``n_response % 4 in {1, 3}`` or the</span>
+<span class="sd">            coupling tensors are complex-valued.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+        <span class="n">phase</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">response_phase_factor</span><span class="p">()</span>  <span class="c1"># (-i)^n_response</span>
+        <span class="n">pref</span> <span class="o">=</span> <span class="n">phase</span> <span class="o">*</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">rational_prefactor</span><span class="o">.</span><span class="n">numerator</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">rational_prefactor</span><span class="o">.</span><span class="n">denominator</span><span class="p">)</span>
+        <span class="n">base_map</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">fixed_indices</span><span class="p">)</span> <span class="k">if</span> <span class="n">fixed_indices</span> <span class="k">else</span> <span class="p">{}</span>
+        <span class="n">dtype</span> <span class="o">=</span> <span class="nb">complex</span> <span class="k">if</span> <span class="p">(</span>
+            <span class="nb">isinstance</span><span class="p">(</span><span class="n">pref</span><span class="p">,</span> <span class="nb">complex</span><span class="p">)</span> <span class="ow">or</span>
+            <span class="nb">any</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">iscomplexobj</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">coupling_values</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+        <span class="p">)</span> <span class="k">else</span> <span class="nb">float</span>
+
+        <span class="n">prop_idx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">propagator_indices</span>    <span class="c1"># outer axes of result</span>
+        <span class="n">coup_idx</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">coupling_only_indices</span>  <span class="c1"># summed internally</span>
+
+        <span class="n">prop_shape</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">dim</span> <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">dim</span> <span class="ow">in</span> <span class="n">prop_idx</span><span class="p">)</span>
+        <span class="n">coup_shape</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">dim</span> <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">dim</span> <span class="ow">in</span> <span class="n">coup_idx</span><span class="p">)</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">_sum_coupling</span><span class="p">(</span><span class="n">prop_map</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="s2">&quot;numpy.number&quot;</span><span class="p">:</span>
+<span class="w">            </span><span class="sd">&quot;&quot;&quot;Evaluate coupling_sum with prop_map fixed, summing over coup_idx.&quot;&quot;&quot;</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">coup_idx</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">dtype</span><span class="p">(</span><span class="n">_eval_symbolic</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">coupling_sum</span><span class="p">,</span> <span class="n">coupling_values</span><span class="p">,</span> <span class="n">prop_map</span><span class="p">))</span>
+            <span class="n">total</span> <span class="o">=</span> <span class="n">dtype</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">cidx</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">ndindex</span><span class="p">(</span><span class="o">*</span><span class="n">coup_shape</span><span class="p">):</span>
+                <span class="n">index_map</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">prop_map</span><span class="p">,</span>
+                             <span class="o">**</span><span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">_</span><span class="p">),</span> <span class="n">v</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">coup_idx</span><span class="p">,</span> <span class="n">cidx</span><span class="p">)}}</span>
+                <span class="n">total</span> <span class="o">+=</span> <span class="n">dtype</span><span class="p">(</span><span class="n">_eval_symbolic</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">coupling_sum</span><span class="p">,</span> <span class="n">coupling_values</span><span class="p">,</span> <span class="n">index_map</span><span class="p">))</span>
+            <span class="k">return</span> <span class="n">total</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">prop_idx</span><span class="p">:</span>
+            <span class="c1"># No propagator indices → scalar result</span>
+            <span class="n">val</span> <span class="o">=</span> <span class="n">_sum_coupling</span><span class="p">(</span><span class="n">base_map</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">pref</span> <span class="o">*</span> <span class="n">val</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+
+        <span class="n">result</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">prop_shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">dtype</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">pidx</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">ndindex</span><span class="p">(</span><span class="o">*</span><span class="n">prop_shape</span><span class="p">):</span>
+            <span class="n">prop_map</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">base_map</span><span class="p">,</span>
+                        <span class="o">**</span><span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">_</span><span class="p">),</span> <span class="n">v</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">prop_idx</span><span class="p">,</span> <span class="n">pidx</span><span class="p">)}}</span>
+            <span class="n">result</span><span class="p">[</span><span class="n">pidx</span><span class="p">]</span> <span class="o">=</span> <span class="n">_sum_coupling</span><span class="p">(</span><span class="n">prop_map</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">pref</span> <span class="o">*</span> <span class="n">result</span></div>
+
+
+<div class="viewcode-block" id="DiagramTerm.apply_diagonal">
+<a class="viewcode-back" href="../../api/perturbation.html#sft_wick.perturbation.DiagramTerm.apply_diagonal">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">apply_diagonal</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">diag_R</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">diag_C</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">iso_R</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+        <span class="n">iso_C</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;DiagramTerm&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return a new term with diagonal (and optionally isotropic) propagator constraints applied.</span>
+
+<span class="sd">        Eliminates summation indices that are pinned by diagonal</span>
+<span class="sd">        propagators and substitutes index equalities into the coupling</span>
+<span class="sd">        expression.  The delta constraint collapses the double sum into</span>
+<span class="sd">        a single sum, so no extra factor is applied.</span>
+
+<span class="sd">        With ``iso_R=True`` (implies ``diag_R=True``), the remaining equal</span>
+<span class="sd">        component indices are stripped from R propagators entirely, expressing</span>
+<span class="sd">        the assumption that all diagonal R entries are the same scalar R.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            diag_R: Enforce diagonal response propagators.</span>
+<span class="sd">            diag_C: Enforce diagonal correlation propagators.</span>
+<span class="sd">            iso_R: Enforce isotropic (index-free) response propagators.</span>
+<span class="sd">            iso_C: Enforce isotropic (index-free) correlation propagators.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A new :class:`DiagramTerm` with reduced summation indices.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">diag_R</span> <span class="o">=</span> <span class="n">diag_R</span> <span class="ow">or</span> <span class="n">iso_R</span>
+        <span class="n">diag_C</span> <span class="o">=</span> <span class="n">diag_C</span> <span class="ow">or</span> <span class="n">iso_C</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">diag_R</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">diag_C</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span>
+
+        <span class="n">sum_idx_set</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">summation_indices</span><span class="p">}</span>
+        <span class="n">sum_idx_dims</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span><span class="p">:</span> <span class="n">dim</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">dim</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">summation_indices</span><span class="p">}</span>
+
+        <span class="n">constraints</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">propagators</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">index_left</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">p</span><span class="o">.</span><span class="n">index_right</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;R&quot;</span> <span class="ow">and</span> <span class="n">diag_R</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;C&quot;</span> <span class="ow">and</span> <span class="n">diag_C</span><span class="p">):</span>
+                    <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">index_left</span> <span class="o">!=</span> <span class="n">p</span><span class="o">.</span><span class="n">index_right</span><span class="p">:</span>
+                        <span class="n">constraints</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">p</span><span class="o">.</span><span class="n">index_left</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">index_right</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">constraints</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span>
+
+        <span class="c1"># Union-find (prefer external index as root)</span>
+        <span class="n">parent</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">find</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+            <span class="k">while</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">parent</span><span class="p">:</span>
+                <span class="n">x</span> <span class="o">=</span> <span class="n">parent</span><span class="p">[</span><span class="n">x</span><span class="p">]</span>
+            <span class="k">return</span> <span class="n">x</span>
+
+        <span class="k">for</span> <span class="n">left</span><span class="p">,</span> <span class="n">right</span> <span class="ow">in</span> <span class="n">constraints</span><span class="p">:</span>
+            <span class="n">rl</span><span class="p">,</span> <span class="n">rr</span> <span class="o">=</span> <span class="n">find</span><span class="p">(</span><span class="n">left</span><span class="p">),</span> <span class="n">find</span><span class="p">(</span><span class="n">right</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">rl</span> <span class="o">==</span> <span class="n">rr</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="n">rr</span> <span class="ow">in</span> <span class="n">sum_idx_set</span> <span class="ow">and</span> <span class="n">rl</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">sum_idx_set</span><span class="p">:</span>
+                <span class="n">parent</span><span class="p">[</span><span class="n">rr</span><span class="p">]</span> <span class="o">=</span> <span class="n">rl</span>
+            <span class="k">elif</span> <span class="n">rl</span> <span class="ow">in</span> <span class="n">sum_idx_set</span> <span class="ow">and</span> <span class="n">rr</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">sum_idx_set</span><span class="p">:</span>
+                <span class="n">parent</span><span class="p">[</span><span class="n">rl</span><span class="p">]</span> <span class="o">=</span> <span class="n">rr</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">parent</span><span class="p">[</span><span class="n">rr</span><span class="p">]</span> <span class="o">=</span> <span class="n">rl</span>
+
+        <span class="n">sub</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="p">{</span><span class="n">k</span> <span class="k">for</span> <span class="n">pair</span> <span class="ow">in</span> <span class="n">constraints</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">pair</span><span class="p">}:</span>
+            <span class="n">root</span> <span class="o">=</span> <span class="n">find</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">idx</span> <span class="o">!=</span> <span class="n">root</span><span class="p">:</span>
+                <span class="n">sub</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">root</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">sub</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span>
+
+        <span class="n">eliminated</span> <span class="o">=</span> <span class="p">{</span><span class="n">idx</span> <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="n">sub</span> <span class="k">if</span> <span class="n">idx</span> <span class="ow">in</span> <span class="n">sum_idx_set</span><span class="p">}</span>
+
+        <span class="c1"># Update propagators</span>
+        <span class="n">new_props</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">propagators</span><span class="p">:</span>
+            <span class="n">il</span> <span class="o">=</span> <span class="n">sub</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">index_left</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">index_left</span><span class="p">)</span> <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">index_left</span> <span class="k">else</span> <span class="n">p</span><span class="o">.</span><span class="n">index_left</span>
+            <span class="n">ir</span> <span class="o">=</span> <span class="n">sub</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">index_right</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">index_right</span><span class="p">)</span> <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">index_right</span> <span class="k">else</span> <span class="n">p</span><span class="o">.</span><span class="n">index_right</span>
+            <span class="n">new_props</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">Propagator</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">kind</span><span class="p">,</span> <span class="n">il</span><span class="p">,</span> <span class="n">ir</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">spatial_left</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">spatial_right</span><span class="p">)</span>
+            <span class="p">)</span>
+
+        <span class="c1"># Update coupling sum</span>
+        <span class="n">new_coupling</span> <span class="o">=</span> <span class="n">simplify</span><span class="p">(</span><span class="n">_apply_index_sub</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">coupling_sum</span><span class="p">,</span> <span class="n">sub</span><span class="p">))</span>
+
+        <span class="c1"># Update summation indices (remove eliminated)</span>
+        <span class="n">new_sum_indices</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span>
+            <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">dim</span><span class="p">)</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">dim</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">summation_indices</span>
+            <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">eliminated</span>
+        <span class="p">)</span>
+
+        <span class="c1"># Isotropic: strip equal component indices from R/C propagators</span>
+        <span class="k">if</span> <span class="n">iso_R</span> <span class="ow">or</span> <span class="n">iso_C</span><span class="p">:</span>
+            <span class="n">new_props</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">Propagator</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">kind</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">spatial_left</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">spatial_right</span><span class="p">)</span>
+                <span class="k">if</span> <span class="p">(</span>
+                    <span class="n">p</span><span class="o">.</span><span class="n">index_left</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+                    <span class="ow">and</span> <span class="n">p</span><span class="o">.</span><span class="n">index_left</span> <span class="o">==</span> <span class="n">p</span><span class="o">.</span><span class="n">index_right</span>
+                    <span class="ow">and</span> <span class="p">((</span><span class="n">p</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;R&quot;</span> <span class="ow">and</span> <span class="n">iso_R</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;C&quot;</span> <span class="ow">and</span> <span class="n">iso_C</span><span class="p">))</span>
+                <span class="p">)</span>
+                <span class="k">else</span> <span class="n">p</span>
+                <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">new_props</span>
+            <span class="p">]</span>
+
+        <span class="c1"># Canonical rename: surviving summation indices → i_0, i_1, … in appearance order.</span>
+        <span class="c1"># Scan propagators first (left-to-right, left-index before right-index),</span>
+        <span class="c1"># then coupling_sum for any index that only lives there.</span>
+        <span class="n">surviving_set</span> <span class="o">=</span> <span class="p">{</span><span class="n">name</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">new_sum_indices</span><span class="p">}</span>
+        <span class="n">ordered</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">ordered_set</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">new_props</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">index_left</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">index_right</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">idx</span> <span class="ow">and</span> <span class="n">idx</span> <span class="ow">in</span> <span class="n">surviving_set</span> <span class="ow">and</span> <span class="n">idx</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">ordered_set</span><span class="p">:</span>
+                    <span class="n">ordered</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
+                    <span class="n">ordered_set</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="n">_collect_index_order</span><span class="p">(</span><span class="n">new_coupling</span><span class="p">,</span> <span class="n">surviving_set</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">idx</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">ordered_set</span><span class="p">:</span>
+                <span class="n">ordered</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
+                <span class="n">ordered_set</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
+        <span class="n">rename</span> <span class="o">=</span> <span class="p">{</span><span class="n">old</span><span class="p">:</span> <span class="sa">f</span><span class="s2">&quot;i_</span><span class="si">{</span><span class="n">j</span><span class="si">}</span><span class="s2">&quot;</span> <span class="k">for</span> <span class="n">j</span><span class="p">,</span> <span class="n">old</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">ordered</span><span class="p">)}</span>
+        <span class="k">if</span> <span class="n">rename</span><span class="p">:</span>
+            <span class="n">new_coupling</span> <span class="o">=</span> <span class="n">_apply_index_sub</span><span class="p">(</span><span class="n">new_coupling</span><span class="p">,</span> <span class="n">rename</span><span class="p">)</span>
+            <span class="n">new_props</span> <span class="o">=</span> <span class="p">[</span><span class="n">_apply_index_sub</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">rename</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">new_props</span><span class="p">]</span>
+            <span class="n">dim_map</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">new_sum_indices</span><span class="p">)</span>
+            <span class="n">new_sum_indices</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">((</span><span class="n">rename</span><span class="p">[</span><span class="n">name</span><span class="p">],</span> <span class="n">dim_map</span><span class="p">[</span><span class="n">name</span><span class="p">])</span> <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">ordered</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">DiagramTerm</span><span class="p">(</span>
+            <span class="n">propagators</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">new_props</span><span class="p">),</span>
+            <span class="n">coupling_sum</span><span class="o">=</span><span class="n">new_coupling</span><span class="p">,</span>
+            <span class="n">rational_prefactor</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">rational_prefactor</span><span class="p">,</span>
+            <span class="n">integration_vars</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">integration_vars</span><span class="p">,</span>
+            <span class="n">summation_indices</span><span class="o">=</span><span class="n">new_sum_indices</span><span class="p">,</span>
+            <span class="n">n_response</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">n_response</span><span class="p">,</span>
+        <span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="DiagramTerm.to_latex">
+<a class="viewcode-back" href="../../api/perturbation.html#sft_wick.perturbation.DiagramTerm.to_latex">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_latex</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;Full LaTeX representation including summations, integrals, and phase.</span>
+
+<span class="sd">        Renders the complete contribution::</span>
+
+<span class="sd">            \sum_{i_0} ... \int dy_0 ... coeff × (coupling) × propagators</span>
+
+<span class="sd">        where *coeff* combines the rational prefactor and the MSR phase</span>
+<span class="sd">        ``(-i)^{n_R}`` into a single coefficient.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">body_parts</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c1"># --- combined coefficient: rational_prefactor × (-i)^n_response ---</span>
+        <span class="n">coeff_latex</span> <span class="o">=</span> <span class="n">_coeff_latex</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">rational_prefactor</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_response</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">coeff_latex</span><span class="p">:</span>
+            <span class="n">body_parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">coeff_latex</span><span class="p">)</span>
+
+        <span class="n">body_parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;(</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">coupling_sum</span><span class="o">.</span><span class="n">to_latex</span><span class="p">()</span><span class="si">}</span><span class="s2">)&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">propagators</span><span class="p">:</span>
+            <span class="n">body_parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">to_latex</span><span class="p">())</span>
+        <span class="n">body</span> <span class="o">=</span> <span class="s2">&quot; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">body_parts</span><span class="p">)</span>
+
+        <span class="c1"># --- wrap with integrals (innermost first in the list) ---</span>
+        <span class="k">for</span> <span class="n">var</span> <span class="ow">in</span> <span class="nb">reversed</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">integration_vars</span><span class="p">):</span>
+            <span class="n">body</span> <span class="o">=</span> <span class="sa">rf</span><span class="s2">&quot;\int \mathrm</span><span class="se">{{</span><span class="s2">d</span><span class="se">}}</span><span class="si">{</span><span class="n">_latex_index</span><span class="p">(</span><span class="n">var</span><span class="p">)</span><span class="si">}</span><span class="s2">\, </span><span class="si">{</span><span class="n">body</span><span class="si">}</span><span class="s2">&quot;</span>
+
+        <span class="c1"># --- wrap with summations (innermost first in the list) ---</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">dim</span> <span class="ow">in</span> <span class="nb">reversed</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">summation_indices</span><span class="p">):</span>
+            <span class="n">body</span> <span class="o">=</span> <span class="sa">rf</span><span class="s2">&quot;\sum_</span><span class="se">{{</span><span class="si">{</span><span class="n">_latex_index</span><span class="p">(</span><span class="n">name</span><span class="p">)</span><span class="si">}</span><span class="s2">=1</span><span class="se">}}</span><span class="s2">^</span><span class="se">{{</span><span class="si">{</span><span class="n">dim</span><span class="si">}</span><span class="se">}}</span><span class="s2"> </span><span class="si">{</span><span class="n">body</span><span class="si">}</span><span class="s2">&quot;</span>
+
+        <span class="k">return</span> <span class="n">body</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">to_latex</span><span class="p">()</span>
+
+    <span class="c1"># --- Thin delegation methods for numerical evaluation pipeline ---</span>
+
+<div class="viewcode-block" id="DiagramTerm.analyze_spatial">
+<a class="viewcode-back" href="../../api/perturbation.html#sft_wick.perturbation.DiagramTerm.analyze_spatial">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">analyze_spatial</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;SpatialStructure&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Analyze R-propagator connectivity and time orderings.</span>
+
+<span class="sd">        Returns a :class:`~sft_wick.evaluate.SpatialStructure` describing</span>
+<span class="sd">        direction identification groups, causal time orderings, and</span>
+<span class="sd">        surviving integration variables.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">.evaluate</span><span class="w"> </span><span class="kn">import</span> <span class="n">analyze_spatial</span>
+        <span class="k">return</span> <span class="n">analyze_spatial</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="DiagramTerm.build_integrand">
+<a class="viewcode-back" href="../../api/perturbation.html#sft_wick.perturbation.DiagramTerm.build_integrand">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">build_integrand</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span>
+        <span class="n">coupling_values</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+        <span class="n">fixed_indices</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="s2">&quot;DiagramIntegrand&quot;</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Build a :class:`~sft_wick.evaluate.DiagramIntegrand` for numerical evaluation.</span>
+
+<span class="sd">        Combines coupling coefficient evaluation (Step 1) with spatial</span>
+<span class="sd">        structure analysis (Step 2) into a ready-to-evaluate object.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            coupling_values: Coupling tensor arrays (e.g. ``{&#39;F&#39;: F_code}``).</span>
+<span class="sd">            fixed_indices: Optional pinned index values.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            A :class:`DiagramIntegrand` that can evaluate the integrand at</span>
+<span class="sd">            specific time/direction coordinates.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">.evaluate</span><span class="w"> </span><span class="kn">import</span> <span class="n">DiagramIntegrand</span><span class="p">,</span> <span class="n">analyze_spatial</span>
+        <span class="n">spatial</span> <span class="o">=</span> <span class="n">analyze_spatial</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="n">coeff</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">evaluate_coupling</span><span class="p">(</span><span class="n">coupling_values</span><span class="p">,</span> <span class="n">fixed_indices</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">DiagramIntegrand</span><span class="p">(</span>
+            <span class="n">diagram_term</span><span class="o">=</span><span class="bp">self</span><span class="p">,</span> <span class="n">spatial</span><span class="o">=</span><span class="n">spatial</span><span class="p">,</span> <span class="n">coupling_array</span><span class="o">=</span><span class="n">coeff</span><span class="p">,</span>
+        <span class="p">)</span></div>
+</div>
+
+
+
 <div class="viewcode-block" id="compute_moment">
 <a class="viewcode-back" href="../../api/perturbation.html#sft_wick.perturbation.compute_moment">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">compute_moment</span><span class="p">(</span>
@@ -486,6 +898,10 @@
     <span class="n">ito</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">response_phase</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">collect_topology</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
+    <span class="n">diag_R</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">diag_C</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">iso_R</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">iso_C</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PerturbativeResult</span><span class="p">:</span>
 <span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;Compute the perturbative expansion of an observable.</span>
 
@@ -518,20 +934,34 @@
 <span class="sd">            same propagator spatial structure and factor out the</span>
 <span class="sd">            propagators, summing the coupling coefficients with</span>
 <span class="sd">            appropriately permuted indices.</span>
+<span class="sd">        diag_R: If ``True``, enforce diagonal response propagators</span>
+<span class="sd">            :math:`R_{ij} = \delta_{ij} R`, eliminating one summation</span>
+<span class="sd">            index per R propagator.</span>
+<span class="sd">        diag_C: If ``True``, enforce diagonal correlation propagators</span>
+<span class="sd">            :math:`C_{ij} = \delta_{ij} C`, eliminating one summation</span>
+<span class="sd">            index per C propagator.</span>
+<span class="sd">        iso_R: If ``True`` (implies ``diag_R``), further assume all</span>
+<span class="sd">            diagonal R entries are equal, :math:`R_{ii} = R`.  The</span>
+<span class="sd">            component index is dropped from R propagators entirely.</span>
+<span class="sd">        iso_C: If ``True`` (implies ``diag_C``), the same for C.</span>
 
 <span class="sd">    Returns:</span>
 <span class="sd">        A :class:`PerturbativeResult` containing order-by-order</span>
 <span class="sd">        expressions, a combined total, and Feynman diagram information.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">reset_uid_counter</span><span class="p">()</span>
+    <span class="n">diag_R</span> <span class="o">=</span> <span class="n">diag_R</span> <span class="ow">or</span> <span class="n">iso_R</span>
+    <span class="n">diag_C</span> <span class="o">=</span> <span class="n">diag_C</span> <span class="ow">or</span> <span class="n">iso_C</span>
+
     <span class="n">order_terms</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">Expr</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
     <span class="n">diagrams_by_order</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">DiagramInfo</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">dt_by_order</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">DiagramTerm</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
 
     <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">order</span> <span class="o">+</span> <span class="mi">1</span><span class="p">):</span>
         <span class="n">sign</span> <span class="o">=</span> <span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="o">**</span> <span class="n">n</span>
         <span class="n">fact</span> <span class="o">=</span> <span class="n">factorial</span><span class="p">(</span><span class="n">n</span><span class="p">)</span>
         <span class="n">order_exprs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Expr</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="n">order_diagrams</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">DiagramInfo</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">order_dterms</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">DiagramTerm</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
 
         <span class="k">if</span> <span class="n">n</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
             <span class="c1"># Zeroth order: just &lt;O&gt;_{S_0}</span>
@@ -541,6 +971,21 @@
                 <span class="n">order_diagrams</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
                     <span class="n">DiagramInfo</span><span class="p">(</span><span class="n">observable</span><span class="p">,</span> <span class="p">[],</span> <span class="n">p</span><span class="p">,</span> <span class="n">Rational</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span> <span class="mi">0</span><span class="p">)</span>
                 <span class="p">)</span>
+                <span class="c1"># Build DiagramTerm for order 0</span>
+                <span class="n">props</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">p</span><span class="p">:</span>
+                    <span class="n">pr</span> <span class="o">=</span> <span class="n">contract_pair</span><span class="p">(</span><span class="n">observable</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">observable</span><span class="p">[</span><span class="n">j</span><span class="p">],</span> <span class="n">ito</span><span class="o">=</span><span class="n">ito</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">pr</span><span class="p">,</span> <span class="n">Propagator</span><span class="p">):</span>
+                        <span class="n">props</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">pr</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">props</span><span class="p">:</span>
+                    <span class="n">order_dterms</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">DiagramTerm</span><span class="p">(</span>
+                        <span class="n">propagators</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">props</span><span class="p">),</span>
+                        <span class="n">coupling_sum</span><span class="o">=</span><span class="n">Rational</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span>
+                        <span class="n">rational_prefactor</span><span class="o">=</span><span class="n">Rational</span><span class="p">(</span><span class="mi">1</span><span class="p">),</span>
+                        <span class="n">integration_vars</span><span class="o">=</span><span class="p">(),</span>
+                        <span class="n">summation_indices</span><span class="o">=</span><span class="p">(),</span>
+                        <span class="n">n_response</span><span class="o">=</span><span class="nb">sum</span><span class="p">(</span><span class="mi">1</span> <span class="k">for</span> <span class="n">pr</span> <span class="ow">in</span> <span class="n">props</span> <span class="k">if</span> <span class="n">pr</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;R&quot;</span><span class="p">),</span>
+                    <span class="p">))</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="c1"># Expand S_int^n using multinomial theorem</span>
             <span class="k">for</span> <span class="n">vertex_seq</span><span class="p">,</span> <span class="n">multinomial_coeff</span> <span class="ow">in</span> <span class="n">action</span><span class="o">.</span><span class="n">all_vertex_combinations</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
@@ -560,11 +1005,19 @@
                 <span class="c1"># Build prefactor: (-1)^n / n! * multinomial_coeff</span>
                 <span class="n">prefactor</span> <span class="o">=</span> <span class="n">Rational</span><span class="p">(</span><span class="n">sign</span> <span class="o">*</span> <span class="n">multinomial_coeff</span><span class="p">,</span> <span class="n">fact</span><span class="p">)</span>
 
-                <span class="c1"># Build coupling product</span>
-                <span class="n">coupling_factors</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Expr</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">prefactor</span><span class="p">]</span>
-                <span class="k">for</span> <span class="n">vi</span> <span class="ow">in</span> <span class="n">vertex_instances</span><span class="p">:</span>
-                    <span class="n">coupling_factors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">vi</span><span class="o">.</span><span class="n">coupling_symbol</span><span class="p">)</span>
-                <span class="n">coupling_product</span> <span class="o">=</span> <span class="n">Product</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">coupling_factors</span><span class="p">))</span>
+                <span class="c1"># Build pure coupling (without prefactor) for DiagramTerm</span>
+                <span class="n">coupling_syms</span> <span class="o">=</span> <span class="p">[</span><span class="n">vi</span><span class="o">.</span><span class="n">coupling_symbol</span> <span class="k">for</span> <span class="n">vi</span> <span class="ow">in</span> <span class="n">vertex_instances</span><span class="p">]</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">coupling_syms</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                    <span class="n">pure_coupling</span><span class="p">:</span> <span class="n">Expr</span> <span class="o">=</span> <span class="n">Product</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">coupling_syms</span><span class="p">))</span>
+                <span class="k">elif</span> <span class="n">coupling_syms</span><span class="p">:</span>
+                    <span class="n">pure_coupling</span> <span class="o">=</span> <span class="n">coupling_syms</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">pure_coupling</span> <span class="o">=</span> <span class="n">Rational</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+
+                <span class="c1"># Full coupling product (with prefactor) for the expression</span>
+                <span class="n">coupling_product</span> <span class="o">=</span> <span class="n">Product</span><span class="p">(</span>
+                    <span class="nb">tuple</span><span class="p">([</span><span class="n">prefactor</span><span class="p">]</span> <span class="o">+</span> <span class="n">coupling_syms</span><span class="p">)</span>
+                <span class="p">)</span>
 
                 <span class="c1"># Collect integration variables (vertex spatial points)</span>
                 <span class="n">integration_vars</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span>
@@ -573,55 +1026,70 @@
                     <span class="k">for</span> <span class="n">var</span> <span class="ow">in</span> <span class="n">vi</span><span class="o">.</span><span class="n">spatial_variables</span>
                 <span class="p">)</span>
 
-                <span class="k">if</span> <span class="n">collect_topology</span><span class="p">:</span>
-                    <span class="c1"># Spatial-level Wick contraction (fast path)</span>
-                    <span class="n">spatial_results</span> <span class="o">=</span> <span class="n">wick_contract_spatial</span><span class="p">(</span>
-                        <span class="n">all_ops</span><span class="p">,</span> <span class="n">ito</span><span class="o">=</span><span class="n">ito</span><span class="p">,</span>
-                        <span class="n">vertex_points</span><span class="o">=</span><span class="n">integration_vars</span><span class="p">,</span>
-                    <span class="p">)</span>
+                <span class="c1"># Build summation index info for DiagramTerm</span>
+                <span class="n">sum_indices</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="k">for</span> <span class="n">vi</span> <span class="ow">in</span> <span class="n">vertex_instances</span><span class="p">:</span>
+                    <span class="k">for</span> <span class="n">comp_idx</span> <span class="ow">in</span> <span class="n">vi</span><span class="o">.</span><span class="n">component_indices</span><span class="p">:</span>
+                        <span class="k">for</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">vi</span><span class="o">.</span><span class="n">field_operators</span><span class="p">:</span>
+                            <span class="k">if</span> <span class="n">op</span><span class="o">.</span><span class="n">component_index</span> <span class="o">==</span> <span class="n">comp_idx</span><span class="p">:</span>
+                                <span class="n">sum_indices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                                    <span class="p">(</span><span class="n">comp_idx</span><span class="p">,</span> <span class="n">op</span><span class="o">.</span><span class="n">field</span><span class="o">.</span><span class="n">n_components</span><span class="p">)</span>
+                                <span class="p">)</span>
+                                <span class="k">break</span>
+                <span class="n">int_vars_sorted</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">integration_vars</span><span class="p">))</span>
 
+                <span class="k">if</span> <span class="n">collect_topology</span><span class="p">:</span>
+                    <span class="c1"># --- Hybrid: spatial topology + component routing ---</span>
+                    <span class="n">spatial_results</span> <span class="o">=</span> <span class="n">wick_contract_spatial</span><span class="p">(</span>
+                        <span class="n">all_ops</span><span class="p">,</span> <span class="n">ito</span><span class="o">=</span><span class="n">ito</span><span class="p">,</span> <span class="n">vertex_points</span><span class="o">=</span><span class="n">integration_vars</span><span class="p">,</span>
+                    <span class="p">)</span>
                     <span class="k">if</span> <span class="ow">not</span> <span class="n">spatial_results</span><span class="p">:</span>
                         <span class="k">continue</span>
 
-                    <span class="c1"># Build expression for each spatial topology:</span>
-                    <span class="c1">#   multiplicity × coupling_product × propagator_product</span>
-                    <span class="c1"># Then group by canonical diagram form</span>
-                    <span class="n">topo_terms</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Expr</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">Propagator</span><span class="p">],</span> <span class="n">Pairing</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+                    <span class="n">groups</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span>
+                        <span class="n">SpatialSignature</span><span class="p">,</span>
+                        <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="n">Propagator</span><span class="p">],</span> <span class="n">Pairing</span><span class="p">]],</span>
+                    <span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+                    <span class="n">pairings</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Pairing</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
                     <span class="k">for</span> <span class="n">sig</span><span class="p">,</span> <span class="p">(</span><span class="n">ref_props</span><span class="p">,</span> <span class="n">mult</span><span class="p">,</span> <span class="n">rep_pairing</span><span class="p">)</span> <span class="ow">in</span> <span class="n">spatial_results</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-                        <span class="k">if</span> <span class="n">mult</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
-                            <span class="n">coeff_coupling</span> <span class="o">=</span> <span class="n">Product</span><span class="p">(</span>
-                                <span class="p">(</span><span class="n">Rational</span><span class="p">(</span><span class="n">mult</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">coupling_product</span><span class="p">)</span>
-                            <span class="p">)</span>
-                        <span class="k">else</span><span class="p">:</span>
-                            <span class="n">coeff_coupling</span> <span class="o">=</span> <span class="n">coupling_product</span>
-                        <span class="n">topo_terms</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">coeff_coupling</span><span class="p">,</span> <span class="n">ref_props</span><span class="p">,</span> <span class="n">rep_pairing</span><span class="p">))</span>
+                        <span class="n">routings</span> <span class="o">=</span> <span class="n">_enumerate_component_routings</span><span class="p">(</span>
+                            <span class="n">ref_props</span><span class="p">,</span> <span class="n">rep_pairing</span><span class="p">,</span> <span class="n">all_ops</span><span class="p">,</span> <span class="n">integration_vars</span><span class="p">,</span>
+                        <span class="p">)</span>
+                        <span class="n">groups</span><span class="p">[</span><span class="n">sig</span><span class="p">]</span> <span class="o">=</span> <span class="n">routings</span>
+                        <span class="n">pairings</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">p</span> <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">routings</span><span class="p">)</span>
 
-                    <span class="c1"># Group topologies by canonical diagram form</span>
-                    <span class="n">term</span> <span class="o">=</span> <span class="n">_collect_spatial_topologies</span><span class="p">(</span>
-                        <span class="n">topo_terms</span><span class="p">,</span> <span class="n">integration_vars</span><span class="p">,</span>
+                    <span class="n">internal_indices</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+                    <span class="k">for</span> <span class="n">vi</span> <span class="ow">in</span> <span class="n">vertex_instances</span><span class="p">:</span>
+                        <span class="n">internal_indices</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">vi</span><span class="o">.</span><span class="n">component_indices</span><span class="p">)</span>
+
+                    <span class="n">inner</span> <span class="o">=</span> <span class="n">_collect_grouped_wick</span><span class="p">(</span>
+                        <span class="n">groups</span><span class="p">,</span> <span class="n">pure_coupling</span><span class="p">,</span>
+                        <span class="n">internal_indices</span><span class="p">,</span> <span class="n">integration_vars</span><span class="p">,</span>
                     <span class="p">)</span>
-                    <span class="n">pairings</span> <span class="o">=</span> <span class="p">[</span><span class="n">p</span> <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">topo_terms</span><span class="p">]</span>
-                <span class="k">else</span><span class="p">:</span>
-                    <span class="c1"># Operator-level Wick contraction (original path)</span>
-                    <span class="n">groups</span><span class="p">,</span> <span class="n">pairings</span> <span class="o">=</span> <span class="n">wick_contract_grouped</span><span class="p">(</span><span class="n">all_ops</span><span class="p">,</span> <span class="n">ito</span><span class="o">=</span><span class="n">ito</span><span class="p">)</span>
-
-                    <span class="k">if</span> <span class="ow">not</span> <span class="n">groups</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">_is_zero</span><span class="p">(</span><span class="n">inner</span><span class="p">):</span>
                         <span class="k">continue</span>
+                    <span class="n">term</span> <span class="o">=</span> <span class="n">Product</span><span class="p">((</span><span class="n">prefactor</span><span class="p">,</span> <span class="n">inner</span><span class="p">))</span>
 
-                    <span class="n">terms_list</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Expr</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
-                    <span class="k">for</span> <span class="n">sig</span><span class="p">,</span> <span class="n">group_entries</span> <span class="ow">in</span> <span class="n">groups</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-                        <span class="k">for</span> <span class="n">props</span><span class="p">,</span> <span class="n">pairing</span> <span class="ow">in</span> <span class="n">group_entries</span><span class="p">:</span>
-                            <span class="n">prop_expr</span> <span class="o">=</span> <span class="p">(</span>
-                                <span class="n">Product</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">props</span><span class="p">))</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">props</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span>
-                                <span class="k">else</span> <span class="n">props</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-                            <span class="p">)</span>
-                            <span class="n">terms_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-                                <span class="n">Product</span><span class="p">((</span><span class="n">coupling_product</span><span class="p">,</span> <span class="n">prop_expr</span><span class="p">))</span>
-                            <span class="p">)</span>
-                    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">terms_list</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
-                        <span class="n">term</span> <span class="o">=</span> <span class="n">terms_list</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-                    <span class="k">else</span><span class="p">:</span>
-                        <span class="n">term</span> <span class="o">=</span> <span class="n">Sum</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">terms_list</span><span class="p">))</span>
+                    <span class="c1"># Extract DiagramTerm records from inner</span>
+                    <span class="k">for</span> <span class="n">dt_props</span><span class="p">,</span> <span class="n">dt_coupling</span> <span class="ow">in</span> <span class="n">_extract_diagram_records</span><span class="p">(</span>
+                        <span class="n">inner</span>
+                    <span class="p">):</span>
+                        <span class="n">order_dterms</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">DiagramTerm</span><span class="p">(</span>
+                            <span class="n">propagators</span><span class="o">=</span><span class="n">dt_props</span><span class="p">,</span>
+                            <span class="n">coupling_sum</span><span class="o">=</span><span class="n">dt_coupling</span><span class="p">,</span>
+                            <span class="n">rational_prefactor</span><span class="o">=</span><span class="n">prefactor</span><span class="p">,</span>
+                            <span class="n">integration_vars</span><span class="o">=</span><span class="n">int_vars_sorted</span><span class="p">,</span>
+                            <span class="n">summation_indices</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">sum_indices</span><span class="p">),</span>
+                            <span class="n">n_response</span><span class="o">=</span><span class="nb">sum</span><span class="p">(</span>
+                                <span class="mi">1</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">dt_props</span> <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;R&quot;</span>
+                            <span class="p">),</span>
+                        <span class="p">))</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="c1"># --- Operator-level Wick contraction ---</span>
+                    <span class="n">wick_result</span><span class="p">,</span> <span class="n">pairings</span> <span class="o">=</span> <span class="n">wick_contract</span><span class="p">(</span><span class="n">all_ops</span><span class="p">,</span> <span class="n">ito</span><span class="o">=</span><span class="n">ito</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">_is_zero</span><span class="p">(</span><span class="n">wick_result</span><span class="p">):</span>
+                        <span class="k">continue</span>
+                    <span class="n">term</span> <span class="o">=</span> <span class="n">Product</span><span class="p">((</span><span class="n">coupling_product</span><span class="p">,</span> <span class="n">wick_result</span><span class="p">))</span>
 
                 <span class="c1"># Wrap with integrals over internal spatial variables</span>
                 <span class="k">for</span> <span class="n">vi</span> <span class="ow">in</span> <span class="n">vertex_instances</span><span class="p">:</span>
@@ -656,21 +1124,30 @@
 
         <span class="k">if</span> <span class="n">order_exprs</span><span class="p">:</span>
             <span class="n">raw</span> <span class="o">=</span> <span class="n">order_exprs</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">order_exprs</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span> <span class="k">else</span> <span class="n">Sum</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">order_exprs</span><span class="p">))</span>
-            <span class="k">if</span> <span class="n">collect_topology</span><span class="p">:</span>
-                <span class="c1"># Already pre-collected; just apply response phase</span>
-                <span class="n">order_terms</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
-                    <span class="n">apply_response_phase</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span> <span class="k">if</span> <span class="n">response_phase</span> <span class="k">else</span> <span class="n">raw</span>
+            <span class="n">simplified</span> <span class="o">=</span> <span class="n">simplify</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">collect_topology</span><span class="p">:</span>
+                <span class="c1"># Operator-level path: group by diagram after simplification</span>
+                <span class="n">simplified</span> <span class="o">=</span> <span class="n">collect_by_diagram</span><span class="p">(</span><span class="n">simplified</span><span class="p">)</span>
+            <span class="c1"># (Hybrid path: _collect_grouped_wick already produced coupling sums)</span>
+            <span class="k">if</span> <span class="n">diag_R</span> <span class="ow">or</span> <span class="n">diag_C</span><span class="p">:</span>
+                <span class="n">simplified</span> <span class="o">=</span> <span class="n">diagonal_propagators</span><span class="p">(</span>
+                    <span class="n">simplified</span><span class="p">,</span> <span class="n">diag_R</span><span class="o">=</span><span class="n">diag_R</span><span class="p">,</span> <span class="n">diag_C</span><span class="o">=</span><span class="n">diag_C</span><span class="p">,</span> <span class="n">iso_R</span><span class="o">=</span><span class="n">iso_R</span><span class="p">,</span> <span class="n">iso_C</span><span class="o">=</span><span class="n">iso_C</span><span class="p">,</span>
                 <span class="p">)</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="n">simplified</span> <span class="o">=</span> <span class="n">simplify</span><span class="p">(</span><span class="n">raw</span><span class="p">)</span>
-                <span class="n">order_terms</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
-                    <span class="n">apply_response_phase</span><span class="p">(</span><span class="n">simplified</span><span class="p">)</span> <span class="k">if</span> <span class="n">response_phase</span>
-                    <span class="k">else</span> <span class="n">simplified</span>
-                <span class="p">)</span>
+            <span class="n">order_terms</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">apply_response_phase</span><span class="p">(</span><span class="n">simplified</span><span class="p">)</span> <span class="k">if</span> <span class="n">response_phase</span>
+                <span class="k">else</span> <span class="n">simplified</span>
+            <span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="n">order_terms</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="o">=</span> <span class="n">ZERO</span>
 
+        <span class="k">if</span> <span class="n">diag_R</span> <span class="ow">or</span> <span class="n">diag_C</span><span class="p">:</span>
+            <span class="n">order_dterms</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">dt</span><span class="o">.</span><span class="n">apply_diagonal</span><span class="p">(</span><span class="n">diag_R</span><span class="o">=</span><span class="n">diag_R</span><span class="p">,</span> <span class="n">diag_C</span><span class="o">=</span><span class="n">diag_C</span><span class="p">,</span> <span class="n">iso_R</span><span class="o">=</span><span class="n">iso_R</span><span class="p">,</span> <span class="n">iso_C</span><span class="o">=</span><span class="n">iso_C</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">dt</span> <span class="ow">in</span> <span class="n">order_dterms</span>
+            <span class="p">]</span>
+
         <span class="n">diagrams_by_order</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="o">=</span> <span class="n">order_diagrams</span>
+        <span class="n">dt_by_order</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="o">=</span> <span class="n">order_dterms</span>
 
     <span class="c1"># Total</span>
     <span class="n">all_terms</span> <span class="o">=</span> <span class="p">[</span><span class="n">order_terms</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">order</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">_is_zero</span><span class="p">(</span><span class="n">order_terms</span><span class="p">[</span><span class="n">n</span><span class="p">])]</span>
@@ -683,13 +1160,15 @@
         <span class="k">if</span> <span class="n">response_phase</span><span class="p">:</span>
             <span class="n">total</span> <span class="o">=</span> <span class="n">apply_response_phase</span><span class="p">(</span><span class="n">total</span><span class="p">)</span>
 
-    <span class="k">return</span> <span class="n">PerturbativeResult</span><span class="p">(</span><span class="n">order_terms</span><span class="p">,</span> <span class="n">total</span><span class="p">,</span> <span class="n">diagrams_by_order</span><span class="p">)</span></div>
+    <span class="k">return</span> <span class="n">PerturbativeResult</span><span class="p">(</span>
+        <span class="n">order_terms</span><span class="p">,</span> <span class="n">total</span><span class="p">,</span> <span class="n">diagrams_by_order</span><span class="p">,</span> <span class="n">dt_by_order</span><span class="p">,</span>
+    <span class="p">)</span></div>
 
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_collect_grouped_wick</span><span class="p">(</span>
     <span class="n">groups</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="n">SpatialSignature</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="n">Propagator</span><span class="p">],</span> <span class="n">Pairing</span><span class="p">]]],</span>
-    <span class="n">coupling_product</span><span class="p">:</span> <span class="n">Expr</span><span class="p">,</span>
+    <span class="n">pure_coupling</span><span class="p">:</span> <span class="n">Expr</span><span class="p">,</span>
     <span class="n">internal_indices</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
     <span class="n">integration_vars</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Expr</span><span class="p">:</span>
@@ -702,6 +1181,10 @@
 <span class="sd">    2. Merges spatial groups that share the same canonical diagram form</span>
 <span class="sd">       (i.e. are related by integration-variable relabeling).</span>
 <span class="sd">    3. Returns a compact Sum with one term per distinct Feynman diagram.</span>
+
+<span class="sd">    The ``pure_coupling`` should be the coupling expression **without**</span>
+<span class="sd">    the rational prefactor (so that ``_extract_diagram_records`` can</span>
+<span class="sd">    cleanly separate coupling from prefactor).</span>
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">defaultdict</span>
 
@@ -767,7 +1250,7 @@
                 <span class="k">if</span> <span class="n">cross_result</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
                     <span class="c1"># Cannot merge — add each within-group perm separately</span>
                     <span class="k">for</span> <span class="n">wp</span> <span class="ow">in</span> <span class="n">perms</span><span class="p">:</span>
-                        <span class="n">permuted</span> <span class="o">=</span> <span class="n">_apply_perm_to_coupling</span><span class="p">(</span><span class="n">coupling_product</span><span class="p">,</span> <span class="n">wp</span><span class="p">)</span>
+                        <span class="n">permuted</span> <span class="o">=</span> <span class="n">_apply_perm_to_coupling</span><span class="p">(</span><span class="n">pure_coupling</span><span class="p">,</span> <span class="n">wp</span><span class="p">)</span>
                         <span class="n">prop_expr</span> <span class="o">=</span> <span class="p">(</span>
                             <span class="n">Product</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">ref_props</span><span class="p">))</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">ref_props</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span>
                             <span class="k">else</span> <span class="n">ref_props</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
@@ -789,7 +1272,7 @@
                 <span class="c1"># Remove identity mappings</span>
                 <span class="n">total_perm</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">total_perm</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span> <span class="o">!=</span> <span class="n">v</span><span class="p">}</span>
                 <span class="n">all_coupling_terms</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-                    <span class="n">_apply_perm_to_coupling</span><span class="p">(</span><span class="n">coupling_product</span><span class="p">,</span> <span class="n">total_perm</span><span class="p">)</span>
+                    <span class="n">_apply_perm_to_coupling</span><span class="p">(</span><span class="n">pure_coupling</span><span class="p">,</span> <span class="n">total_perm</span><span class="p">)</span>
                 <span class="p">)</span>
 
         <span class="c1"># Build: (sum of permuted couplings) × (reference propagators)</span>
@@ -828,83 +1311,138 @@
     <span class="k">return</span> <span class="n">Sum</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">result_terms</span><span class="p">))</span>
 
 
-<span class="k">def</span><span class="w"> </span><span class="nf">_collect_spatial_topologies</span><span class="p">(</span>
-    <span class="n">topo_terms</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Expr</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">Propagator</span><span class="p">],</span> <span class="n">Pairing</span><span class="p">]],</span>
-    <span class="n">integration_vars</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Expr</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">&quot;&quot;&quot;Group spatial topologies by canonical diagram form.</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">_enumerate_component_routings</span><span class="p">(</span>
+    <span class="n">ref_props</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Propagator</span><span class="p">],</span>
+    <span class="n">rep_pairing</span><span class="p">:</span> <span class="n">Pairing</span><span class="p">,</span>
+    <span class="n">all_ops</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">FieldOperator</span><span class="p">],</span>
+    <span class="n">vertex_points</span><span class="p">:</span> <span class="nb">frozenset</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="n">Propagator</span><span class="p">],</span> <span class="n">Pairing</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Enumerate all component-index routings for a given spatial topology.</span>
 
-<span class="sd">    Each topology already carries a multiplicity-weighted coupling.</span>
-<span class="sd">    This merges topologies that differ only by integration-variable</span>
-<span class="sd">    relabeling and sums their coupling coefficients.</span>
+<span class="sd">    Given a spatial topology (from ``wick_contract_spatial``), permute field</span>
+<span class="sd">    operators at each vertex point among same-type edge slots to recover all</span>
+<span class="sd">    distinct operator-level pairings within this topology.</span>
+
+<span class="sd">    Returns a list of ``(propagator_list, pairing)`` suitable for feeding</span>
+<span class="sd">    into ``_collect_grouped_wick``.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">defaultdict</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">itertools</span><span class="w"> </span><span class="kn">import</span> <span class="n">permutations</span><span class="p">,</span> <span class="n">product</span> <span class="k">as</span> <span class="n">cartesian_product</span>
 
-    <span class="k">if</span> <span class="ow">not</span> <span class="n">topo_terms</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">ZERO</span>
+    <span class="n">n_edges</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">rep_pairing</span><span class="p">)</span>
 
-    <span class="c1"># Group by canonical diagram form</span>
-    <span class="n">canonical_groups</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span>
-        <span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="o">...</span><span class="p">],</span>
-        <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Expr</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">Propagator</span><span class="p">],</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]],</span>
-    <span class="p">]</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+    <span class="c1"># Step 1: Build edge slot structure from the representative pairing.</span>
+    <span class="c1"># For each edge, record which operator fills the left and right slot,</span>
+    <span class="c1"># and classify each slot by (spatial_point, field_type).</span>
+    <span class="c1"># slots_at_point[spatial_point][field_type] = [(edge_idx, side), ...]</span>
+    <span class="n">slots_at_point</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]]]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">ops_at_slots</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">{}</span>  <span class="c1"># same structure but stores op indices</span>
 
-    <span class="k">for</span> <span class="n">coupling</span><span class="p">,</span> <span class="n">ref_props</span><span class="p">,</span> <span class="n">_pairing</span> <span class="ow">in</span> <span class="n">topo_terms</span><span class="p">:</span>
-        <span class="n">canon</span><span class="p">,</span> <span class="n">mapping</span> <span class="o">=</span> <span class="n">_canonical_diagram_form</span><span class="p">(</span><span class="n">ref_props</span><span class="p">,</span> <span class="n">integration_vars</span><span class="p">)</span>
-        <span class="n">canonical_groups</span><span class="p">[</span><span class="n">canon</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">coupling</span><span class="p">,</span> <span class="n">ref_props</span><span class="p">,</span> <span class="n">mapping</span><span class="p">))</span>
-
-    <span class="c1"># Merge within each canonical group</span>
-    <span class="n">result_terms</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Expr</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
-
-    <span class="k">for</span> <span class="n">canon</span><span class="p">,</span> <span class="n">entries</span> <span class="ow">in</span> <span class="n">canonical_groups</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-        <span class="c1"># Pick the first entry&#39;s propagators as reference</span>
-        <span class="n">_coupling_0</span><span class="p">,</span> <span class="n">ref_props_0</span><span class="p">,</span> <span class="n">mapping_0</span> <span class="o">=</span> <span class="n">entries</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-        <span class="n">ref_inv_0</span> <span class="o">=</span> <span class="p">{</span><span class="n">v</span><span class="p">:</span> <span class="n">k</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">mapping_0</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
-
-        <span class="n">all_couplings</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Expr</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
-
-        <span class="k">for</span> <span class="n">coupling</span><span class="p">,</span> <span class="n">ref_props</span><span class="p">,</span> <span class="n">mapping</span> <span class="ow">in</span> <span class="n">entries</span><span class="p">:</span>
-            <span class="c1"># Spatial relabeling from this entry to the canonical reference</span>
-            <span class="n">spatial_perm</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
-            <span class="k">for</span> <span class="n">orig</span><span class="p">,</span> <span class="n">canon_name</span> <span class="ow">in</span> <span class="n">mapping</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-                <span class="n">target</span> <span class="o">=</span> <span class="n">ref_inv_0</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">canon_name</span><span class="p">,</span> <span class="n">canon_name</span><span class="p">)</span>
-                <span class="k">if</span> <span class="n">orig</span> <span class="o">!=</span> <span class="n">target</span><span class="p">:</span>
-                    <span class="n">spatial_perm</span><span class="p">[</span><span class="n">orig</span><span class="p">]</span> <span class="o">=</span> <span class="n">target</span>
-
-            <span class="k">if</span> <span class="n">spatial_perm</span><span class="p">:</span>
-                <span class="n">all_couplings</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
-                    <span class="n">_apply_perm_to_coupling</span><span class="p">(</span><span class="n">coupling</span><span class="p">,</span> <span class="n">spatial_perm</span><span class="p">)</span>
-                <span class="p">)</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="n">all_couplings</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">coupling</span><span class="p">)</span>
-
-        <span class="c1"># Build: (sum of couplings) × (reference propagators)</span>
-        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">all_couplings</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
-            <span class="n">coupling_expr</span><span class="p">:</span> <span class="n">Expr</span> <span class="o">=</span> <span class="n">all_couplings</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">edge_idx</span><span class="p">,</span> <span class="p">(</span><span class="n">op_left</span><span class="p">,</span> <span class="n">op_right</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">rep_pairing</span><span class="p">):</span>
+        <span class="n">prop</span> <span class="o">=</span> <span class="n">ref_props</span><span class="p">[</span><span class="n">edge_idx</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">prop</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;R&quot;</span><span class="p">:</span>
+            <span class="c1"># Left = phi, right = psi</span>
+            <span class="n">phi_pt</span> <span class="o">=</span> <span class="n">all_ops</span><span class="p">[</span><span class="n">op_left</span><span class="p">]</span><span class="o">.</span><span class="n">spatial_arg</span>
+            <span class="n">psi_pt</span> <span class="o">=</span> <span class="n">all_ops</span><span class="p">[</span><span class="n">op_right</span><span class="p">]</span><span class="o">.</span><span class="n">spatial_arg</span>
+            <span class="n">slots_at_point</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">phi_pt</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;phi&quot;</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="p">(</span><span class="n">edge_idx</span><span class="p">,</span> <span class="s2">&quot;left&quot;</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">ops_at_slots</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">phi_pt</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;phi&quot;</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">op_left</span><span class="p">)</span>
+            <span class="n">slots_at_point</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">psi_pt</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;psi&quot;</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="p">(</span><span class="n">edge_idx</span><span class="p">,</span> <span class="s2">&quot;right&quot;</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">ops_at_slots</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">psi_pt</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;psi&quot;</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">op_right</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="c1"># Hash-based dedup</span>
-            <span class="n">term_counts</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="n">Expr</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
-            <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">all_couplings</span><span class="p">:</span>
-                <span class="n">term_counts</span><span class="p">[</span><span class="n">t</span><span class="p">]</span> <span class="o">=</span> <span class="n">term_counts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
-            <span class="n">deduped</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Expr</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
-            <span class="k">for</span> <span class="n">t</span><span class="p">,</span> <span class="n">count</span> <span class="ow">in</span> <span class="n">term_counts</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
-                <span class="k">if</span> <span class="n">count</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
-                    <span class="n">deduped</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">t</span><span class="p">)</span>
-                <span class="k">else</span><span class="p">:</span>
-                    <span class="n">deduped</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Product</span><span class="p">((</span><span class="n">Rational</span><span class="p">(</span><span class="n">count</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">t</span><span class="p">)))</span>
-            <span class="n">coupling_expr</span> <span class="o">=</span> <span class="n">deduped</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">deduped</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span> <span class="k">else</span> <span class="n">Sum</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">deduped</span><span class="p">))</span>
+            <span class="c1"># C edge: both sides are phi</span>
+            <span class="n">left_pt</span> <span class="o">=</span> <span class="n">all_ops</span><span class="p">[</span><span class="n">op_left</span><span class="p">]</span><span class="o">.</span><span class="n">spatial_arg</span>
+            <span class="n">right_pt</span> <span class="o">=</span> <span class="n">all_ops</span><span class="p">[</span><span class="n">op_right</span><span class="p">]</span><span class="o">.</span><span class="n">spatial_arg</span>
+            <span class="n">slots_at_point</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">left_pt</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;phi&quot;</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="p">(</span><span class="n">edge_idx</span><span class="p">,</span> <span class="s2">&quot;left&quot;</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">ops_at_slots</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">left_pt</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;phi&quot;</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">op_left</span><span class="p">)</span>
+            <span class="n">slots_at_point</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">right_pt</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;phi&quot;</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="p">(</span><span class="n">edge_idx</span><span class="p">,</span> <span class="s2">&quot;right&quot;</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">ops_at_slots</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">right_pt</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">&quot;phi&quot;</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">op_right</span><span class="p">)</span>
 
-        <span class="n">prop_expr</span> <span class="o">=</span> <span class="p">(</span>
-            <span class="n">Product</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">ref_props_0</span><span class="p">))</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">ref_props_0</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span>
-            <span class="k">else</span> <span class="n">ref_props_0</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-        <span class="p">)</span>
-        <span class="n">result_terms</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Product</span><span class="p">((</span><span class="n">coupling_expr</span><span class="p">,</span> <span class="n">prop_expr</span><span class="p">)))</span>
+    <span class="c1"># Step 2: At each vertex point, enumerate permutations of operators</span>
+    <span class="c1"># among same-type slots. Observable points are fixed.</span>
+    <span class="n">per_point_perms</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="nb">int</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">point_keys</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c1"># (point, field_type)</span>
 
-    <span class="k">if</span> <span class="ow">not</span> <span class="n">result_terms</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">ZERO</span>
-    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">result_terms</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
-        <span class="k">return</span> <span class="n">result_terms</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-    <span class="k">return</span> <span class="n">Sum</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">result_terms</span><span class="p">))</span>
+    <span class="k">for</span> <span class="n">point</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">slots_at_point</span><span class="o">.</span><span class="n">keys</span><span class="p">()):</span>
+        <span class="k">if</span> <span class="n">point</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">vertex_points</span><span class="p">:</span>
+            <span class="k">continue</span>  <span class="c1"># Observable point — no permutation</span>
+        <span class="k">for</span> <span class="n">ftype</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">slots_at_point</span><span class="p">[</span><span class="n">point</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">()):</span>
+            <span class="n">slots</span> <span class="o">=</span> <span class="n">slots_at_point</span><span class="p">[</span><span class="n">point</span><span class="p">][</span><span class="n">ftype</span><span class="p">]</span>
+            <span class="n">ops</span> <span class="o">=</span> <span class="n">ops_at_slots</span><span class="p">[</span><span class="n">point</span><span class="p">][</span><span class="n">ftype</span><span class="p">]</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">ops</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="k">continue</span>  <span class="c1"># Only one operator — no permutation needed</span>
+            <span class="c1"># Enumerate all permutations of ops among slots</span>
+            <span class="n">point_perms</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">perm_ops</span> <span class="ow">in</span> <span class="n">permutations</span><span class="p">(</span><span class="n">ops</span><span class="p">):</span>
+                <span class="n">mapping</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+                <span class="k">for</span> <span class="n">slot</span><span class="p">,</span> <span class="n">new_op</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">slots</span><span class="p">,</span> <span class="n">perm_ops</span><span class="p">):</span>
+                    <span class="n">mapping</span><span class="p">[</span><span class="n">slot</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_op</span>
+                <span class="n">point_perms</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">mapping</span><span class="p">)</span>
+            <span class="n">per_point_perms</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">point_perms</span><span class="p">)</span>
+            <span class="n">point_keys</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">point</span><span class="p">,</span> <span class="n">ftype</span><span class="p">))</span>
+
+    <span class="c1"># Step 3: Cartesian product of per-point permutations</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">per_point_perms</span><span class="p">:</span>
+        <span class="c1"># No permutations possible — only the reference pairing</span>
+        <span class="k">return</span> <span class="p">[(</span><span class="nb">list</span><span class="p">(</span><span class="n">ref_props</span><span class="p">),</span> <span class="n">rep_pairing</span><span class="p">)]</span>
+
+    <span class="c1"># Build base assignment: slot → operator (from reference pairing)</span>
+    <span class="n">base_assign</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">point</span> <span class="ow">in</span> <span class="n">slots_at_point</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">ftype</span> <span class="ow">in</span> <span class="n">slots_at_point</span><span class="p">[</span><span class="n">point</span><span class="p">]:</span>
+            <span class="k">for</span> <span class="n">slot</span><span class="p">,</span> <span class="n">op_idx</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span>
+                <span class="n">slots_at_point</span><span class="p">[</span><span class="n">point</span><span class="p">][</span><span class="n">ftype</span><span class="p">],</span> <span class="n">ops_at_slots</span><span class="p">[</span><span class="n">point</span><span class="p">][</span><span class="n">ftype</span><span class="p">]</span>
+            <span class="p">):</span>
+                <span class="n">base_assign</span><span class="p">[</span><span class="n">slot</span><span class="p">]</span> <span class="o">=</span> <span class="n">op_idx</span>
+
+    <span class="n">seen_pairings</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="o">...</span><span class="p">]]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+    <span class="n">results</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="n">Propagator</span><span class="p">],</span> <span class="n">Pairing</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="n">combo</span> <span class="ow">in</span> <span class="n">cartesian_product</span><span class="p">(</span><span class="o">*</span><span class="n">per_point_perms</span><span class="p">):</span>
+        <span class="c1"># Merge all per-point slot reassignments into the base</span>
+        <span class="n">assign</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">base_assign</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">point_mapping</span> <span class="ow">in</span> <span class="n">combo</span><span class="p">:</span>
+            <span class="n">assign</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">point_mapping</span><span class="p">)</span>
+
+        <span class="c1"># Build new pairing and propagators from the assignment</span>
+        <span class="n">new_pairs</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">new_props</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Propagator</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">edge_idx</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_edges</span><span class="p">):</span>
+            <span class="n">prop</span> <span class="o">=</span> <span class="n">ref_props</span><span class="p">[</span><span class="n">edge_idx</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">prop</span><span class="o">.</span><span class="n">kind</span> <span class="o">==</span> <span class="s2">&quot;R&quot;</span><span class="p">:</span>
+                <span class="n">left_op</span> <span class="o">=</span> <span class="n">assign</span><span class="p">[(</span><span class="n">edge_idx</span><span class="p">,</span> <span class="s2">&quot;left&quot;</span><span class="p">)]</span>
+                <span class="n">right_op</span> <span class="o">=</span> <span class="n">assign</span><span class="p">[(</span><span class="n">edge_idx</span><span class="p">,</span> <span class="s2">&quot;right&quot;</span><span class="p">)]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">left_op</span> <span class="o">=</span> <span class="n">assign</span><span class="p">[(</span><span class="n">edge_idx</span><span class="p">,</span> <span class="s2">&quot;left&quot;</span><span class="p">)]</span>
+                <span class="n">right_op</span> <span class="o">=</span> <span class="n">assign</span><span class="p">[(</span><span class="n">edge_idx</span><span class="p">,</span> <span class="s2">&quot;right&quot;</span><span class="p">)]</span>
+            <span class="n">new_pairs</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">left_op</span><span class="p">,</span> <span class="n">right_op</span><span class="p">))</span>
+            <span class="c1"># Build propagator with the new component indices</span>
+            <span class="n">ol</span> <span class="o">=</span> <span class="n">all_ops</span><span class="p">[</span><span class="n">left_op</span><span class="p">]</span>
+            <span class="n">or_</span> <span class="o">=</span> <span class="n">all_ops</span><span class="p">[</span><span class="n">right_op</span><span class="p">]</span>
+            <span class="n">new_props</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Propagator</span><span class="p">(</span>
+                <span class="n">kind</span><span class="o">=</span><span class="n">prop</span><span class="o">.</span><span class="n">kind</span><span class="p">,</span>
+                <span class="n">index_left</span><span class="o">=</span><span class="n">ol</span><span class="o">.</span><span class="n">component_index</span><span class="p">,</span>
+                <span class="n">index_right</span><span class="o">=</span><span class="n">or_</span><span class="o">.</span><span class="n">component_index</span><span class="p">,</span>
+                <span class="n">spatial_left</span><span class="o">=</span><span class="n">ol</span><span class="o">.</span><span class="n">spatial_arg</span><span class="p">,</span>
+                <span class="n">spatial_right</span><span class="o">=</span><span class="n">or_</span><span class="o">.</span><span class="n">spatial_arg</span><span class="p">,</span>
+            <span class="p">))</span>
+
+        <span class="c1"># De-duplicate: canonicalize the pairing</span>
+        <span class="n">canon_pairing</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span>
+            <span class="nb">tuple</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">pair</span><span class="p">))</span> <span class="k">for</span> <span class="n">pair</span> <span class="ow">in</span> <span class="n">new_pairs</span>
+        <span class="p">))</span>
+        <span class="k">if</span> <span class="n">canon_pairing</span> <span class="ow">in</span> <span class="n">seen_pairings</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="n">seen_pairings</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">canon_pairing</span><span class="p">)</span>
+        <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">new_props</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">new_pairs</span><span class="p">)))</span>
+
+    <span class="k">return</span> <span class="n">results</span>
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_fast_component_match</span><span class="p">(</span>
@@ -1082,8 +1620,183 @@
     <span class="k">return</span> <span class="n">coupling</span>
 
 
+<span class="k">def</span><span class="w"> </span><span class="nf">_extract_diagram_records</span><span class="p">(</span>
+    <span class="n">expr</span><span class="p">:</span> <span class="n">Expr</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Propagator</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="n">Expr</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Extract ``(propagators, coupling_sum)`` from ``_collect_grouped_wick`` output.</span>
+
+<span class="sd">    The output has a known structure: each diagram is a ``Product``</span>
+<span class="sd">    whose factors include propagators and coupling expressions.  The</span>
+<span class="sd">    ``Product`` constructor auto-flattens, so the factors may be</span>
+<span class="sd">    interleaved.  We separate them by type.</span>
+
+<span class="sd">    Records with identical propagator sets are merged (their couplings</span>
+<span class="sd">    are summed).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">collections</span><span class="w"> </span><span class="kn">import</span> <span class="n">defaultdict</span>
+
+    <span class="k">if</span> <span class="n">_is_zero</span><span class="p">(</span><span class="n">expr</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">[]</span>
+
+    <span class="n">terms</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">expr</span><span class="o">.</span><span class="n">terms</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">expr</span><span class="p">,</span> <span class="n">Sum</span><span class="p">)</span> <span class="k">else</span> <span class="p">[</span><span class="n">expr</span><span class="p">]</span>
+
+    <span class="n">raw_records</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Propagator</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="n">Expr</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">term</span> <span class="ow">in</span> <span class="n">terms</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">term</span><span class="p">,</span> <span class="n">Product</span><span class="p">):</span>
+            <span class="n">props</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Propagator</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">coupling_factors</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Expr</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">term</span><span class="o">.</span><span class="n">factors</span><span class="p">:</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">Propagator</span><span class="p">):</span>
+                    <span class="n">props</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">coupling_factors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">props</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="n">coupling_factors</span><span class="p">:</span>
+                <span class="n">coupling</span><span class="p">:</span> <span class="n">Expr</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="n">coupling_factors</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">coupling_factors</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
+                    <span class="k">else</span> <span class="n">Product</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">coupling_factors</span><span class="p">))</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">coupling</span> <span class="o">=</span> <span class="n">Rational</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">raw_records</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="nb">tuple</span><span class="p">(</span><span class="n">props</span><span class="p">),</span> <span class="n">coupling</span><span class="p">))</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">term</span><span class="p">,</span> <span class="n">Propagator</span><span class="p">):</span>
+            <span class="n">raw_records</span><span class="o">.</span><span class="n">append</span><span class="p">(((</span><span class="n">term</span><span class="p">,),</span> <span class="n">Rational</span><span class="p">(</span><span class="mi">1</span><span class="p">)))</span>
+
+    <span class="c1"># Merge records with identical propagator sets</span>
+    <span class="n">grouped</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Propagator</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="nb">list</span><span class="p">[</span><span class="n">Expr</span><span class="p">]]</span> <span class="o">=</span> <span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">props_t</span><span class="p">,</span> <span class="n">coupling</span> <span class="ow">in</span> <span class="n">raw_records</span><span class="p">:</span>
+        <span class="n">grouped</span><span class="p">[</span><span class="n">props_t</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">coupling</span><span class="p">)</span>
+
+    <span class="n">records</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="n">Propagator</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="n">Expr</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">props_t</span><span class="p">,</span> <span class="n">couplings</span> <span class="ow">in</span> <span class="n">grouped</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">couplings</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">records</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">props_t</span><span class="p">,</span> <span class="n">couplings</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">records</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">props_t</span><span class="p">,</span> <span class="n">Sum</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">couplings</span><span class="p">))))</span>
+    <span class="k">return</span> <span class="n">records</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_collect_index_order</span><span class="p">(</span><span class="n">expr</span><span class="p">:</span> <span class="n">Expr</span><span class="p">,</span> <span class="n">summation_set</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Return summation index names that appear in *expr*, in DFS first-appearance order.&quot;&quot;&quot;</span>
+    <span class="n">seen</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">seen_set</span><span class="p">:</span> <span class="nb">set</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_visit</span><span class="p">(</span><span class="n">e</span><span class="p">:</span> <span class="n">Expr</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="n">Symbol</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="n">e</span><span class="o">.</span><span class="n">indices</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">idx</span> <span class="ow">in</span> <span class="n">summation_set</span> <span class="ow">and</span> <span class="n">idx</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">seen_set</span><span class="p">:</span>
+                    <span class="n">seen</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
+                    <span class="n">seen_set</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="n">Propagator</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">idx</span> <span class="ow">in</span> <span class="p">(</span><span class="n">e</span><span class="o">.</span><span class="n">index_left</span><span class="p">,</span> <span class="n">e</span><span class="o">.</span><span class="n">index_right</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">idx</span> <span class="ow">and</span> <span class="n">idx</span> <span class="ow">in</span> <span class="n">summation_set</span> <span class="ow">and</span> <span class="n">idx</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">seen_set</span><span class="p">:</span>
+                    <span class="n">seen</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
+                    <span class="n">seen_set</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="n">Product</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">e</span><span class="o">.</span><span class="n">factors</span><span class="p">:</span>
+                <span class="n">_visit</span><span class="p">(</span><span class="n">child</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="n">Sum</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">e</span><span class="o">.</span><span class="n">terms</span><span class="p">:</span>
+                <span class="n">_visit</span><span class="p">(</span><span class="n">child</span><span class="p">)</span>
+
+    <span class="n">_visit</span><span class="p">(</span><span class="n">expr</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">seen</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_eval_symbolic</span><span class="p">(</span>
+    <span class="n">expr</span><span class="p">:</span> <span class="n">Expr</span><span class="p">,</span>
+    <span class="n">symbol_values</span><span class="p">:</span> <span class="nb">dict</span><span class="p">,</span>
+    <span class="n">index_map</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Recursively evaluate a symbolic expression with concrete values.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        expr: The symbolic expression.</span>
+<span class="sd">        symbol_values: ``{name: numpy_array}`` mapping coupling names</span>
+<span class="sd">            to numeric arrays.</span>
+<span class="sd">        index_map: ``{index_name: int_value}`` mapping component index</span>
+<span class="sd">            names to concrete integer values.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        The numeric value as a float or complex.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">expr</span><span class="p">,</span> <span class="n">Rational</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">expr</span><span class="o">.</span><span class="n">numerator</span> <span class="o">/</span> <span class="n">expr</span><span class="o">.</span><span class="n">denominator</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">expr</span><span class="p">,</span> <span class="n">Symbol</span><span class="p">):</span>
+        <span class="n">arr</span> <span class="o">=</span> <span class="n">symbol_values</span><span class="p">[</span><span class="n">expr</span><span class="o">.</span><span class="n">name</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">expr</span><span class="o">.</span><span class="n">indices</span><span class="p">:</span>
+            <span class="k">def</span><span class="w"> </span><span class="nf">_resolve</span><span class="p">(</span><span class="n">i</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">index_map</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">index_map</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+                <span class="c1"># Literal observable component (e.g. &#39;1&#39;, &#39;2&#39;) — 1-indexed convention</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
+                <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span>
+                        <span class="sa">f</span><span class="s2">&quot;Index &#39;</span><span class="si">{</span><span class="n">i</span><span class="si">}</span><span class="s2">&#39; not found in index_map and is not a literal integer. &quot;</span>
+                        <span class="s2">&quot;Pass it via the fixed_indices argument of evaluate_coupling().&quot;</span>
+                    <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="kc">None</span>
+            <span class="n">idx</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">_resolve</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">expr</span><span class="o">.</span><span class="n">indices</span><span class="p">)</span>
+            <span class="n">val</span> <span class="o">=</span> <span class="n">arr</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">val</span> <span class="o">=</span> <span class="n">arr</span>
+        <span class="k">return</span> <span class="nb">complex</span><span class="p">(</span><span class="n">val</span><span class="p">)</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">iscomplexobj</span><span class="p">(</span><span class="n">arr</span><span class="p">)</span> <span class="k">else</span> <span class="nb">float</span><span class="p">(</span><span class="n">val</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">expr</span><span class="p">,</span> <span class="n">Product</span><span class="p">):</span>
+        <span class="n">result</span><span class="p">:</span> <span class="nb">complex</span> <span class="o">|</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span>
+        <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">expr</span><span class="o">.</span><span class="n">factors</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">*=</span> <span class="n">_eval_symbolic</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">symbol_values</span><span class="p">,</span> <span class="n">index_map</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">result</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">expr</span><span class="p">,</span> <span class="n">Sum</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">sum</span><span class="p">(</span>
+            <span class="n">_eval_symbolic</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">symbol_values</span><span class="p">,</span> <span class="n">index_map</span><span class="p">)</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">expr</span><span class="o">.</span><span class="n">terms</span>
+        <span class="p">)</span>
+    <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Cannot numerically evaluate </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">expr</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+
+
 <span class="k">def</span><span class="w"> </span><span class="nf">_is_zero</span><span class="p">(</span><span class="n">expr</span><span class="p">:</span> <span class="n">Expr</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
     <span class="k">return</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">expr</span><span class="p">,</span> <span class="n">Rational</span><span class="p">)</span> <span class="ow">and</span> <span class="n">expr</span><span class="o">.</span><span class="n">is_zero</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_coeff_latex</span><span class="p">(</span><span class="n">pref</span><span class="p">:</span> <span class="n">Rational</span><span class="p">,</span> <span class="n">n_response</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sa">r</span><span class="sd">&quot;&quot;&quot;Render ``rational_prefactor × (-i)^{n_response}`` as a single LaTeX token.</span>
+
+<span class="sd">    Combines the sign of the rational with the phase so that the output</span>
+<span class="sd">    is a clean fraction like ``\frac{\mathrm{i}}{6}`` rather than two</span>
+<span class="sd">    separate tokens ``\mathrm{i} -\frac{1}{6}``.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">fractions</span><span class="w"> </span><span class="kn">import</span> <span class="n">Fraction</span>
+
+    <span class="c1"># Phase by n_response mod 4:</span>
+    <span class="c1">#   0 → +1,  1 → -i,  2 → -1,  3 → +i</span>
+    <span class="c1"># Represent as (real_sign, is_imag):</span>
+    <span class="c1">#   0 → (+1, False), 1 → (-1, True), 2 → (-1, False), 3 → (+1, True)</span>
+    <span class="n">phase_sign</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">][</span><span class="n">n_response</span> <span class="o">%</span> <span class="mi">4</span><span class="p">]</span>
+    <span class="n">is_imag</span> <span class="o">=</span> <span class="p">(</span><span class="n">n_response</span> <span class="o">%</span> <span class="mi">2</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span>
+
+    <span class="c1"># Effective rational = pref × phase_sign  (absorb sign into numerator)</span>
+    <span class="n">f</span> <span class="o">=</span> <span class="n">Fraction</span><span class="p">(</span><span class="n">pref</span><span class="o">.</span><span class="n">numerator</span> <span class="o">*</span> <span class="n">phase_sign</span><span class="p">,</span> <span class="n">pref</span><span class="o">.</span><span class="n">denominator</span><span class="p">)</span>
+    <span class="n">num</span><span class="p">,</span> <span class="n">den</span> <span class="o">=</span> <span class="nb">abs</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">numerator</span><span class="p">),</span> <span class="n">f</span><span class="o">.</span><span class="n">denominator</span>
+    <span class="n">negative</span> <span class="o">=</span> <span class="n">f</span> <span class="o">&lt;</span> <span class="mi">0</span>
+
+    <span class="c1"># Build the numerator string</span>
+    <span class="k">if</span> <span class="n">is_imag</span> <span class="ow">and</span> <span class="n">num</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">num_str</span> <span class="o">=</span> <span class="sa">r</span><span class="s2">&quot;\mathrm</span><span class="si">{i}</span><span class="s2">&quot;</span>
+    <span class="k">elif</span> <span class="n">is_imag</span><span class="p">:</span>
+        <span class="n">num_str</span> <span class="o">=</span> <span class="sa">rf</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">num</span><span class="si">}</span><span class="s2">\,\mathrm</span><span class="se">{{</span><span class="s2">i</span><span class="se">}}</span><span class="s2">&quot;</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">num_str</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">num</span><span class="p">)</span>
+
+    <span class="c1"># Assemble</span>
+    <span class="n">sign</span> <span class="o">=</span> <span class="s2">&quot;-&quot;</span> <span class="k">if</span> <span class="n">negative</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">num</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s2">&quot;0&quot;</span>
+    <span class="k">if</span> <span class="n">den</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">and</span> <span class="n">num_str</span> <span class="o">==</span> <span class="s2">&quot;1&quot;</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">is_imag</span><span class="p">:</span>
+        <span class="c1"># coefficient is ±1 → omit (sign is still prepended if negative)</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">sign</span><span class="si">}</span><span class="s2">1&quot;</span> <span class="k">if</span> <span class="n">negative</span> <span class="k">else</span> <span class="s2">&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">den</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">sign</span><span class="si">}{</span><span class="n">num_str</span><span class="si">}</span><span class="s2">&quot;</span>
+    <span class="k">return</span> <span class="sa">rf</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">sign</span><span class="si">}</span><span class="s2">\frac</span><span class="se">{{</span><span class="si">{</span><span class="n">num_str</span><span class="si">}</span><span class="se">}}{{</span><span class="si">{</span><span class="n">den</span><span class="si">}</span><span class="se">}}</span><span class="s2">&quot;</span>
 </pre></div>
         </article>
       </div>
