@@ -21,6 +21,7 @@ listed below are accessible directly from ``sft_wick``:
    propagators
    perturbation
    simplify
+   evaluate
    diagrams
    drawing
    indices

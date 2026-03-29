@@ -41,6 +41,7 @@ from .evaluate import (
     PropagatorModel,
     SpatialStructure,
     analyze_spatial,
+    integrate_moment,
 )
 from .perturbation import DiagramTerm, PerturbativeResult, compute_moment
 from .propagators import contract_pair
@@ -78,6 +79,7 @@ __all__ = [
     "VertexInstance",
     "ZERO",
     "analyze_spatial",
+    "integrate_moment",
     "apply_response_phase",
     "collect_by_diagram",
     "collect_by_topology",
