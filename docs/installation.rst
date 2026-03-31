@@ -20,6 +20,12 @@ Clone the repository and install in editable mode:
    cd sft-wick
    pip install -e .
 
+To include parallel diagram evaluation support (``joblib``):
+
+.. code-block:: bash
+
+   pip install -e ".[parallel]"
+
 To include development dependencies (``pytest``, ``pytest-cov``):
 
 .. code-block:: bash

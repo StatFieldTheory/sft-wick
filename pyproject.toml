@@ -13,6 +13,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+parallel = [
+    "joblib>=1.3",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov",

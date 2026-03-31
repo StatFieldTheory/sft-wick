@@ -1090,3 +1090,89 @@ def integrate_moment(
         )
     else:
         raise ValueError(f"Unknown method {method!r}; use 'qmc' or 'nquad'")
+
+
+def _eval_single_diagram(
+    dt, coupling_values, fixed_indices, lambda_f, cache, t_min, direction,
+    method, n_samples, seed,
+):
+    """Evaluate one diagram term end-to-end (build integrand + integrate).
+
+    Top-level function so it is picklable for multiprocessing.
+    """
+    ig = dt.build_integrand(coupling_values, fixed_indices)
+    return integrate_moment(
+        ig, lambda_f, cache,
+        t_min=t_min, direction=direction,
+        method=method, n_samples=n_samples, seed=seed,
+    )
+
+
+def integrate_diagrams(
+    diagram_terms: list,
+    coupling_values: dict,
+    lambda_f: float,
+    cache: "PropagatorCache",
+    t_min: float = 0.0,
+    direction: Any = 0,
+    method: str = "qmc",
+    n_samples: int = 2**14,
+    seed: int | None = None,
+    fixed_indices: dict[str, int] | None = None,
+    n_jobs: int = 1,
+) -> tuple[float, list[tuple[float, float]]]:
+    """Integrate a batch of diagram terms, optionally in parallel.
+
+    Builds integrands and evaluates all diagrams, returning the total
+    and per-diagram results.  When ``n_jobs != 1``, diagrams are
+    evaluated in parallel using :mod:`joblib`.
+
+    Args:
+        diagram_terms: List of :class:`~sft_wick.perturbation.DiagramTerm`.
+        coupling_values: Coupling tensor arrays (e.g. ``{'F': F_code}``).
+        lambda_f: Upper integration limit.
+        cache: A :class:`PropagatorCache`.
+        t_min: Lower time bound (default 0).
+        direction: Direction value for all spatial points.
+        method: ``'qmc'`` or ``'nquad'``.
+        n_samples: Number of Sobol samples (QMC only).
+        seed: Random seed (QMC only).
+        fixed_indices: Optional pinned index values for
+            :meth:`~sft_wick.perturbation.DiagramTerm.build_integrand`.
+        n_jobs: Number of parallel jobs.  ``1`` = sequential (default),
+            ``-1`` = all CPU cores.  Requires :mod:`joblib` when
+            ``n_jobs != 1``.
+
+    Returns:
+        ``(total, details)`` where *total* is the scalar sum and
+        *details* is a list of ``(estimate, error)`` per diagram.
+    """
+    if not diagram_terms:
+        return (0.0, [])
+
+    if n_jobs == 1 or len(diagram_terms) <= 2:
+        # Sequential — no overhead
+        details = []
+        for dt in diagram_terms:
+            ig = dt.build_integrand(coupling_values, fixed_indices)
+            val, err = integrate_moment(
+                ig, lambda_f, cache,
+                t_min=t_min, direction=direction,
+                method=method, n_samples=n_samples, seed=seed,
+            )
+            details.append((val, err))
+    else:
+        # Parallel via joblib
+        from joblib import Parallel, delayed
+        results = Parallel(n_jobs=n_jobs, backend="loky")(
+            delayed(_eval_single_diagram)(
+                dt, coupling_values, fixed_indices,
+                lambda_f, cache, t_min, direction,
+                method, n_samples, seed,
+            )
+            for dt in diagram_terms
+        )
+        details = list(results)
+
+    total = sum(v for v, _ in details)
+    return (total, details)
