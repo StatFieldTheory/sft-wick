@@ -10,7 +10,7 @@ Wick's theorem contractions for statistical field theory perturbative calculatio
 pip install -e ".[dev]"
 ```
 
-Dependencies: `networkx`, `matplotlib`. For development: `pytest`, `pytest-cov`.
+Dependencies: `networkx`, `matplotlib`. For parallel diagram evaluation: `pip install -e ".[parallel]"` (adds `joblib`). For development: `pytest`, `pytest-cov`.
 
 ## Quick Start
 
@@ -244,6 +244,8 @@ result = compute_moment(obs, action, order=1)
 | `apply_response_phase(expr)` | Multiply each term by (−i)^n for n response propagators |
 | `collect_by_diagram(expr)` | Group terms by Feynman diagram isomorphism, factor out propagators |
 | `collect_by_topology(expr)` | Alias for `collect_by_diagram` (backward compat) |
+| `integrate_moment(integrand, lambda_f, cache, ...)` | Integrate a single diagram's contribution (QMC or nquad) |
+| `integrate_diagrams(diagram_terms, coupling_values, lambda_f, cache, ..., n_jobs=1)` | Batch-integrate a list of diagram terms, optionally in parallel (`n_jobs=-1`) |
 | `simplify(expr)` | Simplify an expression (flatten, collect terms, eliminate zeros) |
 | `reset_uid_counter()` | Reset field operator UID counter (for reproducible tests) |
 
@@ -259,6 +261,9 @@ result = compute_moment(obs, action, order=1)
 | `PerturbativeResult` | Result container with order-by-order expressions and diagrams |
 | `FeynmanDiagram` | Graph representation of a diagram (networkx MultiGraph) |
 | `DiagramRenderer` | Matplotlib-based diagram visualizer |
+| `PropagatorModel` | User-provided R\_time and κ² callables for numerical evaluation |
+| `PropagatorCache` | Caches C propagators (spline-interpolated or dblquad) |
+| `DiagramIntegrand` | Ready-to-integrate object combining coupling coefficients and spatial structure |
 | `LaTeXFormatter` | Configurable LaTeX output |
 | `ImaginaryUnit` | The imaginary unit i, used in phase factors |
 
