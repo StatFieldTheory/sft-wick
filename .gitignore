@@ -1,5 +1,18 @@
 .pytest_cache/
+.ruff_cache/
 __pycache__/
+**/__pycache__/
+*.pyc
 .ipynb_checkpoints/
 .claude/
 CLAUDE.md
+HANDOFF*
+paper/
+archived/
+
+# Build / generated artifacts
+.DS_Store
+docs/_build/
+examples/demo_workflow_plot.png
+examples/demo1/__pycache__/
+examples/demo2/__pycache__/

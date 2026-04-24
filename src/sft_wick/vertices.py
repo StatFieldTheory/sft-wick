@@ -6,7 +6,7 @@ A VertexInstance is a concrete instantiation with freshly assigned indices.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Sequence
 
 from .expressions import Symbol

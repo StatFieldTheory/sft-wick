@@ -10,9 +10,116 @@ Wick's theorem contractions for statistical field theory perturbative calculatio
 pip install -e ".[dev]"
 ```
 
-Dependencies: `networkx`, `matplotlib`. For parallel diagram evaluation: `pip install -e ".[parallel]"` (adds `joblib`). For development: `pytest`, `pytest-cov`.
+Dependencies: `networkx`, `matplotlib`, `numpy`, `scipy`, `pandas`, `pyyaml`. For parallel diagram evaluation: `pip install -e ".[parallel]"` (adds `joblib`). For development: `pytest`, `pytest-cov`.
 
-## Quick Start
+The install also registers a CLI entry point:
+
+```bash
+sft-wick run config.yaml         # execute a full YAML-configured workflow
+sft-wick run config.yaml --override sweep.seed=7 --dry-run
+```
+
+## Three-layer API — start with L2
+
+`sft-wick` exposes three progressively higher-level entry points.
+**The recommended entry point for any new analysis is L2: write a
+YAML config, run it with the CLI, iterate.**  Drop down only when
+the physics genuinely requires Python-level control.
+
+| Layer | Entry point | Use when |
+|---|---|---|
+| **L2 — YAML + CLI** ✨ | `sft-wick run config.yaml` | **Default choice.** Reproducible, shareable, diff-able; no Python code at the call site; runs identically on a laptop or a cluster; `--override` lets you scan parameters from the shell. |
+| **L1 — Python workflow** | `System`, `Expansion`, `Propagators`, `SweepResult` | You need to script custom pre/post-processing around the sweep, or compose multiple systems programmatically. |
+| **L0 — raw symbolic** | `compute_moment`, `Field`, `Vertex`, `Action`, `PropagatorCache`, `DiagramIntegrand` | You need fine-grained control over pairings, Itô flags, canonical forms, or custom simplifications. Research into the symbolic machinery. |
+
+The Sphinx docs' "Workflow API" chapter (`docs/user_guide/workflow.rst`) covers L1/L2 end-to-end; the L0 reference below is the complete specification of the underlying symbolic machinery.
+
+## Quick Start — L2 (config file)
+
+Write `demo1_config.yaml`:
+
+```yaml
+system:
+  field: {name: phi, n_components: 2}
+  linear: {type: diagonal, gamma: [1.0, 1.0]}
+  vertices:
+    - name: F
+      coupling:                                    # bare F; MSR factor
+        - [[0.0, 0.0], [0.0, 1.0]]                 # applied automatically
+        - [[0.0, 0.5], [0.5, 0.0]]
+  noise:
+    kappa2:
+      type: separable_translation
+      temporal: {type: exponential, lam: 0.05, sigma_t: 0.3}
+      spatial:  {type: exponential, sigma_x: 1.0}
+
+expand:
+  observable: ["phi_a(x)", "phi_b(y)"]
+  orders: [0, 2, 4]
+
+propagators: {t_max: 15.0, n_grid_t: 60}
+
+sweep:
+  positions_grid: {x: [0.0], y: [0.0, 0.5, 1.0, 2.5]}
+  t_final_grid: [1.0, 15.0]
+  component_pairs: [[0, 0], [1, 1]]
+  n_samples: 8192
+  seed: 42
+
+output:
+  - {type: table, format: markdown, path: results.md}
+  - {type: npz, path: results.npz}
+```
+
+Run from the shell:
+
+```bash
+sft-wick run demo1_config.yaml                # full pipeline
+sft-wick run demo1_config.yaml --override sweep.seed=7
+sft-wick run demo1_config.yaml --dry-run      # validate + summarize
+```
+
+See `examples/demo1_config.yaml` and `examples/demo2_config.yaml` for
+richer examples (non-local vertex, closed-form C hook, dynamic
+couplings).
+
+## Quick Start — L1 (Python, for programmatic use)
+
+The exact same workflow above, written directly in Python when you
+need to integrate it into a larger script:
+
+```python
+import numpy as np
+import sft_wick as sw
+
+F = np.zeros((2, 2, 2))
+F[0, 1, 1] = 1.0
+F[1, 0, 1] = F[1, 1, 0] = 0.5
+
+system = sw.System(
+    field=sw.FieldSpec("phi", n_components=2),
+    linear=sw.DiagonalA(gamma=[1.0, 1.0]),
+    vertices=[sw.LocalVertex("F", coupling=F)],   # bare F
+    noise=sw.GaussianNoise(kappa2=sw.SeparableTranslation(
+        temporal=sw.ExponentialTemporal(lam=0.05, sigma_t=0.3),
+        spatial=sw.ExponentialSpatial(sigma_x=1.0),
+    )),
+)
+
+expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0, 2, 4])
+props = system.propagators(t_max=15.0, n_grid_t=60)
+
+sweep = expansion.sweep(
+    props,
+    positions_grid={"x": [0.0], "y": [0.0, 0.5, 1.0, 2.5]},
+    t_final_grid=[1.0, 15.0],
+    component_pairs=[(0, 0), (1, 1)],
+)
+
+print(sweep.totals())    # long-format pandas DataFrame
+```
+
+## Raw API (L0) Quick Start
 
 ```python
 from sft_wick import Field, Vertex, Action, compute_moment
@@ -239,6 +346,7 @@ result = compute_moment(obs, action, order=1)
 | Function | Description |
 |---|---|
 | `compute_moment(observable, action, order, ito=True, response_phase=True, collect_topology=True)` | Perturbative expansion of ⟨O⟩\_S up to given order |
+| `compute_moment_numerical(observable, action, order, coupling_values, fixed_indices, ..., n_jobs=1)` | Fast numerical path using nauty canonical labeling for diagram grouping. Enables order-6 calculations. Requires `pynauty`. Optional parallelization via `joblib` (`n_jobs=-1`). |
 | `wick_contract(operators, ito=True)` | Apply Wick's theorem to a product of field operators |
 | `contract_pair(op1, op2, ito=True)` | Contract two field operators into a propagator |
 | `apply_response_phase(expr)` | Multiply each term by (−i)^n for n response propagators |
@@ -315,10 +423,55 @@ Pass `collect_topology=False` to keep all pairings expanded individually.
 - **Optimized contraction**: Two engines are available. The operator-level engine (`generate_valid_pairings`) skips ψ-ψ pairings at construction time. The spatial-level engine (`wick_contract_spatial`, used by default when `collect_topology=True`) enumerates spatial topologies instead of operator-level pairings, computing a multiplicity for each — this avoids the combinatorial explosion from component-index routing and provides orders-of-magnitude speedup at high perturbative orders.
 - **Feynman diagrams**: Built on `networkx.MultiGraph` (supporting multiple edges between the same pair of nodes) with `matplotlib` rendering.
 
+## Performance
+
+### `compute_moment` (symbolic path)
+
+The default `compute_moment` builds full symbolic expressions and groups diagrams via brute-force canonical form search (trying all k! permutations of internal spatial variables). Performance at each perturbative order:
+
+| Order | Operators | Topologies | Diagrams | Time  |
+|-------|-----------|------------|----------|-------|
+| 2     | 8         | 12         | 6        | <0.01s |
+| 4     | 14        | 1,416      | 64       | ~1.5s |
+| 6     | 20        | 738,900    | 1,088    | infeasible (hours/OOM) |
+
+### `compute_moment_numerical` (nauty path)
+
+Replaces the O(k!) canonical form search with the nauty graph isomorphism algorithm (via `pynauty`), reducing diagram grouping from hours to seconds at order 6:
+
+| Order | Topologies | Nauty grouping | Component routing | Total  |
+|-------|------------|----------------|-------------------|--------|
+| 4     | 1,416      | 0.02s          | 0.25s             | ~0.3s  |
+| 6     | 738,900    | ~12s           | ~8 min            | ~10 min |
+
+Pass `n_jobs=-1` to parallelize across CPU cores (requires `joblib`).
+
+### Known bottlenecks and future directions
+
+At order 6, the dominant cost is **component routing** (`_enumerate_component_routings`), called once per spatial topology (738K calls). Potential improvements:
+
+- **Cache routing for isomorphic topologies**: topologies in the same nauty canonical group are graph-isomorphic. If the nauty permutation can be applied at the operator level, routing need only run once per canonical group (~1K calls instead of ~738K). This requires mapping operator UIDs across isomorphic graphs.
+- **Einsum-based coupling evaluation**: for constant coupling tensors, the coupling sum can be computed via `np.einsum` tensor contraction rather than symbolic expression evaluation, eliminating the combinatorial component-index enumeration entirely.
+- **Vectorized QMC integration** ✅: `DiagramIntegrand.integrate_moment_qmc_vectorized()` replaces the Python for-loop over Sobol samples with batch propagator evaluation via `PropagatorCache.C_diagonal_batch()` and `R_time_batch()`. Achieves 18–22× speedup over the scalar `integrate_moment_qmc()` with identical results.
+- **GPU acceleration**: the simulation (Euler–Maruyama) and QMC integration are embarrassingly parallel across realizations/samples and would benefit from JAX `vmap` or similar frameworks.
+
 ## Testing
 
 ```bash
 pytest tests/ -v
 ```
 
-114 tests covering expressions, fields, propagators, Wick contractions (operator-level and spatial-level), perturbative expansion, simplification, diagram-based collection, Itô prescription, causal R-loop elimination, and response phase convention.
+**275 tests, ~3.5 min on M-series**.  The suite is organised into
+eight deductive phases:
+
+1. Phase 1 — Symbolic expansion (`test_deductive_expansion.py`)
+2. Phase 2 — Propagator numerics (`test_deductive_numerics.py::TestClosedFormC` etc.)
+3. Phase 3 — Full diagram evaluation
+4. Phase 4 — Alternative-path consistency (vectorised, parallel, nauty)
+5. Phase 5 — Spatial homogeneity modes (translation / rotation / general)
+6. Phase 6 — White-noise component
+7. Phase 7 — Dynamic non-local coupling + L1/L2 workflow round-trip
+   (`test_workflow.py`, `test_workflow_config.py`)
+8. Phase 8 — Time-dependent linear operator (`test_diagonal_A_time_dependent.py`)
+
+See `docs/verification/index.rst` for the per-phase test matrix, tolerances, and design rationale.

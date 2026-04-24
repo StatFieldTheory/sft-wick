@@ -26,7 +26,7 @@ from .expressions import (
     _latex_index,
     apply_response_phase,
 )
-from .fields import FieldOperator, FieldType
+from .fields import FieldOperator
 from .indices import IndexContext
 from .propagators import contract_pair
 from .simplify import (
@@ -387,7 +387,6 @@ class DiagramTerm:
             return self
 
         sum_idx_set = {name for name, _ in self.summation_indices}
-        sum_idx_dims = {name: dim for name, dim in self.summation_indices}
 
         constraints: list[tuple[str, str]] = []
         for p in self.propagators:
@@ -523,6 +522,103 @@ class DiagramTerm:
 
         return body
 
+    def to_latex_evaluated(
+        self,
+        coupling_values: dict,
+        fixed_indices: dict[str, int] | None = None,
+    ) -> str:
+        r"""LaTeX with numerically evaluated coupling coefficients.
+
+        Like :meth:`to_latex`, but replaces the symbolic coupling sum
+        with the numerical coefficient array obtained from
+        :meth:`evaluate_coupling`.  Summation indices that survive in
+        the propagators are shown as explicit sums over the numerical
+        coefficients; coupling-only indices are already contracted.
+
+        Args:
+            coupling_values: ``{name: numpy_array}`` for coupling tensors.
+            fixed_indices: Optional pinned observable indices.
+
+        Returns:
+            LaTeX string with numerical coefficients.
+        """
+        coeff = self.evaluate_coupling(coupling_values, fixed_indices)
+        prop_idx = self.propagator_indices
+
+        # Format propagators
+        prop_latex = " ".join(p.to_latex() for p in self.propagators)
+
+        # Wrap with integrals
+        int_wrap = ""
+        for var in reversed(self.integration_vars):
+            int_wrap += rf"\int \mathrm{{d}}{_latex_index(var)}\, "
+
+        if not prop_idx:
+            # Scalar coefficient
+            val = complex(coeff)
+            # Format nicely
+            if val.imag == 0:
+                val_r = val.real
+                if abs(val_r - round(val_r)) < 1e-10:
+                    coeff_str = str(int(round(val_r)))
+                else:
+                    coeff_str = f"{val_r:.4g}"
+            else:
+                coeff_str = f"({val:.4g})"
+            if coeff_str == "1":
+                coeff_str = ""
+            elif coeff_str == "-1":
+                coeff_str = "-"
+            return f"{int_wrap}{coeff_str} {prop_latex}"
+
+        # Array coefficient: show as sum with explicit values
+        idx_names = [name for name, _ in prop_idx]
+        dims = [dim for _, dim in prop_idx]
+
+        terms: list[str] = []
+        for pidx in np.ndindex(*dims):
+            c = complex(coeff[pidx])
+            if abs(c) < 1e-14:
+                continue
+            if c.imag == 0:
+                c_r = c.real
+                if abs(c_r - round(c_r)) < 1e-10:
+                    c_str = str(int(round(c_r)))
+                else:
+                    c_str = f"{c_r:.4g}"
+            else:
+                c_str = f"({c:.4g})"
+
+            # Substitute index values into propagators
+            sub = {name: str(val + 1) for name, val in zip(idx_names, pidx)}
+            prop_parts = []
+            for p in self.propagators:
+                il = sub.get(p.index_left, p.index_left)
+                ir = sub.get(p.index_right, p.index_right)
+                sl = _latex_index(p.spatial_left)
+                sr = _latex_index(p.spatial_right)
+                if il and ir:
+                    prop_parts.append(
+                        f"{p.kind}_{{{il}{ir}}}({sl}, {sr})"
+                    )
+                elif il or ir:
+                    idx = il or ir
+                    prop_parts.append(
+                        f"{p.kind}_{{{idx}}}({sl}, {sr})"
+                    )
+                else:
+                    prop_parts.append(f"{p.kind}({sl}, {sr})")
+
+            terms.append(f"{c_str}\\," + "\\,".join(prop_parts))
+
+        if not terms:
+            return "0"
+
+        body = " + ".join(terms)
+        # Fix double signs
+        body = body.replace("+ -", "- ")
+        return f"{int_wrap}{body}"
+
     def __repr__(self) -> str:
         return self.to_latex()
 
@@ -549,19 +645,198 @@ class DiagramTerm:
         structure analysis (Step 2) into a ready-to-evaluate object.
 
         Args:
-            coupling_values: Coupling tensor arrays (e.g. ``{'F': F_code}``).
-            fixed_indices: Optional pinned index values.
+            coupling_values: dict mapping coupling-symbol name → value.
+                Each value is either:
+
+                - a **numeric** ``numpy.ndarray`` of shape ``(N,)*rank``
+                  (e.g. a spacetime-independent local-vertex coefficient
+                  ``F``, or a placeholder for a non-local tensor whose
+                  spacetime dependence is trivial),
+                - a **callable** ``fn(n_list, t_list) → ndarray`` for
+                  spacetime-dependent couplings (e.g. demo2's
+                  ``κ^{(3)}(x₁,t₁; x₂,t₂; x₃,t₃)``).  Here ``n_list``
+                  and ``t_list`` are length-``order`` sequences of the
+                  vertex's ψ-leg positions and times.
+
+                When any value is callable the integrand enters a
+                **per-QMC-sample** evaluation path (see
+                :class:`~sft_wick.evaluate.DynamicCouplingPromise`);
+                all-ndarray values keep the fast vectorised path.
+            fixed_indices: Optional pinned index values for observable
+                component labels (e.g. ``{'a': 1, 'b': 1}``).
 
         Returns:
             A :class:`DiagramIntegrand` that can evaluate the integrand at
             specific time/direction coordinates.
         """
-        from .evaluate import DiagramIntegrand, analyze_spatial
-        spatial = analyze_spatial(self)
-        coeff = self.evaluate_coupling(coupling_values, fixed_indices)
-        return DiagramIntegrand(
-            diagram_term=self, spatial=spatial, coupling_array=coeff,
+        from .evaluate import (
+            DiagramIntegrand,
+            DynamicCouplingPromise,
+            analyze_spatial,
         )
+        spatial = analyze_spatial(self)
+
+        fi = dict(fixed_indices) if fixed_indices else {}
+
+        # Detect dynamic (callable) coupling values.
+        dynamic_names = {
+            name: fn for name, fn in coupling_values.items()
+            if callable(fn) and not isinstance(fn, np.ndarray)
+        }
+
+        # Is this diagram affected by any callable coupling?  A
+        # diagram that doesn't reference the callable's symbol
+        # (e.g. the order-0 ``C(x,y)`` diagram when the user has
+        # also declared a K non-local vertex for higher orders) can
+        # go through the fully-static fast path — the callable's
+        # value is simply never needed.
+        symbol_names_in_coupling = _collect_symbol_names(self.coupling_sum)
+        active_dynamic = {
+            name: fn for name, fn in dynamic_names.items()
+            if name in symbol_names_in_coupling
+        }
+
+        if not active_dynamic:
+            # No callable coupling is actually referenced — strip
+            # callables from coupling_values (they'd crash the
+            # static evaluator) and evaluate statically.
+            static_cv = {
+                name: v for name, v in coupling_values.items()
+                if name not in dynamic_names
+            }
+            coeff = self.evaluate_coupling(static_cv, fi)
+            return DiagramIntegrand(
+                diagram_term=self, spatial=spatial, coupling_array=coeff,
+                fixed_indices=fi,
+            )
+
+        # Dynamic path: extract each active callable symbol's
+        # spatial_args from the coupling_sum so we know which ψ-leg
+        # coordinates to pass at QMC time.
+        spatial_args_by_name = _collect_symbol_spatial_args(
+            self.coupling_sum
+        )
+        for name in active_dynamic:
+            if name not in spatial_args_by_name:
+                raise ValueError(
+                    f"coupling_values['{name}'] is callable and the "
+                    f"symbol '{name}' appears in this diagram's "
+                    f"coupling_sum, but has no spatial_args — "
+                    f"cannot determine ψ-leg coordinates.  This "
+                    f"typically means '{name}' is being used as a "
+                    f"local (zero-leg) coupling; pass it as an "
+                    f"ndarray instead."
+                )
+
+        static_values = {
+            name: np.asarray(v) for name, v in coupling_values.items()
+            if name not in dynamic_names
+        }
+        dynamic_names = active_dynamic  # reduce to what's active
+
+        promise = DynamicCouplingPromise(
+            diagram_term=self,
+            static_values=static_values,
+            dynamic_values=dict(dynamic_names),
+            spatial_args_by_name=spatial_args_by_name,
+            fixed_indices=fi,
+        )
+
+        # Placeholder coupling_array so the existing vectorised code
+        # that reads `ig.coupling_array` doesn't error before the
+        # dynamic branch is taken.  The per-sample path fills in the
+        # actual values.
+        prop_shape = tuple(dim for _, dim in self.propagator_indices)
+        placeholder = np.zeros(prop_shape, dtype=complex)
+
+        return DiagramIntegrand(
+            diagram_term=self, spatial=spatial,
+            coupling_array=placeholder,
+            fixed_indices=fi,
+            dynamic_coupling=promise,
+        )
+
+
+def _collect_symbol_names(expr: Expr) -> set[str]:
+    """Walk a coupling-sum tree and return the set of unique
+    :class:`~sft_wick.expressions.Symbol` names present.
+
+    Used by :meth:`DiagramTerm.build_integrand` to decide whether a
+    callable coupling value is actually referenced by this
+    particular diagram (so higher-order diagrams with the non-local
+    vertex trigger the dynamic path, while lower-order ones keep
+    the fast static path)."""
+    out: set[str] = set()
+
+    def walk(e: Expr) -> None:
+        if isinstance(e, Symbol):
+            out.add(e.name)
+            return
+        if isinstance(e, Rational):
+            return
+        if isinstance(e, Product):
+            for f in e.factors:
+                walk(f)
+            return
+        if isinstance(e, Sum):
+            for t in e.terms:
+                walk(t)
+            return
+        for attr in ("expr", "body", "integrand"):
+            child = getattr(e, attr, None)
+            if isinstance(child, Expr):
+                walk(child)
+
+    walk(expr)
+    return out
+
+
+def _collect_symbol_spatial_args(expr: Expr) -> dict[str, tuple[str, ...]]:
+    """Walk a coupling-sum expression tree and collect the
+    ``spatial_args`` tuple for each unique :class:`~sft_wick.expressions.Symbol`
+    name.
+
+    Used by :meth:`DiagramTerm.build_integrand` to determine, for a
+    non-local vertex coupling passed as a callable, which spatial
+    labels (e.g. ``y_0_0``, ``y_0_1``, ``y_0_2``) correspond to that
+    vertex's ψ-legs — so that at QMC time the per-sample
+    ``(n_list, t_list)`` can be reconstructed and fed into the
+    callable.
+
+    Returns ``{name: spatial_args_tuple}``.  Symbols with no
+    spatial args are omitted.
+
+    If a symbol appears multiple times in the tree (e.g. across
+    different Wick pairings of the same vertex) we return the
+    spatial_args of its first occurrence — they are guaranteed to
+    agree within one :class:`DiagramTerm` because all Symbols with
+    the same name derive from the same :class:`VertexInstance`.
+    """
+    out: dict[str, tuple[str, ...]] = {}
+
+    def walk(e: Expr) -> None:
+        if isinstance(e, Symbol):
+            if e.spatial_args and e.name not in out:
+                out[e.name] = tuple(e.spatial_args)
+            return
+        if isinstance(e, Rational):
+            return
+        if isinstance(e, Product):
+            for f in e.factors:
+                walk(f)
+            return
+        if isinstance(e, Sum):
+            for t in e.terms:
+                walk(t)
+            return
+        # Other Expr subclasses may wrap children on common attr names
+        for attr in ("expr", "body", "integrand"):
+            child = getattr(e, attr, None)
+            if isinstance(child, Expr):
+                walk(child)
+
+    walk(expr)
+    return out
 
 
 def compute_moment(
@@ -1469,3 +1744,236 @@ def _coeff_latex(pref: Rational, n_response: int) -> str:
     if den == 1:
         return f"{sign}{num_str}"
     return rf"{sign}\frac{{{num_str}}}{{{den}}}"
+
+
+# =====================================================================
+# Fast numerical path: nauty + einsum
+# =====================================================================
+
+
+def compute_moment_numerical(
+    observable: list[FieldOperator],
+    action: Action,
+    order: int,
+    coupling_values: dict,
+    fixed_indices: dict[str, int] | None = None,
+    ito: bool = True,
+    diag_R: bool = False,
+    diag_C: bool = False,
+    iso_R: bool = False,
+    iso_C: bool = False,
+    n_jobs: int = 1,
+) -> dict[int, list[DiagramTerm]]:
+    r"""Compute diagram terms using nauty graph isomorphism.
+
+    A faster alternative to :func:`compute_moment` that replaces the
+    :math:`k!` brute-force canonical form search with the nauty graph
+    isomorphism algorithm (via ``pynauty``), enabling order-6
+    calculations that were previously infeasible.
+
+    Optionally parallelizes the nauty canonicalization and component
+    routing steps using ``joblib`` (install with ``pip install
+    sft-wick[parallel]``).
+
+    Args:
+        observable: Field operators defining the observable.
+        action: The interaction action.
+        order: Maximum perturbative order.
+        coupling_values: ``{name: numpy_array}`` mapping coupling names
+            to numeric tensors.
+        fixed_indices: ``{index_label: int_value}`` for observable
+            component indices (e.g. ``{'a': 1, 'b': 1}``).
+        ito: Apply Itô prescription (default True).
+        diag_R: Enforce diagonal R propagators.
+        diag_C: Enforce diagonal C propagators.
+        iso_R: Isotropic R (implies ``diag_R``).
+        iso_C: Isotropic C (implies ``diag_C``).
+        n_jobs: Number of parallel workers for nauty canonicalization
+            and component routing.  ``1`` = sequential (default),
+            ``-1`` = use all CPU cores.  Requires ``joblib``.
+
+    Returns:
+        ``{order_n: [DiagramTerm, ...]}`` for each order with
+        non-zero contributions.  Use :meth:`DiagramTerm.build_integrand`
+        for numerical evaluation.
+    """
+    from collections import defaultdict
+
+    from .simplify import _canonical_key_nauty
+
+    diag_R = diag_R or iso_R
+    diag_C = diag_C or iso_C
+    fixed_indices = fixed_indices or {}
+
+    result: dict[int, list[DiagramTerm]] = {}
+
+    for n in range(order + 1):
+        sign = (-1) ** n
+        fact = factorial(n)
+        integrands: list[DiagramIntegrand] = []
+
+        if n == 0:
+            # Zeroth order: <O>_{S_0}
+            if len(observable) >= 2:
+                _, pairings = wick_contract(observable, ito=ito)
+                for p in pairings:
+                    props = []
+                    for i, j in p:
+                        pr = contract_pair(observable[i], observable[j], ito=ito)
+                        if isinstance(pr, Propagator):
+                            props.append(pr)
+                    if props:
+                        dt = DiagramTerm(
+                            propagators=tuple(props),
+                            coupling_sum=Rational(1),
+                            rational_prefactor=Rational(1),
+                            integration_vars=(),
+                            summation_indices=(),
+                            n_response=sum(1 for pr in props if pr.kind == "R"),
+                        )
+                        if diag_R or diag_C:
+                            dt = dt.apply_diagonal(
+                                diag_R=diag_R, diag_C=diag_C,
+                                iso_R=iso_R, iso_C=iso_C,
+                            )
+                        integrands.append(dt)
+        else:
+            for vertex_seq, mc in action.all_vertex_combinations(n):
+                idx_ctx = IndexContext()
+                vis = [
+                    VertexInstance.instantiate(v, idx_ctx, copy_id=k)
+                    for k, v in enumerate(vertex_seq)
+                ]
+
+                all_ops = list(observable)
+                for vi in vis:
+                    all_ops.extend(vi.field_operators)
+
+                integration_vars = frozenset(
+                    var for vi in vis for var in vi.spatial_variables
+                )
+
+                # Spatial topology enumeration
+                spatial_results = wick_contract_spatial(
+                    all_ops, ito=ito, vertex_points=integration_vars,
+                )
+                if not spatial_results:
+                    continue
+
+                # Group topologies by nauty canonical form, then build
+                # symbolic DiagramTerms (compatible with build_integrand).
+                # Combined pipeline: for each topology, compute nauty
+                # canonical key + pruned component routing in one pass.
+                # Results are grouped by canonical key afterward.
+
+                # Build summation index info (once)
+                sum_indices: list[tuple[str, int]] = []
+                for vi in vis:
+                    for comp_idx in vi.component_indices:
+                        for op in vi.field_operators:
+                            if op.component_index == comp_idx:
+                                sum_indices.append(
+                                    (comp_idx, op.field.n_components)
+                                )
+                                break
+
+                prefactor = Rational(sign * mc, fact)
+                int_vars_sorted = tuple(sorted(integration_vars))
+                topo_list = list(spatial_results.values())
+
+                def _process_topology(ref_props, mult, rep_pairing):
+                    """Nauty key + pruned routing for one topology."""
+                    key = _canonical_key_nauty(
+                        ref_props, integration_vars
+                    )
+                    routings = [
+                        props for props, _pairing in
+                        _enumerate_component_routings(
+                            ref_props, rep_pairing, all_ops,
+                            integration_vars,
+                        )
+                    ]
+                    return key, routings
+
+                # Run pipeline (parallel if beneficial)
+                if n_jobs != 1 and len(topo_list) > 100:
+                    try:
+                        from joblib import Parallel, delayed
+                        topo_results = Parallel(n_jobs=n_jobs)(
+                            delayed(_process_topology)(rp, m, p)
+                            for rp, m, p in topo_list
+                        )
+                    except ImportError:
+                        topo_results = [
+                            _process_topology(rp, m, p)
+                            for rp, m, p in topo_list
+                        ]
+                else:
+                    topo_results = [
+                        _process_topology(rp, m, p)
+                        for rp, m, p in topo_list
+                    ]
+
+                # Group by canonical key
+                canon_groups: dict[bytes, list] = defaultdict(list)
+                ref_props_by_key: dict[bytes, list] = {}
+                for (rp, _m, _p), (key, routings) in zip(
+                    topo_list, topo_results
+                ):
+                    if routings:
+                        canon_groups[key].extend(routings)
+                        if key not in ref_props_by_key:
+                            ref_props_by_key[key] = rp
+
+                # Build one DiagramTerm per routing.
+                # Each routing has its own propagator component indices
+                # and the coupling uses the vertex's static field ordering
+                # (the coupling IS a vertex property; the routing only
+                # changes which propagator carries which component index).
+                for key, all_routing_props in canon_groups.items():
+                    # Build the (static) coupling symbol product
+                    coupling_syms: list[Expr] = []
+                    for vi in vis:
+                        idx_vals = tuple(
+                            op.component_index
+                            for op in vi.field_operators
+                        )
+                        coupling_syms.append(Symbol(
+                            name=vi.vertex.coupling,
+                            indices=idx_vals,
+                            spatial_args=(),
+                        ))
+                    coupling_expr: Expr = (
+                        Product(tuple(coupling_syms))
+                        if len(coupling_syms) > 1
+                        else coupling_syms[0]
+                    )
+
+                    for props in all_routing_props:
+                        props_tuple = tuple(props)
+                        integrands.append(DiagramTerm(
+                            propagators=props_tuple,
+                            coupling_sum=coupling_expr,
+                            rational_prefactor=prefactor,
+                            integration_vars=int_vars_sorted,
+                            summation_indices=tuple(sum_indices),
+                            n_response=sum(
+                                1 for p in props_tuple
+                                if p.kind == "R"
+                            ),
+                        ))
+
+        # Apply diagonal constraints
+        if (diag_R or diag_C) and integrands:
+            integrands = [
+                dt.apply_diagonal(
+                    diag_R=diag_R, diag_C=diag_C,
+                    iso_R=iso_R, iso_C=iso_C,
+                )
+                for dt in integrands
+            ]
+
+        if integrands:
+            result[n] = integrands
+
+    return result

@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from math import prod
 from typing import Any, Callable
 
 import numpy as np
@@ -223,6 +222,193 @@ class PropagatorModel:
     iso_R: bool = True
     diag_C: bool = False
     t_min: float = 0.0
+    # Optional white-noise component of the source-field correlation:
+    #
+    #   κ²(t1, x1; t2, x2) = kappa2_smooth + δ(t1 − t2) · sigma2(t1; x1, x2).
+    #
+    # ``sigma2`` takes a single time argument (the δ collapses both
+    # times) and returns an (N, N) matrix.  When provided, ``C`` picks
+    # up an additional 1-D integral
+    #
+    #   C_white(t1, t2; x1, x2) =
+    #       ∫_{t_min}^{min(t1,t2)} R(t1, τ) σ²(τ; x1, x2) R(t2, τ) dτ,
+    #
+    # evaluated by :meth:`PropagatorCache._C_value_direct` and the
+    # :meth:`~PropagatorCache.C_value` dblquad fallback alongside the
+    # existing 2-D ``kappa2_smooth`` integral.  All
+    # ``precompute_C_table_*`` builders call ``_C_value_direct``, so
+    # the white-noise term is automatically absorbed into every
+    # homogeneity-mode spline with no caller-side changes.
+    sigma2: Callable | None = None
+
+
+class _LazyTimeSplineCache:
+    """Per-parameter-value 2-D ``(t1, t2)`` spline cache for lazy
+    spatial evaluation.
+
+    Backs the lazy mode of :class:`PropagatorCache` for each
+    homogeneity symmetry: instead of pre-building an (n+1)-D spline
+    over a pre-allocated parameter grid, this cache builds a 2-D
+    time spline on demand for each distinct parameter value seen.
+
+    Parameter semantics per mode:
+
+    - ``translation``: key is ``r = |x1 − x2|`` (scalar ≥ 0).
+    - ``rotation``: key is ``cos θ = x1·x2 / (|x1| |x2|)`` (scalar
+      in ``[-1, 1]``).
+    - ``general``: key is ``(x1_tuple, x2_tuple)`` — a pair of
+      tuples over all x dimensions.
+
+    Memoization key is the parameter rounded to ``round_decimals``
+    decimal places so floating-point near-duplicates collapse.
+    """
+
+    def __init__(
+        self,
+        parent: "PropagatorCache",
+        t_max: float,
+        n_grid_t: int,
+        mode: str,
+        round_decimals: int = 10,
+        n_jobs: int = 1,
+    ):
+        self.parent = parent
+        self.t_max = t_max
+        self.n_grid_t = n_grid_t
+        self.mode = mode
+        self.round_decimals = round_decimals
+        self.ts = np.linspace(parent.model.t_min, t_max, n_grid_t)
+        self._splines_by_key: dict = {}
+        #: Parallel-worker count forwarded to :meth:`_build`.  ``1``
+        #: (default) is serial; ``-1`` is all cores via
+        #: :mod:`joblib.Parallel` with the ``loky`` backend.  Each
+        #: on-demand build for a new parameter value pays a one-time
+        #: worker-startup cost (~1 s) before the ``n_grid_t²``
+        #: independent ``_C_value_direct`` calls fan out across
+        #: cores.
+        self.n_jobs = n_jobs
+
+    def get_splines(self, x1_val, x2_val) -> list:
+        """Return the list of per-component 2-D splines for this
+        (x1, x2) pair.  Builds and memoizes on first call."""
+        key = self._make_key(x1_val, x2_val)
+        if key not in self._splines_by_key:
+            self._splines_by_key[key] = self._build(x1_val, x2_val)
+        return self._splines_by_key[key]
+
+    def _make_key(self, x1_val, x2_val):
+        """Derive the memoization key.  In translation/rotation mode
+        the key is derived from the parameter (r or cos); in general
+        mode it's the (x1, x2) tuple pair."""
+        if self.mode == "translation":
+            r = float(np.abs(np.asarray(x1_val) - np.asarray(x2_val)))
+            return ("r", round(r, self.round_decimals))
+        if self.mode == "rotation":
+            cos_val = _rotation_cos(x1_val, x2_val)
+            return ("cos", round(float(cos_val), self.round_decimals))
+        # general: keep both endpoints
+        a = tuple(np.round(np.atleast_1d(x1_val), self.round_decimals).tolist())
+        b = tuple(np.round(np.atleast_1d(x2_val), self.round_decimals).tolist())
+        return ("xx", a, b)
+
+    def _build(self, x1_val, x2_val) -> list:
+        """Build 2-D ``(t1, t2)`` splines at this specific parameter
+        value by evaluating ``_C_value_direct`` on the time grid.
+
+        Parallelises across the ``n_grid_t × n_grid_t`` grid points
+        when :attr:`n_jobs` ≠ 1, mirroring the full-grid builders.
+        """
+        from scipy.interpolate import RectBivariateSpline
+
+        parent = self.parent
+        N = parent.model.n_components
+        ts = self.ts
+        n_t = self.n_grid_t
+
+        tasks = [
+            (i, j, ts[i], ts[j])
+            for i in range(n_t)
+            for j in range(n_t)
+        ]
+
+        x1_arr = np.asarray(x1_val)
+        x2_arr = np.asarray(x2_val)
+
+        def _point(args):
+            i, j, t1, t2 = args
+            C_mat = parent._C_value_direct(x1_arr, t1, x2_arr, t2)
+            return i, j, np.array([C_mat[a, a] for a in range(N)])
+
+        # Serial fast path; matches the full-grid builders' short-list
+        # threshold so small caches don't pay joblib startup.
+        if self.n_jobs == 1 or len(tasks) <= 4:
+            results = [_point(t) for t in tasks]
+        else:
+            from joblib import Parallel, delayed
+            results = Parallel(n_jobs=self.n_jobs, backend="loky")(
+                delayed(_point)(t) for t in tasks
+            )
+
+        grids = [np.zeros((n_t, n_t)) for _ in range(N)]
+        for i, j, cvec in results:
+            for a in range(N):
+                grids[a][i, j] = cvec[a]
+
+        return [RectBivariateSpline(ts, ts, grids[a]) for a in range(N)]
+
+
+def _rotation_cos(x1, x2) -> float:
+    """Cosine similarity ``x1·x2 / (|x1| |x2|)`` as a scalar.
+
+    Works for scalar x (interpreted as 1-D vector) and array x.
+    Returns ``1.0`` when either vector is exactly zero (degenerate;
+    avoids a divide-by-zero NaN).
+    """
+    v1 = np.atleast_1d(np.asarray(x1, dtype=float))
+    v2 = np.atleast_1d(np.asarray(x2, dtype=float))
+    n1 = float(np.linalg.norm(v1))
+    n2 = float(np.linalg.norm(v2))
+    if n1 == 0.0 or n2 == 0.0:
+        return 1.0
+    return float(np.dot(v1, v2) / (n1 * n2))
+
+
+def _resolve_integrate_over(
+    integrate_over: Any,
+    ext_vars: list[str],
+) -> set[str]:
+    """Normalise the ``integrate_over`` kwarg into a set of external
+    point names to integrate over.
+
+    Accepts:
+
+    - ``None`` — the empty set (all externals fixed at ``lambda_f``).
+      This is the physics-observable convention
+      ``⟨φ(t_f) · φ(t_f)⟩``.
+    - ``"all"`` — the full set ``ext_vars`` (time-integrated moment).
+    - Iterable of names — used as-is, after validating that each
+      name appears in ``ext_vars``.
+
+    Raises ``ValueError`` on an unknown external name.
+    """
+    if integrate_over is None:
+        return set()
+    if isinstance(integrate_over, str):
+        if integrate_over == "all":
+            return set(ext_vars)
+        raise ValueError(
+            f"integrate_over must be None, 'all', or an iterable of "
+            f"external-point names; got string {integrate_over!r}."
+        )
+    requested = set(integrate_over)
+    unknown = requested - set(ext_vars)
+    if unknown:
+        raise ValueError(
+            f"integrate_over references external points that don't "
+            f"exist in this diagram: {sorted(unknown)}.  Known "
+            f"externals: {ext_vars}."
+        )
+    return requested
 
 
 class PropagatorCache:
@@ -241,12 +427,67 @@ class PropagatorCache:
         self,
         model: PropagatorModel,
         quad_opts: dict | None = None,
+        homogeneity: str = "translation",
     ):
+        """Initialise the propagator cache.
+
+        Args:
+            model: Propagator model specifying R and κ².
+            quad_opts: Options forwarded to ``scipy.integrate.dblquad``.
+            homogeneity: Physical assumption about how C depends on the
+                spatial coordinates.  Determines which
+                ``precompute_C_table_*`` builder is valid.
+
+                - ``'translation'`` (default): C depends only on
+                  ``|x1 − x2|``.  Appropriate for translation-invariant
+                  (spatially stationary) noise — the most common case.
+                  Build via :meth:`precompute_C_table_translation`.
+                - ``'rotation'``: C depends only on ``x1 · x2``.
+                  Appropriate when x is a unit direction vector (e.g.
+                  on the sphere).  Build via
+                  :meth:`precompute_C_table_rotation`.
+                - ``'general'``: no symmetry assumed; C is evaluated on
+                  a full 4-D grid in ``(t1, t2, x1, x2)``.  Build via
+                  :meth:`precompute_C_table_general`.
+
+                When a spatial builder is called with its ``*_grid``
+                argument left ``None``, the cache enters **lazy mode**
+                for that symmetry: 2-D ``(t1, t2)`` splines are built
+                on-demand for each distinct parameter value queried,
+                and memoized.  This is the right default for
+                moment-at-fixed-points workflows where only a few
+                distinct parameter values ever appear.
+        """
+        if homogeneity not in ("translation", "rotation", "general"):
+            raise ValueError(
+                f"homogeneity must be 'translation', 'rotation', or "
+                f"'general'; got {homogeneity!r}"
+            )
         self.model = model
         self.quad_opts = quad_opts or {}
+        self.homogeneity = homogeneity
         self._c_cache: dict[tuple, np.ndarray] = {}
+        # Legacy 2-D (t1, t2) spline at fixed x — still populated by
+        # ``precompute_C_table`` for backward compatibility.
         self._c_splines: list | None = None
         self._c_table_range: tuple[float, float] | None = None
+
+        # Full N-D spatial splines, populated by precompute_C_table_*
+        # with an explicit parameter grid:
+        self._c_translation_splines: list | None = None  # 3-D (t1,t2,r)
+        self._c_translation_r_range: tuple[float, float] | None = None
+        self._c_rotation_splines: list | None = None    # 3-D (t1,t2,cos)
+        self._c_general_interpolators: list | None = None  # 4-D
+        self._c_general_axes: tuple | None = None
+
+        # Lazy per-parameter-value 2-D (t1, t2) spline caches.  A
+        # :class:`_LazyTimeSplineCache` is attached when the user
+        # calls a ``precompute_C_table_*`` method without a parameter
+        # grid (see ``lazy mode`` in the docstring).  Keyed by
+        # rounded parameter value (r, cos, or (x1, x2)).
+        self._lazy_translation: _LazyTimeSplineCache | None = None
+        self._lazy_rotation: _LazyTimeSplineCache | None = None
+        self._lazy_general: _LazyTimeSplineCache | None = None
 
     def R_time(self, t_left: float, t_right: float) -> float | np.ndarray:
         """Evaluate R_time(t_left, t_right).
@@ -290,63 +531,56 @@ class PropagatorCache:
         Returns:
             ``(N, N)`` array.
         """
-        # Fast path: spline table
+        # Fast path (spatial-aware): route through C_at_batch which
+        # dispatches on ``homogeneity`` + full/lazy table presence.
+        # Only used when a spatial table has actually been built —
+        # otherwise fall through to the legacy/dblquad paths so the
+        # plain ``PropagatorCache(model)`` + legacy ``precompute_C_table``
+        # flow stays bit-identical to before.
+        has_spatial_table = (
+            self._c_translation_splines is not None
+            or self._lazy_translation is not None
+            or self._c_rotation_splines is not None
+            or self._lazy_rotation is not None
+            or self._c_general_interpolators is not None
+            or self._lazy_general is not None
+        )
+        if has_spatial_table and self.model.diag_C:
+            N = self.model.n_components
+            t1_arr = np.array([t1], dtype=float)
+            t2_arr = np.array([t2], dtype=float)
+            # n1, n2 may be scalars or arrays (e.g. np.float64 or
+            # small np.ndarray); pass through np.asarray so the
+            # downstream rotation/general paths see consistent shape.
+            x1_arr = np.asarray(n1, dtype=float).reshape(1, -1) \
+                if np.ndim(n1) > 0 else np.array([float(n1)])
+            x2_arr = np.asarray(n2, dtype=float).reshape(1, -1) \
+                if np.ndim(n2) > 0 else np.array([float(n2)])
+            if x1_arr.ndim == 2 and x1_arr.shape[-1] == 1:
+                x1_arr = x1_arr.ravel()
+                x2_arr = x2_arr.ravel()
+            c_diag = self.C_at_batch(t1_arr, t2_arr, x1_arr, x2_arr)[0]
+            C_mat = np.zeros((N, N))
+            for a in range(N):
+                C_mat[a, a] = c_diag[a]
+            return C_mat
+
+        # Fast path (legacy time-only): 2-D spline table
         if self._c_splines is not None and self.model.diag_C:
             lo, hi = self._c_table_range  # type: ignore[misc]
             if lo <= t1 <= hi and lo <= t2 <= hi:
                 return self._C_value_from_table(t1, t2)
 
-        from scipy.integrate import dblquad
-
-        m = self.model
-        N = m.n_components
-        t_min = m.t_min
-
-        # Check cache
+        # Check (n1, t1, n2, t2) LRU cache
         cache_key = (id(n1) if isinstance(n1, np.ndarray) else n1,
                      t1, id(n2) if isinstance(n2, np.ndarray) else n2, t2)
         if cache_key in self._c_cache:
             return self._c_cache[cache_key]
 
-        C_mat = np.zeros((N, N))
-
-        if m.diag_C:
-            # Only compute diagonal
-            for a in range(N):
-                def integrand(lam2: float, lam1: float, _a: int = a) -> float:
-                    r1 = float(m.R_time(t1, lam1)) if m.iso_R else float(m.R_time(t1, lam1)[_a, _a])
-                    kappa_mat = m.kappa2(n1, lam1, n2, lam2)
-                    r2 = float(m.R_time(t2, lam2)) if m.iso_R else float(m.R_time(t2, lam2)[_a, _a])
-                    return r1 * float(kappa_mat[_a, _a]) * r2
-
-                val, _ = dblquad(
-                    integrand,
-                    t_min, t1,   # outer: lam1 bounds
-                    t_min, t2,   # inner: lam2 bounds
-                    **self.quad_opts,
-                )
-                C_mat[a, a] = val
-        else:
-            for a in range(N):
-                for b in range(N):
-                    def integrand(lam2: float, lam1: float, _a: int = a, _b: int = b) -> float:
-                        if m.iso_R:
-                            r1 = float(m.R_time(t1, lam1))
-                            r2 = float(m.R_time(t2, lam2))
-                        else:
-                            r1 = float(m.R_time(t1, lam1)[_a, _a])
-                            r2 = float(m.R_time(t2, lam2)[_b, _b])
-                        kappa_mat = m.kappa2(n1, lam1, n2, lam2)
-                        return r1 * float(kappa_mat[_a, _b]) * r2
-
-                    val, _ = dblquad(
-                        integrand,
-                        t_min, t1,
-                        t_min, t2,
-                        **self.quad_opts,
-                    )
-                    C_mat[a, b] = val
-
+        # Delegate to ``_C_value_direct`` (which adds the white-noise
+        # 1-D contribution when ``model.sigma2`` is set), then store
+        # in the per-arg LRU.
+        C_mat = self._C_value_direct(n1, t1, n2, t2)
         self._c_cache[cache_key] = C_mat
         return C_mat
 
@@ -443,10 +677,688 @@ class PropagatorCache:
             C_mat[a, a] = float(s(t1, t2, grid=False))
         return C_mat
 
+    # --- Vectorized methods for batch evaluation ---
+
+    def C_diagonal_batch(
+        self, t1: np.ndarray, t2: np.ndarray,
+    ) -> np.ndarray:
+        """Evaluate diagonal C at arrays of time pairs.
+
+        Requires :meth:`precompute_C_table` to have been called.
+
+        Args:
+            t1: Array of shape ``(n,)`` — first time coordinates.
+            t2: Array of shape ``(n,)`` — second time coordinates.
+
+        Returns:
+            Array of shape ``(n, N)`` where ``N`` is the number of
+            field components.  ``result[s, a]`` is ``C_{aa}(t1[s], t2[s])``.
+        """
+        if self._c_splines is None:
+            raise RuntimeError(
+                "C_diagonal_batch requires precompute_C_table()"
+            )
+        n = len(t1)
+        N = self.model.n_components
+        result = np.empty((n, N))
+        for a, s in enumerate(self._c_splines):
+            result[:, a] = s(t1, t2, grid=False)
+        return result
+
+    def R_time_batch(self, t1: np.ndarray, t2: np.ndarray) -> np.ndarray:
+        """Evaluate R_time at arrays of time pairs (iso_R only).
+
+        Args:
+            t1: Array of shape ``(n,)`` — left times.
+            t2: Array of shape ``(n,)`` — right times.
+
+        Returns:
+            Array of shape ``(n,)``.  R(t1, t2) = Θ(t1−t2) × R_time(t1, t2).
+        """
+        # Vectorize the user-provided R_time function
+        R_vec = np.vectorize(self.model.R_time)
+        return R_vec(t1, t2)
+
+    # ------------------------------------------------------------------ #
+    # Spatial-aware extension: (t, x) coordinates via homogeneity modes
+    # ------------------------------------------------------------------ #
+
+    def precompute_C_table_translation(
+        self,
+        t_max: float,
+        n_grid_t: int = 60,
+        r_max: float | None = None,
+        n_grid_r: int | None = None,
+        n_jobs: int = 1,
+    ) -> None:
+        """Enable spatial support under the translation-invariance
+        assumption:
+
+            ``C(t1, t2; x1, x2)`` depends only on ``|x1 − x2|``.
+
+        Two operating modes depending on whether ``r_max`` and
+        ``n_grid_r`` are supplied:
+
+        **Lazy mode (default, recommended for fixed-point moments)**
+            ``r_max=None`` and ``n_grid_r=None``.  No r-grid is
+            pre-computed.  When :meth:`C_at_batch` encounters a new
+            ``r = |x1−x2|`` value it builds and caches a 2-D
+            ``(t1, t2)`` spline on demand.  For a moment calculation
+            at fixed external points ``(x_1, …, x_n)`` there are at
+            most ``O(n²)`` distinct r-values, so lazy mode saves an
+            enormous amount of work vs a densely-sampled r-grid —
+            particularly when the underlying ``_C_value_direct`` is
+            ``scipy.integrate.dblquad`` (expensive).
+
+        **Full-grid mode (right for sweeping r curves)**
+            Both ``r_max`` and ``n_grid_r`` provided.  A 3-D
+            ``(t1, t2, r)`` spline is built up-front over the full
+            range, giving O(1) evaluation per query — faster once
+            ``n_distinct_r >> n_grid_r``.  Appropriate when the user
+            will plot ``C`` or a derived observable as a function of
+            r over a continuous range.
+
+        Args:
+            t_max: upper bound of the (t1, t2) time grid.
+            n_grid_t: grid size along each time axis.
+            r_max: upper bound of the r = |x1-x2| grid
+                (full-grid mode).  ``None`` ⇒ lazy mode.
+            n_grid_r: grid size along r (full-grid mode).
+                ``None`` ⇒ lazy mode.
+            n_jobs: parallel workers for grid-point ``_C_value_direct``
+                evaluations.  ``1`` serial, ``-1`` all cores via
+                :mod:`joblib` (``loky`` backend).  Applies in **both**
+                full-grid mode (fans out across the 3-D ``(t1, t2, r)``
+                grid) **and** lazy mode (fans out across each on-demand
+                2-D ``(t1, t2)`` build; each new r pays a ~1 s worker
+                startup cost).
+
+        Requires ``self.homogeneity == 'translation'``.
+
+        Side effect: sets either ``_c_translation_splines`` (full)
+        or ``_lazy_translation`` (lazy).
+        """
+        if self.homogeneity != "translation":
+            raise RuntimeError(
+                f"precompute_C_table_translation requires "
+                f"homogeneity='translation', got {self.homogeneity!r}"
+            )
+
+        m = self.model
+        t_min = m.t_min
+        self._c_table_range = (t_min, t_max)
+
+        # Lazy mode: defer per-r spline construction to first query.
+        if r_max is None or n_grid_r is None:
+            self._lazy_translation = _LazyTimeSplineCache(
+                self, t_max, n_grid_t, mode="translation",
+                n_jobs=n_jobs,
+            )
+            return
+
+        # Full-grid mode: build the 3-D (t1, t2, r) spline now.
+        from scipy.interpolate import RegularGridInterpolator
+
+        N = m.n_components
+        ts = np.linspace(t_min, t_max, n_grid_t)
+        rs = np.linspace(0.0, r_max, n_grid_r)
+
+        tasks = [
+            (i, j, k, ts[i], ts[j], rs[k])
+            for i in range(n_grid_t)
+            for j in range(n_grid_t)
+            for k in range(n_grid_r)
+        ]
+
+        def _point(args):
+            i, j, k, t1, t2, r = args
+            # TODO(d-dim): replace scalar r with np.ndarray x_diff
+            C_mat = self._C_value_direct(
+                np.asarray(0.0), t1, np.asarray(r), t2,
+            )
+            return i, j, k, np.array([C_mat[a, a] for a in range(N)])
+
+        if n_jobs == 1 or len(tasks) <= 4:
+            results = [_point(t) for t in tasks]
+        else:
+            from joblib import Parallel, delayed
+            results = Parallel(n_jobs=n_jobs, backend="loky")(
+                delayed(_point)(t) for t in tasks
+            )
+
+        grids = [np.zeros((n_grid_t, n_grid_t, n_grid_r)) for _ in range(N)]
+        for i, j, k, cvec in results:
+            for a in range(N):
+                grids[a][i, j, k] = cvec[a]
+
+        self._c_translation_splines = [
+            RegularGridInterpolator(
+                (ts, ts, rs), grids[a],
+                bounds_error=False, fill_value=None,
+                method="cubic",
+            )
+            for a in range(N)
+        ]
+        self._c_translation_r_range = (0.0, r_max)
+
+    def precompute_C_table_rotation(
+        self,
+        t_max: float,
+        n_grid_t: int = 60,
+        n_grid_cos: int | None = None,
+        n_jobs: int = 1,
+    ) -> None:
+        """Enable spatial support under the rotation-invariance
+        assumption:
+
+            ``C(t1, t2; x1, x2)`` depends only on ``x1 · x2``.
+
+        Appropriate when ``x`` is a unit direction vector (e.g. on
+        the sphere).  The effective spatial parameter is
+        ``cos θ ∈ [−1, 1]``.
+
+        Two modes, analogous to
+        :meth:`precompute_C_table_translation`:
+
+        - Lazy (``n_grid_cos=None``): 2-D ``(t1, t2)`` splines built
+          on demand per distinct ``cos θ`` value.  Best when only
+          a few ``cos θ`` values arise (e.g. a fixed-set moment
+          calculation).
+        - Full-grid (``n_grid_cos`` integer): 3-D
+          ``(t1, t2, cos)`` spline over the whole ``cos ∈ [−1, 1]``
+          range.  Best for angular-correlation sweeps.
+
+        Under the hood, the reference evaluation at a specific
+        ``cos θ`` uses two representative unit vectors
+        ``e_1 = (1, 0, …)`` and ``e_2`` chosen so that
+        ``e_1 · e_2 = cos θ`` (a 2-D rotation of ``e_1``).
+
+        Args:
+            n_jobs: parallel workers for grid-point
+                ``_C_value_direct`` evaluations; applies in **both**
+                full-grid (fans out across the 3-D ``(t1, t2, cos)``
+                grid) and lazy mode (fans out across each on-demand
+                2-D build).  ``1`` serial, ``-1`` all cores via
+                :mod:`joblib`.
+
+        Requires ``self.homogeneity == 'rotation'``.
+        """
+        if self.homogeneity != "rotation":
+            raise RuntimeError(
+                f"precompute_C_table_rotation requires "
+                f"homogeneity='rotation', got {self.homogeneity!r}"
+            )
+
+        m = self.model
+        t_min = m.t_min
+        self._c_table_range = (t_min, t_max)
+
+        if n_grid_cos is None:
+            self._lazy_rotation = _LazyTimeSplineCache(
+                self, t_max, n_grid_t, mode="rotation",
+                n_jobs=n_jobs,
+            )
+            return
+
+        from scipy.interpolate import RegularGridInterpolator
+
+        N = m.n_components
+        ts = np.linspace(t_min, t_max, n_grid_t)
+        coses = np.linspace(-1.0, 1.0, n_grid_cos)
+
+        def _rep_vectors(cos_val):
+            """Return a pair of unit vectors with dot product cos_val.
+
+            We use the 2-D representation ``e_1 = (1, 0)`` and
+            ``e_2 = (cos, sin)`` where ``sin = √(1 − cos²)``.  This
+            is sufficient when ``kappa2`` depends only on ``x1·x2``
+            (rotation invariance makes the ambient dimension
+            irrelevant).
+            """
+            c = float(cos_val)
+            c = max(-1.0, min(1.0, c))
+            s = float(np.sqrt(max(0.0, 1.0 - c * c)))
+            return np.array([1.0, 0.0]), np.array([c, s])
+
+        tasks = [
+            (i, j, k, ts[i], ts[j], coses[k])
+            for i in range(n_grid_t)
+            for j in range(n_grid_t)
+            for k in range(n_grid_cos)
+        ]
+
+        def _point(args):
+            i, j, k, t1, t2, cos_val = args
+            e1, e2 = _rep_vectors(cos_val)
+            C_mat = self._C_value_direct(e1, t1, e2, t2)
+            return i, j, k, np.array([C_mat[a, a] for a in range(N)])
+
+        if n_jobs == 1 or len(tasks) <= 4:
+            results = [_point(t) for t in tasks]
+        else:
+            from joblib import Parallel, delayed
+            results = Parallel(n_jobs=n_jobs, backend="loky")(
+                delayed(_point)(t) for t in tasks
+            )
+
+        grids = [np.zeros((n_grid_t, n_grid_t, n_grid_cos)) for _ in range(N)]
+        for i, j, k, cvec in results:
+            for a in range(N):
+                grids[a][i, j, k] = cvec[a]
+
+        self._c_rotation_splines = [
+            RegularGridInterpolator(
+                (ts, ts, coses), grids[a],
+                bounds_error=False, fill_value=None,
+                method="cubic",
+            )
+            for a in range(N)
+        ]
+
+    def precompute_C_table_general(
+        self,
+        t_max: float,
+        n_grid_t: int = 40,
+        x_max: float | None = None,
+        n_grid_x: int | None = None,
+        n_jobs: int = 1,
+    ) -> None:
+        """Pre-compute C with no spatial symmetry assumed.
+
+        Two modes:
+
+        - Lazy (``x_max=None`` or ``n_grid_x=None``): 2-D
+          ``(t1, t2)`` splines built on demand per distinct
+          ``(x1, x2)`` pair.  Best for fixed-point moments where
+          only a handful of pairs occur.
+        - Full-grid: 4-D ``(t1, t2, x1, x2)`` interpolator over the
+          pre-allocated grid.  Build cost is
+          ``n_grid_t² · n_grid_x²`` independent ``_C_value_direct``
+          calls — strongly consider ``n_jobs=-1``.
+
+        Args:
+            n_jobs: parallel workers for ``_C_value_direct``
+                evaluations; applies in **both** full-grid (fans out
+                across the 4-D grid) and lazy mode (fans out across
+                each on-demand 2-D build).  ``1`` serial, ``-1`` all
+                cores via :mod:`joblib`.
+
+        Requires ``self.homogeneity == 'general'``.
+        """
+        if self.homogeneity != "general":
+            raise RuntimeError(
+                f"precompute_C_table_general requires "
+                f"homogeneity='general', got {self.homogeneity!r}"
+            )
+
+        m = self.model
+        t_min = m.t_min
+        self._c_table_range = (t_min, t_max)
+
+        if x_max is None or n_grid_x is None:
+            self._lazy_general = _LazyTimeSplineCache(
+                self, t_max, n_grid_t, mode="general",
+                n_jobs=n_jobs,
+            )
+            return
+
+        from scipy.interpolate import RegularGridInterpolator
+
+        N = m.n_components
+        ts = np.linspace(t_min, t_max, n_grid_t)
+        xs = np.linspace(-x_max, x_max, n_grid_x)
+
+        tasks = [
+            (i, j, p, q, ts[i], ts[j], xs[p], xs[q])
+            for i in range(n_grid_t)
+            for j in range(n_grid_t)
+            for p in range(n_grid_x)
+            for q in range(n_grid_x)
+        ]
+
+        def _point(args):
+            i, j, p, q, t1, t2, x1, x2 = args
+            # TODO(d-dim): x1, x2 would be vectors
+            C_mat = self._C_value_direct(
+                np.asarray(x1), t1, np.asarray(x2), t2,
+            )
+            return i, j, p, q, np.array([C_mat[a, a] for a in range(N)])
+
+        if n_jobs == 1 or len(tasks) <= 4:
+            results = [_point(t) for t in tasks]
+        else:
+            from joblib import Parallel, delayed
+            results = Parallel(n_jobs=n_jobs, backend="loky")(
+                delayed(_point)(t) for t in tasks
+            )
+
+        grids = [
+            np.zeros((n_grid_t, n_grid_t, n_grid_x, n_grid_x))
+            for _ in range(N)
+        ]
+        for i, j, p, q, cvec in results:
+            for a in range(N):
+                grids[a][i, j, p, q] = cvec[a]
+
+        self._c_general_interpolators = [
+            RegularGridInterpolator(
+                (ts, ts, xs, xs), grids[a],
+                bounds_error=False, fill_value=None,
+                method="cubic",
+            )
+            for a in range(N)
+        ]
+        self._c_general_axes = (ts, ts, xs, xs)
+
+    def _C_value_direct(
+        self,
+        n1: Any,
+        t1: float,
+        n2: Any,
+        t2: float,
+    ) -> np.ndarray:
+        """Direct quadrature evaluation of C without consulting any cache.
+
+        Needed so the ``precompute_C_table_{translation,rotation,general}``
+        builders aren't contaminated by the spline cache they are
+        themselves populating.
+
+        When ``model.sigma2`` is provided, the full κ² is
+        ``κ²_smooth + δ(t1−t2) · σ²(t; x1, x2)``.  The δ collapses one
+        time integral so C picks up an extra 1-D piece::
+
+            C_white[a,b] = ∫_{t_min}^{min(t1,t2)} R(t1,τ) σ²[a,b](τ;
+                            n1, n2) R(t2,τ) dτ
+
+        which is added to the usual 2-D dblquad result.
+        """
+        from scipy.integrate import dblquad, quad as _quad
+
+        m = self.model
+        N = m.n_components
+        t_min = m.t_min
+        C_mat = np.zeros((N, N))
+
+        if m.diag_C:
+            for a in range(N):
+                def integrand(lam2: float, lam1: float, _a: int = a) -> float:
+                    r1 = float(m.R_time(t1, lam1)) if m.iso_R else float(m.R_time(t1, lam1)[_a, _a])
+                    kappa_mat = m.kappa2(n1, lam1, n2, lam2)
+                    r2 = float(m.R_time(t2, lam2)) if m.iso_R else float(m.R_time(t2, lam2)[_a, _a])
+                    return r1 * float(kappa_mat[_a, _a]) * r2
+                val, _ = dblquad(
+                    integrand, t_min, t1, t_min, t2, **self.quad_opts,
+                )
+                C_mat[a, a] = val
+        else:
+            for a in range(N):
+                for b in range(N):
+                    def integrand(lam2: float, lam1: float, _a: int = a, _b: int = b) -> float:
+                        if m.iso_R:
+                            r1 = float(m.R_time(t1, lam1))
+                            r2 = float(m.R_time(t2, lam2))
+                        else:
+                            r1 = float(m.R_time(t1, lam1)[_a, _a])
+                            r2 = float(m.R_time(t2, lam2)[_b, _b])
+                        kappa_mat = m.kappa2(n1, lam1, n2, lam2)
+                        return r1 * float(kappa_mat[_a, _b]) * r2
+                    val, _ = dblquad(
+                        integrand, t_min, t1, t_min, t2, **self.quad_opts,
+                    )
+                    C_mat[a, b] = val
+
+        # --- White-noise (δ-correlated) component: 1-D integral ---
+        if m.sigma2 is not None:
+            t_upper = min(t1, t2)
+            if t_upper > t_min:
+                if m.diag_C:
+                    for a in range(N):
+                        def w_integrand(tau: float, _a: int = a) -> float:
+                            r1 = float(m.R_time(t1, tau)) if m.iso_R \
+                                else float(m.R_time(t1, tau)[_a, _a])
+                            r2 = float(m.R_time(t2, tau)) if m.iso_R \
+                                else float(m.R_time(t2, tau)[_a, _a])
+                            sig = m.sigma2(n1, tau, n2)
+                            return r1 * float(sig[_a, _a]) * r2
+                        wval, _ = _quad(
+                            w_integrand, t_min, t_upper, **self.quad_opts,
+                        )
+                        C_mat[a, a] += wval
+                else:
+                    for a in range(N):
+                        for b in range(N):
+                            def w_integrand(tau: float, _a: int = a, _b: int = b) -> float:
+                                if m.iso_R:
+                                    r1 = float(m.R_time(t1, tau))
+                                    r2 = float(m.R_time(t2, tau))
+                                else:
+                                    r1 = float(m.R_time(t1, tau)[_a, _a])
+                                    r2 = float(m.R_time(t2, tau)[_b, _b])
+                                sig = m.sigma2(n1, tau, n2)
+                                return r1 * float(sig[_a, _b]) * r2
+                            wval, _ = _quad(
+                                w_integrand, t_min, t_upper, **self.quad_opts,
+                            )
+                            C_mat[a, b] += wval
+
+        return C_mat
+
+    def C_at_batch(
+        self,
+        t1: np.ndarray,
+        t2: np.ndarray,
+        x1: np.ndarray | float,
+        x2: np.ndarray | float,
+    ) -> np.ndarray:
+        """Batch-evaluate C at arbitrary ``(t1, t2, x1, x2)`` arrays.
+
+        Dispatches on :attr:`homogeneity`:
+
+        - ``'translation'``: C depends only on ``|x1 − x2|``.  Uses
+          the 3-D ``(t1, t2, r)`` full-grid spline if built via
+          ``precompute_C_table_translation(r_max=..., n_grid_r=...)``;
+          otherwise uses a lazy per-r 2-D spline cache; otherwise
+          (legacy 2-D spline only) falls back to
+          :meth:`C_diagonal_batch` — x is ignored in that case.
+        - ``'rotation'``: C depends only on ``x1 · x2 / (|x1| |x2|)``.
+          Uses the 3-D ``(t1, t2, cos)`` spline or per-cos lazy cache.
+        - ``'general'``: 4-D ``(t1, t2, x1, x2)`` spline, or a lazy
+          per-pair 2-D cache.
+
+        Args:
+            t1, t2: Time arrays of shape ``(n,)``.
+            x1, x2: Spatial coordinates.  Scalar or array of shape
+                ``(n,)`` (broadcast if scalar).
+                # TODO(d-dim): support (n, d).
+
+        Returns:
+            Array of shape ``(n, N)`` — diagonal C values per
+            component.
+        """
+        t1 = np.atleast_1d(np.asarray(t1))
+        t2 = np.atleast_1d(np.asarray(t2))
+        N = self.model.n_components
+        n = len(t1)
+
+        def _resolve_x(x):
+            """Accept scalar, (n,) array, (d,) vector, or (n, d)
+            array.  Return shape (n,) for 1-D x, (n, d) for d-D x.
+            """
+            arr = np.asarray(x, dtype=float)
+            if arr.ndim == 0:
+                return np.full(n, float(arr))
+            if arr.ndim == 1:
+                if arr.shape[0] == n:
+                    return arr  # (n,) scalar-per-sample
+                # treat as (d,) vector → broadcast to (n, d)
+                return np.tile(arr[None, :], (n, 1))
+            return arr  # (n, d) already
+
+        x1_b = _resolve_x(x1)
+        x2_b = _resolve_x(x2)
+
+        def _r_batch(a, b):
+            """``|a - b|`` (scalar x) or ``‖a - b‖`` (vector x)."""
+            diff = a - b
+            if diff.ndim == 1:
+                return np.abs(diff)
+            return np.linalg.norm(diff, axis=-1)
+
+        if self.homogeneity == "translation":
+            # Full-grid 3-D (t1, t2, r) spline takes precedence.
+            if self._c_translation_splines is not None:
+                r = _r_batch(x1_b, x2_b)
+                pts = np.stack([t1, t2, r], axis=-1)
+                result = np.empty((n, N))
+                for a, itp in enumerate(self._c_translation_splines):
+                    result[:, a] = itp(pts)
+                return result
+            if self._lazy_translation is not None:
+                return self._lazy_lookup(
+                    self._lazy_translation, t1, t2, x1_b, x2_b, N,
+                )
+            # Fall back to legacy 2-D (t1, t2) spline — x is
+            # effectively ignored (r=0 assumed).  Matches behaviour
+            # of users who only called the legacy
+            # :meth:`precompute_C_table`.
+            return self.C_diagonal_batch(t1, t2)
+
+        if self.homogeneity == "rotation":
+            if self._c_rotation_splines is not None:
+                # cos per sample
+                cosv = np.empty(n)
+                for k in range(n):
+                    cosv[k] = _rotation_cos(x1_b[k], x2_b[k])
+                pts = np.stack([t1, t2, cosv], axis=-1)
+                result = np.empty((n, N))
+                for a, itp in enumerate(self._c_rotation_splines):
+                    result[:, a] = itp(pts)
+                return result
+            if self._lazy_rotation is not None:
+                return self._lazy_lookup(
+                    self._lazy_rotation, t1, t2, x1_b, x2_b, N,
+                )
+            raise RuntimeError(
+                "homogeneity='rotation' but no rotation table has "
+                "been built — call precompute_C_table_rotation() first"
+            )
+
+        # homogeneity == "general"
+        if self._c_general_interpolators is not None:
+            pts = np.stack([t1, t2, x1_b, x2_b], axis=-1)
+            result = np.empty((n, N))
+            for a, itp in enumerate(self._c_general_interpolators):
+                result[:, a] = itp(pts)
+            return result
+        if self._lazy_general is not None:
+            return self._lazy_lookup(
+                self._lazy_general, t1, t2, x1_b, x2_b, N,
+            )
+        raise RuntimeError(
+            "homogeneity='general' but no general table has been "
+            "built — call precompute_C_table_general() first"
+        )
+
+    def _lazy_lookup(
+        self,
+        lazy: "_LazyTimeSplineCache",
+        t1: np.ndarray,
+        t2: np.ndarray,
+        x1: np.ndarray,
+        x2: np.ndarray,
+        N: int,
+    ) -> np.ndarray:
+        """Look up C via per-parameter 2-D lazy splines, grouping
+        samples by memoization key so each distinct parameter value
+        triggers at most one spline build."""
+        n = len(t1)
+        result = np.empty((n, N))
+        keys = [lazy._make_key(x1[k], x2[k]) for k in range(n)]
+        seen: dict = {}
+        for k, key in enumerate(keys):
+            seen.setdefault(key, []).append(k)
+        for key, idxs in seen.items():
+            rep_k = idxs[0]
+            splines = lazy.get_splines(x1[rep_k], x2[rep_k])
+            sel = np.array(idxs)
+            t1_sel = t1[sel]
+            t2_sel = t2[sel]
+            for a in range(N):
+                result[sel, a] = splines[a](t1_sel, t2_sel, grid=False)
+        return result
+
 
 # ---------------------------------------------------------------------------
 # Step 4: Contraction & Integration
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DynamicCouplingPromise:
+    """Defers coupling-tensor materialisation to QMC-sample time.
+
+    When any entry in ``coupling_values`` is a callable (e.g. a
+    spacetime-dependent non-local vertex such as demo2's
+    ``κ^{(3)}(x₁,t₁; x₂,t₂; x₃,t₃)``), the usual pre-QMC
+    :meth:`DiagramTerm.evaluate_coupling` path doesn't apply —
+    the callable's output changes with each sample's QMC time
+    coordinates.  This class packages everything needed for the
+    per-sample path:
+
+    - the list of static (``ndarray``) symbol values,
+    - the list of dynamic (callable) symbol values,
+    - for each dynamic symbol, the ψ-leg spatial-label tuple
+      extracted from the :class:`DiagramTerm`'s ``coupling_sum`` so
+      we can look up each leg's time and position per sample.
+
+    The per-sample evaluator :meth:`evaluate_at` materialises the
+    dynamic tensors using the sample's ``(times, positions)`` and
+    then delegates to the static-path
+    :meth:`DiagramTerm.evaluate_coupling` with a fully-numeric
+    ``coupling_values`` dict — so the contraction code stays the
+    same.
+    """
+
+    #: The parent :class:`DiagramTerm`.
+    diagram_term: Any
+
+    #: Static coupling values — already materialised arrays.
+    static_values: dict
+
+    #: Dynamic coupling values — ``{name: callable(n_list, t_list)
+    #: -> ndarray}``.
+    dynamic_values: dict
+
+    #: Per-dynamic-symbol tuple of ψ-leg spatial labels, as they
+    #: appear in the diagram's ``coupling_sum``.
+    spatial_args_by_name: dict
+
+    #: Component-index pins forwarded from ``build_integrand``.
+    fixed_indices: dict
+
+    def evaluate_at(
+        self,
+        times: dict,
+        positions: dict,
+    ) -> np.ndarray:
+        """Materialise the dynamic callables at this sample's
+        ``(times, positions)`` and return the per-sample
+        ``coupling_array``.
+
+        Args:
+            times: ``{spatial_label: time_value}`` for all spatial
+                labels referenced by any dynamic symbol's legs.
+            positions: ``{spatial_label: position_value}`` same.
+        """
+        sample_cv = dict(self.static_values)
+        for name, fn in self.dynamic_values.items():
+            legs = self.spatial_args_by_name[name]
+            t_list = np.array([times[s] for s in legs], dtype=float)
+            n_list = np.array([positions[s] for s in legs], dtype=float)
+            sample_cv[name] = np.asarray(fn(n_list, t_list))
+        return self.diagram_term.evaluate_coupling(
+            sample_cv, self.fixed_indices,
+        )
 
 
 @dataclass(frozen=True)
@@ -468,7 +1380,21 @@ class DiagramIntegrand:
     spatial: SpatialStructure
 
     #: Coupling coefficient array from ``evaluate_coupling()``.
+    #: When :attr:`dynamic_coupling` is set, this is a placeholder
+    #: zero array and the real coupling value is computed per-sample
+    #: in the integrator.
     coupling_array: np.ndarray
+
+    #: Fixed component indices (e.g. ``{'a': 0, 'b': 1}``).
+    #: Used by the QMC/GL integrators to resolve C-propagator
+    #: component indices that are not summation variables.
+    fixed_indices: dict[str, int] = field(default_factory=dict)
+
+    #: Optional :class:`DynamicCouplingPromise` carrying per-sample
+    #: coupling materialisation logic for spacetime-dependent
+    #: (callable) coupling values.  ``None`` ⇒ the fully-static
+    #: fast path is used (all coupling values were ndarrays).
+    dynamic_coupling: Any = None
 
     def evaluate(
         self,
@@ -499,7 +1425,12 @@ class DiagramIntegrand:
         # --- Evaluate C propagators ---
         prop_idx = dt.propagator_indices
         if not prop_idx:
-            # No propagator indices → scalar coupling, evaluate C without indices
+            # No propagator indices → scalar coupling, evaluate C without
+            # summation, but still honour the integrand's
+            # ``fixed_indices`` (observable component labels like
+            # ``a``, ``b``) — without this the C matrix falls through
+            # to ``C_mat.trace()`` and picks up a spurious factor of
+            # N at order 0 for ``⟨φ_a(x) φ_b(y)⟩``-style observables.
             c_val = 1.0
             for sp_l, sp_r, il, ir in spatial.c_propagators:
                 dir_l = spatial.direction_map[sp_l]
@@ -507,8 +1438,8 @@ class DiagramIntegrand:
                 n_l = directions.get(dir_l, directions.get(sp_l))
                 n_r = directions.get(dir_r, directions.get(sp_r))
                 C_mat = cache.C_value(n_l, times[sp_l], n_r, times[sp_r])
-                a = self._resolve_component(il, {})
-                b = self._resolve_component(ir, {})
+                a = self._resolve_component(il, self.fixed_indices)
+                b = self._resolve_component(ir, self.fixed_indices)
                 if a is not None and b is not None:
                     c_val *= C_mat[a, b]
                 else:
@@ -600,7 +1531,16 @@ class DiagramIntegrand:
             if c_val == 0:
                 continue
 
-            idx_map = {name: val for name, val in zip(idx_names, pidx)}
+            # Merge the integrand's fixed component indices (e.g.
+            # observable labels like ``a``, ``b``) into the
+            # per-iteration summation ``idx_map``, matching the
+            # vectorised path — without this merge, propagator legs
+            # that reference observable labels fall through to
+            # ``C_mat.trace()`` (spurious factor of N).
+            idx_map = {
+                **self.fixed_indices,
+                **{name: val for name, val in zip(idx_names, pidx)},
+            }
 
             for sp_l, sp_r, il, ir in spatial.c_propagators:
                 dir_l = spatial.direction_map[sp_l]
@@ -656,6 +1596,41 @@ class DiagramIntegrand:
             return int(idx_name) - 1  # 1-indexed literal
         except ValueError:
             return None
+
+    @staticmethod
+    def _resolve_group_x(
+        spatial: "SpatialStructure",
+        positions: dict[str, float] | None,
+        default: Any,
+    ) -> dict[str, float]:
+        """Map each direction group (by its direction-variable name) to
+        a single spatial coordinate.
+
+        Priority for each group:
+        1.  If the group contains an external point whose position the
+            caller specified in ``positions``, use that.
+        2.  Otherwise fall back to ``default`` (typically 0 for
+            integration-only groups, or whatever ``direction`` kwarg
+            supplies for backward compat).
+
+        This is what flows into ``cache.C_at_batch`` as the endpoint
+        x-value when the cache has a spatial table built (of any
+        homogeneity kind).
+
+        # TODO(d-dim): generalise ``default`` / positions values from
+        # scalar floats to np.ndarray shape (d,).
+        """
+        positions = positions or {}
+        group_x: dict[str, float] = {}
+        for group in spatial.direction_groups:
+            dvar_sample = spatial.direction_map[next(iter(group))]
+            x_val: Any = default
+            for p in group:
+                if p in positions:
+                    x_val = positions[p]
+                    break
+            group_x[dvar_sample] = x_val
+        return group_x
 
     def make_scipy_integrand(
         self,
@@ -794,9 +1769,6 @@ class DiagramIntegrand:
                     rep = sorted(group)[0]
                 others = sorted(group - {rep})
                 if others:
-                    ids = ", ".join(
-                        rf"\hat{{n}}_{{{_latex_index(o)}}}" for o in others
-                    )
                     parts.append(
                         rf"\text{{[all directions}} = \hat{{n}}_{{{_latex_index(rep)}}}]"
                     )
@@ -857,58 +1829,44 @@ class DiagramIntegrand:
         direction: Any = 0,
         n_samples: int = 2**14,
         seed: int | None = None,
+        positions: dict[str, float] | None = None,
+        integrate_over: Any = None,
     ) -> tuple[float, float]:
         """Integrate over all time variables using Quasi-Monte Carlo.
 
-        Maps the unit hypercube ``[0, 1]^d`` to the causal integration
-        domain using the time-ordering DAG.  External (observable) times
-        are integrated freely over ``[t_min, lambda_f]``; internal
-        (vertex) times are bounded by their causal parents.
-
-        Uses Sobol sequences (``scipy.stats.qmc.Sobol``) for
-        low-discrepancy sampling.
-
-        Args:
-            lambda_f: Upper integration limit for external times.
-            cache: A :class:`PropagatorCache` (ideally with
-                :meth:`~PropagatorCache.precompute_C_table` called).
-            t_min: Lower time bound (default 0).
-            direction: Direction value for all spatial points.
-            n_samples: Number of Sobol samples (should be a power of 2).
-            seed: Random seed for the Sobol sequence.
-
-        Returns:
-            ``(estimate, std_error)`` where ``std_error`` is estimated
-            from 8 batched sub-means.
+        Scalar-loop sibling of
+        :meth:`integrate_moment_qmc_vectorized`; see that method's
+        docstring for the ``integrate_over`` kwarg semantics.
         """
         from scipy.stats import qmc
 
         spatial = self.spatial
-        # Variable ordering: [ext..., int_outermost, ..., int_innermost]
-        # We want parents before children so we can compute bounds.
-        # time_integration_vars is innermost-first; reverse for parents-first.
         int_vars_parents_first = list(reversed(spatial.time_integration_vars))
         ext_vars = list(spatial.external_points)
-        all_vars = ext_vars + int_vars_parents_first
-        n_ext = len(ext_vars)
-        n_total = len(all_vars)
 
-        if n_total == 0:
+        ext_int_set = _resolve_integrate_over(integrate_over, ext_vars)
+        ext_integrated = [v for v in ext_vars if v in ext_int_set]
+        ext_fixed = [v for v in ext_vars if v not in ext_int_set]
+
+        sobol_vars = ext_integrated + int_vars_parents_first
+        n_ext_int = len(ext_integrated)
+        n_total = len(sobol_vars)
+
+        if _cache_has_spatial_table(cache):
+            directions = self._resolve_group_x(spatial, positions, direction)
+        else:
             dir_vars = set(spatial.direction_map.values())
             directions = {d: direction for d in dir_vars}
-            val = self.evaluate({}, directions, cache)
+
+        if n_total == 0:
+            fixed_times = {v: lambda_f for v in ext_fixed}
+            val = self.evaluate(fixed_times, directions, cache)
             return (val.real, 0.0)
 
-        # Build causal parent map for internal vars
-        # For each internal var, its upper bound = min(parent times)
         parent_map: dict[str, list[str]] = defaultdict(list)
         for earlier, later in spatial.time_orderings:
             if earlier in int_vars_parents_first:
                 parent_map[earlier].append(later)
-
-        # Direction map
-        dir_vars = set(spatial.direction_map.values())
-        directions = {d: direction for d in dir_vars}
 
         # Generate Sobol samples in [0,1]^d
         sampler = qmc.Sobol(d=n_total, seed=seed)
@@ -920,18 +1878,18 @@ class DiagramIntegrand:
 
         for s in range(n_samples):
             u = u_samples[s]
-            times: dict[str, float] = {}
+            times: dict[str, float] = {v: lambda_f for v in ext_fixed}
             jacobian = 1.0
 
-            # External vars: free in [t_min, lambda_f]
-            for k in range(n_ext):
+            # Integrated externals: free in [t_min, lambda_f]
+            for k in range(n_ext_int):
                 t = t_min + u[k] * span
-                times[ext_vars[k]] = t
+                times[ext_integrated[k]] = t
                 jacobian *= span
 
             # Internal vars: bounded by causal parents
             for k, var in enumerate(int_vars_parents_first):
-                idx = n_ext + k
+                idx = n_ext_int + k
                 parents = parent_map.get(var, [])
                 if parents:
                     hi = min(times[p] for p in parents if p in times)
@@ -967,45 +1925,378 @@ class DiagramIntegrand:
 
         return (estimate, std_error)
 
+    def integrate_moment_qmc_vectorized(
+        self,
+        lambda_f: float,
+        cache: PropagatorCache,
+        t_min: float = 0.0,
+        direction: Any = 0,
+        n_samples: int = 2**14,
+        seed: int | None = None,
+        positions: dict[str, float] | None = None,
+        integrate_over: Any = None,
+    ) -> tuple[float, float]:
+        """Vectorized QMC integration — no Python loop over samples.
+
+        Same algorithm as :meth:`integrate_moment_qmc` but evaluates
+        all Sobol samples simultaneously using batch propagator lookups.
+        Requires ``precompute_C_table`` for the batch C evaluation.
+
+        For the ``iso_R + diag_C`` case with scalar coupling (no
+        propagator indices), the integrand at each sample is::
+
+            coupling × prod_R R(t_l, t_r) × prod_C C_diag(t_l, t_r)
+
+        where all R and C values are looked up in batch.
+
+        Args:
+            positions: Optional mapping ``{point_name: spatial_coord}``
+                (e.g. ``{'x': 0.0, 'y': 0.5}``).  When the cache has a
+                spatial table built (any :attr:`~PropagatorCache.homogeneity`
+                kind), the x-coordinate of each propagator endpoint is
+                derived from its direction group's external-point
+                position and flows through ``cache.C_at_batch``.
+                Ignored when no spatial table is built (legacy
+                behaviour — ``C_diagonal_batch`` has no x-dependence
+                regardless).
+            integrate_over: Controls which **external** points have
+                their time integrated over ``[t_min, lambda_f]``.
+
+                - ``None`` (default, physics observable):
+                  **all externals held fixed at ``lambda_f``** —
+                  this gives the equal-time correlator
+                  ``⟨φ(t_f) φ(t_f)⟩`` that demo notebooks and MC
+                  data compare against.
+                - ``"all"``: all externals integrated — the
+                  time-integrated moment
+                  ``⟨∫₀^{t_f}φ(t) dt · ∫₀^{t_f}φ(t') dt'⟩``.
+                  Useful e.g. for weak-lensing line-of-sight
+                  integrals of the Sachs field.
+                - Iterable of external point names (subset):
+                  those listed are integrated, the rest fixed at
+                  ``lambda_f``.  Enables mixed observables such as
+                  an integrated source × a detector field.
+
+                Internal vertex times are always integrated; their
+                causal parent-map uses the (possibly fixed)
+                external times as upper bounds.
+
+        Returns:
+            ``(estimate, std_error)``
+        """
+        from scipy.stats import qmc
+
+        spatial = self.spatial
+        int_vars_pf = list(reversed(spatial.time_integration_vars))
+        ext_vars = list(spatial.external_points)
+
+        # Partition externals into "integrated" vs "fixed at lambda_f".
+        ext_int_set = _resolve_integrate_over(integrate_over, ext_vars)
+        ext_integrated = [v for v in ext_vars if v in ext_int_set]
+        ext_fixed = [v for v in ext_vars if v not in ext_int_set]
+        n_ext_int = len(ext_integrated)
+
+        # Sobol-dimensioned vars = integrated externals + internals.
+        sobol_vars = ext_integrated + int_vars_pf
+        n_total = len(sobol_vars)
+
+        if n_total == 0:
+            # No integration — purely evaluate at the fixed external
+            # times.  Use ``_resolve_group_x`` to thread user-supplied
+            # ``positions`` into the ``directions`` dict so the C
+            # propagator still picks up the spatial factor (e.g. the
+            # ``exp(-r/σ_x)`` at order 0 for observables like
+            # ``⟨φ(x) φ(y)⟩``).
+            if _cache_has_spatial_table(cache):
+                directions = self._resolve_group_x(
+                    spatial, positions, direction,
+                )
+            else:
+                dir_vars = set(spatial.direction_map.values())
+                directions = {d: direction for d in dir_vars}
+            fixed_times = {v: lambda_f for v in ext_fixed}
+            val = self.evaluate(fixed_times, directions, cache)
+            return (val.real, 0.0)
+
+        # Build causal parent map (per-internal-var upper bound list).
+        parent_map: dict[str, list[str]] = defaultdict(list)
+        for earlier, later in spatial.time_orderings:
+            if earlier in int_vars_pf:
+                parent_map[earlier].append(later)
+
+        # Sobol samples
+        sampler = qmc.Sobol(d=n_total, seed=seed)
+        u = sampler.random(n_samples)
+        span = lambda_f - t_min
+
+        # Map u -> times with causal bounds (vectorized)
+        times_arr = np.empty((n_samples, n_total))
+        jacobians = np.ones(n_samples)
+
+        # Integrated external vars: free in [t_min, lambda_f]
+        for k in range(n_ext_int):
+            times_arr[:, k] = t_min + u[:, k] * span
+            jacobians *= span
+
+        # Internal vars: bounded by parents.  Parents may be
+        # (a) integrated externals — pull from times_arr; (b) fixed
+        # externals — use the fixed ``lambda_f`` value; (c) other
+        # internal vars — pull from times_arr.
+        for k, var in enumerate(int_vars_pf):
+            idx = n_ext_int + k
+            parents = parent_map.get(var, [])
+            if parents:
+                hi = np.full(n_samples, lambda_f)
+                for p in parents:
+                    if p in int_vars_pf:
+                        p_idx = n_ext_int + int_vars_pf.index(p)
+                        hi = np.minimum(hi, times_arr[:, p_idx])
+                    elif p in ext_integrated:
+                        p_idx = ext_integrated.index(p)
+                        hi = np.minimum(hi, times_arr[:, p_idx])
+                    else:
+                        # Fixed external — its time is lambda_f.
+                        hi = np.minimum(hi, lambda_f)
+            else:
+                hi = np.full(n_samples, lambda_f)
+
+            width = hi - t_min
+            valid = width > 0
+            times_arr[:, idx] = np.where(valid, t_min + u[:, idx] * width, t_min)
+            jacobians = np.where(valid, jacobians * width, 0.0)
+
+        # Build variable-name to column lookup.  Fixed externals are
+        # NOT in times_arr; they get a special lookup that returns a
+        # constant ``lambda_f`` array.
+        var_to_col = {var: i for i, var in enumerate(sobol_vars)}
+        fixed_t = np.full(n_samples, lambda_f)
+
+        def _times(var: str) -> np.ndarray:
+            """Return the per-sample time array for ``var`` — pulls
+            from ``times_arr`` when integrated, or the constant
+            ``lambda_f`` array when fixed."""
+            col = var_to_col.get(var)
+            if col is not None:
+                return times_arr[:, col]
+            return fixed_t
+
+        # --- Vectorized integrand evaluation ---
+        dt = self.diagram_term
+        coeff = self.coupling_array
+        prop_idx = dt.propagator_indices
+
+        # R product (vectorized)
+        r_product = np.ones(n_samples)
+        for sl, sr in spatial.r_propagators:
+            t_l = _times(sl)
+            t_r = _times(sr)
+            r_product *= cache.R_time_batch(t_l, t_r)
+
+        fi = self.fixed_indices
+
+        # --- Spatial-aware dispatch ---
+        # Decide once per call how to evaluate each C propagator.
+        # We route through ``C_at_batch`` whenever the cache has a
+        # spatial table built (of any homogeneity kind); otherwise
+        # fall back to the legacy ``C_diagonal_batch`` which ignores
+        # x and matches the pre-Phase-5 behaviour bit-identically.
+        spatial_aware = _cache_has_spatial_table(cache)
+        group_x: dict[str, float] | None = None
+        if spatial_aware:
+            group_x = self._resolve_group_x(spatial, positions, direction)
+
+        def _lookup_C(sp_l: str, sp_r: str, t_l: np.ndarray,
+                      t_r: np.ndarray) -> np.ndarray:
+            """Evaluate C at the batch of (t_l, t_r) samples, carrying
+            the appropriate x-coordinate when the cache is
+            spatial-aware."""
+            if not spatial_aware:
+                return cache.C_diagonal_batch(t_l, t_r)
+            x_l = group_x[spatial.direction_map[sp_l]]  # type: ignore[index]
+            x_r = group_x[spatial.direction_map[sp_r]]  # type: ignore[index]
+            return cache.C_at_batch(t_l, t_r, x_l, x_r)
+
+        if self.dynamic_coupling is not None:
+            # --- Per-sample (dynamic) coupling path ---
+            # Triggered when any coupling_value passed to
+            # ``build_integrand`` was callable (e.g. a
+            # spacetime-dependent non-local vertex like demo2's
+            # ``κ^{(3)}``).  The per-sample cost is one callable
+            # invocation per dynamic symbol × the cheap
+            # :meth:`DiagramTerm.evaluate_coupling` substitution.
+            #
+            # Numerics: we reuse the vectorised ``r_product`` (done
+            # above) and compute the C product per-sample in a tight
+            # loop, multiplying in the sample-specific coupling
+            # scalar / array from
+            # :meth:`DynamicCouplingPromise.evaluate_at`.
+            all_spatial_labels = set(spatial.direction_map.keys())
+            values = np.zeros(n_samples)
+            _promise = self.dynamic_coupling
+            for s in range(n_samples):
+                # Build per-sample (times, positions) dicts spanning
+                # every spatial label any dynamic symbol's legs
+                # might reference.
+                times_s = {lab: _times(lab)[s] for lab in all_spatial_labels}
+                if spatial_aware:
+                    positions_s = {
+                        lab: group_x[spatial.direction_map[lab]]  # type: ignore[index]
+                        for lab in all_spatial_labels
+                    }
+                else:
+                    positions_s = {lab: float(direction)
+                                   for lab in all_spatial_labels}
+
+                sample_coupling = _promise.evaluate_at(
+                    times_s, positions_s,
+                )
+
+                # Contract C propagators at this sample
+                c_val_s = 1.0
+                for sp_l, sp_r, il, ir in spatial.c_propagators:
+                    t_l = _times(sp_l)[s:s+1]
+                    t_r = _times(sp_r)[s:s+1]
+                    C_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
+                    if il is not None and ir is not None:
+                        a_i = DiagramIntegrand._resolve_component(il, fi)
+                        b_i = DiagramIntegrand._resolve_component(ir, fi)
+                        if a_i is not None and b_i is not None:
+                            c_val_s *= float(C_batch[0, a_i])
+                        else:
+                            c_val_s *= float(C_batch[0].sum())
+                    else:
+                        c_val_s *= float(C_batch[0].sum())
+
+                # sample_coupling shape: (N,)*len(prop_idx) for
+                # prop-indexed diagrams, or 0-d scalar for scalar
+                # coupling.  Demo2 FK is scalar (iso_R + no C legs).
+                if sample_coupling.ndim == 0:
+                    values[s] = (
+                        float(sample_coupling.real)
+                        * float(r_product[s])
+                        * c_val_s
+                        * float(jacobians[s])
+                    )
+                else:
+                    # Prop-indexed dynamic: sum over all index
+                    # combinations, with C scaling folded in per-index
+                    # via the static loop above (future enhancement).
+                    # For v1 we support scalar coupling only — raise if
+                    # a user hits this path.
+                    raise NotImplementedError(
+                        "Dynamic coupling with propagator-indexed "
+                        "contraction is not yet supported.  Either "
+                        "use a spacetime-constant coupling tensor, or "
+                        "provide a fully contracted scalar callable."
+                    )
+
+        elif not prop_idx:
+            # Scalar coupling path (iso_R + iso_C or no prop indices)
+            c_product = np.ones(n_samples)
+            for sp_l, sp_r, il, ir in spatial.c_propagators:
+                t_l = _times(sp_l)
+                t_r = _times(sp_r)
+                C_diag_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
+                if il is not None and ir is not None:
+                    a = DiagramIntegrand._resolve_component(il, fi)
+                    b = DiagramIntegrand._resolve_component(ir, fi)
+                    if a is not None and b is not None:
+                        c_product *= C_diag_batch[:, a]
+                    else:
+                        c_product *= C_diag_batch.sum(axis=1)
+                else:
+                    c_product *= C_diag_batch.sum(axis=1)
+
+            values = r_product * complex(coeff).real * c_product * jacobians
+
+        else:
+            # Propagator-indexed coupling: loop over index combinations
+            idx_names = [name for name, _ in prop_idx]
+            prop_shape = tuple(dim for _, dim in prop_idx)
+            values = np.zeros(n_samples)
+
+            for pidx in np.ndindex(*prop_shape):
+                c_val = complex(coeff[pidx]).real if coeff.ndim > 0 else complex(coeff).real
+                if abs(c_val) < 1e-20:
+                    continue
+
+                idx_map = {**fi, **dict(zip(idx_names, pidx))}
+                c_prod = np.ones(n_samples)
+                for sp_l, sp_r, il, ir in spatial.c_propagators:
+                    t_l = _times(sp_l)
+                    t_r = _times(sp_r)
+                    C_diag_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
+                    a = DiagramIntegrand._resolve_component(il, idx_map)
+                    b = DiagramIntegrand._resolve_component(ir, idx_map)
+                    if a is not None and b is not None:
+                        c_prod *= C_diag_batch[:, a]
+                    else:
+                        c_prod *= C_diag_batch.sum(axis=1)
+
+                values += c_val * r_product * c_prod * jacobians
+
+        # Mask invalid samples
+        values = np.where(jacobians > 0, values, 0.0)
+        estimate = float(np.mean(values))
+
+        # Error estimate
+        n_batches = min(8, n_samples)
+        batch_size = n_samples // n_batches
+        batch_means = np.array([
+            np.mean(values[i * batch_size:(i + 1) * batch_size])
+            for i in range(n_batches)
+        ])
+        std_error = float(np.std(batch_means, ddof=1) / np.sqrt(n_batches))
+
+        return (estimate, std_error)
+
     def integrate_moment_nquad(
         self,
         lambda_f: float,
         cache: PropagatorCache,
         t_min: float = 0.0,
         direction: Any = 0,
+        positions: dict[str, float] | None = None,
+        integrate_over: Any = None,
     ) -> tuple[float, float]:
-        """Integrate over all time variables using nested adaptive quadrature.
+        """Integrate over time variables using nested adaptive
+        quadrature.
 
-        Uses ``scipy.integrate.nquad`` with causal ordering bounds.
-        Accurate but slow for high-dimensional integrals.
-
-        Args:
-            lambda_f: Upper integration limit for external times.
-            cache: A :class:`PropagatorCache`.
-            t_min: Lower time bound (default 0).
-            direction: Direction value for all spatial points.
-
-        Returns:
-            ``(estimate, error_estimate)`` from nquad.
+        See :meth:`integrate_moment_qmc_vectorized` for the
+        ``integrate_over`` kwarg semantics (external-time partition
+        into integrated vs fixed-at-``lambda_f``).
         """
         from scipy.integrate import nquad as _nquad
 
         spatial = self.spatial
         int_vars = list(spatial.time_integration_vars)
         ext_vars = list(spatial.external_points)
-        all_vars = int_vars + ext_vars
+
+        ext_int_set = _resolve_integrate_over(integrate_over, ext_vars)
+        ext_integrated = [v for v in ext_vars if v in ext_int_set]
+        ext_fixed = [v for v in ext_vars if v not in ext_int_set]
+
+        # Quadrature variables = internals + integrated externals.
+        all_vars = int_vars + ext_integrated
         n_int = len(int_vars)
         n_total = len(all_vars)
 
-        dir_vars = set(spatial.direction_map.values())
-        directions = {d: direction for d in dir_vars}
+        if _cache_has_spatial_table(cache):
+            directions = self._resolve_group_x(spatial, positions, direction)
+        else:
+            dir_vars = set(spatial.direction_map.values())
+            directions = {d: direction for d in dir_vars}
+
+        fixed_times = {v: lambda_f for v in ext_fixed}
 
         if n_total == 0:
-            val = self.evaluate({}, directions, cache)
+            val = self.evaluate(fixed_times, directions, cache)
             return (val.real if val.imag == 0 else abs(val), 0.0)
 
         def f(*args: float) -> float:
-            times = {var: args[i] for i, var in enumerate(all_vars)}
+            times = dict(fixed_times)
+            for i, var in enumerate(all_vars):
+                times[var] = args[i]
             result = self.evaluate(times, directions, cache)
             return result.real if result.imag == 0 else abs(result)
 
@@ -1024,12 +2315,17 @@ class DiagramIntegrand:
                 if not ub_sources:
                     ranges.append((t_min, lambda_f))
                 else:
+                    # Fixed externals contribute a constant upper bound
+                    # ``lambda_f`` (no longer showing up in later_args).
+                    ub_dyn = [src for src in ub_sources
+                              if src not in fixed_times]
+
                     def make_bound(
                         ub: list[str], avars: list[str],
                         lo: float, hi: float, cur_i: int,
                     ) -> Callable:
                         def bound_func(*later_args: float) -> tuple[float, float]:
-                            hi_vals = []
+                            hi_vals = [hi]
                             for src in ub:
                                 j = avars.index(src) - cur_i - 1
                                 if 0 <= j < len(later_args):
@@ -1038,10 +2334,47 @@ class DiagramIntegrand:
                                     hi_vals.append(hi)
                             return (lo, min(hi_vals))
                         return bound_func
-                    ranges.append(make_bound(ub_sources, all_vars, t_min, lambda_f, i))
+                    ranges.append(
+                        make_bound(ub_dyn, all_vars, t_min, lambda_f, i)
+                    )
 
         val, err = _nquad(f, ranges)
         return (val, err)
+
+
+def _cache_supports_batch_c(cache: "PropagatorCache") -> bool:
+    """Whether ``cache`` can evaluate C propagators in batch.
+
+    True when the cache either has a pre-computed spline table
+    (``_c_splines is not None`` on :class:`PropagatorCache`) or is a
+    custom cache with a native batch implementation that sets
+    ``_c_splines`` to a truthy sentinel (e.g. the analytical cache
+    used in ``examples/demo1`` and ``tests/test_deductive_numerics``).
+    """
+    return getattr(cache, "_c_splines", None) is not None
+
+
+def _cache_has_spatial_table(cache: "PropagatorCache") -> bool:
+    """Whether ``cache`` has been equipped with any spatial
+    (x-aware) table — full or lazy, any homogeneity kind.
+
+    Used by the integrators to decide whether to route each C
+    propagator through the spatial-aware ``C_at_batch`` path or the
+    legacy ``C_diagonal_batch`` path (which ignores x).  False when
+    the cache was built with only the legacy ``precompute_C_table``
+    or when it is a custom cache that doesn't implement the new
+    spatial attributes — in both cases the legacy path is
+    bit-identical to pre-Phase-5 behaviour.
+    """
+    names = (
+        "_c_translation_splines",
+        "_lazy_translation",
+        "_c_rotation_splines",
+        "_lazy_rotation",
+        "_c_general_interpolators",
+        "_lazy_general",
+    )
+    return any(getattr(cache, n, None) is not None for n in names)
 
 
 def integrate_moment(
@@ -1053,25 +2386,48 @@ def integrate_moment(
     method: str = "qmc",
     n_samples: int = 2**14,
     seed: int | None = None,
+    positions: dict[str, float] | None = None,
+    integrate_over: Any = None,
 ) -> tuple[float, float]:
     """Integrate a diagram's contribution over all time variables.
 
     Convenience wrapper around
-    :meth:`DiagramIntegrand.integrate_moment_qmc` and
+    :meth:`DiagramIntegrand.integrate_moment_qmc`,
+    :meth:`DiagramIntegrand.integrate_moment_qmc_vectorized`, and
     :meth:`DiagramIntegrand.integrate_moment_nquad`.
 
+    **Dispatch logic.**  With ``method='qmc'`` (default) the function
+    auto-selects the fastest QMC path compatible with the supplied
+    cache:
+
+    - If the cache supports batched C evaluation (either
+      ``PropagatorCache.precompute_C_table`` has been called, or a
+      custom cache implements ``C_diagonal_batch`` natively) →
+      :meth:`integrate_moment_qmc_vectorized` (~200× faster than
+      the scalar loop on typical workloads).
+    - Otherwise → :meth:`integrate_moment_qmc` (scalar Python loop).
+
+    Users who explicitly want the scalar loop (e.g. for debugging
+    or with a non-batch-capable custom cache) can pass
+    ``method='qmc_scalar'``.
+
     For best performance, call
-    :meth:`PropagatorCache.precompute_C_table` before integrating.
+    :meth:`PropagatorCache.precompute_C_table` before integrating so
+    the vectorised path is selected automatically.
 
     Args:
         integrand: A :class:`DiagramIntegrand` built from a
             :class:`~sft_wick.perturbation.DiagramTerm`.
         lambda_f: Upper integration limit for external times.
-        cache: A :class:`PropagatorCache`.
+        cache: A :class:`PropagatorCache` (or compatible custom
+            cache).
         t_min: Lower time bound (default 0).
         direction: Direction value for all spatial points.
-        method: ``'qmc'`` (default, Quasi-Monte Carlo with Sobol)
-            or ``'nquad'`` (nested adaptive quadrature).
+        method: ``'qmc'`` (default, auto-selects vectorised vs
+            scalar), ``'qmc_scalar'`` (force scalar loop),
+            ``'qmc_vectorized'`` (force vectorised; raises if cache
+            doesn't support batch), or ``'nquad'`` (nested adaptive
+            quadrature).
         n_samples: Number of Sobol samples (QMC only, should be
             a power of 2).
         seed: Random seed for reproducibility (QMC only).
@@ -1080,16 +2436,40 @@ def integrate_moment(
         ``(estimate, error)`` tuple.
     """
     if method == "qmc":
+        if _cache_supports_batch_c(cache):
+            return integrand.integrate_moment_qmc_vectorized(
+                lambda_f, cache, t_min=t_min, direction=direction,
+                n_samples=n_samples, seed=seed, positions=positions,
+                integrate_over=integrate_over,
+            )
         return integrand.integrate_moment_qmc(
             lambda_f, cache, t_min=t_min, direction=direction,
-            n_samples=n_samples, seed=seed,
+            n_samples=n_samples, seed=seed, positions=positions,
+            integrate_over=integrate_over,
+        )
+    elif method == "qmc_vectorized":
+        return integrand.integrate_moment_qmc_vectorized(
+            lambda_f, cache, t_min=t_min, direction=direction,
+            n_samples=n_samples, seed=seed, positions=positions,
+            integrate_over=integrate_over,
+        )
+    elif method == "qmc_scalar":
+        return integrand.integrate_moment_qmc(
+            lambda_f, cache, t_min=t_min, direction=direction,
+            n_samples=n_samples, seed=seed, positions=positions,
+            integrate_over=integrate_over,
         )
     elif method == "nquad":
         return integrand.integrate_moment_nquad(
             lambda_f, cache, t_min=t_min, direction=direction,
+            positions=positions,
+            integrate_over=integrate_over,
         )
     else:
-        raise ValueError(f"Unknown method {method!r}; use 'qmc' or 'nquad'")
+        raise ValueError(
+            f"Unknown method {method!r}; use 'qmc', 'qmc_scalar', "
+            f"'qmc_vectorized', or 'nquad'"
+        )
 
 
 def _eval_single_diagram(
@@ -1119,7 +2499,7 @@ def integrate_diagrams(
     n_samples: int = 2**14,
     seed: int | None = None,
     fixed_indices: dict[str, int] | None = None,
-    n_jobs: int = 1,
+    n_jobs: int = -1,
 ) -> tuple[float, list[tuple[float, float]]]:
     """Integrate a batch of diagram terms, optionally in parallel.
 
@@ -1139,9 +2519,11 @@ def integrate_diagrams(
         seed: Random seed (QMC only).
         fixed_indices: Optional pinned index values for
             :meth:`~sft_wick.perturbation.DiagramTerm.build_integrand`.
-        n_jobs: Number of parallel jobs.  ``1`` = sequential (default),
-            ``-1`` = all CPU cores.  Requires :mod:`joblib` when
-            ``n_jobs != 1``.
+        n_jobs: Number of parallel jobs.  ``-1`` = all CPU cores
+            (default), ``1`` = sequential.  A built-in guard falls
+            back to sequential for ``len(diagram_terms) <= 2`` to
+            avoid joblib's ~1 s startup overhead on trivial batches.
+            Requires :mod:`joblib` when ``n_jobs != 1``.
 
     Returns:
         ``(total, details)`` where *total* is the scalar sum and
@@ -1176,3 +2558,221 @@ def integrate_diagrams(
 
     total = sum(v for v, _ in details)
     return (total, details)
+
+
+# ---------------------------------------------------------------------------
+# Two-point correlation function integration
+# ---------------------------------------------------------------------------
+
+
+def integrate_two_point_qmc(
+    integrands: list["DiagramIntegrand"],
+    t_f: float,
+    positions: dict[str, float],
+    cache: "PropagatorCache",
+    t_min: float = 0.0,
+    n_samples: int = 2**14,
+    seed: int | None = None,
+) -> tuple[float, float]:
+    """Vectorised QMC integration for two-point correlation functions.
+
+    Evaluates the sum of diagram integrands at external time *t_f*
+    with spatial points at the positions given by *positions*.  This
+    is the standard entry point for computing correlators such as
+    ``⟨φ(x, t) φ(y, t)⟩`` where *x* and *y* may differ.
+
+    Unlike :func:`integrate_moment`, which assigns a single direction
+    value to all spatial points, this function supports per-point
+    spatial positions and applies the appropriate spatial factor to
+    each correlation propagator automatically.
+
+    The spatial factor for a *C*-propagator connecting points at
+    positions *n₁* and *n₂* is computed as::
+
+        κ²(n₁, t_ref; n₂, t_ref) / κ²(0, t_ref; 0, t_ref)
+
+    which is exact for separable kernels (where the factor is
+    time-independent) and a good approximation otherwise.
+
+    Requires :meth:`PropagatorCache.precompute_C_table` to have been
+    called for the batch *C* evaluation fast path.
+
+    Args:
+        integrands: List of :class:`DiagramIntegrand` objects (one per
+            non-vanishing Feynman diagram).
+        t_f: External (observation) time — all external points are set
+            to this time.
+        positions: ``{point_name: position}`` mapping each spatial
+            point name (e.g. ``"x"``, ``"y"``) to a scalar spatial
+            coordinate.  Points not in the dict default to 0.
+        cache: A :class:`PropagatorCache` with pre-computed *C* table.
+        t_min: Lower time bound (default 0).
+        n_samples: Number of Sobol samples (should be a power of 2).
+        seed: Random seed for the Sobol sequence.
+
+    Returns:
+        ``(estimate, std_error)`` for the summed two-point function.
+    """
+    from scipy.stats import qmc as _qmc
+
+    total = 0.0
+    total_err_sq = 0.0
+
+    for ig in integrands:
+        sp = ig.spatial
+        ivs = list(reversed(sp.time_integration_vars))
+        evs = list(sp.external_points)
+
+        # Build direction dict from positions.
+        # External points (which carry user-specified positions) take
+        # priority over vertex points (which default to 0).
+        directions: dict[str, float] = {}
+        for pt in evs:
+            dvar = sp.direction_map.get(pt)
+            if dvar is not None and pt in positions:
+                directions[dvar] = positions[pt]
+        for pt, dvar in sp.direction_map.items():
+            if dvar not in directions:
+                directions[dvar] = positions.get(pt, 0.0)
+
+        # Pre-compute spatial factors for each C propagator
+        # factor = kappa2(n1, t_ref, n2, t_ref) / kappa2(0, t_ref, 0, t_ref)
+        t_ref = max(t_min + 0.1, t_f * 0.5)
+        model = cache.model
+        kappa_00 = model.kappa2(
+            np.array([0.0]), t_ref, np.array([0.0]), t_ref
+        )  # (N, N)
+        c_spatial_factors = []
+        for sp_l, sp_r, _il, _ir in sp.c_propagators:
+            dir_l = sp.direction_map[sp_l]
+            dir_r = sp.direction_map[sp_r]
+            n_l = directions.get(dir_l, 0.0)
+            n_r = directions.get(dir_r, 0.0)
+            if abs(n_l - n_r) < 1e-15:
+                c_spatial_factors.append(np.ones(model.n_components))
+            else:
+                kappa_sep = model.kappa2(
+                    np.array([n_l]), t_ref, np.array([n_r]), t_ref
+                )
+                # Diagonal ratio per component
+                diag_00 = np.diag(kappa_00)
+                diag_sep = np.diag(kappa_sep)
+                safe = np.abs(diag_00) > 1e-30
+                factor = np.where(safe, diag_sep / diag_00, 0.0)
+                c_spatial_factors.append(factor)
+
+        # --- Zero integration variables: direct evaluation ---
+        et = {v: t_f for v in evs}
+        ni = len(ivs)
+        if ni == 0:
+            val = ig.evaluate(et, directions, cache)
+            total += val.real
+            continue
+
+        # --- Causal parent map ---
+        pm: dict[str, list[str]] = defaultdict(list)
+        for earlier, later in sp.time_orderings:
+            if earlier in ivs:
+                pm[earlier].append(later)
+
+        # --- Sobol samples ---
+        u = _qmc.Sobol(d=ni, seed=seed).random(n_samples)
+        t_s = np.zeros((n_samples, ni))
+        jac = np.ones(n_samples)
+        for k, var in enumerate(ivs):
+            ps = pm.get(var, [])
+            pi = [ivs.index(p) for p in ps if p in ivs]
+            ep = [t_f for p in ps if p not in ivs]
+            hi = np.min(t_s[:, pi], axis=1) if pi else np.full(n_samples, t_f)
+            if ep:
+                hi = np.minimum(hi, min(ep))
+            w = hi - t_min
+            ok = w > 0
+            t_s[:, k] = np.where(ok, t_min + u[:, k] * w, t_min)
+            jac = np.where(ok, jac * w, 0.0)
+
+        # --- Full time array ---
+        all_vars = evs + ivs
+        var_col = {v: j for j, v in enumerate(all_vars)}
+        t_arr = np.empty((n_samples, len(all_vars)))
+        for j in range(len(evs)):
+            t_arr[:, j] = t_f
+        for j in range(ni):
+            t_arr[:, len(evs) + j] = t_s[:, j]
+
+        # --- Vectorised R product ---
+        r_prod = np.ones(n_samples)
+        for sl, sr in sp.r_propagators:
+            r_prod *= cache.R_time_batch(
+                t_arr[:, var_col[sl]], t_arr[:, var_col[sr]]
+            )
+
+        # --- Vectorised C product with spatial factors ---
+        dt = ig.diagram_term
+        coeff = ig.coupling_array
+        prop_idx = dt.propagator_indices
+
+        # Fixed indices from the integrand (e.g. observable component
+        # indices like {'a': 0, 'b': 1}).  These must participate in
+        # _resolve_component so that C-propagator legs carrying a fixed
+        # index name are evaluated at the correct component instead of
+        # being summed over all components.
+        fi = ig.fixed_indices
+
+        if not prop_idx:
+            # Scalar coupling (iso_R + iso_C)
+            c_prod = np.ones(n_samples)
+            for ci, (sp_l, sp_r, il, ir) in enumerate(sp.c_propagators):
+                t_l = t_arr[:, var_col[sp_l]]
+                t_r = t_arr[:, var_col[sp_r]]
+                C_diag = cache.C_diagonal_batch(t_l, t_r)
+                sf = c_spatial_factors[ci]
+                a = DiagramIntegrand._resolve_component(il, fi)
+                if a is not None:
+                    c_prod *= C_diag[:, a] * sf[a]
+                else:
+                    c_prod *= (C_diag * sf[np.newaxis, :]).sum(axis=1)
+            values = r_prod * complex(coeff).real * c_prod * jac
+
+        else:
+            # Propagator-indexed coupling
+            idx_names = [name for name, _ in prop_idx]
+            prop_shape = tuple(dim for _, dim in prop_idx)
+            values = np.zeros(n_samples)
+            for pidx in np.ndindex(*prop_shape):
+                c_val = (
+                    complex(coeff[pidx]).real
+                    if coeff.ndim > 0
+                    else complex(coeff).real
+                )
+                if abs(c_val) < 1e-20:
+                    continue
+                idx_map = {**fi, **dict(zip(idx_names, pidx))}
+                c_prod = np.ones(n_samples)
+                for ci, (sp_l, sp_r, il, ir) in enumerate(
+                    sp.c_propagators
+                ):
+                    t_l = t_arr[:, var_col[sp_l]]
+                    t_r = t_arr[:, var_col[sp_r]]
+                    C_diag = cache.C_diagonal_batch(t_l, t_r)
+                    sf = c_spatial_factors[ci]
+                    a = DiagramIntegrand._resolve_component(il, idx_map)
+                    b = DiagramIntegrand._resolve_component(ir, idx_map)
+                    if a is not None and b is not None:
+                        c_prod *= C_diag[:, a] * sf[a]
+                    else:
+                        c_prod *= (C_diag * sf[np.newaxis, :]).sum(axis=1)
+                values += c_val * r_prod * c_prod * jac
+
+        values = np.where(jac > 0, values, 0.0)
+        est = float(np.mean(values))
+        total += est
+
+        # Error from 8 sub-batches
+        bs = n_samples // 8
+        bm = np.array(
+            [np.mean(values[j * bs : (j + 1) * bs]) for j in range(8)]
+        )
+        total_err_sq += (float(np.std(bm, ddof=1) / np.sqrt(8))) ** 2
+
+    return (total, np.sqrt(total_err_sq))

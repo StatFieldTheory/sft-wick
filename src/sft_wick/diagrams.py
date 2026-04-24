@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from itertools import permutations, product as iter_product
-from typing import Any, Sequence
+from typing import Sequence
 
 import networkx as nx
 

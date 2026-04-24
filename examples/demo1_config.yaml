@@ -1,0 +1,72 @@
+# Demo1 workflow config — reproduces the sweep in
+# ``examples/demo_workflow.py`` in pure YAML.
+#
+# Run::
+#     sft-wick run examples/demo1_config.yaml
+# or::
+#     python -m sft_wick.workflow.cli run examples/demo1_config.yaml
+#
+# Per-key documentation lives in `src/sft_wick/workflow/config.py`.
+
+system:
+  field:
+    name: phi
+    n_components: 2
+
+  linear:
+    type: diagonal
+    gamma: [1.0, 1.0]
+
+  # Bare F tensor — the wrapper applies the MSR −i factor
+  # automatically.  F_{0,1,1} = 1, F_{1,0,1} = F_{1,1,0} = 1/2.
+  vertices:
+    - name: F
+      coupling:
+        - [[0.0, 0.0], [0.0, 1.0]]      # F[0, ?, ?]
+        - [[0.0, 0.5], [0.5, 0.0]]      # F[1, ?, ?]
+
+  nonlocal_vertices: []
+
+  noise:
+    kappa2:
+      type: separable_translation
+      temporal:
+        type: exponential
+        lam: 0.05
+        sigma_t: 0.3
+      spatial:
+        type: exponential
+        sigma_x: 1.0
+    sigma2: null
+
+expand:
+  observable: ["phi_a(x)", "phi_b(y)"]
+  orders: [0, 2, 4]
+
+propagators:
+  t_max: 15.0
+  n_grid_t: 60
+  n_jobs: -1
+  # Closed-form C hook (optional) — point to any .py file that exports
+  # ``C_fn(n1, t1, n2, t2) -> (N, N)``.  Omit for dblquad-from-scratch.
+  c_closed_form_module: ./demo1/c_closed_form.py
+  c_closed_form_attr: C_fn
+
+sweep:
+  # null ⇒ externals fixed at t_final (physics observable
+  # ⟨φ(t_f) φ(t_f)⟩).  Set to "all" for the time-integrated moment.
+  integrate_over: null
+  positions_grid:
+    x: [0.0]
+    y: [0.0, 0.5, 1.0, 2.5]
+  t_final_grid: [1.0, 15.0]
+  component_pairs: [[0, 0], [1, 1]]
+  vertex_types: null
+  n_samples: 8192
+  seed: 42
+
+output:
+  - type: table
+    format: markdown
+  - type: npz
+    path: results/demo1_sweep.npz
