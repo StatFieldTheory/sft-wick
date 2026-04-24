@@ -5,6 +5,13 @@ Detailed coverage of every feature in **sft-wick**, organised by topic.
 
 .. toctree::
    :maxdepth: 2
+   :caption: Getting productive (L1)
+
+   workflow
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Building blocks (L0)
 
    fields
    vertices_and_actions

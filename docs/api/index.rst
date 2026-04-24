@@ -12,6 +12,13 @@ listed below are accessible directly from ``sft_wick``:
 
 .. toctree::
    :maxdepth: 2
+   :caption: L1 + L2 — User-facing workflow API
+
+   workflow
+
+.. toctree::
+   :maxdepth: 2
+   :caption: L0 — Raw API
 
    fields
    expressions

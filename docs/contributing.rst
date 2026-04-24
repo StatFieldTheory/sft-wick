@@ -30,8 +30,19 @@ Running Tests
    # Single test by name
    pytest tests/test_wick.py::test_generate_valid_pairings -v
 
-The test suite has 46 tests covering expressions, fields, propagators,
-Wick contractions, perturbative expansion, and simplification.
+The test suite has **two tiers**:
+
+- *Unit tests* (``test_wick.py``, ``test_simplify.py``, ``test_propagators.py``,
+  etc.) covering expressions, fields, propagators, Wick contractions,
+  perturbative expansion, and simplification — the per-module tests that
+  guard individual functions.
+- *Deductive tests* (``test_deductive_expansion.py``,
+  ``test_deductive_numerics.py``) that cross-check every transformation
+  in the package against an independent reference — see
+  :doc:`/verification/index` for the full overview and rationale.
+
+110+ deductive tests run in ~78 s and prove that each elementary
+transformation does what it should, independently of simulation.
 
 
 Code Style

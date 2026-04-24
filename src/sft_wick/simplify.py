@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from fractions import Fraction
-from itertools import permutations, product as iterproduct
+from itertools import permutations
 
 from .expressions import (
     ZERO,
@@ -353,6 +353,94 @@ def _canonical_diagram_form(
     return best_form, best_mapping
 
 
+def _canonical_key_nauty(
+    props: list[Propagator],
+    integration_vars: frozenset[str],
+) -> bytes:
+    """Compute a canonical graph certificate using nauty (via pynauty).
+
+    Returns a ``bytes`` object that uniquely identifies the graph up
+    to permutation of internal (integration) spatial variables.  Two
+    propagator lists produce the same certificate if and only if they
+    represent isomorphic Feynman diagrams.
+
+    The diagram is encoded as a directed vertex-colored graph with
+    dummy intermediate nodes for edge-type encoding:
+
+    - **R(a, b)**: ``a → R_dummy → b`` (two directed edges)
+    - **C(a, b)**: ``a ↔ C_dummy ↔ b`` (bidirectional through dummy)
+
+    Vertex coloring fixes external nodes (each gets a unique color)
+    while allowing internal nodes and same-type dummies to be permuted.
+
+    Falls back to :func:`_canonical_diagram_form` if ``pynauty`` is
+    not installed.
+    """
+    try:
+        import pynauty
+    except ImportError:
+        canon, _mapping = _canonical_diagram_form(props, integration_vars)
+        # Return bytes for consistency
+        return str(canon).encode()
+
+    # Collect spatial points
+    all_spatial: set[str] = set()
+    for p in props:
+        all_spatial.add(p.spatial_left)
+        all_spatial.add(p.spatial_right)
+
+    external = sorted(all_spatial - integration_vars)
+    internal = sorted(all_spatial & integration_vars)
+
+    node_id: dict[str, int] = {}
+    for i, name in enumerate(external):
+        node_id[name] = i
+    for i, name in enumerate(internal):
+        node_id[name] = len(external) + i
+
+    n_real = len(node_id)
+    r_list = [p for p in props if p.kind == "R"]
+    c_list = [p for p in props if p.kind == "C"]
+    r_start = n_real
+    c_start = n_real + len(r_list)
+    total = n_real + len(r_list) + len(c_list)
+
+    adj: dict[int, set[int]] = defaultdict(set)
+
+    for k, p in enumerate(r_list):
+        dummy = r_start + k
+        left, right = node_id[p.spatial_left], node_id[p.spatial_right]
+        adj[left].add(dummy)
+        adj[dummy].add(right)
+
+    for k, p in enumerate(c_list):
+        dummy = c_start + k
+        left, right = node_id[p.spatial_left], node_id[p.spatial_right]
+        adj[left].add(dummy)
+        adj[dummy].add(left)
+        adj[right].add(dummy)
+        adj[dummy].add(right)
+
+    # Vertex coloring: each external is unique, internals share,
+    # R-dummies share, C-dummies share
+    coloring: list[set[int]] = []
+    for i in range(len(external)):
+        coloring.append({i})
+    if internal:
+        coloring.append(set(range(len(external), n_real)))
+    if r_list:
+        coloring.append(set(range(r_start, c_start)))
+    if c_list:
+        coloring.append(set(range(c_start, total)))
+
+    g = pynauty.Graph(total, directed=True, vertex_coloring=coloring)
+    for v, nbrs in adj.items():
+        if nbrs:
+            g.connect_vertex(v, sorted(nbrs))
+
+    return pynauty.certificate(g)
+
+
 def _match_propagators_after_spatial(
     ref_props: list[Propagator],
     other_props: list[Propagator],
@@ -418,7 +506,6 @@ def _match_propagators_after_spatial(
                 rp = ref_props[ri]
                 _, osl, osr, _ = remapped[oi]
                 if rp.kind == "C":
-                    ref_flipped = (rp.spatial_left != min(rp.spatial_left, rp.spatial_right))
                     both_canonical = (
                         min(rp.spatial_left, rp.spatial_right) == min(osl, osr)
                         and max(rp.spatial_left, rp.spatial_right) == max(osl, osr)

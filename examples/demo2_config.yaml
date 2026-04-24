@@ -1,0 +1,87 @@
+# Demo2 workflow config — FF + FK channels of demo2 in pure YAML.
+#
+# **FF** uses the α²-shifted effective variance
+# ``λ_eff = λ (1 + 2α²λ)`` (demo2's ``cache_eff`` convention).
+# For α=0.6, λ=0.05 → λ_eff = 0.0518.
+#
+# **FK** uses the new **callable-coupling** path: the non-local
+# vertex K is wired via ``coupling_module``/``coupling_attr`` to a
+# user Python module exporting ``coupling_fn(n_list, t_list) ->
+# (N,N,N) tensor`` — the third cumulant κ^{(3)} evaluated at the
+# 3 ψ-leg spacetime coordinates per QMC sample.  See
+# ``examples/demo2/k3_coupling.py``.
+#
+# Selection rule: F_{abb}+F_{baa} = 0 for (a,b) ∈ {(0,0), (1,1)} and
+# non-zero for (0,1); so ξ^{FK}_{00} = ξ^{FK}_{11} = 0 and
+# ξ^{FK}_{01} ≠ 0 automatically.
+#
+# Run::
+#     sft-wick run examples/demo2_config.yaml
+
+system:
+  field:
+    name: phi
+    n_components: 2
+
+  linear:
+    type: diagonal
+    gamma: [1.0, 1.0]
+
+  vertices:
+    - name: F
+      coupling:
+        - [[0.0, 0.0], [0.0, 1.0]]
+        - [[0.0, 0.5], [0.5, 0.0]]
+
+  # Non-local κ^{(3)} vertex via a user-module callable.  The
+  # workflow imports ``coupling_fn`` from ``./demo2/k3_coupling.py``
+  # and invokes it per QMC sample with the 3 ψ-leg coords.
+  nonlocal_vertices:
+    - name: K
+      order: 3
+      coupling_module: ./demo2/k3_coupling.py
+      coupling_attr: coupling_fn
+
+  noise:
+    kappa2:
+      type: separable_translation
+      temporal:
+        type: exponential
+        lam: 0.0518     # λ_eff for α=0.6, λ=0.05
+        sigma_t: 0.3
+      spatial:
+        type: exponential
+        sigma_x: 1.0
+    sigma2: null
+
+expand:
+  observable: ["phi_a(x)", "phi_b(y)"]
+  orders: [0, 2, 4]
+
+propagators:
+  t_max: 15.0
+  n_grid_t: 60
+  # The closed-form C here is bare-λ OU (same as demo1), so it is
+  # slightly out of sync with λ_eff-based FF — see
+  # validate_wrapper_demo2.py for the nuance.  For this CLI demo
+  # we accept the ~1% residual and report via the table.
+  c_closed_form_module: ./demo1/c_closed_form.py
+  c_closed_form_attr: C_fn
+
+sweep:
+  integrate_over: null            # fixed-time ⟨φ(t_f)·φ(t_f)⟩
+  positions_grid:
+    x: [0.0]
+    y: [0.5, 1.0]
+  t_final_grid: [3.0]
+  component_pairs: [[0, 0], [1, 1], [0, 1]]
+  # Include both F and FK channels — the callable K module above
+  # lets the workflow integrate FK natively.
+  vertex_types: [F, FK]
+  orders: [0, 2]
+  n_samples: 8192
+  seed: 42
+
+output:
+  - type: table
+    format: markdown

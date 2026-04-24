@@ -8,10 +8,9 @@ Vertices: filled squares with coupling labels
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import Counter
 from typing import Any, Sequence
 
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
@@ -110,15 +109,21 @@ class DiagramRenderer:
         all_pts = np.array([pos[n] for n in g.nodes()])
         center = np.mean(all_pts, axis=0)
 
+        _label_bbox = dict(
+            boxstyle="round,pad=0.15", facecolor="white",
+            edgecolor="none", alpha=0.85,
+        )
+
         for n in ext_nodes:
             p = pos[n]
             label = g.nodes[n].get("label", n)
             ax.plot(*p, "ko", markersize=8, zorder=5)
-            offset = self._label_offset(p, center, distance=22)
+            offset = self._label_offset(p, center, distance=26)
             ax.annotate(
                 label, p,
                 textcoords="offset points", xytext=offset,
                 ha="center", va="center", fontsize=9,
+                bbox=_label_bbox, zorder=6,
             )
 
         for n in vert_nodes:
@@ -126,11 +131,12 @@ class DiagramRenderer:
             coupling = g.nodes[n].get("coupling", "")
             ax.plot(*p, "ks", markersize=10, zorder=5)
             # Place coupling label to the side, away from edges
-            offset = self._label_offset(p, center, distance=16)
+            offset = self._label_offset(p, center, distance=20)
             ax.annotate(
                 f"${coupling}$", p,
                 textcoords="offset points", xytext=offset,
                 ha="center", va="center", fontsize=9, fontweight="bold",
+                bbox=_label_bbox, zorder=6,
             )
 
         # --- Legend ---
@@ -157,7 +163,7 @@ class DiagramRenderer:
         ax.set_aspect("equal")
 
         # Padding so labels don't clip
-        margin = 1.0
+        margin = 1.3
         ax.set_xlim(all_pts[:, 0].min() - margin, all_pts[:, 0].max() + margin)
         ax.set_ylim(all_pts[:, 1].min() - margin, all_pts[:, 1].max() + margin)
 
@@ -229,8 +235,13 @@ class DiagramRenderer:
         n_vert = len(verts)
 
         # External nodes on a circle
-        ext_radius = 2.0
-        if n_ext > 0:
+        ext_radius = 2.5
+        if n_ext == 2:
+            # Special case: place externals on far left / far right
+            # so they are always the outermost points.
+            pos[ext[0]] = np.array([-ext_radius, 0.0])
+            pos[ext[1]] = np.array([ext_radius, 0.0])
+        elif n_ext > 0:
             for i, node in enumerate(ext):
                 angle = 2 * np.pi * i / n_ext - np.pi / 2
                 pos[node] = np.array([ext_radius * np.cos(angle),
@@ -281,6 +292,16 @@ class DiagramRenderer:
                             changed = True
                 if not changed:
                     break
+
+            # For 2-external layouts, clamp vertices to stay strictly
+            # between the externals so externals are always outermost.
+            if n_ext == 2:
+                x_lo = min(pos[ext[0]][0], pos[ext[1]][0])
+                x_hi = max(pos[ext[0]][0], pos[ext[1]][0])
+                inset = 0.35 * (x_hi - x_lo)  # keep 35% margin
+                for v in verts:
+                    pos[v][0] = np.clip(pos[v][0],
+                                        x_lo + inset, x_hi - inset)
 
         return pos
 
@@ -367,8 +388,8 @@ class DiagramRenderer:
         else:
             direction = base_dir
 
-        loop_radius = 0.3
-        loop_center = center + (loop_radius + 0.02) * direction
+        loop_radius = 0.5
+        loop_center = center + (loop_radius + 0.05) * direction
 
         circle = plt.Circle(
             tuple(loop_center),
