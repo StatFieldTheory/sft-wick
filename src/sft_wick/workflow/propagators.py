@@ -46,6 +46,7 @@ class Propagators:
         n_jobs: int = 1,
         c_closed_form: Callable | None = None,
         cache_path: Any = None,
+        interp_method: str = "linear",
     ) -> "Propagators":
         """Construct a ``Propagators`` for ``system``.  Called
         indirectly via :meth:`System.propagators`.
@@ -62,6 +63,13 @@ class Propagators:
                 (typical for ``scipy.integrate.dblquad`` on fine
                 grids) to milliseconds.  Intended for kernels with
                 known closed-form C (OU, separable exponentials).
+            interp_method: ``RegularGridInterpolator`` method used by
+                full-grid C tables. ``'linear'`` (default) is monotone
+                and safe for steep cosmological tails; ``'cubic'``
+                gives O(h⁴) accuracy on smooth, well-sampled grids.
+                See :class:`PropagatorCache` docstring for the full
+                list of accepted methods and the linear-vs-cubic
+                trade-off.
         """
         from .cache import load_or_compute
 
@@ -83,16 +91,21 @@ class Propagators:
             "x_max": x_max, "n_grid_x": n_grid_x,
             "c_closed_form_repr":
                 None if c_closed_form is None else repr(c_closed_form),
+            "interp_method": interp_method,
         }
 
         def _build() -> "Propagators":
             model = system.build_propagator_model()
-            cache_cls = (
-                _make_closed_form_cache_cls(c_closed_form)
-                if c_closed_form is not None
-                else PropagatorCache
-            )
-            cache = cache_cls(model=model, homogeneity=hom)
+            if c_closed_form is not None:
+                cache = _ClosedFormPropagatorCache(
+                    model=model, homogeneity=hom, c_fn=c_closed_form,
+                    interp_method=interp_method,
+                )
+            else:
+                cache = PropagatorCache(
+                    model=model, homogeneity=hom,
+                    interp_method=interp_method,
+                )
 
             is_lazy = False
             if hom == "translation":
@@ -117,6 +130,23 @@ class Propagators:
                 )
                 is_lazy = (x_max is None) or (n_grid_x is None)
 
+            # Pin lazy-cache n_jobs to 1. _LazyTimeSplineCache._build is
+            # triggered from inside QMC sampling when a worker hits a new
+            # parameter value; if Layer 2 (integrate_diagrams) or Layer 3
+            # (Expansion.sweep) is itself parallel, an inner Parallel(...)
+            # call here would spawn a nested loky pool. Lazy builds are
+            # n_grid_t**2 independent _C_value_direct calls and typically
+            # account for a small fraction of total wall-time, so we let
+            # the outer parallelism saturate the cores instead.
+            for lazy_attr in (
+                "_lazy_translation",
+                "_lazy_rotation",
+                "_lazy_general",
+            ):
+                lazy = getattr(cache, lazy_attr, None)
+                if lazy is not None:
+                    lazy.n_jobs = 1
+
             return cls(cache=cache, homogeneity=hom, is_lazy=is_lazy)
 
         return load_or_compute(
@@ -125,25 +155,30 @@ class Propagators:
         )
 
 
-def _make_closed_form_cache_cls(c_fn: Callable):
-    """Build a ``PropagatorCache`` subclass whose ``_C_value_direct``
-    returns ``c_fn(n1, t1, n2, t2)``.
+class _ClosedFormPropagatorCache(PropagatorCache):
+    """PropagatorCache that delegates ``_C_value_direct`` to a user callable.
 
-    This is the clean in-library analogue of the ``_FastCache``
-    subclass used by ``tests/test_deductive_numerics.py`` and
-    ``examples/demo1/validate_phase5.py`` — it short-circuits the
-    ``dblquad`` in every spline-table builder to the user-supplied
-    closed form.  Result: spatial spline builds complete in
-    milliseconds instead of minutes.
+    Defined at module level (not inside a function) so that joblib's loky
+    workers can re-import the class when distributing per-cell tasks across
+    subprocesses. The user ``c_fn`` is held as an instance attribute and
+    is itself loaded by :func:`_load_callable_from_module` under the
+    ``.py`` file's bare basename, so it is round-trippable across workers.
+
+    This replaces the earlier ``_make_closed_form_cache_cls`` factory which
+    returned a class defined inside a function and was therefore not
+    transportable across loky boundaries — forcing ``n_jobs = 1``.
     """
 
-    class _ClosedFormC(PropagatorCache):
-        def _C_value_direct(self, n1, t1, n2, t2):
-            return np.asarray(c_fn(n1, t1, n2, t2))
+    def __init__(self, *args, c_fn=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if c_fn is None:
+            raise ValueError(
+                "_ClosedFormPropagatorCache requires a c_fn callable."
+            )
+        self._c_fn = c_fn
 
-    _ClosedFormC.__name__ = "_ClosedFormC"
-    _ClosedFormC.__qualname__ = _ClosedFormC.__name__
-    return _ClosedFormC
+    def _C_value_direct(self, n1, t1, n2, t2):
+        return np.asarray(self._c_fn(n1, t1, n2, t2))
 
 
 def _minimal_propagator_spec(system) -> Any:

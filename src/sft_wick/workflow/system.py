@@ -286,6 +286,7 @@ class System:
         n_jobs: int = 1,
         c_closed_form: Callable | None = None,
         cache_path: Any = None,
+        interp_method: str = "linear",
     ) -> "Propagators":
         """Build a :class:`Propagators` object with a precomputed
         spatial table matching ``self.homogeneity``.
@@ -316,6 +317,10 @@ class System:
                 kernel).
             cache_path: directory (or file) for on-disk caching of
                 the constructed :class:`PropagatorCache`.
+            interp_method: ``RegularGridInterpolator`` method for the
+                full-grid C tables. ``'linear'`` (default) is monotone
+                and safe for steep tails; ``'cubic'`` gives O(h⁴) on
+                smooth grids. Forwarded to :class:`PropagatorCache`.
         """
         from .propagators import Propagators
 
@@ -332,6 +337,7 @@ class System:
             n_jobs=n_jobs,
             c_closed_form=c_closed_form,
             cache_path=cache_path,
+            interp_method=interp_method,
         )
 
 

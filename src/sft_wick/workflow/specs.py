@@ -55,6 +55,176 @@ class FieldSpec:
 
 
 # =========================================================================
+# Module-level callable wrappers
+# =========================================================================
+#
+# Concrete R / kappa^2 / sigma^2 / coupling callables are defined as
+# module-level classes (not closures inside ``build_*`` methods) so that
+# the resulting objects can be serialised with the standard protocol.
+# This is required for:
+#
+# 1. ``Propagators.cache_path`` -- ``joblib.dump`` uses the standard
+#    serialisation protocol and cannot persist local functions or
+#    closures defined inside another function body.
+# 2. ``loky`` (joblib's parallel backend) when distributing tasks across
+#    worker processes -- cloudpickle is more forgiving, but module-level
+#    classes work everywhere.
+#
+# Each class stores its parameters as instance attributes and implements
+# ``__call__`` with the same signature the closure version had.
+
+
+class _StaticIsoR:
+    """Static (constant-gamma) iso-R: ``R(t1, t2) = exp(-gamma (t1 - t2))``
+    for ``t1 >= t2`` else 0."""
+
+    __slots__ = ("gamma",)
+
+    def __init__(self, gamma: float):
+        self.gamma = float(gamma)
+
+    def __call__(self, t1: float, t2: float) -> float:
+        if t1 < t2:
+            return 0.0
+        return float(np.exp(-self.gamma * (t1 - t2)))
+
+
+class _StaticMatR:
+    """Static diagonal R: ``R_{aa}(t1, t2) = exp(-gamma_a (t1 - t2))``."""
+
+    __slots__ = ("gamma_arr", "_n")
+
+    def __init__(self, gamma_arr: np.ndarray):
+        self.gamma_arr = np.asarray(gamma_arr, dtype=float)
+        self._n = self.gamma_arr.shape[0]
+
+    def __call__(self, t1: float, t2: float) -> np.ndarray:
+        if t1 < t2:
+            return np.zeros((self._n, self._n))
+        return np.diag(np.exp(-self.gamma_arr * (t1 - t2)))
+
+
+class _TimeDepIsoR:
+    """Time-dependent iso-R: ``R(t1, t2) = exp(-(Gamma(t1) - Gamma(t2)))``
+    using a ``CubicSpline`` for the cumulative integral Gamma."""
+
+    __slots__ = ("gamma_spline",)
+
+    def __init__(self, gamma_spline):
+        self.gamma_spline = gamma_spline
+
+    def __call__(self, t1: float, t2: float) -> float:
+        if t1 < t2:
+            return 0.0
+        return float(np.exp(-(self.gamma_spline(t1) - self.gamma_spline(t2))))
+
+
+class _TimeDepMatR:
+    """Time-dependent diagonal R from per-component cumulative-Gamma splines."""
+
+    __slots__ = ("splines", "_n")
+
+    def __init__(self, splines):
+        self.splines = list(splines)
+        self._n = len(self.splines)
+
+    def __call__(self, t1: float, t2: float) -> np.ndarray:
+        if t1 < t2:
+            return np.zeros((self._n, self._n))
+        diag = np.array([
+            np.exp(-(s(t1) - s(t2))) for s in self.splines
+        ])
+        return np.diag(diag)
+
+
+class _SeparableTranslationKappa2:
+    """``kappa^2(n1, t1, n2, t2) = kappa_t(t1-t2) * kappa_x(|n1-n2|) * I_N``
+    for ``SeparableTranslation``."""
+
+    __slots__ = ("temporal", "spatial", "_n")
+
+    def __init__(self, temporal: Callable, spatial: Callable, n_components: int):
+        self.temporal = temporal
+        self.spatial = spatial
+        self._n = int(n_components)
+
+    def __call__(self, n1, t1, n2, t2):
+        # Note: collapsing via ``.sum()`` on n1/n2 is a 1-D legacy
+        # convention preserved by the upstream wrapper; see the
+        # d-dim spatial todo (T1) for the planned fix.
+        dr = float(
+            abs(np.asarray(n1).sum() - np.asarray(n2).sum())
+        )
+        return self.temporal(t1 - t2) * self.spatial(dr) * np.eye(self._n)
+
+
+class _SeparableRotationKappa2:
+    """``kappa^2(n1, t1, n2, t2) = kappa_t(t1-t2) * kappa_Omega(cos theta) * I_N``
+    for ``SeparableRotation``."""
+
+    __slots__ = ("temporal", "angular", "_n")
+
+    def __init__(self, temporal: Callable, angular: Callable, n_components: int):
+        self.temporal = temporal
+        self.angular = angular
+        self._n = int(n_components)
+
+    def __call__(self, n1, t1, n2, t2):
+        from sft_wick.evaluate import _rotation_cos
+        cos_val = _rotation_cos(n1, n2)
+        return self.temporal(t1 - t2) * self.angular(cos_val) * np.eye(self._n)
+
+
+class _ConstantImpulseIso:
+    """Time- and position-independent isotropic white-noise sigma^2."""
+
+    __slots__ = ("amp", "_n")
+
+    def __init__(self, amplitude: float, n_components: int):
+        self.amp = float(amplitude)
+        self._n = int(n_components)
+
+    def __call__(self, n1, t, n2):  # noqa: ARG002
+        return self.amp * np.eye(self._n)
+
+
+class _ConstantImpulseMat:
+    """Time- and position-independent matrix-valued white-noise sigma^2."""
+
+    __slots__ = ("mat",)
+
+    def __init__(self, matrix: np.ndarray):
+        self.mat = np.asarray(matrix)
+
+    def __call__(self, n1, t, n2):  # noqa: ARG002
+        return self.mat
+
+
+class _MSRWrappedCoupling:
+    """Wraps a user-supplied callable coupling so it returns
+    ``factor * np.asarray(bare(*args, **kwargs))``.
+
+    Replaces the ``_wrapped`` closure that
+    :attr:`NonLocalVertex.msr_coupling` used to return -- a closure
+    cannot be persisted via the standard serialisation protocol, but
+    a module-level class with explicit attributes can.
+    """
+
+    __slots__ = ("factor", "bare", "__wrapped__")
+
+    def __init__(self, factor, bare: Callable):
+        self.factor = factor
+        self.bare = bare
+        # Mirror the ``__wrapped__`` attribute the closure version
+        # set, so any introspection (e.g. ``inspect.unwrap``) keeps
+        # working.
+        self.__wrapped__ = bare
+
+    def __call__(self, *args, **kwargs):
+        return self.factor * np.asarray(self.bare(*args, **kwargs))
+
+
+# =========================================================================
 # Linear operator (defines R-propagator)
 # =========================================================================
 
@@ -121,21 +291,8 @@ class DiagonalA(LinearOp):
     def _build_static_R(self) -> Callable:
         gamma_arr = np.asarray(self.gamma, dtype=float)
         if self._iso_from_array(gamma_arr):
-            g = float(gamma_arr[0])
-
-            def R_iso(t1: float, t2: float) -> float:
-                return float(np.exp(-g * (t1 - t2))) if t1 >= t2 else 0.0
-
-            return R_iso
-
-        N = len(gamma_arr)
-
-        def R_mat(t1: float, t2: float) -> np.ndarray:
-            if t1 < t2:
-                return np.zeros((N, N))
-            return np.diag(np.exp(-gamma_arr * (t1 - t2)))
-
-        return R_mat
+            return _StaticIsoR(gamma=float(gamma_arr[0]))
+        return _StaticMatR(gamma_arr=gamma_arr)
 
     def _build_time_dependent_R(self) -> Callable:
         """Pre-compute Γ_a(t) spline, return fast O(1)-per-query R."""
@@ -162,25 +319,8 @@ class DiagonalA(LinearOp):
         ]
 
         if self._iso_probe_time_dependent(gamma_fn):
-            g = splines[0]
-
-            def R_iso(t1: float, t2: float) -> float:
-                if t1 < t2:
-                    return 0.0
-                return float(np.exp(-(g(t1) - g(t2))))
-
-            return R_iso
-
-        def R_mat(t1: float, t2: float) -> np.ndarray:
-            if t1 < t2:
-                return np.zeros((N, N))
-            diag = np.array([
-                np.exp(-(splines[a](t1) - splines[a](t2)))
-                for a in range(N)
-            ])
-            return np.diag(diag)
-
-        return R_mat
+            return _TimeDepIsoR(gamma_spline=splines[0])
+        return _TimeDepMatR(splines=splines)
 
     @property
     def is_iso_R(self) -> bool:
@@ -337,16 +477,11 @@ class SeparableTranslation(Kappa2):
     spatial: Callable
 
     def build_callable(self, n_components: int) -> Callable:
-        kt, kx = self.temporal, self.spatial
-        N = n_components
-
-        def kappa2(n1, t1, n2, t2):
-            dr = float(
-                abs(np.asarray(n1).sum() - np.asarray(n2).sum())
-            )
-            return kt(t1 - t2) * kx(dr) * np.eye(N)
-
-        return kappa2
+        return _SeparableTranslationKappa2(
+            temporal=self.temporal,
+            spatial=self.spatial,
+            n_components=n_components,
+        )
 
     @property
     def homogeneity(self) -> str:
@@ -369,16 +504,11 @@ class SeparableRotation(Kappa2):
     angular: Callable
 
     def build_callable(self, n_components: int) -> Callable:
-        from sft_wick.evaluate import _rotation_cos
-
-        kt, ka = self.temporal, self.angular
-        N = n_components
-
-        def kappa2(n1, t1, n2, t2):
-            cos_val = _rotation_cos(n1, n2)
-            return kt(t1 - t2) * ka(cos_val) * np.eye(N)
-
-        return kappa2
+        return _SeparableRotationKappa2(
+            temporal=self.temporal,
+            angular=self.angular,
+            n_components=n_components,
+        )
 
     @property
     def homogeneity(self) -> str:
@@ -432,21 +562,11 @@ class ConstantImpulse(Sigma2):
 
     def build_callable(self, n_components: int) -> Callable:
         amp = self.amplitude
-        N = n_components
         if np.ndim(amp) == 0:
-            a = float(amp)
-
-            def sigma2_iso(n1, t, n2):
-                return a * np.eye(N)
-
-            return sigma2_iso
-
-        mat = np.asarray(amp)
-
-        def sigma2_mat(n1, t, n2):
-            return mat
-
-        return sigma2_mat
+            return _ConstantImpulseIso(
+                amplitude=float(amp), n_components=n_components,
+            )
+        return _ConstantImpulseMat(matrix=np.asarray(amp))
 
 
 @dataclass(frozen=True)
@@ -573,8 +693,5 @@ class NonLocalVertex:
         factor = self.msr_factor
         bare = self.coupling
         if callable(bare):
-            def _wrapped(*args, **kwargs):
-                return factor * np.asarray(bare(*args, **kwargs))
-            _wrapped.__wrapped__ = bare  # type: ignore[attr-defined]
-            return _wrapped
+            return _MSRWrappedCoupling(factor=factor, bare=bare)
         return factor * np.asarray(bare)

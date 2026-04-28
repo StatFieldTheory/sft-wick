@@ -989,12 +989,14 @@ class TestAlternativePathConsistency:
             _shared["lambda_f"], _shared["cache"],
             method="qmc", n_samples=2**14, seed=42,
             fixed_indices=_shared["fixed"],
+            n_jobs=-1,
         )
         total_num, _ = integrate_diagrams(
             dts_num, {"F": _shared["F_MSR"]},
             _shared["lambda_f"], _shared["cache"],
             method="qmc", n_samples=2**14, seed=42,
             fixed_indices=_shared["fixed"],
+            n_jobs=-1,
         )
 
         # Different DT partitioning => different per-diagram QMC variance
@@ -1042,12 +1044,14 @@ class TestAlternativePathConsistency:
             _shared["lambda_f"], _shared["cache"],
             method="qmc", n_samples=2**12, seed=42,
             fixed_indices=_shared["fixed"],
+            n_jobs=-1,
         )
         v_p, _ = integrate_diagrams(
             dts_p, {"F": _shared["F_MSR"]},
             _shared["lambda_f"], _shared["cache"],
             method="qmc", n_samples=2**12, seed=42,
             fixed_indices=_shared["fixed"],
+            n_jobs=-1,
         )
         assert abs(v_s - v_p) < 1e-12, (
             f"serial {v_s} vs parallel {v_p}: diff {abs(v_s - v_p):.2e}"
@@ -1625,10 +1629,13 @@ class TestSpatialAwareCache:
             for k in range(20)
         ])
         rel = np.abs(got - expected) / np.abs(expected)
-        # Cubic spline on 20×20×12 grid → O(h⁴) truncation error.
-        # Empirically < 1e-3; allow 5e-3 headroom for randomness.
-        assert rel.max() < 5e-3, (
-            f"translation spline error {rel.max():.2e} exceeds 5e-3"
+        # Linear interpolation on 20×20×12 grid → O(h²) truncation error
+        # (RegularGridInterpolator was switched from 'cubic' to 'linear'
+        # to avoid sign-flip overshoot in the steep r-tail; see
+        # tests/test_evaluate_interpolation_accuracy.py for the lock).
+        # Empirically ~7e-3 on this grid; allow 1.5e-2 headroom.
+        assert rel.max() < 1.5e-2, (
+            f"translation spline error {rel.max():.2e} exceeds 1.5e-2"
         )
 
     # ----- S3: translation vs general on translation-invariant input - #
@@ -1652,17 +1659,19 @@ class TestSpatialAwareCache:
         got_gen = cache_gen.C_at_batch(t1, t2, x1, x2).ravel()
 
         rel = np.abs(got_sep - got_gen) / (np.abs(got_sep) + 1e-15)
-        # Combined spline precision: 3-D translation table (n_r=20) +
-        # 4-D general table (n_x=32).  The 4-D spline has a second
-        # unnecessary x-axis inflating its O(h⁴) error.  Most random
-        # points agree to 1e-4; worst-case outliers sit near 3e-2.  A
-        # gross dispatching bug (wrong axis order, missing spatial
-        # factor) would give O(1) error — 3e-2 is a meaningful upper
-        # bound.
-        assert rel.max() < 3e-2, (
+        # Combined linear-interpolation precision: 3-D translation
+        # table (n_r=20) + 4-D general table (n_x=32). The 4-D spline
+        # has a second unnecessary x-axis inflating its O(h²) error
+        # (was O(h⁴) under cubic; see test_evaluate_interpolation_
+        # accuracy.py for why we switched). Most random points agree
+        # to ~1e-3; worst-case outliers sit near 4e-2. A gross
+        # dispatching bug (wrong axis order, missing spatial factor)
+        # would give O(1) error — 8e-2 is still a meaningful upper
+        # bound on dispatching correctness.
+        assert rel.max() < 8e-2, (
             f"translation vs general disagree: max rel = {rel.max():.2e}"
         )
-        assert np.median(rel) < 5e-3, (
+        assert np.median(rel) < 1e-2, (
             f"median translation-vs-general error "
             f"{np.median(rel):.2e} too high"
         )
@@ -1817,6 +1826,66 @@ class TestSpatialAwareCache:
             f"rotation spline error {rel.max():.2e} exceeds 5e-3"
         )
 
+    # ----- S6b: rotation mode with 3-D unit vectors (S^2 sphere) ----- #
+
+    def test_S6b_rotation_supports_3d_unit_vectors(
+        self, cache_rotation_full,
+    ):
+        """Rotation mode must accept ``n1, n2 in R^3`` unit vectors.
+
+        Cosmological pipelines (CMB, line-of-sight lensing) supply
+        S^2 directions as 3-component unit vectors; the existing S6
+        test only covers d=2. ``_rotation_cos`` is dimension-agnostic
+        (it only uses ``np.dot`` and ``np.linalg.norm``), so this
+        smoke test locks the implicit d-dim support so a future
+        refactor cannot accidentally collapse vectors via
+        component-wise reductions.
+        """
+        from sft_wick.evaluate import _rotation_cos
+
+        cache = cache_rotation_full
+        rng = np.random.default_rng(20260428)
+        t1 = rng.uniform(0.3, self.T_MAX - 0.3, size=20)
+        t2 = rng.uniform(0.3, self.T_MAX - 0.3, size=20)
+
+        # Sample 3-D unit vectors uniformly on S^2.
+        u = rng.normal(size=(20, 3))
+        v = rng.normal(size=(20, 3))
+        u /= np.linalg.norm(u, axis=1, keepdims=True)
+        v /= np.linalg.norm(v, axis=1, keepdims=True)
+
+        got = np.empty(20)
+        for k in range(20):
+            got[k] = cache.C_at_batch(
+                np.array([t1[k]]), np.array([t2[k]]),
+                u[k], v[k],
+            )[0, 0]
+
+        expected = np.array([
+            C_closed_form(t1[k], t2[k], lam=self.LAM)
+            * 0.5 * (1.0 + _rotation_cos(u[k], v[k]))
+            for k in range(20)
+        ])
+        rel = np.abs(got - expected) / (np.abs(expected) + 1e-15)
+        # 1.5e-2 matches the headroom used by the other linear-
+        # interpolation regression tests in this class (S2/S3/S7);
+        # what we are checking is that the d=3 input path doesn't
+        # go off the rails, not the spline accuracy itself. Higher
+        # truncation error than S6 because random 3-D points more
+        # readily probe near the cos=±1 extremes.
+        assert rel.max() < 1.5e-2, (
+            f"3-D rotation spline error {rel.max():.2e} exceeds 1.5e-2"
+        )
+
+        # Sanity: cos values for these random unit vectors must
+        # span (-1, 1), proving the test isn't accidentally probing
+        # only one corner of the spline.
+        cos_vals = np.array([_rotation_cos(u[k], v[k]) for k in range(20)])
+        assert cos_vals.min() < -0.2 and cos_vals.max() > 0.2, (
+            f"S^2 sample didn't cover both signs of cos: "
+            f"min={cos_vals.min():.2f}, max={cos_vals.max():.2f}"
+        )
+
     # ----- S7: lazy vs full-grid translation agreement + memoization - #
 
     def test_S7_lazy_translation_matches_full_and_memoizes(
@@ -1857,9 +1926,13 @@ class TestSpatialAwareCache:
             positions={"x": 0.0, "y": r},
         )
         rel_dbl = abs(v_full - v_lazy) / abs(v_full)
-        # Two different spline paths → small discrepancy expected,
-        # but < 1e-3 on this well-sampled t-grid.
-        assert rel_dbl < 1e-3, (
+        # Two different linear-interpolation paths (3-D table vs
+        # per-r 2-D table) → small discrepancy expected. Linear was
+        # chosen over cubic to avoid steep-tail sign flips; see
+        # test_evaluate_interpolation_accuracy.py. Empirically ~1.5e-2
+        # on this well-sampled t-grid; 5e-2 leaves comfortable
+        # randomness headroom while still catching dispatching bugs.
+        assert rel_dbl < 5e-2, (
             f"S7 double-tadpole: full-grid {v_full:.6e} vs lazy "
             f"{v_lazy:.6e} (rel {rel_dbl:.2e})"
         )
@@ -1885,7 +1958,10 @@ class TestSpatialAwareCache:
             positions={"x": 0.0, "y": r},
         )
         rel_b = abs(v_b_full - v_b_lazy) / abs(v_b_full)
-        assert rel_b < 1e-3, (
+        # Same linear-interpolation tolerance argument as above
+        # (5e-2). Bubble has 2 cross-group C edges so error compounds;
+        # observed values typically ~1-3e-2 on this seed/grid.
+        assert rel_b < 5e-2, (
             f"S7 bubble: full {v_b_full:.6e} vs lazy {v_b_lazy:.6e} "
             f"(rel {rel_b:.2e})"
         )

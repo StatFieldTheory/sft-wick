@@ -428,6 +428,7 @@ class PropagatorCache:
         model: PropagatorModel,
         quad_opts: dict | None = None,
         homogeneity: str = "translation",
+        interp_method: str = "linear",
     ):
         """Initialise the propagator cache.
 
@@ -457,6 +458,26 @@ class PropagatorCache:
                 and memoized.  This is the right default for
                 moment-at-fixed-points workflows where only a few
                 distinct parameter values ever appear.
+            interp_method: ``RegularGridInterpolator`` method used by
+                the three full-grid spline builders
+                (``precompute_C_table_translation``,
+                ``precompute_C_table_rotation``,
+                ``precompute_C_table_general``).
+
+                - ``'linear'`` (default, safe): O(h²) accuracy,
+                  monotone -- never overshoots / flips sign even on
+                  steeply-decaying C tails. Required when C spans
+                  many orders of magnitude across the r-grid (the
+                  typical cosmological setting; see
+                  ``tests/test_evaluate_interpolation_accuracy.py``).
+                - ``'cubic'``: O(h⁴) accuracy on smooth, well-sampled
+                  grids -- only safe when the user knows their C is
+                  bounded away from grid-induced sign-flip artefacts.
+
+                ``RegularGridInterpolator`` accepts any other method
+                name supported by the installed scipy (e.g.
+                ``'quintic'``, ``'pchip'``, ``'nearest'``); they are
+                forwarded as-is and validated lazily on table build.
         """
         if homogeneity not in ("translation", "rotation", "general"):
             raise ValueError(
@@ -466,6 +487,7 @@ class PropagatorCache:
         self.model = model
         self.quad_opts = quad_opts or {}
         self.homogeneity = homogeneity
+        self.interp_method = interp_method
         self._c_cache: dict[tuple, np.ndarray] = {}
         # Legacy 2-D (t1, t2) spline at fixed x — still populated by
         # ``precompute_C_table`` for backward compatibility.
@@ -835,7 +857,13 @@ class PropagatorCache:
             RegularGridInterpolator(
                 (ts, ts, rs), grids[a],
                 bounds_error=False, fill_value=None,
-                method="cubic",
+                # Default 'linear' (set in PropagatorCache.__init__):
+                # tensor-product cubic on a steeply decaying C produces
+                # sign flips and O(1) overshoot in the tail; linear is
+                # monotone and safe. Users with smooth C and dense
+                # grids can opt into cubic via interp_method='cubic'.
+                # See tests/test_evaluate_interpolation_accuracy.py.
+                method=self.interp_method,
             )
             for a in range(N)
         ]
@@ -950,7 +978,13 @@ class PropagatorCache:
             RegularGridInterpolator(
                 (ts, ts, coses), grids[a],
                 bounds_error=False, fill_value=None,
-                method="cubic",
+                # Default 'linear' (set in PropagatorCache.__init__):
+                # tensor-product cubic on a steeply decaying C produces
+                # sign flips and O(1) overshoot in the tail; linear is
+                # monotone and safe. Users with smooth C and dense
+                # grids can opt into cubic via interp_method='cubic'.
+                # See tests/test_evaluate_interpolation_accuracy.py.
+                method=self.interp_method,
             )
             for a in range(N)
         ]
@@ -1044,7 +1078,13 @@ class PropagatorCache:
             RegularGridInterpolator(
                 (ts, ts, xs, xs), grids[a],
                 bounds_error=False, fill_value=None,
-                method="cubic",
+                # Default 'linear' (set in PropagatorCache.__init__):
+                # tensor-product cubic on a steeply decaying C produces
+                # sign flips and O(1) overshoot in the tail; linear is
+                # monotone and safe. Users with smooth C and dense
+                # grids can opt into cubic via interp_method='cubic'.
+                # See tests/test_evaluate_interpolation_accuracy.py.
+                method=self.interp_method,
             )
             for a in range(N)
         ]
@@ -2474,7 +2514,7 @@ def integrate_moment(
 
 def _eval_single_diagram(
     dt, coupling_values, fixed_indices, lambda_f, cache, t_min, direction,
-    method, n_samples, seed,
+    method, n_samples, seed, positions, integrate_over,
 ):
     """Evaluate one diagram term end-to-end (build integrand + integrate).
 
@@ -2485,6 +2525,7 @@ def _eval_single_diagram(
         ig, lambda_f, cache,
         t_min=t_min, direction=direction,
         method=method, n_samples=n_samples, seed=seed,
+        positions=positions, integrate_over=integrate_over,
     )
 
 
@@ -2499,13 +2540,21 @@ def integrate_diagrams(
     n_samples: int = 2**14,
     seed: int | None = None,
     fixed_indices: dict[str, int] | None = None,
-    n_jobs: int = -1,
+    n_jobs: int = 1,
+    positions: dict[str, Any] | None = None,
+    integrate_over: Any = None,
 ) -> tuple[float, list[tuple[float, float]]]:
     """Integrate a batch of diagram terms, optionally in parallel.
 
     Builds integrands and evaluates all diagrams, returning the total
     and per-diagram results.  When ``n_jobs != 1``, diagrams are
     evaluated in parallel using :mod:`joblib`.
+
+    .. note::
+        ``n_jobs`` defaults to ``1`` (sequential), matching the L1
+        ``Expansion.evaluate`` / ``Expansion.sweep`` defaults. Pass
+        ``-1`` to use all CPU cores. Sequential and parallel paths
+        are bit-identical when the QMC seed is fixed.
 
     Args:
         diagram_terms: List of :class:`~sft_wick.perturbation.DiagramTerm`.
@@ -2519,8 +2568,9 @@ def integrate_diagrams(
         seed: Random seed (QMC only).
         fixed_indices: Optional pinned index values for
             :meth:`~sft_wick.perturbation.DiagramTerm.build_integrand`.
-        n_jobs: Number of parallel jobs.  ``-1`` = all CPU cores
-            (default), ``1`` = sequential.  A built-in guard falls
+        n_jobs: Number of parallel jobs.  ``1`` = sequential
+            (default, safe under nested-callers), ``-1`` = all CPU
+            cores.  A built-in guard falls
             back to sequential for ``len(diagram_terms) <= 2`` to
             avoid joblib's ~1 s startup overhead on trivial batches.
             Requires :mod:`joblib` when ``n_jobs != 1``.
@@ -2541,6 +2591,7 @@ def integrate_diagrams(
                 ig, lambda_f, cache,
                 t_min=t_min, direction=direction,
                 method=method, n_samples=n_samples, seed=seed,
+                positions=positions, integrate_over=integrate_over,
             )
             details.append((val, err))
     else:
@@ -2550,7 +2601,7 @@ def integrate_diagrams(
             delayed(_eval_single_diagram)(
                 dt, coupling_values, fixed_indices,
                 lambda_f, cache, t_min, direction,
-                method, n_samples, seed,
+                method, n_samples, seed, positions, integrate_over,
             )
             for dt in diagram_terms
         )

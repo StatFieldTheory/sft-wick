@@ -116,6 +116,7 @@ class Expansion:
         method: str = "qmc_vectorized",
         n_samples: int = 2 ** 13,
         seed: int | None = 42,
+        n_jobs: int = 1,
     ):
         """Integrate the expansion at a single ``(positions, t_final,
         component_pair)`` point.  Returns a :class:`Result`.
@@ -171,38 +172,52 @@ class Expansion:
         coupling_values = self.system.build_coupling_values()
         fi = _component_indices(component_pair, self.observable_repr)
 
-        per_diagram = []
-        per_order: dict[int, float] = defaultdict(float)
-        per_vtype: dict[str, float] = defaultdict(float)
-        total = 0.0
-
+        # Collect tasks (diagram_term + metadata) up-front, in stable order,
+        # then dispatch the whole batch to ``integrate_diagrams`` which handles
+        # the sequential vs joblib loky path internally (n_jobs=1 stays serial,
+        # bit-identical to the pre-refactor loop).
+        tasks: list[tuple[int, int, str, Any]] = []
         for order in orders_list:
             for i, dt in enumerate(self.dts_by_order[order]):
                 vtype = self._vertex_type_label(dt)
                 if vtype_filter is not None and vtype not in vtype_filter:
                     continue
-                ig = dt.build_integrand(coupling_values, fixed_indices=fi)
-                val, err = integrate_moment(
-                    ig,
-                    lambda_f=t_final,
-                    cache=propagators.cache,
-                    method=method,
-                    n_samples=n_samples,
-                    seed=seed,
-                    positions=positions,
-                    integrate_over=integrate_over,
-                )
-                per_diagram.append({
-                    "order": order,
-                    "diagram_idx": i,
-                    "vertex_type": vtype,
-                    "n_cross_C": count_cross_group_c(dt),
-                    "value": val,
-                    "error": err,
-                })
-                per_order[order] += val
-                per_vtype[vtype] += val
-                total += val
+                tasks.append((order, i, vtype, dt))
+
+        diagram_terms = [task[3] for task in tasks]
+
+        from sft_wick.evaluate import integrate_diagrams
+
+        _total, details = integrate_diagrams(
+            diagram_terms,
+            coupling_values=coupling_values,
+            lambda_f=t_final,
+            cache=propagators.cache,
+            method=method,
+            n_samples=n_samples,
+            seed=seed,
+            fixed_indices=fi,
+            n_jobs=n_jobs,
+            positions=positions,
+            integrate_over=integrate_over,
+        )
+
+        per_diagram = []
+        per_order: dict[int, float] = defaultdict(float)
+        per_vtype: dict[str, float] = defaultdict(float)
+        total = 0.0
+        for (order, i, vtype, dt), (val, err) in zip(tasks, details):
+            per_diagram.append({
+                "order": order,
+                "diagram_idx": i,
+                "vertex_type": vtype,
+                "n_cross_C": count_cross_group_c(dt),
+                "value": val,
+                "error": err,
+            })
+            per_order[order] += val
+            per_vtype[vtype] += val
+            total += val
 
         return Result(
             total=total,
@@ -229,6 +244,8 @@ class Expansion:
         method: str = "qmc_vectorized",
         n_samples: int = 2 ** 13,
         seed: int | None = 42,
+        n_jobs: int = 1,
+        evaluate_n_jobs: int = 1,
     ):
         """Cartesian-product sweep over positions, t_final, and
         component pairs.
@@ -245,11 +262,29 @@ class Expansion:
                 :meth:`evaluate`; only diagrams whose
                 :meth:`_vertex_type_label` lies in this set are
                 integrated.  ``None`` ⇒ all channels.
+            n_jobs: parallelise over Cartesian-product grid points
+                (``positions × t_final × component_pairs``).
+                ``1`` (default) preserves the original sequential
+                behaviour — bit-identical when seed is fixed.
+                ``-1`` uses all CPU cores via joblib loky.
+            evaluate_n_jobs: parallelise over diagrams **inside** each
+                grid point's :meth:`evaluate` call.  Mutually
+                exclusive with ``n_jobs > 1`` (nested loky pools are
+                not supported); the dispatcher raises if both are
+                set.  Use ``n_jobs > 1`` when the sweep grid is
+                large; use ``evaluate_n_jobs > 1`` when each grid
+                point has many diagrams (typical at orders >= 2).
 
         Returns:
             :class:`SweepResult` with a pandas-friendly tidy table.
         """
         from .result import SweepResult
+
+        if int(n_jobs) != 1 and int(evaluate_n_jobs) != 1:
+            raise ValueError(
+                "Specify exactly one of {n_jobs, evaluate_n_jobs} > 1; "
+                "nested joblib loky pools are not supported."
+            )
 
         orders_list = (
             sorted(set(int(o) for o in orders))
@@ -260,30 +295,49 @@ class Expansion:
         pos_keys = list(positions_grid.keys())
         pos_values = [positions_grid[k] for k in pos_keys]
 
-        rows = []
+        # Flatten the Cartesian product to a list of grid-point tasks.
+        grid_tasks: list[tuple[dict, Any, tuple]] = []
         for pos_tuple in itertools.product(*pos_values):
             positions = dict(zip(pos_keys, pos_tuple))
             for t_f in t_final_grid:
                 for (a, b) in component_pairs:
-                    res = self.evaluate(
-                        propagators,
-                        positions=positions,
-                        t_final=t_f,
-                        component_pair=(a, b),
-                        orders=orders_list,
-                        vertex_types=vertex_types,
-                        integrate_over=integrate_over,
-                        method=method,
-                        n_samples=n_samples,
-                        seed=seed,
-                    )
-                    for pd_row in res.per_diagram:
-                        rows.append({
-                            **positions,
-                            "t_final": t_f,
-                            "a": a, "b": b,
-                            **pd_row,
-                        })
+                    grid_tasks.append((positions, t_f, (a, b)))
+
+        def _eval_grid_point(task):
+            positions, t_f, comp = task
+            res = self.evaluate(
+                propagators,
+                positions=positions,
+                t_final=t_f,
+                component_pair=comp,
+                orders=orders_list,
+                vertex_types=vertex_types,
+                integrate_over=integrate_over,
+                method=method,
+                n_samples=n_samples,
+                seed=seed,
+                n_jobs=evaluate_n_jobs,
+            )
+            return positions, t_f, comp, res
+
+        if int(n_jobs) == 1 or len(grid_tasks) <= 2:
+            # Sequential — bit-identical to the pre-refactor nested loops.
+            results = [_eval_grid_point(t) for t in grid_tasks]
+        else:
+            from joblib import Parallel, delayed
+            results = Parallel(n_jobs=n_jobs, backend="loky")(
+                delayed(_eval_grid_point)(t) for t in grid_tasks
+            )
+
+        rows = []
+        for positions, t_f, (a, b), res in results:
+            for pd_row in res.per_diagram:
+                rows.append({
+                    **positions,
+                    "t_final": t_f,
+                    "a": a, "b": b,
+                    **pd_row,
+                })
         return SweepResult(rows=rows, position_keys=tuple(pos_keys))
 
     # --------------------------------------------------------------- #
