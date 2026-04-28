@@ -47,6 +47,8 @@ class Propagators:
         c_closed_form: Callable | None = None,
         cache_path: Any = None,
         interp_method: str = "linear",
+        c_closed_form_only: bool = False,
+        c_closed_form_vectorized: bool = False,
     ) -> "Propagators":
         """Construct a ``Propagators`` for ``system``.  Called
         indirectly via :meth:`System.propagators`.
@@ -63,14 +65,44 @@ class Propagators:
                 (typical for ``scipy.integrate.dblquad`` on fine
                 grids) to milliseconds.  Intended for kernels with
                 known closed-form C (OU, separable exponentials).
+            c_closed_form_only: when True (and ``c_closed_form`` is
+                provided), skip the spline interpolator entirely.
+                ``cache.C_at_batch`` then routes every lookup
+                straight through the user's c_fn -- machine-precision
+                agreement with the analytical C, no truncation
+                error from grid spacing or spline order. Use this
+                when the closed form is fast and the spline error
+                would dominate over QMC noise (e.g. demo1's OU
+                kernel where ``sigma_t = 0.3`` requires ``dt < 0.1``
+                for sub-percent spline accuracy).
+            c_closed_form_vectorized: only meaningful when
+                ``c_closed_form_only=True``. When True, the user's
+                c_fn must accept batched ``(t1, t2, x1, x2)`` arrays
+                of shape ``(n,)`` and return a ``(n, N, N)`` tensor
+                in a single call. When False, the cache falls back
+                to a Python per-sample loop (slow; useful only for
+                small point evaluations or when migrating an
+                existing scalar c_fn).
             interp_method: ``RegularGridInterpolator`` method used by
                 full-grid C tables. ``'linear'`` (default) is monotone
                 and safe for steep cosmological tails; ``'cubic'``
                 gives O(h⁴) accuracy on smooth, well-sampled grids.
                 See :class:`PropagatorCache` docstring for the full
                 list of accepted methods and the linear-vs-cubic
-                trade-off.
+                trade-off. Ignored under ``c_closed_form_only=True``.
         """
+        if c_closed_form_only and c_closed_form is None:
+            raise ValueError(
+                "c_closed_form_only=True requires c_closed_form to be "
+                "set (the no-spline path needs a closed-form callable "
+                "to use as the lookup function)."
+            )
+        if c_closed_form_vectorized and not c_closed_form_only:
+            raise ValueError(
+                "c_closed_form_vectorized=True only makes sense with "
+                "c_closed_form_only=True; the vectorised contract is "
+                "specific to the no-spline lookup path."
+            )
         from .cache import load_or_compute
 
         hom = homogeneity if homogeneity is not None else system.homogeneity
@@ -91,6 +123,8 @@ class Propagators:
             "x_max": x_max, "n_grid_x": n_grid_x,
             "c_closed_form_repr":
                 None if c_closed_form is None else repr(c_closed_form),
+            "c_closed_form_only": c_closed_form_only,
+            "c_closed_form_vectorized": c_closed_form_vectorized,
             "interp_method": interp_method,
         }
 
@@ -106,6 +140,14 @@ class Propagators:
                     model=model, homogeneity=hom,
                     interp_method=interp_method,
                 )
+
+            if c_closed_form_only:
+                # Skip every spline build. C_at_batch uses
+                # ``_closed_form_at_batch_diag`` from now on, which
+                # routes lookups straight through the user's c_fn.
+                cache._closed_form_only = True
+                cache._closed_form_vectorized = c_closed_form_vectorized
+                return cls(cache=cache, homogeneity=hom, is_lazy=False)
 
             is_lazy = False
             if hom == "translation":

@@ -492,6 +492,19 @@ class PropagatorCache:
         self.quad_opts = quad_opts or {}
         self.homogeneity = homogeneity
         self.interp_method = interp_method
+
+        # Closed-form-only path: skip every spline and route C lookups
+        # directly through ``self._C_value_direct``. Set by
+        # ``Propagators.build()`` when both ``c_closed_form`` and
+        # ``c_closed_form_only=True`` are passed; the user's analytical
+        # C function then becomes the lookup function with no
+        # interpolation error. ``closed_form_vectorized`` flags whether
+        # the user's c_fn accepts batched (n,)-shape t and (n,)- or
+        # broadcast-scalar n inputs and returns ``(n, N, N)``; if not,
+        # the per-sample fallback is used (slow, but correct).
+        self._closed_form_only: bool = False
+        self._closed_form_vectorized: bool = False
+
         self._c_cache: dict[tuple, np.ndarray] = {}
         # Legacy 2-D (t1, t2) spline at fixed x — still populated by
         # ``precompute_C_table`` for backward compatibility.
@@ -1222,6 +1235,16 @@ class PropagatorCache:
         t1 = np.atleast_1d(np.asarray(t1))
         t2 = np.atleast_1d(np.asarray(t2))
         N = self.model.n_components
+
+        # Closed-form-only: skip every spline and call the user's
+        # analytical C function directly. Used by
+        # ``Propagators(c_closed_form=..., c_closed_form_only=True)``;
+        # gives machine-precision agreement with the analytical C
+        # (no interpolation error). The vectorised contract is the
+        # fast path; the per-sample fallback runs a Python loop and
+        # is only practical for small sweeps.
+        if self._closed_form_only:
+            return self._closed_form_at_batch_diag(t1, t2, x1, x2)
         n = len(t1)
 
         def _resolve_x(x):
@@ -1318,6 +1341,66 @@ class PropagatorCache:
             "homogeneity='general' but no general table has been "
             "built — call precompute_C_table_general() first"
         )
+
+    def _closed_form_at_batch_diag(
+        self,
+        t1: np.ndarray,
+        t2: np.ndarray,
+        x1,
+        x2,
+    ) -> np.ndarray:
+        """Direct lookup for ``closed_form_only=True``: skips every
+        spline, calls ``self._C_value_direct`` (the user's c_fn) and
+        returns the per-sample diagonal of the (N, N) result.
+
+        Two contracts:
+
+        * **Vectorised** (``self._closed_form_vectorized = True``):
+          single call ``c_fn(x1, t1, x2, t2) -> (n, N, N)``.  Recommended
+          for sweep performance.
+        * **Per-sample** (default): Python loop calling
+          ``c_fn(x1_i, t1_i, x2_i, t2_i) -> (N, N)`` per sample.
+          Always correct, but ~50-100x slower than the vectorised
+          path on typical workloads -- only practical for small
+          point evaluations or testing.
+        """
+        N = self.model.n_components
+        n = len(t1)
+
+        # Resolve x1 / x2 to per-sample arrays so the loop body can
+        # always slice ``x1_b[i]``. Accepts scalar, (n,), or (n, d).
+        def _broadcast_x(x):
+            arr = np.asarray(x, dtype=float)
+            if arr.ndim == 0:
+                return np.full(n, float(arr))
+            if arr.ndim == 1 and arr.shape[0] == n:
+                return arr
+            if arr.ndim == 1:
+                # (d,) vector → broadcast to (n, d)
+                return np.tile(arr[None, :], (n, 1))
+            return arr  # (n, d) already
+
+        x1_b = _broadcast_x(x1)
+        x2_b = _broadcast_x(x2)
+
+        if self._closed_form_vectorized:
+            full = np.asarray(self._C_value_direct(x1_b, t1, x2_b, t2))
+            if full.ndim != 3 or full.shape[0] != n:
+                raise ValueError(
+                    f"vectorised closed-form c_fn must return shape "
+                    f"(n, N, N); got {full.shape} for n={n}, N={N}."
+                )
+            # Diagonal per sample: result[i, a] = full[i, a, a].
+            return np.einsum("iaa->ia", full).astype(float, copy=False)
+
+        # Per-sample fallback. Slow but always correct.
+        result = np.empty((n, N), dtype=float)
+        for i in range(n):
+            xi = x1_b[i]
+            xj = x2_b[i]
+            C_mat = np.asarray(self._C_value_direct(xi, t1[i], xj, t2[i]))
+            result[i] = np.diag(C_mat)
+        return result
 
     def _lazy_lookup(
         self,
@@ -2549,6 +2632,11 @@ def _cache_has_spatial_table(cache: "PropagatorCache") -> bool:
     spatial attributes — in both cases the legacy path is
     bit-identical to pre-Phase-5 behaviour.
     """
+    if getattr(cache, "_closed_form_only", False):
+        # Closed-form-only mode: no spline at all, but the
+        # ``C_at_batch`` override IS spatial-aware (it routes the
+        # per-sample positions straight into the user's c_fn).
+        return True
     names = (
         "_c_translation_splines",
         "_lazy_translation",
