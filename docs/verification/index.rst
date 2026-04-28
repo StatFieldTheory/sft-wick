@@ -87,6 +87,11 @@ it against sft-wick's output.  Topics covered:
 - multi-component coverage at N∈{1,2,3} with hand-derived closed
   forms for all six order-2 FF diagrams (T15–T19)
 - non-iso propagator consistency (T21)
+- ``apply_diagonal`` retains ``KroneckerDelta(a, b)`` for external
+  observable indices so cross-pair (a != b) order-0 evaluates to 0
+  under ``diag_C=True`` (regression lock for a long-standing bug
+  that demo1 / FF tests didn't catch because they only exercise
+  diagonal observable pairs).
 
 Phase 2 — Propagator numerics
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

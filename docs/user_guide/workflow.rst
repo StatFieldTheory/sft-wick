@@ -332,8 +332,13 @@ keys:
     ``t_max``, optional ``n_grid_t`` *or* ``dt`` (single-knob
     discretization, see :doc:`discretization`), ``n_jobs``,
     optional ``c_closed_form_module`` + ``c_closed_form_attr``,
-    ``cache_path``, ``interp_method`` (``'linear'`` default,
-    ``'cubic'`` opt-in).
+    optional ``c_closed_form_only`` (skip the spline cache and
+    route every C lookup straight through the user's c_fn for
+    machine-precision agreement) and
+    ``c_closed_form_vectorized`` (c_fn accepts batched arrays,
+    returns ``(n, N, N)``), ``cache_path``, ``interp_method``
+    (``'linear'`` default, ``'cubic'`` opt-in -- ignored under
+    ``c_closed_form_only=true``).
 
 ``sweep``
     ``positions_grid``, ``t_final_grid``, ``component_pairs``,
@@ -355,6 +360,23 @@ Hooks for user Python code (without editing the CLI):
   serialisation, so it composes cleanly with ``propagators.n_jobs
   > 1``, ``expand.n_jobs > 1``, and ``sweep.n_jobs > 1`` even when
   joblib reuses a worker pool across calls.
+
+  Two further opt-ins on the same block:
+
+  * ``propagators.c_closed_form_only: true`` -- skip the spline
+    cache entirely; ``cache.C_at_batch`` calls c_fn directly.
+    Recommended when the kernel's correlation length forces
+    ``dt < 0.1`` (typical: ``sigma_t = 0.3`` makes a 60-point
+    spline grid visibly inaccurate). The closed form is usually
+    a few numpy ops per call; calling it directly is both faster
+    AND machine-precision compared to building a fine spline.
+  * ``propagators.c_closed_form_vectorized: true`` -- only
+    meaningful with ``c_closed_form_only: true``. The user's c_fn
+    must accept ``(t1, t2, x1, x2)`` arrays of shape ``(n,)`` and
+    return ``(n, N, N)``. Single ufunc call per integrand instead
+    of n_samples Python calls. ``examples/demo1/c_closed_form.py``
+    (``C_fn_vec``) and ``examples/demo2/L2/c_closed_form.py``
+    (``C_fn_eff`` / ``C_fn_bare``) show the contract.
 - ``nonlocal_vertices[].coupling_module`` +
   ``nonlocal_vertices[].coupling_attr`` — dotted path to a
   dynamic-coupling ``fn(n_list, t_list) → tensor`` callable
