@@ -1,0 +1,79 @@
+# L2 sweep for demo2's FF channel: order-0 (free) + order-2 (FF).
+#
+# Uses the F-only action with kappa2 variance ``lam_eff = lam *
+# (1 + 2 * alpha^2 * lam)`` -- the notebook's ``cache_eff``. This
+# absorbs the leading O(alpha^2) variance shift into a renormalised
+# Gaussian kernel, so the FF diagrams (which would otherwise carry
+# alpha-explicit corrections) recover their alpha=0 form. Higher-
+# order corrections sit in the FK channel + scrutiny order-4
+# residual.
+#
+# Output: per-(r, t, a, b, order) totals on the same (r, t) grid as
+# ``examples/demo2/sim_cache_a0.6.npz`` so the residual plots line
+# up exactly without interpolation.
+
+system:
+  field: {name: phi, n_components: 2}
+  linear: {type: diagonal, gamma: [1.0, 1.0]}
+
+  vertices:
+    - name: F
+      coupling:
+        - [[0.0, 0.0], [0.0, 1.0]]
+        - [[0.0, 0.5], [0.5, 0.0]]
+
+  # No K vertex here: this is the F-only (FF) sweep.
+  nonlocal_vertices: []
+
+  noise:
+    kappa2:
+      type: separable_translation
+      # NOTE: lam = 0.0518 is ``lam_eff`` for alpha=0.6, lam=0.05.
+      # See ``c_closed_form.py::LAM_EFF`` for the exact value.
+      temporal: {type: exponential, lam: 0.0518, sigma_t: 0.3}
+      spatial:  {type: exponential, sigma_x: 1.0}
+    sigma2: null
+
+expand:
+  observable: ["phi_a(x)", "phi_b(y)"]
+  orders: [0, 2]
+
+propagators:
+  t_max: 50.0
+  n_grid_t: 60   # ignored under c_closed_form_only=true
+  c_closed_form_module: ./c_closed_form.py
+  c_closed_form_attr: C_fn_eff
+  c_closed_form_only: true
+  c_closed_form_vectorized: true
+
+sweep:
+  # ``integrate_over: null`` is the equal-time correlator
+  # ``<phi_a(t_f) phi_b(t_f)>``, matching the notebook's
+  # ``integrate_gl(... t_f=...)`` semantics.
+  integrate_over: null
+
+  # Match the simulation's (r, t) grid for residual-by-row.
+  positions_grid:
+    x: [0.0]
+    y: [0.0, 0.25, 0.4, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5]
+  t_final_grid:
+    [0.1, 0.15587755020547792, 0.24297810658061286,
+     0.3787483200735144, 0.5903836027749966, 0.9202754968205045,
+     1.0, 1.4345028995850928, 2.2360679774997894,
+     3.485527984255849, 5.0, 5.433155633584393, 8.469069900482264,
+     13.20137868606126, 15.0, 20.57798568918039, 32.07645997392824,
+     49.99999999999999]
+
+  component_pairs: [[0, 0], [0, 1], [1, 1]]
+  orders: [0, 2]
+  method: qmc_vectorized
+  n_samples: 32768  # 2^15
+  seed: 42
+
+  # Grid-level parallelism (3 pairs x 12 r x 18 t = 648 grid points).
+  # See ``docs/user_guide/parallelism.rst``; remember to set
+  # OPENBLAS_NUM_THREADS=1 / MKL_NUM_THREADS=1 / OMP_NUM_THREADS=1
+  # before launching to avoid BLAS oversubscription.
+  n_jobs: -1
+
+output: []
