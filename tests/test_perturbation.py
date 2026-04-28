@@ -479,3 +479,62 @@ def test_diagram_term_empty_for_operator_level():
     assert len(result.diagram_terms(0)) == 1
     # Order 1 with collect_topology=False does NOT populate diagram_terms
     assert len(result.diagram_terms(1)) == 0
+
+
+# =====================================================================
+# Regression test: diag_C must keep delta_{a, b} for external pairs
+# =====================================================================
+
+
+def test_apply_diagonal_keeps_delta_for_external_indices():
+    """Order-0 ``<phi_a(x) phi_b(y)>`` under ``diag_C=True`` must
+    evaluate to 0 when the observable component pair is off-diagonal
+    (a != b), and to ``C(t1, t2; x, y)`` (encoded as 1 in the
+    coupling sum) when a == b.
+
+    Regression-locks the fix to ``DiagramTerm.apply_diagonal``: the
+    delta_{a, b} factor that pins the C propagator to its diagonal
+    entries must be retained as a ``KroneckerDelta`` factor in the
+    coupling expression for index pairs that are NOT summation
+    indices (i.e. observable / external labels). Before the fix the
+    union-find rename collapsed b -> a and dropped the delta, which
+    only happens to be correct when the caller pins a == b.
+
+    Before the fix, a fresh order-0 expansion at component pair
+    (a=0, b=1) returned the diagonal C value (~0.012 in demo2)
+    instead of 0, masking the bug end-to-end on diagonal pairs and
+    requiring downstream code (analysis.ipynb's xi_0 helper) to
+    hard-code the delta itself.
+    """
+    import sft_wick as sw
+
+    sw.reset_uid_counter()
+    phi = sw.Field("phi", "physical", n_components=2)
+    psi = sw.Field("psi", "response", n_components=2)
+    obs = [phi("a", "x"), phi("b", "y")]
+    action = sw.Action(vertices=[])
+
+    result = sw.compute_moment(
+        obs, action, order=0,
+        diag_R=True, diag_C=True, iso_R=True, iso_C=True,
+    )
+    dts = result.diagram_terms(0)
+    assert len(dts) == 1
+    dt = dts[0]
+
+    # Diagonal pair: should evaluate to 1 (the C propagator
+    # symbol; numerical C value is supplied by the cache later).
+    val_00 = float(dt.evaluate_coupling({}, fixed_indices={"a": 0, "b": 0}))
+    val_11 = float(dt.evaluate_coupling({}, fixed_indices={"a": 1, "b": 1}))
+    assert val_00 == 1.0
+    assert val_11 == 1.0
+
+    # Cross pair: must be 0 (delta_{0, 1} = 0).
+    val_01 = float(dt.evaluate_coupling({}, fixed_indices={"a": 0, "b": 1}))
+    val_10 = float(dt.evaluate_coupling({}, fixed_indices={"a": 1, "b": 0}))
+    assert val_01 == 0.0, (
+        f"order-0 cross-pair (a=0, b=1) must vanish under diag_C=True; "
+        f"got {val_01}. The delta_{{a, b}} from C[a, b] = delta_{{a, b}} "
+        f"C[a, a] is being dropped during diagonal simplification."
+    )
+    assert val_10 == 0.0

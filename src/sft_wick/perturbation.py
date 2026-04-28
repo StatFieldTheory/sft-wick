@@ -17,6 +17,7 @@ from .expressions import (
     ZERO,
     Expr,
     IntegralOver,
+    KroneckerDelta,
     Product,
     Propagator,
     Rational,
@@ -428,6 +429,31 @@ class DiagramTerm:
 
         eliminated = {idx for idx in sub if idx in sum_idx_set}
 
+        # External (non-summation) index pairs that get merged by
+        # the diag_R / diag_C constraint must retain a KroneckerDelta
+        # factor in the coupling expression. For a SUMMATION index
+        # ``i`` merged into another, the union-find rename is exact
+        # because ``sum_i delta_{i, j} f(i) = f(j)``. But for an
+        # OBSERVABLE index ``a`` (e.g. the labels in
+        # ``phi_a(x) phi_b(y)``), ``a`` is pinned by the caller via
+        # ``fixed_indices`` and is *not* summed. Dropping
+        # ``delta_{a, b}`` then loses the constraint that the
+        # cross-pair (a != b) order-0 contribution vanishes under
+        # diag_C. Mirror the logic in ``simplify.py::diagonal_
+        # propagators`` (lines ~969-977) by collecting an explicit
+        # KroneckerDelta for each external-external pair.
+        external_deltas: list[KroneckerDelta] = []
+        seen_pairs: set[frozenset[str]] = set()
+        for idx, root in sub.items():
+            if idx in sum_idx_set or root in sum_idx_set:
+                continue
+            pair = frozenset({idx, root})
+            if pair in seen_pairs:
+                continue
+            seen_pairs.add(pair)
+            i1, i2 = sorted(pair)
+            external_deltas.append(KroneckerDelta(i1, i2))
+
         # Update propagators
         new_props = []
         for p in self.propagators:
@@ -437,8 +463,30 @@ class DiagramTerm:
                 Propagator(p.kind, il, ir, p.spatial_left, p.spatial_right)
             )
 
-        # Update coupling sum
-        new_coupling = simplify(_apply_index_sub(self.coupling_sum, sub))
+        # Update coupling sum and prepend any external-external
+        # deltas BEFORE the index substitution, so the deltas
+        # reference the ORIGINAL (pre-merge) index names that the
+        # caller's ``fixed_indices`` will pin at evaluation time.
+        substituted_coupling = simplify(_apply_index_sub(self.coupling_sum, sub))
+        if external_deltas:
+            if isinstance(substituted_coupling, Rational) \
+                    and substituted_coupling.numerator == 1 \
+                    and substituted_coupling.denominator == 1:
+                # Plain unity coupling -- replace it with the delta product.
+                if len(external_deltas) == 1:
+                    new_coupling = external_deltas[0]
+                else:
+                    new_coupling = Product(tuple(external_deltas))
+            elif isinstance(substituted_coupling, Product):
+                new_coupling = Product(
+                    tuple(external_deltas) + substituted_coupling.factors
+                )
+            else:
+                new_coupling = Product(
+                    tuple(external_deltas) + (substituted_coupling,)
+                )
+        else:
+            new_coupling = substituted_coupling
 
         # Update summation indices (remove eliminated)
         new_sum_indices = tuple(
@@ -1698,6 +1746,22 @@ def _eval_symbolic(
         return sum(
             _eval_symbolic(t, symbol_values, index_map) for t in expr.terms
         )
+    if isinstance(expr, KroneckerDelta):
+        # Resolve each index against ``index_map``; literal observable
+        # indices ('0', '1', ...) are treated as ints. The delta is
+        # 1 iff the two indices resolve to the same value, else 0.
+        def _resolve(i: str) -> int:
+            if i in index_map:
+                return int(index_map[i])
+            try:
+                return int(i)
+            except ValueError:
+                raise KeyError(
+                    f"KroneckerDelta index {i!r} not found in index_map "
+                    f"and is not a literal integer. Pass it via the "
+                    f"fixed_indices argument of evaluate_coupling()."
+                ) from None
+        return 1.0 if _resolve(expr.index1) == _resolve(expr.index2) else 0.0
     raise TypeError(f"Cannot numerically evaluate {type(expr).__name__}")
 
 

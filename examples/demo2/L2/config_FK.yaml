@@ -1,0 +1,78 @@
+# L2 sweep for demo2's FK channel: order-2 contribution from one
+# F vertex contracted against one K (kappa^{(3)}) vertex.
+#
+# Uses the F+K action with **bare** noise variance ``lam`` (not
+# ``lam_eff``): the alpha factor is already carried explicitly by
+# the K vertex (a non-local kappa^{(3)} = 6 alpha lam^2 ...), so
+# the C propagators inside the FK diagrams must use the unshifted
+# kernel.
+#
+# Filtered to ``vertex_types: [FK]`` so the sweep returns only the
+# F+K cross-term (the FF channel is in ``config_FF.yaml`` with the
+# correct lam_eff).
+
+system:
+  field: {name: phi, n_components: 2}
+  linear: {type: diagonal, gamma: [1.0, 1.0]}
+
+  vertices:
+    - name: F
+      coupling:
+        - [[0.0, 0.0], [0.0, 1.0]]
+        - [[0.0, 0.5], [0.5, 0.0]]
+
+  # Non-local cubic vertex driven by the analytical kappa^{(3)}.
+  # Reuses the demo2 module shipped with the package.
+  nonlocal_vertices:
+    - name: K
+      order: 3
+      coupling_module: ../k3_coupling.py
+      coupling_attr: coupling_fn_vectorized
+      coupling_vectorized: true
+
+  noise:
+    kappa2:
+      type: separable_translation
+      # Bare lam = 0.05 (NOT lam_eff): the alpha shift sits in K.
+      temporal: {type: exponential, lam: 0.05, sigma_t: 0.3}
+      spatial:  {type: exponential, sigma_x: 1.0}
+    sigma2: null
+
+expand:
+  observable: ["phi_a(x)", "phi_b(y)"]
+  orders: [2]
+
+propagators:
+  t_max: 50.0
+  n_grid_t: 60   # ignored under c_closed_form_only=true
+  c_closed_form_module: ./c_closed_form.py
+  c_closed_form_attr: C_fn_bare
+  c_closed_form_only: true
+  c_closed_form_vectorized: true
+
+sweep:
+  integrate_over: null
+
+  # Same (r, t) grid as config_FF.yaml -- matches the simulation
+  # cache exactly.
+  positions_grid:
+    x: [0.0]
+    y: [0.0, 0.25, 0.4, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5]
+  t_final_grid:
+    [0.1, 0.15587755020547792, 0.24297810658061286,
+     0.3787483200735144, 0.5903836027749966, 0.9202754968205045,
+     1.0, 1.4345028995850928, 2.2360679774997894,
+     3.485527984255849, 5.0, 5.433155633584393, 8.469069900482264,
+     13.20137868606126, 15.0, 20.57798568918039, 32.07645997392824,
+     49.99999999999999]
+
+  component_pairs: [[0, 0], [0, 1], [1, 1]]
+  vertex_types: [FK]   # exclude FF -- those go in config_FF.yaml
+  orders: [2]
+  method: qmc_vectorized
+  n_samples: 32768  # 2^15
+  seed: 42
+
+  n_jobs: -1
+
+output: []
