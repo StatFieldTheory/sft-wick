@@ -130,6 +130,18 @@ Delta Functions
 spatial delta functions respectively.  Their equality and hashing are
 **order-independent**: :math:`\delta_{ij} = \delta_{ji}`.
 
+``KroneckerDelta`` factors are inserted automatically by
+:meth:`DiagramTerm.apply_diagonal
+<sft_wick.perturbation.DiagramTerm.apply_diagonal>` whenever
+``diag_R=True`` or ``diag_C=True`` constraints merge a pair of
+**external** (non-summation) indices: the simplifier collapses
+``C[a, b] -> delta_{a, b} C[a, a]`` so that pinning the
+observable indices to different values via ``fixed_indices``
+correctly returns 0.  ``_eval_symbolic`` evaluates a
+``KroneckerDelta`` to ``1.0`` when both indices resolve to the
+same integer (via ``index_map`` or as a literal numeric label),
+and ``0.0`` otherwise.
+
 
 Immutability and Hashability
 ----------------------------
