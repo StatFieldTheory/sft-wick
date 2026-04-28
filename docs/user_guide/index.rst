@@ -8,6 +8,8 @@ Detailed coverage of every feature in **sft-wick**, organised by topic.
    :caption: Getting productive (L1)
 
    workflow
+   discretization
+   parallelism
 
 .. toctree::
    :maxdepth: 2

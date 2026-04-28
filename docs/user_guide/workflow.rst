@@ -259,17 +259,22 @@ keys:
 
 ``expand``
     ``observable: [...]``, ``orders: [...]``, optional
-    ``cache_path``.
+    ``cache_path``, optional ``n_jobs`` (parallelise per diagram
+    inside each grid point — see :doc:`parallelism`).
 
 ``propagators``
-    ``t_max``, ``n_grid_t``, ``n_jobs``, optional
-    ``c_closed_form_module`` + ``c_closed_form_attr``,
-    ``cache_path``.
+    ``t_max``, optional ``n_grid_t`` *or* ``dt`` (single-knob
+    discretization, see :doc:`discretization`), ``n_jobs``,
+    optional ``c_closed_form_module`` + ``c_closed_form_attr``,
+    ``cache_path``, ``interp_method`` (``'linear'`` default,
+    ``'cubic'`` opt-in).
 
 ``sweep``
     ``positions_grid``, ``t_final_grid``, ``component_pairs``,
     optional ``integrate_over``, ``vertex_types``, ``orders``,
-    ``method``, ``n_samples``, ``seed``.
+    ``method``, ``n_samples``, ``seed``, ``n_jobs``
+    (parallelise across grid points — mutually exclusive with
+    ``expand.n_jobs > 1``).
 
 ``output`` (optional)
     A list of output plugins.  Current plugin types: ``table``
@@ -279,12 +284,20 @@ Hooks for user Python code (without editing the CLI):
 
 - ``propagators.c_closed_form_module`` + ``c_closed_form_attr`` —
   dotted path to a module exporting a
-  ``C_fn(n1, t1, n2, t2) → value`` callable.  When set, the runner
-  auto-forces ``n_jobs=1`` because loky workers cannot serialise a
-  dynamically-loaded user module.
+  ``C_fn(n1, t1, n2, t2) → value`` callable.  The loaded module
+  is registered with cloudpickle for by-value cross-process
+  serialisation, so it composes cleanly with ``propagators.n_jobs
+  > 1``, ``expand.n_jobs > 1``, and ``sweep.n_jobs > 1`` even when
+  joblib reuses a worker pool across calls.
 - ``nonlocal_vertices[].coupling_module`` +
   ``nonlocal_vertices[].coupling_attr`` — dotted path to a
-  dynamic-coupling ``fn(n_list, t_list) → tensor`` callable.
+  dynamic-coupling ``fn(n_list, t_list) → tensor`` callable
+  (e.g. demo2's ``κ^{(3)}``).
+- ``system.linear.gamma_module`` — dotted path to a callable
+  ``γ(t) → array(N)`` for time-dependent linear drift.
+- ``noise.kappa2.type: callable_module`` — dotted path to a
+  ``κ²(n1, t1, n2, t2) → (N, N)`` callable for non-separable
+  noise correlators.
 
 Parameter scans from the shell:
 
