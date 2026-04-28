@@ -89,6 +89,8 @@ class PropagatorsConfig:
     n_jobs: int = 1
     c_closed_form_module: Any = None
     c_closed_form_attr: str = "C_fn"
+    c_closed_form_only: bool = False
+    c_closed_form_vectorized: bool = False
     cache_path: Any = None
     interp_method: str = "linear"
 
@@ -450,6 +452,8 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
         n_jobs=int(d.get("n_jobs", 1)),
         c_closed_form_module=module_spec,
         c_closed_form_attr=str(d.get("c_closed_form_attr", "C_fn")),
+        c_closed_form_only=bool(d.get("c_closed_form_only", False)),
+        c_closed_form_vectorized=bool(d.get("c_closed_form_vectorized", False)),
         cache_path=d.get("cache_path"),
         interp_method=str(d.get("interp_method", "linear")),
     )
@@ -678,6 +682,8 @@ def run_workflow(cfg: WorkflowConfig):
         c_closed_form=c_fn,
         cache_path=cfg.propagators.cache_path,
         interp_method=cfg.propagators.interp_method,
+        c_closed_form_only=cfg.propagators.c_closed_form_only,
+        c_closed_form_vectorized=cfg.propagators.c_closed_form_vectorized,
     )
 
     # Mutual-exclusion: parallelism layers cannot nest because joblib's

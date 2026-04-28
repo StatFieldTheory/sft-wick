@@ -823,3 +823,79 @@ def test_CF11_yaml_kappa3_callable_end_to_end(tmp_path: Path) -> None:
     np.testing.assert_allclose(
         fk_value2, fk_value, rtol=1e-12, atol=0.0,
     )
+
+
+# =====================================================================
+# CF14 - c_closed_form_only path: skip the spline, route directly to c_fn
+# =====================================================================
+
+
+def test_CF14_c_closed_form_only_matches_spline_path(tmp_path: Path) -> None:
+    """``propagators.c_closed_form_only=true`` must produce a result
+    that agrees with the standard spline-based path within QMC noise.
+
+    The no-spline path replaces every ``cache.C_at_batch`` lookup with
+    a direct call to the user's c_fn -- machine-precision agreement
+    with the analytical C, no truncation error from grid spacing or
+    spline order. For a smooth, well-resolved kernel like demo1's OU
+    propagator both paths converge to the same total; the difference
+    we tolerate here is the residual interpolation error of the
+    spline path (~1% on the demo1 sweep config) plus QMC noise.
+    """
+    # Spline path (default): demo1 yaml already wires the closed-form
+    # module for fast spline build.
+    cfg_yaml = yaml.safe_load(_DEMO1_YAML)
+    (tmp_path / "spline.yaml").write_text(yaml.safe_dump(cfg_yaml))
+    cfg_spline = load_workflow_config(tmp_path / "spline.yaml")
+    _sweep_s, totals_s = run_workflow(cfg_spline)
+    spline_total = float(totals_s["value"].sum())
+
+    # No-spline path: same yaml, but switch attr to the vectorised
+    # c_fn and toggle the new flags.
+    cfg_yaml["propagators"]["c_closed_form_attr"] = "C_fn_vec"
+    cfg_yaml["propagators"]["c_closed_form_only"] = True
+    cfg_yaml["propagators"]["c_closed_form_vectorized"] = True
+    (tmp_path / "direct.yaml").write_text(yaml.safe_dump(cfg_yaml))
+    cfg_direct = load_workflow_config(tmp_path / "direct.yaml")
+    assert cfg_direct.propagators.c_closed_form_only is True
+    assert cfg_direct.propagators.c_closed_form_vectorized is True
+    _sweep_d, totals_d = run_workflow(cfg_direct)
+    direct_total = float(totals_d["value"].sum())
+
+    rel_diff = abs(direct_total - spline_total) / abs(spline_total)
+    # demo1's OU kernel + n_grid_t=12 puts the spline error at the
+    # ~1% level; allow 2% headroom. The two paths must agree at
+    # least at the percent level for the no-spline contract to be
+    # meaningful.
+    assert rel_diff < 2e-2, (
+        f"no-spline total {direct_total!r} disagrees with spline "
+        f"total {spline_total!r} by {rel_diff:.2%}; both should "
+        f"converge to the same analytical C."
+    )
+
+
+def test_CF14_c_closed_form_only_requires_callable(tmp_path: Path) -> None:
+    """``c_closed_form_only=true`` without a ``c_closed_form_module``
+    must raise -- the no-spline path needs an actual c_fn to use as
+    the lookup function."""
+    cfg_yaml = yaml.safe_load(_DEMO1_YAML)
+    cfg_yaml["propagators"].pop("c_closed_form_module", None)
+    cfg_yaml["propagators"].pop("c_closed_form_attr", None)
+    cfg_yaml["propagators"]["c_closed_form_only"] = True
+    (tmp_path / "bad.yaml").write_text(yaml.safe_dump(cfg_yaml))
+    cfg = load_workflow_config(tmp_path / "bad.yaml")
+    with pytest.raises(ValueError, match="c_closed_form_only=True"):
+        run_workflow(cfg)
+
+
+def test_CF14_vectorized_without_only_raises(tmp_path: Path) -> None:
+    """``c_closed_form_vectorized=true`` without
+    ``c_closed_form_only=true`` is a configuration error: the
+    vectorised contract is only consumed by the no-spline path."""
+    cfg_yaml = yaml.safe_load(_DEMO1_YAML)
+    cfg_yaml["propagators"]["c_closed_form_vectorized"] = True
+    (tmp_path / "bad.yaml").write_text(yaml.safe_dump(cfg_yaml))
+    cfg = load_workflow_config(tmp_path / "bad.yaml")
+    with pytest.raises(ValueError, match="c_closed_form_vectorized"):
+        run_workflow(cfg)
+

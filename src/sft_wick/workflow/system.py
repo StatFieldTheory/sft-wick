@@ -287,6 +287,8 @@ class System:
         c_closed_form: Callable | None = None,
         cache_path: Any = None,
         interp_method: str = "linear",
+        c_closed_form_only: bool = False,
+        c_closed_form_vectorized: bool = False,
     ) -> "Propagators":
         """Build a :class:`Propagators` object with a precomputed
         spatial table matching ``self.homogeneity``.
@@ -321,6 +323,14 @@ class System:
                 full-grid C tables. ``'linear'`` (default) is monotone
                 and safe for steep tails; ``'cubic'`` gives O(h⁴) on
                 smooth grids. Forwarded to :class:`PropagatorCache`.
+            c_closed_form_only: when True (with ``c_closed_form`` set),
+                skip every spline and route C lookups directly through
+                the user's c_fn -- machine-precision agreement with
+                the analytical form. Forwarded to
+                :meth:`Propagators.build`.
+            c_closed_form_vectorized: c_fn accepts batched arrays and
+                returns ``(n, N, N)`` (only meaningful with
+                ``c_closed_form_only=True``).
         """
         from .propagators import Propagators
 
@@ -338,6 +348,8 @@ class System:
             c_closed_form=c_closed_form,
             cache_path=cache_path,
             interp_method=interp_method,
+            c_closed_form_only=c_closed_form_only,
+            c_closed_form_vectorized=c_closed_form_vectorized,
         )
 
 
