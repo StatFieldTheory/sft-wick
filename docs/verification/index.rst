@@ -152,19 +152,30 @@ Phase 5 — Spatial coordinates (homogeneity modes)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 *File: ``tests/test_deductive_numerics.py``, ``TestSpatialAwareCache``
-(~7 tests, S1–S7).*
+(S1–S8 + S2b/S6b) and ``tests/test_d_dim_spatial.py`` (DD1, DD2).*
 
 The spatial caches add three homogeneity-dependent code paths —
-translation (1-D separable), rotation (radial + Legendre), and
-general (full 2-D) — each with its own ``precompute_C_table_*``
-builder and its own spline backend.  Phase 5 verifies that:
+translation (1-D or d-dim, reduces to ``r = ||x1 - x2||``),
+rotation (radial + Legendre, accepts d-dim unit vectors), and
+general (full 2-D, scalar-x only on the full-grid path).  Each
+has its own ``precompute_C_table_*`` builder and its own spline
+backend.  Phase 5 verifies that:
 
 - translation and general give bit-identical answers on
   translation-invariant inputs (S3);
 - rotation reduces to closed-form on the direct-radial kernel (S6);
 - bubble-diagram cross-group C scaling
   :math:`\xi(r)/\xi(0) = e^{-r/\sigma_x}^{n_{\mathrm{cross}}}` holds
-  under both eager and lazy cache builds (S5, S7).
+  under both eager and lazy cache builds (S5, S7);
+- translation accepts d=3 vector positions and reduces them to the
+  right scalar ``r`` (S2b);
+- rotation accepts d=3 unit-vector inputs (S6b);
+- general full-grid mode raises ``NotImplementedError`` on vector
+  inputs and directs the user to lazy mode (S8);
+- ``Expansion.evaluate(positions=...)`` end-to-end produces the
+  same total for 1-D scalar and equivalent 3-D vector
+  configurations (DD1), and is rotation-isotropic for
+  translation-invariant noise (DD2).
 
 Phase 6 — White-noise component
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -180,13 +191,29 @@ kernel (W3).
 Phase 7 — Dynamic non-local coupling
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-*``tests/test_workflow_config.py`` and demo2 validation.*
+*``tests/test_workflow_config.py``, ``tests/test_dynamic_coupling.py``,
+and demo2 validation.*
 
-Non-local vertices with callable coupling tensors
-(``fn(n_list, t_list) → tensor``) are routed through a per-sample
-path inside ``integrate_moment_qmc_vectorized``.  Validated against
-demo2's FK channel to 0.48 % relative agreement against the hand-
-coded reference integrator.
+Non-local vertices with callable coupling tensors are routed
+through :class:`~sft_wick.evaluate.DynamicCouplingPromise` inside
+``integrate_moment_qmc_vectorized``. Two contracts are supported:
+
+* ``fn(n_list, t_list) → tensor`` -- per-sample call (default).
+* ``fn(n_2d, t_2d) → (n_samples, ...)`` when the user opts in via
+  ``NonLocalVertex(coupling_vectorized=True)`` -- one call per
+  integrand, useful for heavy callables.
+
+Locked invariants:
+
+* **DC1** -- prop-indexed dynamic coupling raises
+  ``NotImplementedError`` (the v1 limitation).
+* **WF6** -- a constant callable κ^(3) routed through the dynamic
+  path produces the same FK total as the same constant tensor on
+  the static fast path (rtol 1e-10).
+* **WF7** -- per-sample and vectorised callables produce
+  bit-identical totals (rtol 1e-10).
+* Validated against demo2's FK channel to 0.48 % relative agreement
+  against the hand-coded reference integrator.
 
 Phase 8 — Time-dependent linear operator
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
