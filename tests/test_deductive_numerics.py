@@ -1609,6 +1609,73 @@ class TestSpatialAwareCache:
 
     # ----- S2: translation-spline accuracy vs closed form --------- #
 
+    def test_S8_general_full_grid_rejects_d_dim_input(self):
+        """``precompute_C_table_general`` builds a 4-D ``(t1, t2, x1,
+        x2)`` interpolator whose x axis is 1-D. Extending it to
+        d dimensions would inflate the spline to ``2 + 2d``-D, with
+        ``n_grid_x ** (2d)`` build calls -- exponentially expensive.
+
+        Bundle 2 G's contract: full-grid general mode raises
+        ``NotImplementedError`` when ``C_at_batch`` is called with
+        vector positions, directing the user to lazy mode (which
+        already handles d-dim via dict-keyed memoisation).
+        """
+        cache = self._make_fast_cache(homogeneity="general")
+        # Build a tiny full-grid table.
+        cache.precompute_C_table_general(
+            t_max=self.T_MAX, n_grid_t=8,
+            x_max=1.0, n_grid_x=4,
+        )
+        rng = np.random.default_rng(0)
+        t1 = rng.uniform(0.3, self.T_MAX - 0.3, size=4)
+        t2 = rng.uniform(0.3, self.T_MAX - 0.3, size=4)
+        x1 = rng.normal(size=(4, 3))  # d=3 vectors
+        x2 = rng.normal(size=(4, 3))
+        with pytest.raises(NotImplementedError, match="d-dim"):
+            cache.C_at_batch(t1, t2, x1, x2)
+
+    def test_S2b_translation_supports_3d_vectors(
+        self, cache_translation_full,
+    ):
+        """``SeparableTranslation`` and the translation full-grid
+        spline must accept 3-D position vectors and reduce them to
+        ``r = ||x1 - x2||`` correctly.
+
+        This locks the d-dim contract added by Bundle 2 T1: the
+        wrapper used to collapse vectors via ``.sum()`` (which is
+        only correct for 1-D); after the fix it uses
+        ``np.linalg.norm``. The cache shape stays
+        ``(t1, t2, r)``-3-D regardless of d, so this test reuses the
+        existing 1-D fixture and feeds in 3-D vectors with the same
+        Euclidean separation as the 1-D scalars from S2.
+        """
+        cache = cache_translation_full
+
+        rng = np.random.default_rng(20260428)
+        t1 = rng.uniform(0.3, self.T_MAX - 0.3, size=12)
+        t2 = rng.uniform(0.3, self.T_MAX - 0.3, size=12)
+
+        # Random unit-direction 3-D vectors at random Euclidean
+        # separations r in [0, 2]. Build x2 = x1 + r * unit_dir.
+        r = rng.uniform(0.0, 2.0, size=12)
+        unit = rng.normal(size=(12, 3))
+        unit /= np.linalg.norm(unit, axis=1, keepdims=True)
+        x1 = rng.normal(size=(12, 3))
+        x2 = x1 + r[:, None] * unit
+
+        got = cache.C_at_batch(t1, t2, x1, x2).ravel()
+        expected = np.array([
+            C_closed_form(t1[k], t2[k]) * np.exp(-r[k] / self.SIGMA_X)
+            for k in range(12)
+        ])
+        rel = np.abs(got - expected) / np.abs(expected)
+        # Same tolerance as S2 -- the spline lookup is identical;
+        # what we are checking is that the d=3 input path resolves
+        # to the right scalar r and doesn't go off the rails.
+        assert rel.max() < 1.5e-2, (
+            f"3-D translation spline error {rel.max():.2e} exceeds 1.5e-2"
+        )
+
     def test_S2_translation_spline_matches_closed_form(
         self, cache_translation_full,
     ):

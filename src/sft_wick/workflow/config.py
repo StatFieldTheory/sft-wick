@@ -542,6 +542,7 @@ def build_system(cfg: SystemConfig):
         sp.NonLocalVertex(
             name=v["name"], order=int(v["order"]),
             coupling=_coupling_value(v),
+            coupling_vectorized=bool(v.get("coupling_vectorized", False)),
         )
         for v in cfg.nonlocal_vertices
     ]

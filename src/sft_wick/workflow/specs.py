@@ -138,8 +138,15 @@ class _TimeDepMatR:
 
 
 class _SeparableTranslationKappa2:
-    """``kappa^2(n1, t1, n2, t2) = kappa_t(t1-t2) * kappa_x(|n1-n2|) * I_N``
-    for ``SeparableTranslation``."""
+    """``kappa^2(n1, t1, n2, t2) = kappa_t(t1-t2) * kappa_x(||n1-n2||) * I_N``
+    for ``SeparableTranslation``.
+
+    Accepts ``n1, n2`` as scalars (d=1) or arbitrary-dimensional
+    numpy arrays; the spatial separation is the Euclidean norm of
+    the difference. Matches what users intuitively expect when
+    passing R^d position vectors (e.g. R^3 large-scale-structure
+    coordinates).
+    """
 
     __slots__ = ("temporal", "spatial", "_n")
 
@@ -149,12 +156,11 @@ class _SeparableTranslationKappa2:
         self._n = int(n_components)
 
     def __call__(self, n1, t1, n2, t2):
-        # Note: collapsing via ``.sum()`` on n1/n2 is a 1-D legacy
-        # convention preserved by the upstream wrapper; see the
-        # d-dim spatial todo (T1) for the planned fix.
-        dr = float(
-            abs(np.asarray(n1).sum() - np.asarray(n2).sum())
-        )
+        diff = np.asarray(n1, dtype=float) - np.asarray(n2, dtype=float)
+        if diff.ndim == 0:
+            dr = float(abs(diff))
+        else:
+            dr = float(np.linalg.norm(diff))
         return self.temporal(t1 - t2) * self.spatial(dr) * np.eye(self._n)
 
 
@@ -208,17 +214,24 @@ class _MSRWrappedCoupling:
     :attr:`NonLocalVertex.msr_coupling` used to return -- a closure
     cannot be persisted via the standard serialisation protocol, but
     a module-level class with explicit attributes can.
+
+    The ``vectorized`` attribute is the channel through which
+    :class:`NonLocalVertex(coupling_vectorized=True)` reaches
+    :class:`~sft_wick.evaluate.DynamicCouplingPromise.evaluate_at_batch`,
+    which dispatches between the per-sample and batched call
+    contracts.
     """
 
-    __slots__ = ("factor", "bare", "__wrapped__")
+    __slots__ = ("factor", "bare", "__wrapped__", "vectorized")
 
-    def __init__(self, factor, bare: Callable):
+    def __init__(self, factor, bare: Callable, vectorized: bool = False):
         self.factor = factor
         self.bare = bare
         # Mirror the ``__wrapped__`` attribute the closure version
         # set, so any introspection (e.g. ``inspect.unwrap``) keeps
         # working.
         self.__wrapped__ = bare
+        self.vectorized = bool(vectorized)
 
     def __call__(self, *args, **kwargs):
         return self.factor * np.asarray(self.bare(*args, **kwargs))
@@ -652,6 +665,17 @@ class NonLocalVertex:
             spatial / time coordinates.  The wrapper multiplies by
             the MSR factor ``-(i^m) / m!`` internally (so demo2's
             ``K = (i/6) * κ^(3)`` is automated).
+        coupling_vectorized: only meaningful when ``coupling`` is a
+            callable. ``False`` (default) signals the per-sample
+            contract -- the workflow calls ``fn`` with 1-D length-m
+            ``n_list`` / ``t_list`` once per QMC sample. ``True``
+            signals the batched contract -- the workflow calls
+            ``fn`` with shape ``(m, n_samples)`` ``n_list`` /
+            ``t_list`` once per integrand and expects an output of
+            shape ``(n_samples,) + (N,)*m``. Use the batched form
+            when the user callable can amortise its cost across
+            samples (numpy ufuncs, special functions, etc.); for
+            cheap callables the per-sample form has lower overhead.
 
     Notes:
         The MSR factor values:
@@ -673,6 +697,7 @@ class NonLocalVertex:
     name: str
     order: int
     coupling: Any  # np.ndarray or callable — bare κ^(m)
+    coupling_vectorized: bool = False
 
     @property
     def msr_factor(self) -> complex:
@@ -693,5 +718,8 @@ class NonLocalVertex:
         factor = self.msr_factor
         bare = self.coupling
         if callable(bare):
-            return _MSRWrappedCoupling(factor=factor, bare=bare)
+            return _MSRWrappedCoupling(
+                factor=factor, bare=bare,
+                vectorized=self.coupling_vectorized,
+            )
         return factor * np.asarray(bare)

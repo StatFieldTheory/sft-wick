@@ -137,14 +137,19 @@ def test_DC1_prop_indexed_dynamic_raises_notimplemented(
         "FK diagram must take the dynamic-coupling path"
     )
 
-    # Force evaluate_at to return a non-scalar array so the
-    # downstream `if sample_coupling.ndim == 0` branch falls
-    # through to the NotImplementedError.
-    def _fake_evaluate_at(self, times, positions):  # noqa: ARG001
+    # Force evaluate_coupling to return a non-scalar array so the
+    # downstream ``coup0.ndim != 0`` probe inside
+    # ``DynamicCouplingPromise.evaluate_at_batch`` raises. Patching
+    # the contraction itself (rather than the dispatch helper) keeps
+    # this test pinned to the real code path the
+    # NotImplementedError exists to guard.
+    real_evaluate_coupling = ig.diagram_term.evaluate_coupling
+
+    def _fake_evaluate_coupling(self, *args, **kwargs):  # noqa: ARG001
         return np.zeros(2)  # ndim == 1 triggers the raise
 
     monkeypatch.setattr(
-        DynamicCouplingPromise, "evaluate_at", _fake_evaluate_at,
+        type(ig.diagram_term), "evaluate_coupling", _fake_evaluate_coupling,
     )
 
     with pytest.raises(
@@ -325,4 +330,83 @@ def test_WF6_kappa3_dynamic_spacetime_dependence_changes_result() -> None:
         f"the constant tensor (rel diff {rel:.2e}); the dynamic path is "
         f"likely ignoring its per-sample arguments. "
         f"const={total_const!r}, var={total_var!r}"
+    )
+
+
+# =====================================================================
+# WF7 -- vectorised callable contract (NonLocalVertex.coupling_vectorized)
+# =====================================================================
+
+
+def test_WF7_vectorized_callable_matches_per_sample() -> None:
+    """A callable kappa^{(3)} marked
+    ``NonLocalVertex(coupling_vectorized=True)`` must produce
+    bit-identical FK totals to the same callable expressed as a
+    per-sample function.
+
+    The contract for vectorised callables is:
+
+    * Inputs ``n_list`` and ``t_list`` arrive as shape
+      ``(m_legs, n_samples)`` arrays (instead of length-m vectors).
+    * Output is a tensor with leading axis ``n_samples``, i.e.
+      shape ``(n_samples,) + (N,)*order``.
+
+    The two paths share the same underlying physics (same bare
+    kernel, same QMC seed, same diagram set), so any divergence
+    larger than float64 roundoff is a real bug in the dispatch.
+    """
+    N = 2
+
+    K_const = np.zeros((N, N, N))
+    K_const[0, 0, 0] = 0.3
+    K_const[1, 1, 1] = 0.5
+
+    def K_per_sample(n_list, t_list):
+        # Per-sample contract: 1-D length-m inputs, return (N, N, N).
+        n = np.asarray(n_list, dtype=float)
+        t = np.asarray(t_list, dtype=float)
+        envelope = float(
+            np.exp(-abs(t[0] - t[1])) * np.exp(-abs(n[0] - n[2]))
+        )
+        return envelope * K_const
+
+    def K_vectorized(n_2d, t_2d):
+        # Batched contract: (m, n_samples) inputs, return
+        # (n_samples, N, N, N) -- the same envelope formula written
+        # in a single ufunc-friendly expression.
+        n = np.asarray(n_2d, dtype=float)
+        t = np.asarray(t_2d, dtype=float)
+        envelope = np.exp(-np.abs(t[0] - t[1])) * np.exp(-np.abs(n[0] - n[2]))
+        return envelope[:, None, None, None] * K_const[None, :, :, :]
+
+    system_per_sample = _make_kappa3_system_with_K(K_per_sample)
+    # Replace the auto-built non-local vertex with one that opts in
+    # to the vectorised contract. ``System`` is a frozen dataclass,
+    # so we re-create it via dataclass.replace.
+    import dataclasses
+    system_vectorized = dataclasses.replace(
+        _make_kappa3_system_with_K(K_vectorized),
+        nonlocal_vertices=(
+            sw.NonLocalVertex(
+                name="K", order=3,
+                coupling=K_vectorized,
+                coupling_vectorized=True,
+            ),
+        ),
+    )
+
+    common = dict(t_max=2.0, n_samples=2 ** 12, seed=20260428)
+    total_per_sample = _integrate_FK_total(system_per_sample, **common)
+    total_vectorized = _integrate_FK_total(system_vectorized, **common)
+
+    np.testing.assert_allclose(
+        total_vectorized, total_per_sample,
+        rtol=1e-10, atol=1e-12,
+        err_msg=(
+            f"vectorized FK total {total_vectorized!r} disagrees with "
+            f"per-sample FK total {total_per_sample!r}; "
+            f"NonLocalVertex(coupling_vectorized=True) dispatch is "
+            f"the WF7 contract that opens up the user-facing fast "
+            f"path for heavy callables."
+        ),
     )
