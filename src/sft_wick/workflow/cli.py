@@ -15,6 +15,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -67,6 +68,7 @@ def _cmd_run(args) -> int:
         print(f"[sft-wick] applied overrides: {keys}")
 
     _print_summary(cfg)
+    _maybe_warn_blas_oversubscription(cfg)
 
     if args.dry_run:
         print("[sft-wick] dry run — exiting before execution")
@@ -120,6 +122,37 @@ def _coerce_scalar(s: str):
     if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
         return s[1:-1]
     return s
+
+
+def _maybe_warn_blas_oversubscription(cfg) -> None:
+    """Print a one-line tip if any layer requested ``n_jobs > 1``
+    without one of OPENBLAS / MKL / OMP thread caps set.
+
+    BLAS libraries default to using all cores; combining that with
+    ``n_jobs = N_cores`` worker processes yields ``N_cores ** 2``
+    threads and is usually slower than running serially. The tip
+    suppresses itself once any of the three env vars is set, so users
+    who deliberately tune their thread budget see no noise.
+    """
+    requested = (
+        int(getattr(cfg.propagators, "n_jobs", 1)) != 1
+        or int(getattr(cfg.expand, "n_jobs", 1)) != 1
+        or int(getattr(cfg.sweep, "n_jobs", 1)) != 1
+    )
+    if not requested:
+        return
+    capped = any(
+        os.environ.get(name)
+        for name in ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMP_NUM_THREADS")
+    )
+    if capped:
+        return
+    print(
+        "[sft-wick] tip: n_jobs > 1 was requested. To avoid BLAS "
+        "thread oversubscription, set "
+        "OPENBLAS_NUM_THREADS=1 / MKL_NUM_THREADS=1 / OMP_NUM_THREADS=1 "
+        "before launching. See docs/user_guide/parallelism.rst."
+    )
 
 
 def _print_summary(cfg) -> None:

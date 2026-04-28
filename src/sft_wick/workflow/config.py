@@ -19,6 +19,8 @@ Or programmatically::
 from __future__ import annotations
 
 import importlib.util
+import math
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,6 +54,10 @@ class SystemConfig:
     vertices: list
     nonlocal_vertices: list = field(default_factory=list)
     t_min: float = 0.0
+    # Resolved at parse time so that noise.kappa2.type='callable_module'
+    # (and any future module-loaded specs in the system block) can resolve
+    # paths relative to the YAML file at build time.
+    base_dir: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -66,12 +72,14 @@ class ExpandConfig:
     diag_C: bool = True
     iso_C: bool = False
     cache_path: Any = None
+    n_jobs: int = 1
 
 
 @dataclass(frozen=True)
 class PropagatorsConfig:
     t_max: float
     n_grid_t: int = 60
+    dt: float | None = None
     homogeneity: Any = None
     r_max: Any = None
     n_grid_r: Any = None
@@ -82,6 +90,7 @@ class PropagatorsConfig:
     c_closed_form_module: Any = None
     c_closed_form_attr: str = "C_fn"
     cache_path: Any = None
+    interp_method: str = "linear"
 
 
 @dataclass(frozen=True)
@@ -95,6 +104,7 @@ class SweepConfig:
     method: str = "qmc_vectorized"
     n_samples: int = 2 ** 13
     seed: int = 42
+    n_jobs: int = 1
 
 
 @dataclass(frozen=True)
@@ -172,7 +182,13 @@ def _parse_workflow(data: dict, base_dir: Path) -> WorkflowConfig:
     sweep_d = _require_dict(data, "sweep")
     output_d = data.get("output", [])
 
-    system_cfg = _parse_system(system_d, base_dir)
+    # Extract the top-level dt before parsing system so the linear gamma-spline
+    # cache can derive its own n_grid_cache from the same dt by default.
+    default_dt = props_d.get("dt")
+    if default_dt is not None:
+        default_dt = float(default_dt)
+
+    system_cfg = _parse_system(system_d, base_dir, default_dt=default_dt)
     expand_cfg = _parse_expand(expand_d)
     props_cfg = _parse_propagators(props_d, base_dir)
     sweep_cfg = _parse_sweep(sweep_d)
@@ -195,7 +211,9 @@ def _require_dict(d: dict, key: str) -> dict:
     return d[key]
 
 
-def _parse_system(d: dict, base_dir: Path) -> SystemConfig:
+def _parse_system(
+    d: dict, base_dir: Path, *, default_dt: float | None = None
+) -> SystemConfig:
     fld = d.get("field", {}) or {}
     name = fld.get("name", "phi")
     nc = int(fld.get("n_components", 1))
@@ -203,6 +221,7 @@ def _parse_system(d: dict, base_dir: Path) -> SystemConfig:
     linear = d.get("linear")
     if linear is None:
         raise ValueError("system.linear is required")
+    linear = _resolve_linear(dict(linear), base_dir, default_dt=default_dt)
 
     noise = d.get("noise")
     if noise is None:
@@ -222,6 +241,7 @@ def _parse_system(d: dict, base_dir: Path) -> SystemConfig:
         linear=linear, noise=noise,
         vertices=vertices, nonlocal_vertices=nonlocal_vertices,
         t_min=float(d.get("t_min", 0.0)),
+        base_dir=base_dir,
     )
 
 
@@ -251,25 +271,125 @@ def _resolve_coupling(v: dict, base_dir: Path) -> dict:
     return out
 
 
+def _resolve_linear(
+    lin: dict, base_dir: Path, *, default_dt: float | None = None
+) -> dict:
+    """Resolve ``system.linear.gamma`` and the gamma-spline cache resolution.
+
+    ``gamma``: inline list of floats, or a 1D nested-list array.
+    ``gamma_module``: path to a ``.py`` module exporting an attribute
+        (default ``gamma``) used as a callable ``gamma(t) -> array(N)``.
+        Required for spacetime-dependent linear drift such as the
+        Sachs-saddle ``2 theta^(sa)(lambda)``.
+
+    Discretization: the spline cache uses ``n_grid_cache`` points uniformly
+    on ``[0, t_max_cache]``. When the user provides ``dt`` (here or via
+    ``propagators.dt``), it is converted to ``n_grid_cache = ceil(t_max_cache
+    / dt)`` so a single ``dt`` controls every grid in the workflow. Providing
+    both ``dt`` and ``n_grid_cache`` is rejected to avoid ambiguity.
+
+    Forwarded to :class:`sft_wick.workflow.specs.DiagonalA`, which natively
+    accepts callables for the time-dependent path.
+    """
+    if "gamma" in lin and "gamma_module" in lin:
+        raise ValueError(
+            "system.linear: provide exactly one of {'gamma', 'gamma_module'}"
+        )
+    if "gamma_module" in lin and "gamma" not in lin:
+        mod_path = (base_dir / lin.pop("gamma_module")).resolve()
+        attr = lin.pop("gamma_attr", "gamma")
+        lin["gamma"] = _load_callable_from_module(mod_path, attr)
+
+    # dt -> n_grid_cache derivation. linear.dt overrides propagators.dt.
+    linear_dt = lin.pop("dt", None)
+    effective_dt = float(linear_dt) if linear_dt is not None else default_dt
+    if effective_dt is not None:
+        if effective_dt <= 0.0:
+            raise ValueError(
+                f"system.linear.dt (or propagators.dt) must be positive, "
+                f"got {effective_dt}"
+            )
+        if "n_grid_cache" in lin:
+            raise ValueError(
+                "system.linear: specify exactly one of {'dt' (here or in "
+                "propagators), 'n_grid_cache'}; got both."
+            )
+        t_max_cache = float(lin.get("t_max_cache", 100.0))
+        lin["n_grid_cache"] = max(2, int(math.ceil(t_max_cache / effective_dt)))
+    return lin
+
+
 def _load_callable_from_module(path: Path, attr: str):
     """Import ``path`` as a standalone module and return
-    ``getattr(module, attr)``."""
-    spec_obj = importlib.util.spec_from_file_location(
-        f"_sft_wick_coupling_{path.stem}", path,
-    )
+    ``getattr(module, attr)``.
+
+    Registers the module under its file basename (``path.stem``) and ensures
+    ``path.parent`` is on both ``sys.path`` (for the current process) and
+    the ``PYTHONPATH`` environment variable (for subprocess workers, e.g.
+    joblib loky). Without the env-var step, a worker process started after
+    this call cannot re-import the module by name, and unpickling a cache
+    that holds the loaded callable raises ``BrokenProcessPool`` /
+    ``ModuleNotFoundError``.
+    """
+    parent_dir = str(path.parent.resolve())
+    if parent_dir not in sys.path:
+        sys.path.append(parent_dir)
+
+    # Propagate parent_dir to subprocess workers via PYTHONPATH. loky
+    # workers inherit os.environ but not the parent's sys.path mods,
+    # so this is the durable channel.
+    pp = os.environ.get("PYTHONPATH", "")
+    pp_parts = pp.split(os.pathsep) if pp else []
+    if parent_dir not in pp_parts:
+        os.environ["PYTHONPATH"] = os.pathsep.join([parent_dir, *pp_parts])
+
+    module_name = path.stem
+    spec_obj = importlib.util.spec_from_file_location(module_name, path)
     if spec_obj is None or spec_obj.loader is None:
         raise ImportError(
             f"Cannot load coupling module {path!r}."
         )
     module = importlib.util.module_from_spec(spec_obj)
-    sys.modules[spec_obj.name] = module
+    sys.modules[module_name] = module
     spec_obj.loader.exec_module(module)
     fn = getattr(module, attr, None)
     if fn is None or not callable(fn):
         raise AttributeError(
             f"Module {path!r} has no callable attribute {attr!r}."
         )
+    _register_module_by_value(module)
     return fn
+
+
+def _register_module_by_value(module) -> None:
+    """Register ``module`` for cross-process by-value serialisation.
+
+    Modules loaded via :func:`importlib.util.spec_from_file_location`
+    are not importable by name in subprocess workers. joblib's loky
+    backend uses a persistent worker pool whose ``sys.path`` /
+    ``PYTHONPATH`` is fixed at first-pool-creation time, so a worker
+    spawned during an earlier test won't have a later test's
+    ``tmp_path`` available.
+
+    cloudpickle's ``register_pickle_by_value`` flips the encoding so
+    the module's source is shipped inline with each task. Workers no
+    longer need to import anything by name.
+
+    Falls back silently if cloudpickle is unavailable (joblib pulls
+    it in, but a custom install might not).
+    """
+    try:
+        from joblib.externals import cloudpickle
+    except ImportError:  # pragma: no cover - joblib pulls in cloudpickle
+        return
+    try:
+        cloudpickle.register_pickle_by_value(module)
+    except (TypeError, ValueError):  # pragma: no cover - defensive
+        # cloudpickle rejects modules that are part of a package or
+        # don't have a real source file. Either case means the worker
+        # can already import the module by name, so by-value encoding
+        # is not needed.
+        pass
 
 
 def _parse_expand(d: dict) -> ExpandConfig:
@@ -290,6 +410,7 @@ def _parse_expand(d: dict) -> ExpandConfig:
         diag_C=bool(d.get("diag_C", True)),
         iso_C=bool(d.get("iso_C", False)),
         cache_path=d.get("cache_path"),
+        n_jobs=int(d.get("n_jobs", 1)),
     )
 
 
@@ -299,9 +420,27 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
     module_spec = d.get("c_closed_form_module")
     if module_spec is not None:
         module_spec = str((base_dir / module_spec).resolve())
+
+    t_max = float(d["t_max"])
+    dt = d.get("dt")
+    has_n_grid_t = "n_grid_t" in d
+    if dt is not None:
+        dt = float(dt)
+        if dt <= 0.0:
+            raise ValueError(f"propagators.dt must be positive, got {dt}")
+        if has_n_grid_t:
+            raise ValueError(
+                "propagators: specify exactly one of {'dt', 'n_grid_t'}; "
+                "got both."
+            )
+        n_grid_t = max(2, int(math.ceil(t_max / dt)))
+    else:
+        n_grid_t = int(d.get("n_grid_t", 60))
+
     return PropagatorsConfig(
-        t_max=float(d["t_max"]),
-        n_grid_t=int(d.get("n_grid_t", 60)),
+        t_max=t_max,
+        n_grid_t=n_grid_t,
+        dt=dt,
         homogeneity=d.get("homogeneity"),
         r_max=d.get("r_max"),
         n_grid_r=d.get("n_grid_r"),
@@ -312,6 +451,7 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
         c_closed_form_module=module_spec,
         c_closed_form_attr=str(d.get("c_closed_form_attr", "C_fn")),
         cache_path=d.get("cache_path"),
+        interp_method=str(d.get("interp_method", "linear")),
     )
 
 
@@ -333,6 +473,7 @@ def _parse_sweep(d: dict) -> SweepConfig:
         method=str(d.get("method", "qmc_vectorized")),
         n_samples=int(d.get("n_samples", 2 ** 13)),
         seed=int(d.get("seed", 42)),
+        n_jobs=int(d.get("n_jobs", 1)),
     )
 
 
@@ -371,7 +512,14 @@ def build_system(cfg: SystemConfig):
     lin_d = dict(cfg.linear)
     lt = lin_d.pop("type", "diagonal")
     if lt == "diagonal":
-        linear = sp.DiagonalA(gamma=list(lin_d["gamma"]))
+        gamma = lin_d["gamma"]
+        # Pass callables through to DiagonalA; only flatten static lists/arrays.
+        gamma_arg = gamma if callable(gamma) else list(gamma)
+        diag_kwargs = {"gamma": gamma_arg}
+        for k in ("t_max_cache", "n_grid_cache"):
+            if k in lin_d:
+                diag_kwargs[k] = lin_d[k]
+        linear = sp.DiagonalA(**diag_kwargs)
     else:
         raise ValueError(
             f"Unsupported linear operator type {lt!r}.  "
@@ -379,7 +527,7 @@ def build_system(cfg: SystemConfig):
         )
 
     # Noise
-    noise = _build_noise(cfg.noise)
+    noise = _build_noise(cfg.noise, base_dir=cfg.base_dir)
 
     def _coupling_value(v: dict):
         c = v["coupling"]
@@ -408,7 +556,7 @@ def build_system(cfg: SystemConfig):
     )
 
 
-def _build_noise(d: dict):
+def _build_noise(d: dict, base_dir: Path | None = None):
     from . import specs as sp
 
     k2_d = dict(d["kappa2"])
@@ -421,10 +569,25 @@ def _build_noise(d: dict):
         temporal = _build_kernel(k2_d["temporal"], axis="time")
         angular = _build_kernel(k2_d["angular"], axis="angular")
         kappa2 = sp.SeparableRotation(temporal=temporal, angular=angular)
+    elif kt == "callable_module":
+        if base_dir is None:
+            raise ValueError(
+                "noise.kappa2.type='callable_module' requires base_dir; "
+                "the workflow loader should pass it through."
+            )
+        if "module" not in k2_d:
+            raise ValueError(
+                "noise.kappa2.type='callable_module' requires "
+                "'module: <relative path to .py file>'."
+            )
+        mod_path = (base_dir / k2_d.pop("module")).resolve()
+        attr = k2_d.pop("attr", "kappa2")
+        fn = _load_callable_from_module(mod_path, attr)
+        kappa2 = sp.GeneralKappa2(fn=fn)
     else:
         raise ValueError(
             f"Unsupported kappa2.type {kt!r}.  Supported: "
-            f"'separable_translation', 'separable_rotation'."
+            f"'separable_translation', 'separable_rotation', 'callable_module'."
         )
 
     sigma2 = None
@@ -492,12 +655,15 @@ def run_workflow(cfg: WorkflowConfig):
     )
 
     c_fn = _load_c_closed_form(cfg.propagators)
-    # User-supplied C_fn modules are imported via ``importlib.util``
-    # and their closures are not picklable across joblib's ``loky``
-    # workers.  The closed form is also so fast (microseconds per
-    # call vs dblquad's ~100 ms) that parallelism is pointless.
-    # Force serial in that case.
-    n_jobs = cfg.propagators.n_jobs if c_fn is None else 1
+    # User-supplied C_fn modules are loaded via
+    # :func:`_load_callable_from_module`, which registers them under
+    # their ``.py`` file's bare stem and adds the parent directory to
+    # ``sys.path`` — so the callable is importable in joblib loky
+    # subprocesses. Combined with the module-level
+    # ``_ClosedFormPropagatorCache`` class, this lets users opt into
+    # parallel C-table builds (``propagators.n_jobs: -1``) when their
+    # c_fn does heavy work per call.
+    n_jobs = cfg.propagators.n_jobs
     props = system.propagators(
         t_max=cfg.propagators.t_max,
         n_grid_t=cfg.propagators.n_grid_t,
@@ -510,7 +676,21 @@ def run_workflow(cfg: WorkflowConfig):
         n_jobs=n_jobs,
         c_closed_form=c_fn,
         cache_path=cfg.propagators.cache_path,
+        interp_method=cfg.propagators.interp_method,
     )
+
+    # Mutual-exclusion: parallelism layers cannot nest because joblib's
+    # loky backend does not support nested process pools. Higher-level
+    # ``sweep.n_jobs`` (over Cartesian-product grid points) is forwarded
+    # to ``expansion.sweep``; lower-level ``expand.n_jobs`` (over
+    # diagrams within a single grid point) is forwarded as
+    # ``evaluate_n_jobs``. The downstream :meth:`Expansion.sweep` enforces
+    # the ``exactly one of {n_jobs, evaluate_n_jobs} > 1`` invariant.
+    if int(cfg.expand.n_jobs) != 1 and int(cfg.sweep.n_jobs) != 1:
+        raise ValueError(
+            "Specify exactly one of {expand.n_jobs > 1, sweep.n_jobs > 1}; "
+            "nested joblib loky pools are not supported."
+        )
 
     sweep = expansion.sweep(
         props,
@@ -523,6 +703,8 @@ def run_workflow(cfg: WorkflowConfig):
         method=cfg.sweep.method,
         n_samples=cfg.sweep.n_samples,
         seed=cfg.sweep.seed,
+        n_jobs=cfg.sweep.n_jobs,
+        evaluate_n_jobs=cfg.expand.n_jobs,
     )
 
     totals = sweep.totals()
@@ -540,16 +722,29 @@ def _load_c_closed_form(cfg: PropagatorsConfig):
     """
     if cfg.c_closed_form_module is None:
         return None
-    path = Path(cfg.c_closed_form_module)
-    spec_obj = importlib.util.spec_from_file_location(
-        f"_sft_wick_c_{path.stem}", path,
-    )
+    path = Path(cfg.c_closed_form_module).resolve()
+
+    # Register the module under its file basename and put the parent on
+    # sys.path AND PYTHONPATH so that joblib loky workers can re-import
+    # it when receiving tasks during parallel C-table builds, integration,
+    # or sweep dispatch. See ``_load_callable_from_module`` for the same
+    # pattern applied to coupling / gamma callables.
+    parent_dir = str(path.parent)
+    if parent_dir not in sys.path:
+        sys.path.append(parent_dir)
+    pp = os.environ.get("PYTHONPATH", "")
+    pp_parts = pp.split(os.pathsep) if pp else []
+    if parent_dir not in pp_parts:
+        os.environ["PYTHONPATH"] = os.pathsep.join([parent_dir, *pp_parts])
+    module_name = path.stem
+
+    spec_obj = importlib.util.spec_from_file_location(module_name, path)
     if spec_obj is None or spec_obj.loader is None:
         raise ImportError(
             f"Cannot load c_closed_form_module {path!r}."
         )
     module = importlib.util.module_from_spec(spec_obj)
-    sys.modules[spec_obj.name] = module
+    sys.modules[module_name] = module
     spec_obj.loader.exec_module(module)
     fn = getattr(module, cfg.c_closed_form_attr, None)
     if fn is None:
@@ -557,6 +752,7 @@ def _load_c_closed_form(cfg: PropagatorsConfig):
             f"Module {path!r} has no attribute "
             f"{cfg.c_closed_form_attr!r}."
         )
+    _register_module_by_value(module)
     return fn
 
 
