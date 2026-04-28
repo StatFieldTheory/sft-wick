@@ -34,13 +34,23 @@ system:
         - [[0.0, 0.5], [0.5, 0.0]]
 
   # Non-local κ^{(3)} vertex via a user-module callable.  The
-  # workflow imports ``coupling_fn`` from ``./demo2/k3_coupling.py``
-  # and invokes it per QMC sample with the 3 ψ-leg coords.
+  # workflow imports ``coupling_fn_vectorized`` from
+  # ``./demo2/k3_coupling.py`` and -- because ``coupling_vectorized``
+  # is set -- invokes it ONCE per integrand with shape
+  # ``(3, n_samples)`` n_list / t_list arrays, returning
+  # ``(n_samples, N, N, N)``.
+  #
+  # For the per-sample contract instead (one call per QMC sample,
+  # 1-D ``n_list`` / ``t_list`` of length 3), drop
+  # ``coupling_vectorized`` and switch to ``coupling_attr:
+  # coupling_fn``. Both produce identical numerics; pick whichever
+  # fits the cost profile of your callable.
   nonlocal_vertices:
     - name: K
       order: 3
       coupling_module: ./demo2/k3_coupling.py
-      coupling_attr: coupling_fn
+      coupling_attr: coupling_fn_vectorized
+      coupling_vectorized: true
 
   noise:
     kappa2:

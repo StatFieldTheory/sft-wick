@@ -223,12 +223,14 @@ Dynamic coupling (spacetime-dependent κ^(m))
 
 For non-local vertices whose coupling tensor depends on the sample
 points, pass a callable to
-:class:`~sft_wick.workflow.NonLocalVertex`:
+:class:`~sft_wick.workflow.NonLocalVertex`. Two equivalent contracts
+are supported.
 
-.. code-block:: python
+**Per-sample contract** (default, simplest to write)::
 
    def k3_coupling(n_list, t_list):
-       """Shape (N,)*3 tensor at the three ψ-leg spacetime points."""
+       """``n_list``, ``t_list`` are length-m sequences (one entry
+       per ψ-leg).  Return a shape ``(N,)*3`` tensor."""
        ...
 
    system = sw.System(
@@ -238,10 +240,74 @@ points, pass a callable to
        ],
    )
 
-The runtime detects the callable in ``build_integrand`` and routes
-it through :class:`~sft_wick.evaluate.DynamicCouplingPromise` for
-per-sample materialisation inside the QMC loop.  If no callable is
-passed, the static fast path is used automatically.
+The runtime calls ``k3_coupling`` once per QMC sample.
+
+**Vectorised contract** (opt-in, fast for heavy callables)::
+
+   def k3_coupling(n_2d, t_2d):
+       """``n_2d``, ``t_2d`` are shape ``(m, n_samples)`` arrays.
+       Return a tensor of shape ``(n_samples,) + (N,)*3``."""
+       ...
+
+   sw.NonLocalVertex(
+       "K", order=3, coupling=k3_coupling, coupling_vectorized=True,
+   )
+
+The runtime calls ``k3_coupling`` exactly once per integrand,
+amortising the callable's overhead across all samples. This is the
+right form when the function does heavy work that vectorises well
+(special functions, ufuncs, BLAS).  For cheap functions
+(`numpy.exp` of a few scalars) the per-sample contract has lower
+total overhead.
+
+The static fast path is used automatically when no callable is
+passed.  Both dynamic contracts route through
+:class:`~sft_wick.evaluate.DynamicCouplingPromise.evaluate_at_batch`,
+which dispatches per-symbol based on the ``vectorized`` flag --
+mixing both contracts on different symbols within the same diagram
+is supported.
+
+.. note::
+
+   Spacetime-dependent callables currently support only **scalar**
+   leg positions (1-D translation, or sphere-direction unit vectors
+   reduced to ``cos θ``).  d-dim vector positions on the legs raise
+   ``NotImplementedError`` from inside the dynamic-coupling QMC
+   path; use a constant-tensor coupling for that vertex if you need
+   d-dim spatial coordinates.
+
+d-dim spatial coordinates
+-------------------------
+
+Static (constant-tensor) couplings combined with translation- or
+rotation-invariant noise accept arbitrary-dimensional position
+vectors:
+
+.. code-block:: python
+
+   r = 0.7
+   exp.evaluate(
+       props,
+       positions={
+           "x": np.array([0.0, 0.0, 0.0]),
+           "y": np.array([r, 0.0, 0.0]),
+       },
+       t_final=1.0,
+       component_pair=(0, 0),
+       orders=[0, 2],
+       integrate_over="all",
+   )
+
+* **translation**: the wrapper reduces the input to ``r = ||x1 -
+  x2||`` (Euclidean norm), so the cache shape stays
+  ``(t1, t2, r)`` -- 3-D regardless of the ambient dimension.
+* **rotation**: ``_rotation_cos(n1, n2)`` works on unit vectors of
+  any dimension (it only uses ``np.dot`` and ``np.linalg.norm``).
+* **general**: lazy mode supports d-dim via dict-keyed memoisation
+  (one 2-D ``(t1, t2)`` spline per distinct ``(x1, x2)`` pair). The
+  full-grid path raises ``NotImplementedError`` because a d-dim grid
+  would inflate the spline to ``(2 + 2d)``-D, with ``n_grid_x **
+  (2d)`` build calls.
 
 YAML schema reference (L2 details)
 ----------------------------------
@@ -292,7 +358,12 @@ Hooks for user Python code (without editing the CLI):
 - ``nonlocal_vertices[].coupling_module`` +
   ``nonlocal_vertices[].coupling_attr`` — dotted path to a
   dynamic-coupling ``fn(n_list, t_list) → tensor`` callable
-  (e.g. demo2's ``κ^{(3)}``).
+  (e.g. demo2's ``κ^{(3)}``).  Add
+  ``nonlocal_vertices[].coupling_vectorized: true`` to opt the
+  callable into the batched contract
+  (``fn(n_2d, t_2d) → (n_samples, ...)``) -- a single call per
+  integrand instead of one per QMC sample, useful for heavy
+  callables.
 - ``system.linear.gamma_module`` — dotted path to a callable
   ``γ(t) → array(N)`` for time-dependent linear drift.
 - ``noise.kappa2.type: callable_module`` — dotted path to a
