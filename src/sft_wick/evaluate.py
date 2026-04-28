@@ -301,7 +301,11 @@ class _LazyTimeSplineCache:
         the key is derived from the parameter (r or cos); in general
         mode it's the (x1, x2) tuple pair."""
         if self.mode == "translation":
-            r = float(np.abs(np.asarray(x1_val) - np.asarray(x2_val)))
+            # Translation invariance: C depends only on ``||x1 - x2||``.
+            # Accept scalar or arbitrary-dimensional vector inputs;
+            # the cache shape stays (t1, t2, r) regardless of d.
+            diff = np.asarray(x1_val, dtype=float) - np.asarray(x2_val, dtype=float)
+            r = float(abs(diff)) if diff.ndim == 0 else float(np.linalg.norm(diff))
             return ("r", round(r, self.round_decimals))
         if self.mode == "rotation":
             cos_val = _rotation_cos(x1_val, x2_val)
@@ -1285,6 +1289,22 @@ class PropagatorCache:
 
         # homogeneity == "general"
         if self._c_general_interpolators is not None:
+            # Full-grid general mode is built over a 1-D x axis
+            # (precompute_C_table_general uses ``np.linspace(-x_max,
+            # x_max, n_grid_x)``). Extending the grid to d dimensions
+            # would yield a (2 + 2d)-D spline whose build cost scales
+            # as ``n_grid_x ** (2d)`` -- exponentially expensive even
+            # for d=2. Reject vector inputs in full-grid mode and
+            # direct the user to lazy mode, which already supports
+            # d-dim via dict-keyed memoisation.
+            if x1_b.ndim > 1 or x2_b.ndim > 1:
+                raise NotImplementedError(
+                    "general-mode full-grid C tables only support "
+                    "scalar (1-D) spatial coordinates because the "
+                    "spline grid scales as n_grid_x**(2d). Use lazy "
+                    "mode (omit x_max / n_grid_x in "
+                    "precompute_C_table_general) for d-dim inputs."
+                )
             pts = np.stack([t1, t2, x1_b, x2_b], axis=-1)
             result = np.empty((n, N))
             for a, itp in enumerate(self._c_general_interpolators):
@@ -1399,6 +1419,127 @@ class DynamicCouplingPromise:
         return self.diagram_term.evaluate_coupling(
             sample_cv, self.fixed_indices,
         )
+
+    def evaluate_at_batch(
+        self,
+        label_t: dict,
+        label_x: dict,
+        n_samples: int,
+    ) -> np.ndarray:
+        """Vectorised batch evaluator -- returns a ``(n_samples,)``
+        complex array of the contracted scalar coupling per sample.
+
+        ``label_t`` and ``label_x`` map every spatial label appearing
+        in any dynamic symbol's legs to a ``(n_samples,)`` time
+        array / scalar-or-``(n_samples,)`` position respectively.
+
+        Per-symbol fast path: when the user marks a callable
+        ``vectorized=True`` (e.g. via
+        :class:`~sft_wick.workflow.specs.NonLocalVertex(coupling_vectorized=True)`
+        or by setting ``fn.vectorized = True``), the wrapped
+        callable receives ``(m_legs, n_samples)`` arrays in a single
+        call and returns a tensor of shape
+        ``(n_samples,) + (N,)*order``. Otherwise we fall back to the
+        ``n_samples`` per-sample calls of :meth:`evaluate_at`.
+
+        Either way, we still loop in Python over ``n_samples`` to
+        contract each sample's tensor down to a scalar via
+        :meth:`DiagramTerm.evaluate_coupling`. Vectorising the
+        contraction itself across a sample axis is the deferred
+        prop-indexed-dynamic refactor and is not done here.
+
+        Raises ``NotImplementedError`` if any sample's contracted
+        coupling is not scalar (the prop-indexed case locked by
+        ``DC1`` in ``tests/test_dynamic_coupling.py``).
+        """
+        # Pre-build (m, n_samples) leg arrays once per symbol, so the
+        # per-sample loop only does scalar slicing.
+        per_symbol_legs: dict = {}
+        for name in self.dynamic_values:
+            legs = self.spatial_args_by_name[name]
+            t_2d = np.stack(
+                [np.asarray(label_t[s], dtype=float) for s in legs],
+                axis=0,
+            )  # shape (m, n_samples)
+            leg_x_arrs = []
+            for s in legs:
+                x_val = np.asarray(label_x[s], dtype=float)
+                # The dynamic-coupling QMC path is currently
+                # scalar-position-only. d-dim positions pass through
+                # the static / non-dynamic path (homogeneity-aware
+                # ``C_at_batch``) just fine -- only the user fn
+                # contract here insists on scalar legs. If you need
+                # vector positions plus a callable kappa^(m), wait
+                # for the deferred dynamic-d-dim work or supply a
+                # vectorized callable that pre-broadcasts the legs
+                # itself.
+                if x_val.ndim != 0:
+                    raise NotImplementedError(
+                        f"d-dim spatial positions not supported in "
+                        f"the dynamic-coupling QMC path: symbol "
+                        f"{name!r} leg at label {s!r} has position "
+                        f"shape {x_val.shape}. Use scalar positions "
+                        f"or a constant-tensor coupling for this "
+                        f"vertex."
+                    )
+                leg_x_arrs.append(np.full((n_samples,), float(x_val)))
+            n_arr = np.stack(leg_x_arrs, axis=0)  # shape (m, n_samples)
+            per_symbol_legs[name] = (n_arr, t_2d)
+
+        # Vectorised symbols: single fn call yields per-sample tensor
+        # stack of shape (n_samples, *kappa_shape). For the rest, we
+        # fall back to the per-sample call inside the loop.
+        per_sample_tensors: dict = {}
+        for name, fn in self.dynamic_values.items():
+            if getattr(fn, "vectorized", False):
+                n_arr, t_2d = per_symbol_legs[name]
+                stacked = np.asarray(fn(n_arr, t_2d))
+                if stacked.shape[0] != n_samples:
+                    raise ValueError(
+                        f"vectorized callable {name!r} returned shape "
+                        f"{stacked.shape}; expected leading axis of "
+                        f"length n_samples={n_samples}."
+                    )
+                per_sample_tensors[name] = stacked
+
+        # Probe shape on sample 0 for an early NotImplementedError on
+        # prop-indexed dynamic. Mirrors the per-sample loop in
+        # ``integrate_moment_qmc_vectorized`` -- callers rely on this
+        # raise to signal "use a static coupling tensor instead".
+        sample_cv0 = dict(self.static_values)
+        for name, fn in self.dynamic_values.items():
+            if name in per_sample_tensors:
+                sample_cv0[name] = per_sample_tensors[name][0]
+            else:
+                n_arr, t_2d = per_symbol_legs[name]
+                sample_cv0[name] = np.asarray(fn(n_arr[:, 0], t_2d[:, 0]))
+        coup0 = self.diagram_term.evaluate_coupling(
+            sample_cv0, self.fixed_indices,
+        )
+        if coup0.ndim != 0:
+            raise NotImplementedError(
+                "Dynamic coupling with propagator-indexed "
+                "contraction is not yet supported.  Either "
+                "use a spacetime-constant coupling tensor, or "
+                "provide a fully contracted scalar callable."
+            )
+
+        couplings = np.empty(n_samples, dtype=complex)
+        couplings[0] = complex(coup0)
+        for s in range(1, n_samples):
+            sample_cv = dict(self.static_values)
+            for name, fn in self.dynamic_values.items():
+                if name in per_sample_tensors:
+                    sample_cv[name] = per_sample_tensors[name][s]
+                else:
+                    n_arr, t_2d = per_symbol_legs[name]
+                    sample_cv[name] = np.asarray(fn(n_arr[:, s], t_2d[:, s]))
+            couplings[s] = complex(
+                self.diagram_term.evaluate_coupling(
+                    sample_cv, self.fixed_indices,
+                )
+            )
+        return couplings
 
 
 @dataclass(frozen=True)
@@ -1640,9 +1781,9 @@ class DiagramIntegrand:
     @staticmethod
     def _resolve_group_x(
         spatial: "SpatialStructure",
-        positions: dict[str, float] | None,
+        positions: dict[str, Any] | None,
         default: Any,
-    ) -> dict[str, float]:
+    ) -> dict[str, Any]:
         """Map each direction group (by its direction-variable name) to
         a single spatial coordinate.
 
@@ -1657,11 +1798,16 @@ class DiagramIntegrand:
         x-value when the cache has a spatial table built (of any
         homogeneity kind).
 
-        # TODO(d-dim): generalise ``default`` / positions values from
-        # scalar floats to np.ndarray shape (d,).
+        ``positions`` values may be scalars (1-D / legacy) or
+        arbitrary-dimensional vectors. The ``default`` likewise may
+        be a scalar or a vector. The returned dict preserves whatever
+        shape the user passed -- downstream
+        ``PropagatorCache.C_at_batch`` and the spatial Kappa2
+        wrappers (``_SeparableTranslationKappa2``, ``_rotation_cos``,
+        ...) all accept either form.
         """
         positions = positions or {}
-        group_x: dict[str, float] = {}
+        group_x: dict[str, Any] = {}
         for group in spatial.direction_groups:
             dvar_sample = spatial.direction_map[next(iter(group))]
             x_val: Any = default
@@ -2161,74 +2307,71 @@ class DiagramIntegrand:
             # Triggered when any coupling_value passed to
             # ``build_integrand`` was callable (e.g. a
             # spacetime-dependent non-local vertex like demo2's
-            # ``κ^{(3)}``).  The per-sample cost is one callable
-            # invocation per dynamic symbol × the cheap
+            # ``κ^{(3)}``).  Per-sample cost is one callable
+            # invocation per dynamic symbol × one cheap
             # :meth:`DiagramTerm.evaluate_coupling` substitution.
             #
-            # Numerics: we reuse the vectorised ``r_product`` (done
-            # above) and compute the C product per-sample in a tight
-            # loop, multiplying in the sample-specific coupling
-            # scalar / array from
-            # :meth:`DynamicCouplingPromise.evaluate_at`.
+            # Vectorisation strategy:
+            # * ``r_product`` is already (n_samples,)-batched above.
+            # * ``c_product`` is hoisted out of the per-sample loop
+            #   and computed via batched ``C_at_batch`` calls in
+            #   parity with the static scalar path below (line ~2235).
+            # * Per-symbol ``label_t`` / ``label_x`` arrays are built
+            #   ONCE so the inner loop only does scalar slicing.
+            # * If all active dynamic symbols set
+            #   ``vectorized=True``, ``DynamicCouplingPromise``
+            #   collects (n_samples,) coupling values in a single
+            #   call instead of n_samples calls; otherwise we fall
+            #   through to the per-sample loop.
             all_spatial_labels = set(spatial.direction_map.keys())
-            values = np.zeros(n_samples)
             _promise = self.dynamic_coupling
-            for s in range(n_samples):
-                # Build per-sample (times, positions) dicts spanning
-                # every spatial label any dynamic symbol's legs
-                # might reference.
-                times_s = {lab: _times(lab)[s] for lab in all_spatial_labels}
-                if spatial_aware:
-                    positions_s = {
-                        lab: group_x[spatial.direction_map[lab]]  # type: ignore[index]
-                        for lab in all_spatial_labels
-                    }
-                else:
-                    positions_s = {lab: float(direction)
-                                   for lab in all_spatial_labels}
 
-                sample_coupling = _promise.evaluate_at(
-                    times_s, positions_s,
+            # --- A: hoist C-propagator lookup out of per-sample loop. ---
+            c_product = np.ones(n_samples)
+            for sp_l, sp_r, il, ir in spatial.c_propagators:
+                t_l = _times(sp_l)
+                t_r = _times(sp_r)
+                C_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
+                a_i = (
+                    DiagramIntegrand._resolve_component(il, fi)
+                    if il is not None else None
                 )
-
-                # Contract C propagators at this sample
-                c_val_s = 1.0
-                for sp_l, sp_r, il, ir in spatial.c_propagators:
-                    t_l = _times(sp_l)[s:s+1]
-                    t_r = _times(sp_r)[s:s+1]
-                    C_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
-                    if il is not None and ir is not None:
-                        a_i = DiagramIntegrand._resolve_component(il, fi)
-                        b_i = DiagramIntegrand._resolve_component(ir, fi)
-                        if a_i is not None and b_i is not None:
-                            c_val_s *= float(C_batch[0, a_i])
-                        else:
-                            c_val_s *= float(C_batch[0].sum())
-                    else:
-                        c_val_s *= float(C_batch[0].sum())
-
-                # sample_coupling shape: (N,)*len(prop_idx) for
-                # prop-indexed diagrams, or 0-d scalar for scalar
-                # coupling.  Demo2 FK is scalar (iso_R + no C legs).
-                if sample_coupling.ndim == 0:
-                    values[s] = (
-                        float(sample_coupling.real)
-                        * float(r_product[s])
-                        * c_val_s
-                        * float(jacobians[s])
-                    )
+                b_i = (
+                    DiagramIntegrand._resolve_component(ir, fi)
+                    if ir is not None else None
+                )
+                if a_i is not None and b_i is not None:
+                    c_product *= C_batch[:, a_i]
                 else:
-                    # Prop-indexed dynamic: sum over all index
-                    # combinations, with C scaling folded in per-index
-                    # via the static loop above (future enhancement).
-                    # For v1 we support scalar coupling only — raise if
-                    # a user hits this path.
-                    raise NotImplementedError(
-                        "Dynamic coupling with propagator-indexed "
-                        "contraction is not yet supported.  Either "
-                        "use a spacetime-constant coupling tensor, or "
-                        "provide a fully contracted scalar callable."
-                    )
+                    c_product *= C_batch.sum(axis=1)
+
+            # --- B: pre-build per-symbol-leg time / position arrays. ---
+            label_t = {lab: _times(lab) for lab in all_spatial_labels}
+            if spatial_aware:
+                # group_x is computed above (line ~2146) when the
+                # cache is spatial-aware; reuse it.
+                label_x = {
+                    lab: group_x[spatial.direction_map[lab]]  # type: ignore[index]
+                    for lab in all_spatial_labels
+                }
+            else:
+                label_x = {
+                    lab: float(direction)
+                    for lab in all_spatial_labels
+                }
+
+            couplings = _promise.evaluate_at_batch(
+                label_t=label_t,
+                label_x=label_x,
+                n_samples=n_samples,
+            )
+            # ``couplings`` is a (n_samples,) complex/float array of
+            # the contracted scalar coupling at each sample. The
+            # NotImplementedError for prop-indexed dynamic is raised
+            # inside ``evaluate_at_batch``.
+            values = (
+                couplings.real * r_product * c_product * jacobians
+            )
 
         elif not prop_idx:
             # Scalar coupling path (iso_R + iso_C or no prop indices)
