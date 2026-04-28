@@ -220,7 +220,17 @@ class _ClosedFormPropagatorCache(PropagatorCache):
         self._c_fn = c_fn
 
     def _C_value_direct(self, n1, t1, n2, t2):
-        return np.asarray(self._c_fn(n1, t1, n2, t2))
+        arr = np.asarray(self._c_fn(n1, t1, n2, t2))
+        # When the user supplies a vectorised c_fn (returns
+        # (n, N, N)) but a legacy single-point caller hands in
+        # scalar t1/t2, the result is a 3-D array with a length-1
+        # leading axis. Squeeze it so callers expecting the
+        # legacy ``(N, N)`` matrix shape still work -- in
+        # particular the order-0 single-point ``evaluate`` path,
+        # which the no-spline route still goes through.
+        if arr.ndim == 3 and arr.shape[0] == 1:
+            return arr[0]
+        return arr
 
 
 def _minimal_propagator_spec(system) -> Any:

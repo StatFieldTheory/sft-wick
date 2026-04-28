@@ -1,0 +1,122 @@
+# L2 reproduction of demo1/analysis.ipynb perturbative xi_ab(r, t).
+#
+# The notebook computes xi_ab at:
+#   * r=0.5, t in logspace(0.1, 100, 25)         (Figure 1)
+#   * r in linspace(0, 2.5, 11), t in {1, 15, 30}  (Figure 2)
+#   * r=0.4, t=3                                  (Figure 3)
+#
+# This sweep covers the union of all those (r, t) pairs in one
+# pass.  The reproduce_figures.py script slices the resulting
+# totals DataFrame to rebuild each figure with the same plot
+# setup as the notebook.
+
+system:
+  field: {name: phi, n_components: 2}
+  linear: {type: diagonal, gamma: [1.0, 1.0]}
+
+  vertices:
+    - name: F
+      coupling:
+        # F[0, 1, 1] = 1.0; F[1, 0, 1] = 0.5; F[1, 1, 0] = 0.5
+        - [[0.0, 0.0], [0.0, 1.0]]
+        - [[0.0, 0.5], [0.5, 0.0]]
+
+  noise:
+    kappa2:
+      type: separable_translation
+      temporal: {type: exponential, lam: 0.05, sigma_t: 0.3}
+      spatial:  {type: exponential, sigma_x: 1.0}
+    sigma2: null
+
+expand:
+  observable: ["phi_a(x)", "phi_b(y)"]
+  orders: [0, 2, 4]
+
+propagators:
+  t_max: 100.0
+  # n_grid_t is unused under c_closed_form_only=true (no spline is
+  # built), but it still parameterises the unused legacy paths.
+  n_grid_t: 60
+  c_closed_form_module: ../c_closed_form.py
+  # Use the vectorised C_fn_vec form -- single ufunc call per
+  # integrand instead of n_samples Python calls.
+  c_closed_form_attr: C_fn_vec
+  # No-spline path: ``cache.C_at_batch`` calls C_fn_vec directly
+  # for every QMC sample. This gives machine-precision agreement
+  # with the analytical C (no spline truncation error), matching
+  # what ``analysis.ipynb``'s ``AnalyticalCache.C_diagonal_batch``
+  # does. The OU kernel has sigma_t = 0.3, so a spline-based path
+  # would need n_grid_t >> 100/sigma_t = ~333 to bring the
+  # interpolation error below the 100K-realisation MC noise floor.
+  # Skipping the spline entirely is both more accurate AND faster
+  # for this kernel.
+  c_closed_form_only: true
+  c_closed_form_vectorized: true
+
+sweep:
+  # ``integrate_over: null`` (the default) is the equal-time
+  # correlator ``<phi(t_f) phi(t_f)>`` -- external x, y points
+  # are pinned to ``t_final``, internal vertices are integrated
+  # over [0, t_f]. This matches the notebook's
+  # ``integrate_two_point_qmc(... t_f=...)`` semantics; the
+  # alternative ``integrate_over: all`` integrates externals too
+  # and gives the line-of-sight moment, which the simulation
+  # data does NOT compare against.
+  integrate_over: null
+
+  positions_grid:
+    x: [0.0]
+    # Union of all r-values needed by the three figures.
+    y:
+      [0.0, 0.25, 0.4, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5]
+
+  # Union of all t-values needed: 25 log-spaced points 0.1->100
+  # (np.logspace(log10(0.1), log10(100), 25)) plus the discrete
+  # points 1.0, 3.0, 15.0, 30.0 from Figs 2/3 (1.0 already on the
+  # log grid; 3.0/15.0/30.0 are extras). 28 unique values total.
+  t_final_grid:
+    [0.1, 0.1333521432163324, 0.1778279410038923,
+     0.23713737056616552, 0.31622776601683794, 0.4216965034285822,
+     0.5623413251903491, 0.7498942093324559, 1.0,
+     1.333521432163324, 1.7782794100389228, 2.371373705661655,
+     3.0, 3.1622776601683795, 4.216965034285822,
+     5.623413251903491, 7.498942093324558, 10.0,
+     13.33521432163324, 15.0, 17.78279410038923,
+     23.71373705661655, 30.0, 31.622776601683793,
+     42.169650342858226, 56.23413251903491, 74.98942093324558,
+     100.0]
+
+  component_pairs: [[0, 0], [1, 1]]
+  orders: [0, 2, 4]
+  method: qmc_vectorized
+  n_samples: 32768  # 2^15 — matches the notebook's ns=2**15
+  seed: 42
+
+  # Parallelism: this sweep has ~12 r × ~28 t × 2 component pairs
+  # = 672 grid points, each with 1 + 4 + 43 = 48 diagrams. The
+  # largest-granularity parallelism is the sweep grid itself --
+  # ``sweep.n_jobs: -1`` farms grid points out to all available
+  # CPU cores via joblib's loky backend, while the QMC sampling
+  # inside each call stays vectorised on a single core.
+  #
+  # ``expand.n_jobs`` (per-diagram parallelism inside each grid
+  # point) is mutually exclusive with ``sweep.n_jobs`` because
+  # joblib loky cannot nest pools; the L2 layer raises a clear
+  # error if both are > 1. For this sweep, grid-level parallelism
+  # is the better choice because the grid is much larger than the
+  # diagram count per point.
+  #
+  # IMPORTANT: when ``n_jobs > 1`` here, also cap BLAS threads to
+  # 1 in the shell so multi-threaded BLAS doesn't multiply by the
+  # process count and oversubscribe the cores::
+  #
+  #     export OPENBLAS_NUM_THREADS=1
+  #     export MKL_NUM_THREADS=1
+  #     export OMP_NUM_THREADS=1
+  #
+  # See ``docs/user_guide/parallelism.rst`` for the full story.
+  n_jobs: -1
+
+# No output plugins -- the reproduction script consumes the
+# in-memory SweepResult directly.
+output: []
