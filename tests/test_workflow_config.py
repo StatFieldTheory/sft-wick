@@ -899,3 +899,57 @@ def test_CF14_vectorized_without_only_raises(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="c_closed_form_vectorized"):
         run_workflow(cfg)
 
+
+
+def test_CF15_yaml_sigma2_callable_module_loads_and_runs(tmp_path: Path) -> None:
+    """Regression: ``noise.sigma2.type='callable_module'`` was not
+    supported in YAML — only ``'constant'`` was parsed; users with a
+    spacetime-varying sigma2 had to drop to L1 Python.
+
+    Post-fix: mirrors the existing ``noise.kappa2.type='callable_module'``
+    pattern.  Loads the user's ``sigma2(n1, t, n2) -> (N, N)`` callable
+    via ``CustomImpulse`` (already present in specs.py) and runs the full
+    workflow end-to-end.
+    """
+    # ``_stage_closed_form`` autouse fixture already drops the demo1
+    # closed-form C module into tmp_path before this test runs.
+    # Write a tiny user sigma2 module: returns lam * I_N (so the impulse
+    # adds a small, easily-checked positive contribution to C at order 0).
+    (tmp_path / "tmp_sigma2.py").write_text(textwrap.dedent("""
+        import numpy as np
+
+        def sigma2(n1, lam, n2):
+            del n1, n2  # direction-independent for this minimal test
+            N = 2
+            return float(lam) * 1e-3 * np.eye(N)
+    """))
+
+    cfg_yaml = yaml.safe_load(_DEMO1_YAML)
+    # Inject sigma2 into the demo1 noise block.
+    cfg_yaml["system"]["noise"]["sigma2"] = {
+        "type": "callable_module",
+        "module": "./tmp_sigma2.py",
+        "attr": "sigma2",
+    }
+    (tmp_path / "c.yaml").write_text(yaml.safe_dump(cfg_yaml))
+
+    # Build the noise spec directly to confirm wiring (the parsed
+    # SystemConfig keeps ``noise`` as the raw YAML dict; it's built
+    # into a GaussianNoise inside ``run_workflow``).
+    from sft_wick.workflow import specs as sp
+    from sft_wick.workflow.config import _build_noise
+    noise_spec = _build_noise(
+        cfg_yaml["system"]["noise"], base_dir=tmp_path,
+    )
+    assert isinstance(noise_spec.sigma2, sp.CustomImpulse)
+    # The wrapped callable must produce a (2, 2) matrix and scale with lam.
+    out_at_lam_1 = noise_spec.sigma2.fn(0.0, 1.0, 0.0)
+    out_at_lam_2 = noise_spec.sigma2.fn(0.0, 2.0, 0.0)
+    assert out_at_lam_1.shape == (2, 2)
+    np.testing.assert_allclose(out_at_lam_2, 2.0 * out_at_lam_1, rtol=1e-12)
+
+    # End-to-end run must succeed (no raise) and return finite totals.
+    cfg = load_workflow_config(tmp_path / "c.yaml")
+    sweep, totals = run_workflow(cfg)
+    assert len(totals) > 0
+    assert np.all(np.isfinite(totals["value"].to_numpy()))

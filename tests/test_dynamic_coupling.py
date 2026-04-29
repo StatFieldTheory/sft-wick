@@ -410,3 +410,111 @@ def test_WF7_vectorized_callable_matches_per_sample() -> None:
             f"path for heavy callables."
         ),
     )
+
+
+# =====================================================================
+# WF8 -- d-dim (vector) positions through the dynamic-coupling promise
+# =====================================================================
+
+
+def _make_kappa3_system_with_K_handling_vector(N: int = 2):
+    """A System whose K-callable accepts BOTH scalar and vector
+    per-leg position shapes.  Used by WF8 to verify the d-dim path
+    on both ``method='qmc_vectorized'`` and ``method='gauss_legendre'``.
+    """
+    F = np.zeros((N, N, N))
+    F[0, 1, 1] = 1.0
+    F[1, 0, 1] = 0.5
+    F[1, 1, 0] = 0.5
+
+    K_const = np.zeros((N, N, N))
+    K_const[0, 0, 0] = 0.3
+    K_const[1, 1, 1] = 0.5
+
+    def K_callable(n_list, t_list):
+        n = np.asarray(n_list, dtype=float)
+        t = np.asarray(t_list, dtype=float)
+        # For scalar per-leg positions: n.shape == (m,).
+        # For d-dim per-leg positions: n.shape == (m, d).  Reduce
+        # the d-dim case to scalar by taking the leg-norm so the
+        # callable produces a finite real envelope in either case.
+        if n.ndim == 2:
+            n_scalar = np.linalg.norm(n, axis=-1)
+        else:
+            n_scalar = n
+        envelope = float(
+            np.exp(-abs(t[0] - t[1])) * np.exp(-abs(n_scalar[0] - n_scalar[2]))
+        )
+        return envelope * K_const
+
+    return sw.System(
+        field=sw.FieldSpec("phi", n_components=N),
+        linear=sw.DiagonalA(gamma=[1.0] * N),
+        vertices=[sw.LocalVertex("F", coupling=F)],
+        nonlocal_vertices=[
+            sw.NonLocalVertex("K", order=3, coupling=K_callable),
+        ],
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.ExponentialTemporal(lam=0.05, sigma_t=0.3),
+                spatial=sw.ExponentialSpatial(sigma_x=1.0),
+            ),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    "method,kw",
+    [
+        ("qmc_vectorized", {"n_samples": 2 ** 10, "seed": 20260429}),
+        ("gauss_legendre", {"n_gauss": 4}),
+    ],
+)
+def test_WF8_dynamic_kappa3_with_3d_positions(method, kw):
+    """Lift of the d-dim rejection in
+    ``DynamicCouplingPromise.evaluate_at_batch`` (originally
+    raised ``NotImplementedError("d-dim spatial positions not
+    supported... K3 leg at label 'y_1' has position shape (3,)")``).
+
+    Pre-fix: passing 3-D vector positions to a system that uses a
+    callable kappa^(3) raised on both batch integrators (qmc_vectorized
+    and gauss_legendre, both call into the same promise).
+
+    Post-fix: the per-symbol broadcast path forwards vector positions
+    as-is; the user callable sees per-leg slices of shape ``(m, d)``
+    and is expected to handle them.
+
+    Locks: the integration runs to completion and returns a finite
+    nontrivial value on both batch integrators.
+    """
+    system = _make_kappa3_system_with_K_handling_vector()
+    expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=[2])
+    props = system.propagators(
+        t_max=2.0, n_grid_t=20,
+        c_closed_form=_load_demo1_C_fn(),
+        c_closed_form_only=True,
+        c_closed_form_vectorized=True,
+    )
+
+    result = expansion.evaluate(
+        props,
+        positions={
+            "x": np.array([0.0, 0.0, 0.0]),   # 3-D: triggers the rejection pre-fix
+            "y": np.array([0.5, 0.0, 0.0]),
+        },
+        t_final=2.0,
+        component_pair=(0, 1),
+        orders=[2],
+        vertex_types={"FK"},
+        method=method,
+        **kw,
+    )
+
+    assert np.isfinite(result.total), (
+        f"non-finite total {result.total!r} from method={method!r} "
+        f"with 3-D vector positions"
+    )
+    assert abs(result.total) > 1e-15, (
+        f"trivially-zero total {result.total!r} from method={method!r}; "
+        f"the K-callable should give a nontrivial envelope at this grid"
+    )
