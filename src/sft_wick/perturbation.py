@@ -16,6 +16,7 @@ from .action import Action
 from .expressions import (
     ZERO,
     Expr,
+    ImaginaryUnit,
     IntegralOver,
     KroneckerDelta,
     Product,
@@ -353,6 +354,102 @@ class DiagramTerm:
                         **{name: v for (name, _), v in zip(prop_idx, pidx)}}
             result[pidx] = _sum_coupling(prop_map)
         return pref * result
+
+    def evaluate_coupling_batched(
+        self,
+        coupling_values_batched: dict,
+        n_samples: int,
+        fixed_indices: dict[str, int] | None = None,
+    ) -> "numpy.ndarray":
+        """Vectorised counterpart of :meth:`evaluate_coupling`.
+
+        Same contract as :meth:`evaluate_coupling`, but every per-sample
+        ``Symbol`` value carries a leading sample axis of length
+        ``n_samples``.  Returns an array whose shape is
+        ``(n_samples,) + prop_shape`` (or just ``(n_samples,)`` when
+        there are no propagator indices).
+
+        Args:
+            coupling_values_batched: ``{name: ndarray}`` -- arrays may
+                be either ``(n_samples, *kappa_shape)`` (dynamic /
+                per-sample) or ``(*kappa_shape,)`` (static, broadcast
+                across the sample axis).
+            n_samples: Length of the sample axis.
+            fixed_indices: Optional ``{index_name: int_value}`` for
+                indices pinned by external constraints (e.g. observable
+                component indices like ``{'a': 0}``).
+
+        Returns:
+            Complex / float array.  When this :class:`DiagramTerm` has
+            propagator indices, the returned shape is
+            ``(n_samples,) + prop_shape``.  Otherwise it is
+            ``(n_samples,)``.
+
+        Raises:
+            NotImplementedError: If the symbolic ``coupling_sum``
+                contains a node type the batched evaluator cannot
+                handle.  Callers MUST catch this and fall back to a
+                per-sample loop over :meth:`evaluate_coupling`.
+        """
+        phase = self.response_phase_factor()  # (-i)^n_response
+        pref = phase * (
+            self.rational_prefactor.numerator / self.rational_prefactor.denominator
+        )
+        base_map: dict[str, int] = dict(fixed_indices) if fixed_indices else {}
+
+        # Decide an output dtype: complex iff phase is imaginary or any
+        # supplied array is complex.
+        is_complex = isinstance(pref, complex) or any(
+            np.iscomplexobj(v) for v in coupling_values_batched.values()
+        )
+        dtype = complex if is_complex else float
+
+        prop_idx = self.propagator_indices
+        coup_idx = self.coupling_only_indices
+        prop_shape = tuple(dim for _, dim in prop_idx)
+        coup_shape = tuple(dim for _, dim in coup_idx)
+
+        def _sum_coupling_batched(prop_map: dict[str, int]) -> np.ndarray:
+            """Evaluate ``coupling_sum`` for a fixed ``prop_map``,
+            summing over the coupling-only indices.  Returns
+            ``(n_samples,)``."""
+            if not coup_idx:
+                val = _eval_symbolic_batched(
+                    self.coupling_sum,
+                    coupling_values_batched,
+                    prop_map,
+                    n_samples,
+                )
+                return np.broadcast_to(
+                    np.asarray(val, dtype=dtype), (n_samples,)
+                ).astype(dtype, copy=False)
+            total = np.zeros(n_samples, dtype=dtype)
+            for cidx in np.ndindex(*coup_shape):
+                index_map = {
+                    **prop_map,
+                    **{name: v for (name, _), v in zip(coup_idx, cidx)},
+                }
+                val = _eval_symbolic_batched(
+                    self.coupling_sum,
+                    coupling_values_batched,
+                    index_map,
+                    n_samples,
+                )
+                total = total + np.asarray(val, dtype=dtype)
+            return total
+
+        if not prop_idx:
+            val = _sum_coupling_batched(base_map)
+            return (pref * val).astype(dtype, copy=False)
+
+        result = np.zeros((n_samples,) + prop_shape, dtype=dtype)
+        for pidx in np.ndindex(*prop_shape):
+            prop_map = {
+                **base_map,
+                **{name: v for (name, _), v in zip(prop_idx, pidx)},
+            }
+            result[(slice(None),) + pidx] = _sum_coupling_batched(prop_map)
+        return (pref * result).astype(dtype, copy=False)
 
     def apply_diagonal(
         self,
@@ -1762,7 +1859,127 @@ def _eval_symbolic(
                     f"fixed_indices argument of evaluate_coupling()."
                 ) from None
         return 1.0 if _resolve(expr.index1) == _resolve(expr.index2) else 0.0
+    if isinstance(expr, ImaginaryUnit):
+        return 1j
     raise TypeError(f"Cannot numerically evaluate {type(expr).__name__}")
+
+
+def _eval_symbolic_batched(
+    expr: Expr,
+    symbol_values_batched: dict,
+    index_map: dict[str, int],
+    n_samples: int,
+) -> "numpy.ndarray":
+    """Vectorised counterpart of :func:`_eval_symbolic`.
+
+    Walks the symbolic expression tree once and returns an array of
+    shape ``(n_samples,)`` instead of a scalar.  ``Symbol`` values in
+    ``symbol_values_batched`` may carry a leading sample axis (so the
+    array shape is ``(n_samples,) + (N,) * rank``); static (non-batched)
+    arrays of shape ``(N,) * rank`` are also accepted and broadcast
+    automatically.  All other node types collapse to scalars and are
+    promoted to ``(n_samples,)`` only when the parent ``Product`` /
+    ``Sum`` mixes them with a batched child.
+
+    For node types that cannot be cheaply vectorised
+    (``Propagator``, ``IntegralOver``, ``SumOverIndex``, ``DiracDelta``)
+    a :class:`NotImplementedError` is raised so the caller can fall back
+    to the scalar per-sample loop.  These nodes never appear in the
+    ``coupling_sum`` of a :class:`DiagramTerm` (couplings are strictly
+    products / sums of ``Symbol``, ``KroneckerDelta``, ``Rational`` and
+    ``ImaginaryUnit`` after :func:`apply_response_phase`), so the
+    fallback only triggers for unusual user inputs.
+
+    Args:
+        expr: The symbolic expression (typically a ``DiagramTerm``'s
+            ``coupling_sum``).
+        symbol_values_batched: ``{name: ndarray}`` mapping coupling
+            symbol names to either ``(n_samples, *kappa_shape)`` arrays
+            (dynamic / per-sample) or ``(*kappa_shape,)`` arrays
+            (static, broadcast across the sample axis).
+        index_map: ``{index_name: int_value}`` for component indices
+            pinned by the caller (e.g. propagator-index outer loop or
+            ``fixed_indices``).
+        n_samples: Length of the sample axis.
+
+    Returns:
+        A complex or float ``(n_samples,)`` array.
+    """
+    if isinstance(expr, Rational):
+        return expr.numerator / expr.denominator  # scalar; broadcast later
+    if isinstance(expr, ImaginaryUnit):
+        return 1j  # scalar; broadcast later
+    if isinstance(expr, Symbol):
+        arr = symbol_values_batched[expr.name]
+        if not expr.indices:
+            # Scalar symbol -- just return as-is.
+            return arr
+        # Resolve component indices to integers (literal '1' → 0 etc.)
+        def _resolve(i: str) -> int:
+            if i in index_map:
+                return index_map[i]
+            try:
+                return int(i) - 1
+            except ValueError:
+                raise KeyError(
+                    f"Index '{i}' not found in index_map and is not a "
+                    f"literal integer. Pass it via the fixed_indices "
+                    f"argument of evaluate_coupling()."
+                ) from None
+        idx = tuple(_resolve(i) for i in expr.indices)
+        # Detect whether ``arr`` carries a leading sample axis.
+        # rank of the static tensor is len(expr.indices); compare
+        # ``arr.ndim`` to decide whether to prepend ``slice(None)``.
+        if arr.ndim == len(idx) + 1:
+            # Batched: arr shape is (n_samples,) + (N,)*rank.
+            return arr[(slice(None),) + idx]
+        if arr.ndim == len(idx):
+            # Static: shape is (N,)*rank — return scalar; caller's
+            # Product / Sum logic will broadcast.
+            return arr[idx]
+        raise ValueError(
+            f"Symbol {expr.name!r} has rank {len(idx)} but the supplied "
+            f"array has shape {arr.shape}; expected either rank or "
+            f"rank+1 (with leading sample axis of length {n_samples})."
+        )
+    if isinstance(expr, KroneckerDelta):
+        def _resolve(i: str) -> int:
+            if i in index_map:
+                return int(index_map[i])
+            try:
+                return int(i)
+            except ValueError:
+                raise KeyError(
+                    f"KroneckerDelta index {i!r} not found in index_map "
+                    f"and is not a literal integer. Pass it via the "
+                    f"fixed_indices argument of evaluate_coupling()."
+                ) from None
+        return 1.0 if _resolve(expr.index1) == _resolve(expr.index2) else 0.0
+    if isinstance(expr, Product):
+        result: object = 1.0
+        for f in expr.factors:
+            result = result * _eval_symbolic_batched(
+                f, symbol_values_batched, index_map, n_samples,
+            )
+        return result
+    if isinstance(expr, Sum):
+        terms = [
+            _eval_symbolic_batched(
+                t, symbol_values_batched, index_map, n_samples,
+            )
+            for t in expr.terms
+        ]
+        if not terms:
+            return 0.0
+        total = terms[0]
+        for t in terms[1:]:
+            total = total + t
+        return total
+    raise NotImplementedError(
+        f"_eval_symbolic_batched: node type {type(expr).__name__} "
+        "is not vectorisable; caller should fall back to the scalar "
+        "per-sample loop."
+    )
 
 
 def _is_zero(expr: Expr) -> bool:

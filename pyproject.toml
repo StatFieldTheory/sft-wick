@@ -39,3 +39,7 @@ packages = ["src/sft_wick"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: long-running performance benchmarks (deselected by default)",
+]
+addopts = "-m 'not slow'"
