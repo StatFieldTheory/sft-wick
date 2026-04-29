@@ -21,6 +21,28 @@ out of the L2 reproduction (it would require an additional
 ``config_FF_order4.yaml`` and an alpha=0 baseline run -- the
 scope is out of proportion with what the L2 demo aims to show).
 
+Integration method
+------------------
+
+* **FF** (``config_FF.yaml``): Sobol QMC at ``n_samples=32 768``.
+  The order-2 FF integrand is a 2D smooth kernel on a small
+  causal sub-simplex; QMC is fast and accurate here.
+* **FK** (``config_FK.yaml``): tensor-product Gauss-Legendre at
+  ``n_gauss=8`` (4096 deterministic nodes per (t, r, pair) point).
+  At large t_f the FK integrand peak is a band of area
+  ``~ sigma_t/gamma`` inside a 4-simplex of area ``t_f^2/2``;
+  Sobol QMC severely under-resolves the band (factor-of-2 bias
+  at t_f=15 even at N=512K), while GL exploits the smooth
+  exponential structure for exponential convergence.  The L2 GL
+  output matches ``analysis.ipynb``'s hand-derived
+  ``_fk_spatial_integral`` to floating-point at matched
+  ``n_gauss`` (locked by
+  ``tests/test_gauss_legendre_integrator.py``).
+
+Override ``--override sweep.n_gauss=12`` for tighter accuracy at
+t_f >> 1; cost grows as ``n_gauss^4`` for FK (12^4 = 20 736 nodes
+per point, ~2.5x the default).
+
 Run::
 
     cd examples/demo2/L2

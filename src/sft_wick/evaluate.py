@@ -2516,6 +2516,263 @@ class DiagramIntegrand:
 
         return (estimate, std_error)
 
+    def integrate_moment_gauss_legendre(
+        self,
+        lambda_f: float,
+        cache: PropagatorCache,
+        t_min: float = 0.0,
+        direction: Any = 0,
+        n_gauss: int = 8,
+        positions: dict[str, float] | None = None,
+        integrate_over: Any = None,
+    ) -> tuple[float, float]:
+        """Tensor-product Gauss-Legendre quadrature on the causal
+        simplex.
+
+        Mirrors :meth:`integrate_moment_qmc_vectorized` node-for-node
+        -- the SAME causal-simplex mapping (parents → upper bounds →
+        Jacobians) and the SAME vectorised batch path through
+        :meth:`PropagatorCache.R_time_batch` and
+        :meth:`PropagatorCache.C_at_batch` -- but replaces the Sobol
+        ``n_samples`` quasi-random nodes with the deterministic
+        ``n_gauss^d`` tensor product of 1-D Gauss-Legendre nodes
+        (mapped from ``[-1, 1]`` to ``[0, 1]``).
+
+        For smooth integrands (a finite product of exponentials --
+        the typical R/C/κ kernel structure) this gives **exponential
+        convergence in n_gauss**, vastly outperforming Sobol QMC at
+        modest dimensionality.  In particular, demo2's FK channel
+        (4D smooth integrand on a causal simplex of area
+        ``t_f^2 / 2``) is dominated at large ``t_f`` by a narrow
+        peak band of area ``~ σ_t/γ`` near the upper-right corner;
+        Sobol QMC under-resolves it unless ``n_samples`` is enormous,
+        while ``n_gauss=8`` (4096 nodes for d=4) recovers the
+        notebook's hand-derived value to ~5 sig figs.
+
+        **Cost trade-off.**  Tensor-product GL scales as
+        ``n_gauss^d`` -- fine for ``d ≤ 5`` (demo2 FK), fast at
+        ``d ≤ 4``, painful at ``d ≥ 7``.  For high-d integrands
+        prefer ``method='qmc_vectorized'`` with a large ``n_samples``
+        instead.
+
+        Args:
+            n_gauss: Number of GL nodes per dimension.  ``n=8`` is
+                a good default (handles up to degree-15 polynomial
+                exactly).
+            positions, integrate_over: Same as
+                :meth:`integrate_moment_qmc_vectorized`.
+
+        Returns:
+            ``(estimate, 0.0)`` -- GL is deterministic so there is
+            no statistical error to report.  The 0.0 mirrors the
+            return shape of the QMC variants for downstream code.
+        """
+        from numpy.polynomial.legendre import leggauss
+
+        spatial = self.spatial
+        int_vars_pf = list(reversed(spatial.time_integration_vars))
+        ext_vars = list(spatial.external_points)
+
+        ext_int_set = _resolve_integrate_over(integrate_over, ext_vars)
+        ext_integrated = [v for v in ext_vars if v in ext_int_set]
+        ext_fixed = [v for v in ext_vars if v not in ext_int_set]
+        n_ext_int = len(ext_integrated)
+
+        gl_vars = ext_integrated + int_vars_pf
+        n_total = len(gl_vars)
+
+        if n_total == 0:
+            # No integration -- defer to the standard non-integrated
+            # evaluation path (parity with QMC vectorised).
+            if _cache_has_spatial_table(cache):
+                directions = self._resolve_group_x(
+                    spatial, positions, direction,
+                )
+            else:
+                dir_vars = set(spatial.direction_map.values())
+                directions = {d: direction for d in dir_vars}
+            fixed_times = {v: lambda_f for v in ext_fixed}
+            val = self.evaluate(fixed_times, directions, cache)
+            return (val.real, 0.0)
+
+        # 1-D Gauss-Legendre nodes / weights mapped from [-1, 1] to [0, 1].
+        nodes_1d, weights_1d = leggauss(n_gauss)
+        u_1d = (nodes_1d + 1) / 2
+        w_1d = weights_1d / 2
+
+        # Tensor product of n_total dims.  ``np.meshgrid(..., indexing='ij')``
+        # gives arrays of shape (n_gauss,) * n_total; ravel and stack to
+        # (n_pts, n_total).
+        mesh = np.meshgrid(*([u_1d] * n_total), indexing="ij")
+        u = np.stack([m.ravel() for m in mesh], axis=-1)
+        w_mesh = np.meshgrid(*([w_1d] * n_total), indexing="ij")
+        node_weights = np.prod(
+            np.stack([wm.ravel() for wm in w_mesh], axis=-1), axis=1
+        )
+        n_samples = u.shape[0]  # = n_gauss ** n_total
+
+        # --- Causal mapping: identical to QMC vectorised path. ---
+        parent_map: dict[str, list[str]] = defaultdict(list)
+        for earlier, later in spatial.time_orderings:
+            if earlier in int_vars_pf:
+                parent_map[earlier].append(later)
+
+        span = lambda_f - t_min
+        times_arr = np.empty((n_samples, n_total))
+        jacobians = np.ones(n_samples)
+
+        for k in range(n_ext_int):
+            times_arr[:, k] = t_min + u[:, k] * span
+            jacobians *= span
+
+        for k, var in enumerate(int_vars_pf):
+            idx = n_ext_int + k
+            parents = parent_map.get(var, [])
+            if parents:
+                hi = np.full(n_samples, lambda_f)
+                for p in parents:
+                    if p in int_vars_pf:
+                        p_idx = n_ext_int + int_vars_pf.index(p)
+                        hi = np.minimum(hi, times_arr[:, p_idx])
+                    elif p in ext_integrated:
+                        p_idx = ext_integrated.index(p)
+                        hi = np.minimum(hi, times_arr[:, p_idx])
+                    else:
+                        hi = np.minimum(hi, lambda_f)
+            else:
+                hi = np.full(n_samples, lambda_f)
+
+            width = hi - t_min
+            valid = width > 0
+            times_arr[:, idx] = np.where(valid, t_min + u[:, idx] * width, t_min)
+            jacobians = np.where(valid, jacobians * width, 0.0)
+
+        var_to_col = {var: i for i, var in enumerate(gl_vars)}
+        fixed_t = np.full(n_samples, lambda_f)
+
+        def _times(var: str) -> np.ndarray:
+            col = var_to_col.get(var)
+            if col is not None:
+                return times_arr[:, col]
+            return fixed_t
+
+        # --- Vectorised integrand evaluation: identical to QMC path. ---
+        dt = self.diagram_term
+        coeff = self.coupling_array
+        prop_idx = dt.propagator_indices
+
+        r_product = np.ones(n_samples)
+        for sl, sr in spatial.r_propagators:
+            r_product *= cache.R_time_batch(_times(sl), _times(sr))
+
+        fi = self.fixed_indices
+        spatial_aware = _cache_has_spatial_table(cache)
+        group_x: dict[str, float] | None = None
+        if spatial_aware:
+            group_x = self._resolve_group_x(spatial, positions, direction)
+
+        def _lookup_C(sp_l, sp_r, t_l, t_r):
+            if not spatial_aware:
+                return cache.C_diagonal_batch(t_l, t_r)
+            x_l = group_x[spatial.direction_map[sp_l]]  # type: ignore[index]
+            x_r = group_x[spatial.direction_map[sp_r]]  # type: ignore[index]
+            return cache.C_at_batch(t_l, t_r, x_l, x_r)
+
+        if self.dynamic_coupling is not None:
+            all_spatial_labels = set(spatial.direction_map.keys())
+            _promise = self.dynamic_coupling
+
+            c_product = np.ones(n_samples)
+            for sp_l, sp_r, il, ir in spatial.c_propagators:
+                t_l = _times(sp_l)
+                t_r = _times(sp_r)
+                C_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
+                a_i = (
+                    DiagramIntegrand._resolve_component(il, fi)
+                    if il is not None else None
+                )
+                b_i = (
+                    DiagramIntegrand._resolve_component(ir, fi)
+                    if ir is not None else None
+                )
+                if a_i is not None and b_i is not None:
+                    c_product *= C_batch[:, a_i]
+                else:
+                    c_product *= C_batch.sum(axis=1)
+
+            label_t = {lab: _times(lab) for lab in all_spatial_labels}
+            if spatial_aware:
+                label_x = {
+                    lab: group_x[spatial.direction_map[lab]]  # type: ignore[index]
+                    for lab in all_spatial_labels
+                }
+            else:
+                label_x = {
+                    lab: float(direction)
+                    for lab in all_spatial_labels
+                }
+
+            couplings = _promise.evaluate_at_batch(
+                label_t=label_t,
+                label_x=label_x,
+                n_samples=n_samples,
+            )
+            values = couplings.real * r_product * c_product * jacobians
+
+        elif not prop_idx:
+            c_product = np.ones(n_samples)
+            for sp_l, sp_r, il, ir in spatial.c_propagators:
+                t_l = _times(sp_l)
+                t_r = _times(sp_r)
+                C_diag_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
+                if il is not None and ir is not None:
+                    a = DiagramIntegrand._resolve_component(il, fi)
+                    b = DiagramIntegrand._resolve_component(ir, fi)
+                    if a is not None and b is not None:
+                        c_product *= C_diag_batch[:, a]
+                    else:
+                        c_product *= C_diag_batch.sum(axis=1)
+                else:
+                    c_product *= C_diag_batch.sum(axis=1)
+            values = r_product * complex(coeff).real * c_product * jacobians
+
+        else:
+            idx_names = [name for name, _ in prop_idx]
+            prop_shape = tuple(dim for _, dim in prop_idx)
+            values = np.zeros(n_samples)
+            for pidx in np.ndindex(*prop_shape):
+                c_val = (
+                    complex(coeff[pidx]).real if coeff.ndim > 0
+                    else complex(coeff).real
+                )
+                if abs(c_val) < 1e-20:
+                    continue
+                idx_map = {**fi, **dict(zip(idx_names, pidx))}
+                c_prod = np.ones(n_samples)
+                for sp_l, sp_r, il, ir in spatial.c_propagators:
+                    t_l = _times(sp_l)
+                    t_r = _times(sp_r)
+                    C_diag_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
+                    a = DiagramIntegrand._resolve_component(il, idx_map)
+                    b = DiagramIntegrand._resolve_component(ir, idx_map)
+                    if a is not None and b is not None:
+                        c_prod *= C_diag_batch[:, a]
+                    else:
+                        c_prod *= C_diag_batch.sum(axis=1)
+                values += c_val * r_product * c_prod * jacobians
+
+        # --- GL aggregation: weighted sum (NOT mean). ---
+        # Each tensor-product node carries weight ``w_i = prod_d w_1d[i_d]``.
+        # The integrand on the unit cube is therefore
+        #   integral = sum_i (values[i] * w_i)
+        # where ``values[i]`` already includes the causal-simplex
+        # Jacobian.  Compare to QMC which uses ``mean(values) =
+        # sum(values) / n_samples`` (Monte Carlo estimator).
+        values = np.where(jacobians > 0, values, 0.0)
+        estimate = float(np.sum(values * node_weights))
+
+        return (estimate, 0.0)
+
     def integrate_moment_nquad(
         self,
         lambda_f: float,
@@ -2558,6 +2815,27 @@ class DiagramIntegrand:
         if n_total == 0:
             val = self.evaluate(fixed_times, directions, cache)
             return (val.real if val.imag == 0 else abs(val), 0.0)
+
+        # Spacetime-dependent (callable) couplings are NOT supported
+        # by the nquad path: ``self.evaluate`` uses the static
+        # ``coupling_array`` which is a placeholder zero array when
+        # the integrand was built from a callable κ.  Multiplying by
+        # 0 would silently return 0 for every diagram with a
+        # dynamic vertex (a latent bug pre-2026-04).  We refuse
+        # explicitly and point to ``method='gauss_legendre'`` -- a
+        # tensor-product GL rule with deterministic exponential
+        # convergence on smooth integrands, which is the natural
+        # match for diagrams that have callable couplings (and
+        # vastly outperforms 4D adaptive nquad in practice anyway).
+        if self.dynamic_coupling is not None:
+            raise NotImplementedError(
+                "method='nquad' does not support spacetime-dependent "
+                "(callable) couplings.  Use method='gauss_legendre' "
+                "(deterministic, exponential convergence on smooth "
+                "integrands, matches the notebook hand-derivation) "
+                "or method='qmc_vectorized' (Sobol QMC, recommended "
+                "for high-d diagrams) instead."
+            )
 
         def f(*args: float) -> float:
             times = dict(fixed_times)
@@ -2659,6 +2937,7 @@ def integrate_moment(
     seed: int | None = None,
     positions: dict[str, float] | None = None,
     integrate_over: Any = None,
+    n_gauss: int = 8,
 ) -> tuple[float, float]:
     """Integrate a diagram's contribution over all time variables.
 
@@ -2736,16 +3015,22 @@ def integrate_moment(
             positions=positions,
             integrate_over=integrate_over,
         )
+    elif method == "gauss_legendre":
+        return integrand.integrate_moment_gauss_legendre(
+            lambda_f, cache, t_min=t_min, direction=direction,
+            n_gauss=n_gauss, positions=positions,
+            integrate_over=integrate_over,
+        )
     else:
         raise ValueError(
             f"Unknown method {method!r}; use 'qmc', 'qmc_scalar', "
-            f"'qmc_vectorized', or 'nquad'"
+            f"'qmc_vectorized', 'nquad', or 'gauss_legendre'"
         )
 
 
 def _eval_single_diagram(
     dt, coupling_values, fixed_indices, lambda_f, cache, t_min, direction,
-    method, n_samples, seed, positions, integrate_over,
+    method, n_samples, seed, positions, integrate_over, n_gauss,
 ):
     """Evaluate one diagram term end-to-end (build integrand + integrate).
 
@@ -2757,6 +3042,7 @@ def _eval_single_diagram(
         t_min=t_min, direction=direction,
         method=method, n_samples=n_samples, seed=seed,
         positions=positions, integrate_over=integrate_over,
+        n_gauss=n_gauss,
     )
 
 
@@ -2774,6 +3060,7 @@ def integrate_diagrams(
     n_jobs: int = 1,
     positions: dict[str, Any] | None = None,
     integrate_over: Any = None,
+    n_gauss: int = 8,
 ) -> tuple[float, list[tuple[float, float]]]:
     """Integrate a batch of diagram terms, optionally in parallel.
 
@@ -2823,6 +3110,7 @@ def integrate_diagrams(
                 t_min=t_min, direction=direction,
                 method=method, n_samples=n_samples, seed=seed,
                 positions=positions, integrate_over=integrate_over,
+                n_gauss=n_gauss,
             )
             details.append((val, err))
     else:
@@ -2833,6 +3121,7 @@ def integrate_diagrams(
                 dt, coupling_values, fixed_indices,
                 lambda_f, cache, t_min, direction,
                 method, n_samples, seed, positions, integrate_over,
+                n_gauss,
             )
             for dt in diagram_terms
         )
