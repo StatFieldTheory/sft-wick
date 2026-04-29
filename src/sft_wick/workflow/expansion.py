@@ -178,15 +178,31 @@ class Expansion:
                   ``{"x"}`` for a source integrated along the line
                   of sight × a detector field at ``t_final``.
 
-            method: ``'qmc' | 'qmc_vectorized' | 'qmc_scalar' | 'nquad'
-                | 'gauss_legendre'``.  ``'gauss_legendre'`` uses a
-                tensor-product GL rule with ``n_gauss`` nodes per
-                dimension -- exponential convergence on smooth
-                integrands, deterministic, no seed.  Best for
-                ``len(time_integration_vars) <= 5``.
+            method: time-integrator selector. Recommended choice depends on
+                the diagram's number of internal time-integration variables
+                ``d = len(time_integration_vars)`` and integrand smoothness:
+
+                ===========================  ================================  ====================
+                Method                       Best for                          Trade-off
+                ===========================  ================================  ====================
+                ``'qmc_vectorized'`` (def.)  ``d ≥ 6`` / non-smooth integrand  ``~ 1/√n_samples`` bias
+                ``'gauss_legendre'``         ``d ≤ 5`` smooth (the typical     exponential convergence
+                                             sft-wick case)                    in ``n_gauss``;
+                                                                               cost ``n_gauss^d``
+                ``'nquad'``                  Adaptive 1-3D fallback            slow; raises
+                                                                               ``NotImplementedError``
+                                                                               on dynamic-coupling
+                ``'qmc'`` / ``'qmc_scalar'`` Compatibility / debugging         slow Python loop
+                ===========================  ================================  ====================
+
+                See :doc:`/user_guide/workflow` "Choosing an integrator"
+                for the full decision matrix and worked examples.
+
             n_samples, seed: forwarded to the integrator (QMC only).
             n_gauss: nodes per dimension for ``method='gauss_legendre'``
-                (default 8 -- handles up to degree-15 polynomial exactly).
+                (default 8 — exact for polynomials up to degree 15).
+                Cost scales as ``n_gauss^d``; bump to 12-20 for
+                stiff integrands at large ``t_final``.
         """
         from .result import Result
 
@@ -305,6 +321,12 @@ class Expansion:
                 set.  Use ``n_jobs > 1`` when the sweep grid is
                 large; use ``evaluate_n_jobs > 1`` when each grid
                 point has many diagrams (typical at orders >= 2).
+            method, n_samples, seed, n_gauss: integrator knobs --
+                see :meth:`evaluate` for the recommendation matrix
+                and :doc:`/user_guide/workflow` "Choosing an
+                integrator".  ``'gauss_legendre'`` with ``n_gauss=8``
+                is the right default for ``d ≤ 5`` smooth integrands
+                (exponential convergence, deterministic, no seed).
 
         Returns:
             :class:`SweepResult` with a pandas-friendly tidy table.

@@ -289,6 +289,8 @@ class System:
         interp_method: str = "linear",
         c_closed_form_only: bool = False,
         c_closed_form_vectorized: bool = False,
+        c_method: str = "dblquad",
+        c_n_gauss: int = 20,
     ) -> "Propagators":
         """Build a :class:`Propagators` object with a precomputed
         spatial table matching ``self.homogeneity``.
@@ -331,6 +333,29 @@ class System:
             c_closed_form_vectorized: c_fn accepts batched arrays and
                 returns ``(n, N, N)`` (only meaningful with
                 ``c_closed_form_only=True``).
+            c_method: Quadrature method for the inner C-propagator
+                ``∫ R κ² R`` integral when the cache builds its table.
+
+                - ``'dblquad'`` (default) -- adaptive Gauss-Kronrod;
+                  robust on any κ² but slow (10-80 ms / cell).
+                - ``'gauss_legendre'`` -- tensor-product GL with a
+                  diagonal-aware sub-region split.  Recommended for
+                  any κ² that is **piecewise analytic** -- the
+                  package's exponential / Gaussian / Legendre
+                  kernels all qualify.  18-100× faster than dblquad
+                  at machine precision (``c_n_gauss=20``).  Not the
+                  right tool for non-smooth κ² (discontinuous,
+                  oscillatory at high frequency, integrable
+                  singularities like ``1/√t``).
+
+                Ignored when ``c_closed_form_only=True`` (the user's
+                C_fn is exact and bypasses both quadrature paths).
+                See :doc:`/user_guide/workflow` "Choosing an
+                integrator" for the full decision matrix.
+            c_n_gauss: Per-dim GL node count for
+                ``c_method='gauss_legendre'`` (default 20 → machine
+                precision on smooth kernels). Cost ``c_n_gauss²`` per
+                sub-region.
         """
         from .propagators import Propagators
 
@@ -350,6 +375,8 @@ class System:
             interp_method=interp_method,
             c_closed_form_only=c_closed_form_only,
             c_closed_form_vectorized=c_closed_form_vectorized,
+            c_method=c_method,
+            c_n_gauss=c_n_gauss,
         )
 
 

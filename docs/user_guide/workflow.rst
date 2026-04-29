@@ -309,122 +309,575 @@ vectors:
   would inflate the spline to ``(2 + 2d)``-D, with ``n_grid_x **
   (2d)`` build calls.
 
-YAML schema reference (L2 details)
-----------------------------------
+YAML configuration reference (L2)
+---------------------------------
 
-The YAML schema mirrors the L1 constructor signatures exactly, so
-anything expressible in L1 Python is expressible in YAML.  Top-level
-keys:
+The YAML schema mirrors the L1 constructor signatures one-for-one
+— anything expressible in L1 Python has a YAML equivalent. This
+section is the **complete reference** for every key the parser
+recognises.
 
-``system``
-    ``field``, ``linear``, ``noise``, ``vertices``,
-    ``nonlocal_vertices``, ``t_min``.  Each nested object uses a
-    ``type:`` discriminator plus its constructor args (e.g.
-    ``linear: {type: diagonal, gamma: [...]}`` →
-    :class:`~sft_wick.workflow.DiagonalA`).
+Top-level structure
+~~~~~~~~~~~~~~~~~~~
 
-``expand``
-    ``observable: [...]``, ``orders: [...]``, optional
-    ``cache_path``, optional ``n_jobs`` (parallelise per diagram
-    inside each grid point — see :doc:`parallelism`).
+Every config has five top-level blocks (``output`` is optional):
 
-``propagators``
-    ``t_max``, optional ``n_grid_t`` *or* ``dt`` (single-knob
-    discretization, see :doc:`discretization`), ``n_jobs``,
-    optional ``c_closed_form_module`` + ``c_closed_form_attr``,
-    optional ``c_closed_form_only`` (skip the spline cache and
-    route every C lookup straight through the user's c_fn for
-    machine-precision agreement) and
-    ``c_closed_form_vectorized`` (c_fn accepts batched arrays,
-    returns ``(n, N, N)``), ``cache_path``, ``interp_method``
-    (``'linear'`` default, ``'cubic'`` opt-in -- ignored under
-    ``c_closed_form_only=true``).
+.. code-block:: yaml
 
-``sweep``
-    ``positions_grid``, ``t_final_grid``, ``component_pairs``,
-    optional ``integrate_over``, ``vertex_types``, ``orders``,
-    ``method``, ``n_samples``, ``seed``, ``n_gauss``, ``n_jobs``
-    (parallelise across grid points — mutually exclusive with
-    ``expand.n_jobs > 1``).
+   system: {...}        # physics spec: field, linear op, noise, vertices
+   expand: {...}        # diagram enumeration: observable, orders, flags
+   propagators: {...}   # C-cache build: t_max, grid, c_method, hooks
+   sweep: {...}         # numerical evaluation: grid, integrator, parallel
+   output: [...]        # optional: emit table / npz / plot artefacts
 
-    The ``method`` field selects the time integrator:
+Annotated full example
+~~~~~~~~~~~~~~~~~~~~~~
 
-    - ``qmc_vectorized`` (default) — Sobol QMC at ``n_samples``
-      samples on the causal simplex.  Generic, scales well in
-      dimension; recommended for high-order diagrams (d ≥ 6) and
-      non-smooth integrands.  Carries a ``~ 1/sqrt(n_samples)``
-      bias decay and a stochastic error scaled by
-      ``seed``.
-    - ``gauss_legendre`` — tensor-product Gauss-Legendre rule
-      with ``n_gauss`` nodes per dimension (so
-      ``n_gauss^d`` total nodes, where ``d`` is the diagram's
-      time-integration variable count).  Deterministic.  On
-      smooth integrands (the typical R/C/κ exponential kernel
-      product) it converges exponentially in ``n_gauss``,
-      vastly outperforming Sobol QMC at modest dimensionality.
-      Recommended for d ≤ 5; the default ``n_gauss=8`` exactly
-      integrates polynomials up to degree 15.  Used by demo2's
-      FK channel to reproduce ``analysis.ipynb``'s figures
-      bit-for-bit (see ``examples/demo2/L2/config_FK.yaml``).
-    - ``nquad`` — scipy adaptive Gauss-Kronrod.  Slower than
-      both alternatives in practice; raises
-      ``NotImplementedError`` if the diagram has a callable
-      coupling (use ``gauss_legendre`` for those).
+Every key the parser recognises, with its default value and a
+one-line note. Drop unused keys; only the marked **required**
+fields must be present.
 
-``output`` (optional)
-    A list of output plugins.  Current plugin types: ``table``
-    (markdown / csv), ``npz``, ``plot`` (matplotlib grid).
+.. code-block:: yaml
 
-Hooks for user Python code (without editing the CLI):
+   # ============================================================
+   # system  --  physics specification
+   # ============================================================
+   system:
+     field:
+       name: phi             # required: field-symbol prefix used in observables
+       n_components: 2       # required: number of internal components N
 
-- ``propagators.c_closed_form_module`` + ``c_closed_form_attr`` —
-  dotted path to a module exporting a
-  ``C_fn(n1, t1, n2, t2) → value`` callable.  The loaded module
-  is registered with cloudpickle for by-value cross-process
-  serialisation, so it composes cleanly with ``propagators.n_jobs
-  > 1``, ``expand.n_jobs > 1``, and ``sweep.n_jobs > 1`` even when
-  joblib reuses a worker pool across calls.
+     linear:
+       type: diagonal        # only 'diagonal' supported in YAML today
+       gamma: [1.0, 1.0]     # length-N constant rates  -- OR
+       # gamma_module: ./drift.py        # dotted path to callable γ(t)→array(N)
+       # gamma_attr: gamma_fn            # default 'gamma_fn'
+       # t_max_cache: 20.0               # γ-spline cache horizon (default = propagators.t_max)
+       # n_grid_cache: 400               # γ-spline node count (default ceil(t_max_cache/dt))
 
-  Two further opt-ins on the same block:
+     noise:
+       kappa2:
+         type: separable_translation     # 'separable_translation' | 'separable_rotation'
+                                         # | 'general' | 'callable_module'
+         temporal: {type: exponential, lam: 0.05, sigma_t: 0.3}
+                                         # 'exponential' | 'gaussian' | 'custom'
+         spatial:  {type: exponential, sigma_x: 1.0}
+                                         # 'exponential' | 'gaussian' | 'legendre_angular' | 'custom'
+       sigma2: null                      # optional δ-correlated white-noise floor
+                                         # e.g.  {type: constant_impulse, sigma2: 0.01}
 
-  * ``propagators.c_closed_form_only: true`` -- skip the spline
-    cache entirely; ``cache.C_at_batch`` calls c_fn directly.
-    Recommended when the kernel's correlation length forces
-    ``dt < 0.1`` (typical: ``sigma_t = 0.3`` makes a 60-point
-    spline grid visibly inaccurate). The closed form is usually
-    a few numpy ops per call; calling it directly is both faster
-    AND machine-precision compared to building a fine spline.
-  * ``propagators.c_closed_form_vectorized: true`` -- only
-    meaningful with ``c_closed_form_only: true``. The user's c_fn
-    must accept ``(t1, t2, x1, x2)`` arrays of shape ``(n,)`` and
-    return ``(n, N, N)``. Single ufunc call per integrand instead
-    of n_samples Python calls. ``examples/demo1/c_closed_form.py``
-    (``C_fn_vec``) and ``examples/demo2/L2/c_closed_form.py``
-    (``C_fn_eff`` / ``C_fn_bare``) show the contract.
-- ``nonlocal_vertices[].coupling_module`` +
-  ``nonlocal_vertices[].coupling_attr`` — dotted path to a
-  dynamic-coupling ``fn(n_list, t_list) → tensor`` callable
-  (e.g. demo2's ``κ^{(3)}``).  Add
-  ``nonlocal_vertices[].coupling_vectorized: true`` to opt the
-  callable into the batched contract
-  (``fn(n_2d, t_2d) → (n_samples, ...)``) -- a single call per
-  integrand instead of one per QMC sample, useful for heavy
-  callables.
-- ``system.linear.gamma_module`` — dotted path to a callable
-  ``γ(t) → array(N)`` for time-dependent linear drift.
-- ``noise.kappa2.type: callable_module`` — dotted path to a
-  ``κ²(n1, t1, n2, t2) → (N, N)`` callable for non-separable
-  noise correlators.
+     vertices:                           # zero or more local F vertices (bare F tensor)
+       - name: F
+         coupling: [[[0.0,0.0],[0.0,1.0]], [[0.0,0.5],[0.5,0.0]]]
+         # OR
+         # coupling_path: ./F.npy        # path to .npy file (relative to YAML)
+         # OR (for spacetime-dependent F)
+         # coupling_module: ./F_dynamic.py
+         # coupling_attr:   coupling_fn
+         # coupling_vectorized: false
 
-Parameter scans from the shell:
+     nonlocal_vertices: []               # zero or more non-local κ^(m) vertices
+       # - name: K
+       #   order: 3                      # required: m, the number of ψ-legs
+       #   coupling_module: ./k3.py
+       #   coupling_attr:   coupling_fn  # default 'coupling_fn'
+       #   coupling_vectorized: false    # set true if attr is the batched contract
+
+     t_min: 0.0                          # lower bound for time integration domain
+
+   # ============================================================
+   # expand  --  perturbative diagram enumeration
+   # ============================================================
+   expand:
+     observable: ["phi_a(x)", "phi_b(y)"]   # required
+     orders:     [0, 2]                     # required
+     response_phase:    true     # multiply by (-i)^n_response (MSR)
+     ito:               true     # Itô prescription (R(x,x) = 0)
+     collect_topology:  true     # spatial-level Wick contraction (faster, default)
+     diag_R:            true     # diagonal-R simplification
+     diag_C:            true     # diagonal-C simplification
+     iso_R:             null     # null = same as diag_R; true = also strip indices
+     iso_C:             false
+     cache_path:        null     # optional dir/file for joblib expansion cache
+     n_jobs:            1        # parallel diagrams per grid point (>1 forbids sweep.n_jobs>1)
+
+   # ============================================================
+   # propagators  --  C-cache build
+   # ============================================================
+   propagators:
+     t_max:              50.0    # required: upper time bound
+     n_grid_t:           60      # time-grid resolution (or set dt instead)
+     # dt:               0.5     # alternative single-knob: n_grid_t = ceil(t_max/dt)
+
+     # spatial-cache modes (all optional; lazy mode if unset)
+     homogeneity:        null    # auto-inferred from noise.kappa2.type
+     r_max:              null    # translation full-grid: |x1-x2| upper bound
+     n_grid_r:           null
+     n_grid_cos:         null    # rotation full-grid: cos θ resolution
+     x_max:              null    # general full-grid: positions hypercube edge
+     n_grid_x:           null
+
+     # closed-form C hook (machine precision; bypasses the cache)
+     c_closed_form_module:    null   # ./c_closed_form.py
+     c_closed_form_attr:      C_fn   # callable name in the module
+     c_closed_form_only:      false  # skip spline cache entirely
+     c_closed_form_vectorized:false  # c_fn accepts (n,) arrays, returns (n, N, N)
+
+     # quadrature for the inner ∫ R κ² R when no closed form is given
+     c_method:           dblquad      # 'dblquad' | 'gauss_legendre'
+     c_n_gauss:          20           # GL nodes/dim under c_method='gauss_legendre'
+
+     interp_method:      linear       # 'linear' | 'cubic'
+     n_jobs:             1
+     cache_path:         null         # dir for joblib cache
+
+   # ============================================================
+   # sweep  --  numerical evaluation grid
+   # ============================================================
+   sweep:
+     positions_grid:                    # required: each list is swept independently
+       x: [0.0]
+       y: [0.0, 0.5, 1.0, 2.5]
+     t_final_grid: [1.0, 5.0, 15.0]    # required
+     component_pairs: [[0, 0], [1, 1]] # required
+
+     orders:           null            # optional subset of expand.orders
+     vertex_types:     null            # optional subset of {"F","FF","FK","K",…}
+     integrate_over:   null            # null | "all" | ["x"] | ...
+
+     method:           qmc_vectorized  # 'qmc_vectorized' | 'qmc' | 'qmc_scalar'
+                                       # | 'gauss_legendre' | 'nquad'
+     n_samples:        8192            # Sobol samples (QMC paths only)
+     seed:             42              # Sobol seed (QMC paths only)
+     n_gauss:          8               # GL nodes/dim (gauss_legendre only)
+
+     n_jobs:           1               # parallel over grid points
+                                       # (mutually exclusive with expand.n_jobs > 1)
+
+   # ============================================================
+   # output  --  optional artefact emitters (list of plugins)
+   # ============================================================
+   output:
+     - {type: table, format: markdown, path: results.md}
+     - {type: npz,   path: results.npz}
+     - {type: plot,  path: result.png, x: y, hue: order, facet_col: t_final}
+
+Section reference: ``system``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 18 18 36
+
+   * - Field
+     - Type
+     - Default
+     - Notes
+   * - ``field.name``
+     - ``str``
+     - **required**
+     - Field-symbol prefix used in ``expand.observable`` (e.g. ``phi``)
+   * - ``field.n_components``
+     - ``int``
+     - **required**
+     - N — number of internal components per field
+   * - ``linear.type``
+     - ``str``
+     - ``"diagonal"``
+     - Only ``"diagonal"`` is parsed by YAML today; ``ConstantMatrix``/``ExplicitR`` need L1 Python
+   * - ``linear.gamma``
+     - ``list[float]`` of length N
+     - **required** unless ``gamma_module`` set
+     - Constant decay rates :math:`\gamma_a`
+   * - ``linear.gamma_module``
+     - ``str`` (path)
+     - ``null``
+     - Dotted-path / relative-path to a ``.py`` file exporting a callable ``γ(t) → ndarray(N,)``
+   * - ``linear.gamma_attr``
+     - ``str``
+     - ``"gamma_fn"``
+     - Attribute name in ``gamma_module``
+   * - ``linear.t_max_cache``
+     - ``float``
+     - ``propagators.t_max``
+     - Horizon for the :math:`\Gamma_a(t) = \int_0^t \gamma_a` cumulative-integral spline
+   * - ``linear.n_grid_cache``
+     - ``int``
+     - derived from ``dt``
+     - Spline node count for cumulative Γ
+   * - ``noise.kappa2.type``
+     - ``str``
+     - **required**
+     - ``"separable_translation"`` (1-D r), ``"separable_rotation"`` (Legendre angular), ``"general"``, ``"callable_module"``
+   * - ``noise.kappa2.temporal``
+     - block
+     - **required** (separable variants)
+     - ``{type: exponential|gaussian|custom, lam, sigma_t}`` — see :doc:`expressions`
+   * - ``noise.kappa2.spatial``
+     - block
+     - **required** (separable variants)
+     - ``{type: exponential|gaussian|legendre_angular|custom, sigma_x}``
+   * - ``noise.sigma2``
+     - block or ``null``
+     - ``null``
+     - Optional δ-correlated white-noise variance — e.g. ``{type: constant_impulse, sigma2: 0.01}``
+   * - ``vertices``
+     - list of blocks
+     - ``[]``
+     - Local F vertices; see :ref:`vertex-spec` below
+   * - ``nonlocal_vertices``
+     - list of blocks
+     - ``[]``
+     - Non-local κ^(m) vertices; same vertex-spec
+   * - ``t_min``
+     - ``float``
+     - ``0.0``
+     - Lower bound for time integration
+
+.. _vertex-spec:
+
+**Vertex spec** — one of the following must be present in each ``vertices[]`` / ``nonlocal_vertices[]`` entry to define the coupling tensor:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 50 22
+
+   * - Form
+     - Meaning
+     - When to use
+   * - ``coupling: [[...]]``
+     - Inline nested-list tensor literal
+     - Small, ≤ 4 components
+   * - ``coupling_path: ./F.npy``
+     - Path to ``.npy`` file (loaded as ``np.ndarray``)
+     - Larger or precomputed tensors
+   * - ``coupling_module: ./fn.py`` + ``coupling_attr: name``
+     - Spacetime-dependent callable (per-sample contract by default)
+     - When the coupling depends on leg positions/times (e.g. demo2's :math:`\kappa^{(3)}`)
+   * - + ``coupling_vectorized: true``
+     - Switches the loaded callable to the batched contract
+     - When the callable does heavy work that vectorises well
+
+Non-local vertices additionally **require** ``order: <m>`` (the number of ψ-legs).
+
+Section reference: ``expand``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 16 16 44
+
+   * - Field
+     - Type
+     - Default
+     - Notes
+   * - ``observable``
+     - ``list[str]``
+     - **required**
+     - e.g. ``["phi_a(x)", "phi_b(y)"]``; component letters are MSR-fixed-indices, spatial args are the keys later swept by ``sweep.positions_grid``
+   * - ``orders``
+     - ``list[int]``
+     - **required**
+     - e.g. ``[0, 2, 4]``
+   * - ``response_phase``
+     - ``bool``
+     - ``true``
+     - Multiply each diagram by :math:`(-i)^{n_R}` (MSR). Disable to inspect raw symbolic output
+   * - ``ito``
+     - ``bool``
+     - ``true``
+     - Itô prescription: :math:`R(x, x) = 0` and causal R-loops vanish
+   * - ``collect_topology``
+     - ``bool``
+     - ``true``
+     - Spatial-level Wick contraction (avoids combinatorial explosion). Disable only for debugging
+   * - ``diag_R`` / ``diag_C``
+     - ``bool``
+     - ``true``
+     - Apply diagonal-propagator simplification (collapses index sums where R/C is component-diagonal)
+   * - ``iso_R`` / ``iso_C``
+     - ``bool`` or ``null``
+     - ``null`` / ``false``
+     - Strip equal component indices from R/C entirely (treats diagonal entries as a single scalar)
+   * - ``cache_path``
+     - ``str`` or ``null``
+     - ``null``
+     - Directory or ``.joblib`` file for caching the symbolic expansion
+   * - ``n_jobs``
+     - ``int``
+     - ``1``
+     - Parallelise over diagrams within each grid point (mutually exclusive with ``sweep.n_jobs > 1``)
+
+Section reference: ``propagators``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 28 18 16 38
+
+   * - Field
+     - Type
+     - Default
+     - Notes
+   * - ``t_max``
+     - ``float``
+     - **required**
+     - Upper time bound. Sets the C-cache time grid
+   * - ``n_grid_t`` / ``dt``
+     - ``int`` / ``float``
+     - ``60`` / derived
+     - Pick **one**. ``dt`` derives ``n_grid_t = ceil(t_max/dt)``. See :doc:`discretization`
+   * - ``homogeneity``
+     - ``str``
+     - auto
+     - Override inferred ``"translation"`` / ``"rotation"`` / ``"general"``
+   * - ``r_max`` + ``n_grid_r``
+     - ``float`` + ``int``
+     - ``null``
+     - Translation full-grid mode (both required to leave lazy mode)
+   * - ``n_grid_cos``
+     - ``int``
+     - ``null``
+     - Rotation full-grid mode
+   * - ``x_max`` + ``n_grid_x``
+     - ``float`` + ``int``
+     - ``null``
+     - General full-grid mode
+   * - ``c_closed_form_module``
+     - ``str``
+     - ``null``
+     - Path to ``.py`` module exporting a closed-form ``C_fn(n1, t1, n2, t2) → (N, N)``
+   * - ``c_closed_form_attr``
+     - ``str``
+     - ``"C_fn"``
+     - Attribute name in the module
+   * - ``c_closed_form_only``
+     - ``bool``
+     - ``false``
+     - Skip the spline cache entirely; route every C lookup through ``C_fn`` for machine precision
+   * - ``c_closed_form_vectorized``
+     - ``bool``
+     - ``false``
+     - ``C_fn`` accepts ``(n,)``-shaped time/position arrays and returns ``(n, N, N)`` (only with ``c_closed_form_only: true``)
+   * - ``c_method``
+     - ``str``
+     - ``"dblquad"``
+     - Quadrature for the inner :math:`\int R\kappa^2 R`. ``"dblquad"`` (adaptive) or ``"gauss_legendre"`` (18-100× faster on piecewise-analytic κ²). See :ref:`integrator-choice` below
+   * - ``c_n_gauss``
+     - ``int``
+     - ``20``
+     - GL nodes per dimension when ``c_method: gauss_legendre`` (cost ``c_n_gauss²`` per sub-region)
+   * - ``interp_method``
+     - ``str``
+     - ``"linear"``
+     - Spline kind: ``"linear"`` (monotone, default) or ``"cubic"`` (O(h⁴) on smooth grids; ignored under ``c_closed_form_only``)
+   * - ``n_jobs``
+     - ``int``
+     - ``1``
+     - Parallel workers for the cache build (``-1`` = all cores via joblib)
+   * - ``cache_path``
+     - ``str``
+     - ``null``
+     - Directory or file for caching the built propagator
+
+Section reference: ``sweep``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 22 14 40
+
+   * - Field
+     - Type
+     - Default
+     - Notes
+   * - ``positions_grid``
+     - ``dict[str, list[float] | list[ndarray]]``
+     - **required**
+     - One key per spatial argument in ``expand.observable``. Cartesian product
+   * - ``t_final_grid``
+     - ``list[float]``
+     - **required**
+     - External upper-time values to evaluate at
+   * - ``component_pairs``
+     - ``list[[a, b]]``
+     - **required**
+     - Component-index pairs for the observable
+   * - ``orders``
+     - ``list[int]`` or ``null``
+     - ``null``
+     - Optional subset of ``expand.orders``
+   * - ``vertex_types``
+     - ``list[str]`` or ``null``
+     - ``null``
+     - Filter diagrams by vertex composition (e.g. ``["FK"]`` for demo2's cross-term)
+   * - ``integrate_over``
+     - ``null`` / ``"all"`` / ``list[str]``
+     - ``null``
+     - External-time integration: ``null`` = fixed at ``t_final``, ``"all"`` = integrate every external, list = explicit subset
+   * - ``method``
+     - ``str``
+     - ``"qmc_vectorized"``
+     - ``"qmc_vectorized"`` / ``"qmc"`` / ``"qmc_scalar"`` / ``"gauss_legendre"`` / ``"nquad"``. See :ref:`integrator-choice` below
+   * - ``n_samples``
+     - ``int``
+     - ``8192``
+     - Sobol sample count (QMC paths only)
+   * - ``seed``
+     - ``int``
+     - ``42``
+     - Sobol seed (QMC paths only)
+   * - ``n_gauss``
+     - ``int``
+     - ``8``
+     - GL nodes per dimension (``method: gauss_legendre`` only). Cost scales as ``n_gauss^d``
+   * - ``n_jobs``
+     - ``int``
+     - ``1``
+     - Parallelise across grid points (``-1`` = all cores). Mutually exclusive with ``expand.n_jobs > 1``
+
+Section reference: ``output`` (optional list of plugins)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Each list entry is a ``{type: <kind>, path: ..., ...}`` dict. Three kinds today:
+
+.. code-block:: yaml
+
+   output:
+     - {type: table,  path: results.md,  format: markdown}     # or csv
+     - {type: npz,    path: results.npz}                       # raw arrays
+     - {type: plot,   path: result.png,
+        x: y, hue: order, facet_col: t_final}                  # matplotlib facet grid
+
+.. _integrator-choice:
+
+Choosing an integrator (``sweep.method`` and ``propagators.c_method``)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Two layers in the pipeline run numerical quadrature:
+
+1. **C-propagator construction** (``propagators.c_method``) — the
+   inner :math:`\int_0^{t_1}\!\int_0^{t_2} R(t_1,\lambda_1)\,
+   \kappa^2(\lambda_1,\lambda_2)\,R(t_2,\lambda_2)\,d\lambda` for
+   each :math:`(t_1, t_2, n_1, n_2)` cache cell. Skipped entirely
+   when you supply ``c_closed_form_module``.
+2. **Diagram evaluation** (``sweep.method``) — the outer
+   :math:`d`-dimensional time integral over the causal simplex,
+   one evaluation per ``(positions, t_final, component_pair)``
+   grid point.
+
+For both layers the choice is the same trade-off: **adaptive
+robustness** (``dblquad`` / ``nquad``) vs **smooth-integrand
+speed** (``gauss_legendre``).
+
+.. tip::
+
+   **Gauss-Legendre is not Gaussian/exponential-only.** It gives
+   exponential convergence on **any function analytic on the
+   integration domain** — polynomials, rationals, exponentials,
+   trigonometrics, products and compositions thereof.
+
+   When the integrand is only **piecewise** analytic (e.g. an
+   ``|λ1 − λ2|`` cusp on the diagonal of κ²), splitting the
+   domain along the non-smooth boundary recovers full GL
+   convergence on each piece. The package's
+   ``c_method='gauss_legendre'`` does this split automatically.
+
+   GL is **not** the right tool for: (a) discontinuous
+   integrands, (b) high-frequency oscillations (need Filon or
+   Levin), (c) integrable singularities like :math:`1/\sqrt{x}`
+   (need Gauss-Jacobi or tanh-sinh). None of these arise in
+   typical sft-wick diagrams; the standard exp / Gaussian /
+   Legendre kernels are all GL-friendly.
+
+Decision matrix:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 18 22 36
+
+   * - Layer
+     - Method
+     - Best for
+     - Trade-off
+   * - ``propagators.c_method``
+     - ``dblquad`` (default)
+     - Any κ² (robust)
+     - 10-80 ms / cell, → 2-7 min builds
+   * -
+     - ``gauss_legendre``
+     - Piecewise-analytic κ² (single ``|Δt|`` cusp on the diagonal)
+     - **18-100× faster** at machine precision (``c_n_gauss=20``)
+   * - ``sweep.method``
+     - ``qmc_vectorized`` (default)
+     - High-d diagrams (``d ≥ 6``), non-smooth integrands, or when stochastic error bars are wanted
+     - ``~ 1/√n_samples`` bias decay; can severely under-resolve narrow peaks at large ``t_final``
+   * -
+     - ``gauss_legendre``
+     - Smooth integrands at ``d ≤ 5`` (the typical sft-wick case)
+     - **Exponential convergence** in ``n_gauss``; deterministic; cost scales as ``n_gauss^d``
+   * -
+     - ``nquad``
+     - Adaptive 1-3D fallback when GL nodes are insufficient
+     - Slow; raises ``NotImplementedError`` on dynamic-coupling diagrams
+   * -
+     - ``qmc`` / ``qmc_scalar``
+     - Compatibility / single-sample debugging
+     - Slow scalar Python loop; not for production sweeps
+
+User-Python hooks
+~~~~~~~~~~~~~~~~~
+
+The YAML block can defer to user Python in five places — each
+loads a callable from a ``.py`` module relative to the YAML file
+and registers it for joblib's worker-safe by-value module
+loading (so it composes cleanly with any of the
+``n_jobs > 1`` knobs):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 36 22 42
+
+   * - YAML key
+     - Callable signature
+     - Purpose
+   * - ``system.linear.gamma_module``
+     - ``γ(t) → ndarray(N,)``
+     - Time-dependent linear drift (replaces ``linear.gamma``)
+   * - ``system.noise.kappa2.type: callable_module``
+     - ``κ²(n1,t1,n2,t2) → (N, N)``
+     - Non-separable noise correlator (replaces ``separable_translation``/``separable_rotation``)
+   * - ``system.vertices[].coupling_module``
+     - ``F(n,t) → (N,)*n_legs``
+     - Spacetime-dependent local F (rare; ``coupling`` literal is the common case)
+   * - ``system.nonlocal_vertices[].coupling_module``
+     - ``κ^(m)(n_list,t_list) → (N,)*m`` (per-sample) **or** ``κ^(m)(n_2d,t_2d) → (n_samples,)+(N,)*m`` (vectorised; opt-in via ``coupling_vectorized: true``)
+     - Spacetime-dependent non-local coupling (e.g. demo2's :math:`\kappa^{(3)}`)
+   * - ``propagators.c_closed_form_module``
+     - ``C_fn(n1,t1,n2,t2) → (N,N)``  or vectorised ``(n,N,N)`` (opt-in via ``c_closed_form_vectorized: true``)
+     - Closed-form C lookup (skips dblquad / GL entirely)
+
+Parameter scans from the shell
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``--override key=value`` patches any leaf field in the parsed
+config (safe scalar coercion — no ``eval``):
 
 .. code-block:: bash
 
+   # vary one knob over a list
    for seed in 0 1 2 3 4 5; do
        sft-wick run demo1_config.yaml \
            --override "sweep.seed=$seed" \
            --override "output[0].path=results_seed$seed.md"
    done
+
+   # bump GL precision for a high-t_f sweep
+   sft-wick run demo2/L2/config_FK.yaml \
+       --override sweep.n_gauss=12
+
+   # validate without running
+   sft-wick run demo1_config.yaml --dry-run
 
 Homogeneity modes
 -----------------
