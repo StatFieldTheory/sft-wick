@@ -93,6 +93,8 @@ class PropagatorsConfig:
     c_closed_form_vectorized: bool = False
     cache_path: Any = None
     interp_method: str = "linear"
+    c_method: str = "dblquad"  # 'dblquad' | 'gauss_legendre'
+    c_n_gauss: int = 20  # nodes per dim under c_method='gauss_legendre'
 
 
 @dataclass(frozen=True)
@@ -457,6 +459,8 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
         c_closed_form_vectorized=bool(d.get("c_closed_form_vectorized", False)),
         cache_path=d.get("cache_path"),
         interp_method=str(d.get("interp_method", "linear")),
+        c_method=str(d.get("c_method", "dblquad")),
+        c_n_gauss=int(d.get("c_n_gauss", 20)),
     )
 
 
@@ -686,6 +690,8 @@ def run_workflow(cfg: WorkflowConfig):
         interp_method=cfg.propagators.interp_method,
         c_closed_form_only=cfg.propagators.c_closed_form_only,
         c_closed_form_vectorized=cfg.propagators.c_closed_form_vectorized,
+        c_method=cfg.propagators.c_method,
+        c_n_gauss=cfg.propagators.c_n_gauss,
     )
 
     # Mutual-exclusion: parallelism layers cannot nest because joblib's

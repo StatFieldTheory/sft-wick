@@ -49,6 +49,8 @@ class Propagators:
         interp_method: str = "linear",
         c_closed_form_only: bool = False,
         c_closed_form_vectorized: bool = False,
+        c_method: str = "dblquad",
+        c_n_gauss: int = 20,
     ) -> "Propagators":
         """Construct a ``Propagators`` for ``system``.  Called
         indirectly via :meth:`System.propagators`.
@@ -90,6 +92,28 @@ class Propagators:
                 See :class:`PropagatorCache` docstring for the full
                 list of accepted methods and the linear-vs-cubic
                 trade-off. Ignored under ``c_closed_form_only=True``.
+            c_method: How the inner 2-D C-propagator integral
+                ``∫ R κ² R`` is evaluated when the cache builds its
+                table.
+
+                - ``'dblquad'`` (default) -- ``scipy.integrate.dblquad``
+                  adaptive Gauss-Kronrod, robust on any κ² but slow
+                  (10-80 ms / call).
+                - ``'gauss_legendre'`` -- tensor-product GL with a
+                  diagonal-aware sub-region split at ``λ1 = λ2``.
+                  18-100× faster on κ² that is **piecewise analytic**
+                  with at most a single ``|λ1−λ2|`` cusp on the
+                  diagonal (the standard exponential / Gaussian / OU
+                  family used in demo1, demo2, and the test suite).
+                  Returns near-machine-precision agreement with
+                  ``'dblquad'`` at ``c_n_gauss=20``.
+
+                Ignored when ``c_closed_form_only=True`` (the C
+                lookup bypasses the cache entirely in that mode).
+            c_n_gauss: Per-dimension GL node count for
+                ``c_method='gauss_legendre'`` (default 20, enough for
+                machine precision on smooth OU / Gaussian kernels).
+                Cost scales as ``c_n_gauss²`` per sub-region.
         """
         if c_closed_form_only and c_closed_form is None:
             raise ValueError(
@@ -126,6 +150,8 @@ class Propagators:
             "c_closed_form_only": c_closed_form_only,
             "c_closed_form_vectorized": c_closed_form_vectorized,
             "interp_method": interp_method,
+            "c_method": c_method,
+            "c_n_gauss": int(c_n_gauss),
         }
 
         def _build() -> "Propagators":
@@ -134,11 +160,13 @@ class Propagators:
                 cache = _ClosedFormPropagatorCache(
                     model=model, homogeneity=hom, c_fn=c_closed_form,
                     interp_method=interp_method,
+                    c_method=c_method, n_gauss=int(c_n_gauss),
                 )
             else:
                 cache = PropagatorCache(
                     model=model, homogeneity=hom,
                     interp_method=interp_method,
+                    c_method=c_method, n_gauss=int(c_n_gauss),
                 )
 
             if c_closed_form_only:
@@ -155,6 +183,7 @@ class Propagators:
                     t_max=t_max, n_grid_t=n_grid_t,
                     r_max=r_max, n_grid_r=n_grid_r,
                     n_jobs=n_jobs,
+                    c_method=c_method, n_gauss=int(c_n_gauss),
                 )
                 is_lazy = (r_max is None) or (n_grid_r is None)
             elif hom == "rotation":
@@ -162,6 +191,7 @@ class Propagators:
                     t_max=t_max, n_grid_t=n_grid_t,
                     n_grid_cos=n_grid_cos,
                     n_jobs=n_jobs,
+                    c_method=c_method, n_gauss=int(c_n_gauss),
                 )
                 is_lazy = n_grid_cos is None
             else:  # general
@@ -169,6 +199,7 @@ class Propagators:
                     t_max=t_max, n_grid_t=n_grid_t,
                     x_max=x_max, n_grid_x=n_grid_x,
                     n_jobs=n_jobs,
+                    c_method=c_method, n_gauss=int(c_n_gauss),
                 )
                 is_lazy = (x_max is None) or (n_grid_x is None)
 
@@ -219,7 +250,12 @@ class _ClosedFormPropagatorCache(PropagatorCache):
             )
         self._c_fn = c_fn
 
-    def _C_value_direct(self, n1, t1, n2, t2):
+    def _C_value_direct(self, n1, t1, n2, t2, **_quad_kwargs):
+        # Accept (and ignore) the ``method=`` / ``n_gauss=`` quadrature
+        # kwargs that ``precompute_C_table_*`` may forward when the
+        # caller requests ``c_method='gauss_legendre'``.  In closed-form
+        # mode the user-supplied callable is exact, so neither dblquad
+        # nor GL is invoked here.
         arr = np.asarray(self._c_fn(n1, t1, n2, t2))
         # When the user supplies a vectorised c_fn (returns
         # (n, N, N)) but a legacy single-point caller hands in
