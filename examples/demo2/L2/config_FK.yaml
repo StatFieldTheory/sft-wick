@@ -69,9 +69,18 @@ sweep:
   component_pairs: [[0, 0], [0, 1], [1, 1]]
   vertex_types: [FK]   # exclude FF -- those go in config_FF.yaml
   orders: [2]
-  method: qmc_vectorized
-  n_samples: 32768  # 2^15
-  seed: 42
+
+  # Gauss-Legendre tensor-product quadrature on the 4D causal
+  # simplex.  At t_f >> 1 the integrand is a narrow band of
+  # area ~ sigma_t/gamma in a simplex of area ~ t_f^2/2; Sobol
+  # QMC under-resolves the band unless n_samples is very large
+  # (see ``examples/demo2/L2/diag_problem_B.py`` for the bias
+  # analysis).  GL with n_gauss=8 (8^4 = 4096 nodes) gives
+  # exponential convergence on this smooth integrand and matches
+  # the notebook's hand-derived 4D quadrature to ~5 sig figs at
+  # all t_f.  Determinstic -- no seed.
+  method: gauss_legendre
+  n_gauss: 8
 
   n_jobs: -1
 

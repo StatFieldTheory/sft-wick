@@ -107,6 +107,7 @@ class SweepConfig:
     n_samples: int = 2 ** 13
     seed: int = 42
     n_jobs: int = 1
+    n_gauss: int = 8  # used only when method='gauss_legendre'
 
 
 @dataclass(frozen=True)
@@ -478,6 +479,7 @@ def _parse_sweep(d: dict) -> SweepConfig:
         n_samples=int(d.get("n_samples", 2 ** 13)),
         seed=int(d.get("seed", 42)),
         n_jobs=int(d.get("n_jobs", 1)),
+        n_gauss=int(d.get("n_gauss", 8)),
     )
 
 
@@ -712,6 +714,7 @@ def run_workflow(cfg: WorkflowConfig):
         seed=cfg.sweep.seed,
         n_jobs=cfg.sweep.n_jobs,
         evaluate_n_jobs=cfg.expand.n_jobs,
+        n_gauss=cfg.sweep.n_gauss,
     )
 
     totals = sweep.totals()

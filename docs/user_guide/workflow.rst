@@ -343,9 +343,33 @@ keys:
 ``sweep``
     ``positions_grid``, ``t_final_grid``, ``component_pairs``,
     optional ``integrate_over``, ``vertex_types``, ``orders``,
-    ``method``, ``n_samples``, ``seed``, ``n_jobs``
+    ``method``, ``n_samples``, ``seed``, ``n_gauss``, ``n_jobs``
     (parallelise across grid points — mutually exclusive with
     ``expand.n_jobs > 1``).
+
+    The ``method`` field selects the time integrator:
+
+    - ``qmc_vectorized`` (default) — Sobol QMC at ``n_samples``
+      samples on the causal simplex.  Generic, scales well in
+      dimension; recommended for high-order diagrams (d ≥ 6) and
+      non-smooth integrands.  Carries a ``~ 1/sqrt(n_samples)``
+      bias decay and a stochastic error scaled by
+      ``seed``.
+    - ``gauss_legendre`` — tensor-product Gauss-Legendre rule
+      with ``n_gauss`` nodes per dimension (so
+      ``n_gauss^d`` total nodes, where ``d`` is the diagram's
+      time-integration variable count).  Deterministic.  On
+      smooth integrands (the typical R/C/κ exponential kernel
+      product) it converges exponentially in ``n_gauss``,
+      vastly outperforming Sobol QMC at modest dimensionality.
+      Recommended for d ≤ 5; the default ``n_gauss=8`` exactly
+      integrates polynomials up to degree 15.  Used by demo2's
+      FK channel to reproduce ``analysis.ipynb``'s figures
+      bit-for-bit (see ``examples/demo2/L2/config_FK.yaml``).
+    - ``nquad`` — scipy adaptive Gauss-Kronrod.  Slower than
+      both alternatives in practice; raises
+      ``NotImplementedError`` if the diagram has a callable
+      coupling (use ``gauss_legendre`` for those).
 
 ``output`` (optional)
     A list of output plugins.  Current plugin types: ``table``

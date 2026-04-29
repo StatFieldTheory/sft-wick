@@ -169,11 +169,16 @@ def _print_summary(cfg) -> None:
           f"n_jobs={p.n_jobs}, "
           f"c_closed_form={p.c_closed_form_module is not None}")
     sw = cfg.sweep
+    method_detail = (
+        f"n_gauss={sw.n_gauss}"
+        if sw.method == "gauss_legendre"
+        else f"n_samples={sw.n_samples}, seed={sw.seed}"
+    )
     print(f"[sft-wick] sweep: positions_grid={sw.positions_grid}, "
           f"t_final_grid={sw.t_final_grid}, "
           f"component_pairs={sw.component_pairs}, "
           f"integrate_over={sw.integrate_over!r}, "
-          f"n_samples={sw.n_samples}, seed={sw.seed}")
+          f"method={sw.method!r}, {method_detail}")
     for o in cfg.output:
         print(f"[sft-wick] output: type={o.type}, path={o.path}")
 

@@ -91,13 +91,34 @@ class Expansion:
 
     def plot(self, order: int, i: int = 0, **kwargs):
         """Render the ``i``-th diagram at ``order`` via the package's
-        :class:`DiagramRenderer`.  Returns a matplotlib ``Figure``.
-        """
-        from sft_wick import DiagramRenderer, FeynmanDiagram
+        :class:`DiagramRenderer`.
 
-        dt = self.dts_by_order[order][i]
-        fd = FeynmanDiagram.from_propagators(dt.propagators)
-        return DiagramRenderer(fd).render(**kwargs)
+        Args:
+            order: Perturbative order to look up in :attr:`raw_result`.
+            i:     Index of the diagram within that order.
+            **kwargs: Renderer-level kwargs (``figsize``, ``style``,
+                ``external_label_fn``, ``vertex_label_fn``,
+                ``label_format``) plus per-call ``draw`` kwargs
+                (``ax``, ``title``, ``external_labels``,
+                ``vertex_labels``, ``positions``, ``show_legend``).
+
+        Returns:
+            The matplotlib :class:`~matplotlib.figure.Figure`
+            containing the rendered diagram.
+        """
+        from sft_wick import DiagramRenderer
+
+        renderer_keys = {
+            "figsize", "style", "external_label_fn",
+            "vertex_label_fn", "label_format",
+        }
+        renderer_kwargs = {
+            k: kwargs.pop(k) for k in list(kwargs) if k in renderer_keys
+        }
+        fd = self.raw_result.diagrams_by_order[order][i].to_feynman_diagram()
+        renderer = DiagramRenderer(**renderer_kwargs)
+        ax = renderer.draw(fd, **kwargs)
+        return ax.figure
 
     # --------------------------------------------------------------- #
     # Numerical evaluation
@@ -117,6 +138,7 @@ class Expansion:
         n_samples: int = 2 ** 13,
         seed: int | None = 42,
         n_jobs: int = 1,
+        n_gauss: int = 8,
     ):
         """Integrate the expansion at a single ``(positions, t_final,
         component_pair)`` point.  Returns a :class:`Result`.
@@ -156,8 +178,15 @@ class Expansion:
                   ``{"x"}`` for a source integrated along the line
                   of sight × a detector field at ``t_final``.
 
-            method: ``'qmc' | 'qmc_vectorized' | 'qmc_scalar' | 'nquad'``.
-            n_samples, seed: forwarded to the integrator.
+            method: ``'qmc' | 'qmc_vectorized' | 'qmc_scalar' | 'nquad'
+                | 'gauss_legendre'``.  ``'gauss_legendre'`` uses a
+                tensor-product GL rule with ``n_gauss`` nodes per
+                dimension -- exponential convergence on smooth
+                integrands, deterministic, no seed.  Best for
+                ``len(time_integration_vars) <= 5``.
+            n_samples, seed: forwarded to the integrator (QMC only).
+            n_gauss: nodes per dimension for ``method='gauss_legendre'``
+                (default 8 -- handles up to degree-15 polynomial exactly).
         """
         from .result import Result
 
@@ -200,6 +229,7 @@ class Expansion:
             n_jobs=n_jobs,
             positions=positions,
             integrate_over=integrate_over,
+            n_gauss=n_gauss,
         )
 
         per_diagram = []
@@ -246,6 +276,7 @@ class Expansion:
         seed: int | None = 42,
         n_jobs: int = 1,
         evaluate_n_jobs: int = 1,
+        n_gauss: int = 8,
     ):
         """Cartesian-product sweep over positions, t_final, and
         component pairs.
@@ -317,6 +348,7 @@ class Expansion:
                 n_samples=n_samples,
                 seed=seed,
                 n_jobs=evaluate_n_jobs,
+                n_gauss=n_gauss,
             )
             return positions, t_f, comp, res
 
