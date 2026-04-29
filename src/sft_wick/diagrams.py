@@ -33,28 +33,38 @@ class FeynmanDiagram:
         field_type: str,
         component: str | None = None,
         spatial: str = "",
+        full_label: str | None = None,
     ) -> str:
         """Add an external point (observable field) to the diagram.
 
         Args:
-            label: Display label for the node.
+            label: Default display label for the node (typically a
+                compact form like ``"$\\phi_a$"``).
             field_type: ``"physical"`` or ``"response"``.
             component: Component index (``None`` for scalar fields).
             spatial: Spatial argument string.
+            full_label: Optional richer label that includes the
+                spatial argument (e.g. ``"$\\phi_a(x_1)$"``).
+                Stashed under the ``full_label`` node attribute so
+                renderers can opt into it via the ``LABEL_FULL``
+                format flag.  When ``None`` no ``full_label`` key is
+                set (renderers fall back to ``label``).
 
         Returns:
             The unique node ID assigned to this external point.
         """
         node_id = f"ext_{self._node_counter}"
         self._node_counter += 1
-        self.graph.add_node(
-            node_id,
+        node_data: dict[str, object] = dict(
             node_type="external",
             label=label,
             field_type=field_type,
             component=component,
             spatial=spatial,
         )
+        if full_label is not None:
+            node_data["full_label"] = full_label
+        self.graph.add_node(node_id, **node_data)
         return node_id
 
     def add_vertex(
@@ -175,20 +185,25 @@ class FeynmanDiagram:
         # Map operator UID -> graph node ID
         uid_to_node: dict[int, str] = {}
 
-        # Add external nodes
+        # Add external nodes.  The displayed label is *compact* by
+        # default ($\phi_a$); the full form ($\phi_a(x_1)$) is stashed
+        # in ``full_label`` so the rendering layer can opt back into
+        # it via ``label_format=LABEL_FULL``.  See render_labels.py.
         for op in observable_ops:
-            # Build a short LaTeX-style label for display
             name = r"\phi" if op.is_physical else r"\psi"
             if op.component_index is not None:
-                label = rf"${name}_{{{op.component_index}}}({op.spatial_arg})$"
+                compact_label = rf"${name}_{{{op.component_index}}}$"
+                full_label = rf"${name}_{{{op.component_index}}}({op.spatial_arg})$"
             else:
-                label = rf"${name}({op.spatial_arg})$"
+                compact_label = f"${name}$"
+                full_label = rf"${name}({op.spatial_arg})$"
 
             node_id = diagram.add_external_point(
-                label=label,
+                label=compact_label,
                 field_type=op.field_type.value,
                 component=op.component_index,
                 spatial=op.spatial_arg,
+                full_label=full_label,
             )
             uid_to_node[op.uid] = node_id
 

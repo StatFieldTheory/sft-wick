@@ -31,6 +31,8 @@ listed below are accessible directly from ``sft_wick``:
    evaluate
    diagrams
    drawing
+   drawing_tikz
+   render_style
    indices
    latex
    util

@@ -64,6 +64,7 @@ intersphinx_mapping = {
 
 html_theme = "furo"
 html_title = "sft-wick"
+html_static_path = ["_static"]
 
 html_theme_options = {
     "source_repository": "https://github.com/sft-wick/sft-wick",
