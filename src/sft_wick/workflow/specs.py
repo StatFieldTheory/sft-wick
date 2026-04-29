@@ -483,7 +483,7 @@ class SeparableTranslation(Kappa2):
 
     Args:
         temporal: callable accepting Δt, returning scalar.
-        spatial: callable accepting |Δx|, returning scalar.
+        spatial: callable accepting ``|Δx|``, returning scalar.
     """
 
     temporal: Callable

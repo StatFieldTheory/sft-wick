@@ -1035,7 +1035,7 @@ class PropagatorCache:
         Args:
             t_max: upper bound of the (t1, t2) time grid.
             n_grid_t: grid size along each time axis.
-            r_max: upper bound of the r = |x1-x2| grid
+            r_max: upper bound of the r = ``|x1-x2|`` grid
                 (full-grid mode).  ``None`` ⇒ lazy mode.
             n_grid_r: grid size along r (full-grid mode).
                 ``None`` ⇒ lazy mode.
@@ -1779,8 +1779,8 @@ class DynamicCouplingPromise:
     #: Static coupling values — already materialised arrays.
     static_values: dict
 
-    #: Dynamic coupling values — ``{name: callable(n_list, t_list)
-    #: -> ndarray}``.
+    #: Dynamic coupling values — mapping ``name -> callable(n_list,
+    #: t_list)`` returning an ``ndarray``.
     dynamic_values: dict
 
     #: Per-dynamic-symbol tuple of ψ-leg spatial labels, as they

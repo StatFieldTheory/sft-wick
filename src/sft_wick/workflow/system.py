@@ -206,11 +206,7 @@ class System:
                 or strings like ``"phi_a(x)"``.  Strings are parsed
                 as ``field_compIndex(spatialArg)``.
             orders: iterable of perturbative orders to compute.
-            response_phase, ito, collect_topology, iso_R, diag_R,
-            diag_C, iso_C: forwarded to
-                :func:`~sft_wick.perturbation.compute_moment`.  When
-                ``iso_R`` is ``None`` the value is inferred from
-                ``self.linear``.
+            response_phase, ito, collect_topology, iso_R, diag_R, diag_C, iso_C: forwarded to :func:`~sft_wick.perturbation.compute_moment`.  When ``iso_R`` is ``None`` the value is inferred from ``self.linear``.
             cache_path: directory (or file) for on-disk caching.
                 ``None`` disables caching (prints a one-shot
                 reminder).

@@ -182,18 +182,25 @@ class Expansion:
                 the diagram's number of internal time-integration variables
                 ``d = len(time_integration_vars)`` and integrand smoothness:
 
-                ===========================  ================================  ====================
-                Method                       Best for                          Trade-off
-                ===========================  ================================  ====================
-                ``'qmc_vectorized'`` (def.)  ``d ≥ 6`` / non-smooth integrand  ``~ 1/√n_samples`` bias
-                ``'gauss_legendre'``         ``d ≤ 5`` smooth (the typical     exponential convergence
-                                             sft-wick case)                    in ``n_gauss``;
-                                                                               cost ``n_gauss^d``
-                ``'nquad'``                  Adaptive 1-3D fallback            slow; raises
-                                                                               ``NotImplementedError``
-                                                                               on dynamic-coupling
-                ``'qmc'`` / ``'qmc_scalar'`` Compatibility / debugging         slow Python loop
-                ===========================  ================================  ====================
+                .. list-table::
+                   :header-rows: 1
+                   :widths: 28 38 34
+
+                   * - Method
+                     - Best for
+                     - Trade-off
+                   * - ``'qmc_vectorized'`` (default)
+                     - ``d >= 6`` / non-smooth integrand
+                     - ``~ 1/sqrt(n_samples)`` bias
+                   * - ``'gauss_legendre'``
+                     - ``d <= 5`` smooth (the typical sft-wick case)
+                     - exponential convergence in ``n_gauss``; cost ``n_gauss^d``
+                   * - ``'nquad'``
+                     - Adaptive 1-3D fallback
+                     - slow; raises ``NotImplementedError`` on dynamic-coupling
+                   * - ``'qmc'`` / ``'qmc_scalar'``
+                     - Compatibility / debugging
+                     - slow Python loop
 
                 See :doc:`/user_guide/workflow` "Choosing an integrator"
                 for the full decision matrix and worked examples.
@@ -385,9 +392,22 @@ class Expansion:
 
         rows = []
         for positions, t_f, (a, b), res in results:
+            # Hashable normalisation: d-dim vector positions arrive as
+            # ``list`` or ``np.ndarray``; pandas ``groupby`` (used in
+            # :meth:`SweepResult.totals`) factorises group keys via a
+            # hash table, which rejects list-typed cells with
+            # ``TypeError: unhashable type: 'list'``.  Coerce here so
+            # downstream aggregation works for both scalar and d-dim
+            # positions.
+            hashable_positions = {
+                k: (tuple(v.tolist()) if hasattr(v, "tolist")
+                    else (tuple(v) if isinstance(v, (list, tuple))
+                          else v))
+                for k, v in positions.items()
+            }
             for pd_row in res.per_diagram:
                 rows.append({
-                    **positions,
+                    **hashable_positions,
                     "t_final": t_f,
                     "a": a, "b": b,
                     **pd_row,

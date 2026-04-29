@@ -524,7 +524,7 @@ Section reference: ``system``
    * - ``vertices``
      - list of blocks
      - ``[]``
-     - Local F vertices; see :ref:`vertex-spec` below
+     - Local F vertices; see :ref:`vertex spec <vertex-spec>` below
    * - ``nonlocal_vertices``
      - list of blocks
      - ``[]``
@@ -737,7 +737,7 @@ Section reference: ``sweep``
      - Parallelise across grid points (``-1`` = all cores). Mutually exclusive with ``expand.n_jobs > 1``
 
 Section reference: ``output`` (optional list of plugins)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Each list entry is a ``{type: <kind>, path: ..., ...}`` dict. Three kinds today:
 
@@ -752,7 +752,7 @@ Each list entry is a ``{type: <kind>, path: ..., ...}`` dict. Three kinds today:
 .. _integrator-choice:
 
 Choosing an integrator (``sweep.method`` and ``propagators.c_method``)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Two layers in the pipeline run numerical quadrature:
 
