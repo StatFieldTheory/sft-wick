@@ -1918,6 +1918,64 @@ class DynamicCouplingPromise:
                 "provide a fully contracted scalar callable."
             )
 
+        # ------------------------------------------------------------
+        # Vectorised fast path (default).
+        # ------------------------------------------------------------
+        # Materialise every dynamic symbol's per-sample tensor stack as
+        # a single ``(n_samples, *kappa_shape)`` array, then call
+        # ``DiagramTerm.evaluate_coupling_batched`` once -- replacing
+        # the inner ``n_samples`` calls to ``_eval_symbolic`` with one
+        # vectorised pass.
+        #
+        # If the symbolic ``coupling_sum`` contains a node type the
+        # batched evaluator cannot handle (e.g. a ``Propagator`` or
+        # ``IntegralOver`` slipped into a coupling expression), the
+        # batched path raises ``NotImplementedError`` and we fall
+        # back to the original per-sample loop below.  This mirrors
+        # the safety net documented in
+        # :func:`sft_wick.perturbation._eval_symbolic_batched`.
+        try:
+            batched_cv: dict = dict(self.static_values)
+            for name, fn in self.dynamic_values.items():
+                if name in per_sample_tensors:
+                    batched_cv[name] = per_sample_tensors[name]
+                else:
+                    n_arr, t_2d = per_symbol_legs[name]
+                    # Per-sample callable: build the (n_samples, ...)
+                    # stack ourselves so the contraction is then
+                    # a single ufunc pass.  This still pays one
+                    # callable invocation per sample (unavoidable
+                    # without ``vectorized=True``), but the symbolic
+                    # contraction cost is amortised away.
+                    sample0 = np.asarray(fn(n_arr[:, 0], t_2d[:, 0]))
+                    stack = np.empty(
+                        (n_samples,) + sample0.shape,
+                        dtype=sample0.dtype,
+                    )
+                    stack[0] = sample0
+                    for s in range(1, n_samples):
+                        stack[s] = np.asarray(
+                            fn(n_arr[:, s], t_2d[:, s])
+                        )
+                    batched_cv[name] = stack
+            couplings = self.diagram_term.evaluate_coupling_batched(
+                batched_cv,
+                n_samples=n_samples,
+                fixed_indices=self.fixed_indices,
+            )
+            # ``evaluate_coupling_batched`` returns shape
+            # ``(n_samples,) + prop_shape``; for the dynamic path we
+            # already verified ``coup0.ndim == 0`` above so the
+            # output is ``(n_samples,)``.
+            if couplings.ndim != 1 or couplings.shape[0] != n_samples:
+                raise NotImplementedError(
+                    "evaluate_coupling_batched returned non-scalar "
+                    "per-sample output; falling back to scalar loop."
+                )
+            return np.ascontiguousarray(couplings).astype(complex, copy=False)
+        except NotImplementedError:
+            pass  # fall through to scalar per-sample loop below
+
         couplings = np.empty(n_samples, dtype=complex)
         couplings[0] = complex(coup0)
         for s in range(1, n_samples):
