@@ -364,7 +364,10 @@ fields must be present.
          spatial:  {type: exponential, sigma_x: 1.0}
                                          # 'exponential' | 'gaussian' | 'legendre_angular' | 'custom'
        sigma2: null                      # optional δ-correlated white-noise floor
-                                         # e.g.  {type: constant_impulse, sigma2: 0.01}
+                                         # 'constant'        -> {type: constant, amplitude: 0.01}
+                                         # 'callable_module' -> {type: callable_module,
+                                         #                       module: ./sigma2.py, attr: sigma2}
+                                         # callable signature: sigma2(n1, lam, n2) -> (N, N)
 
      vertices:                           # zero or more local F vertices (bare F tensor)
        - name: F
@@ -520,7 +523,7 @@ Section reference: ``system``
    * - ``noise.sigma2``
      - block or ``null``
      - ``null``
-     - Optional δ-correlated white-noise variance — e.g. ``{type: constant_impulse, sigma2: 0.01}``
+     - Optional δ-correlated white-noise variance.  Two flavours: ``{type: constant, amplitude: 0.01}`` for a scalar / spacetime-independent impulse, **or** ``{type: callable_module, module: ./fn.py, attr: sigma2}`` for a user-supplied ``sigma2(n1, lam, n2) → (N, N)`` (mirrors the ``kappa2.callable_module`` pattern; the spec is wrapped via ``CustomImpulse``)
    * - ``vertices``
      - list of blocks
      - ``[]``
@@ -847,6 +850,9 @@ loading (so it composes cleanly with any of the
    * - ``system.noise.kappa2.type: callable_module``
      - ``κ²(n1,t1,n2,t2) → (N, N)``
      - Non-separable noise correlator (replaces ``separable_translation``/``separable_rotation``)
+   * - ``system.noise.sigma2.type: callable_module``
+     - ``σ²(n1,lam,n2) → (N, N)``
+     - Spacetime-varying δ-correlated white-noise impulse (the alternative to ``sigma2.type: constant``)
    * - ``system.vertices[].coupling_module``
      - ``F(n,t) → (N,)*n_legs``
      - Spacetime-dependent local F (rare; ``coupling`` literal is the common case)

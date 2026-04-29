@@ -609,9 +609,25 @@ def _build_noise(d: dict, base_dir: Path | None = None):
             sigma2 = sp.ConstantImpulse(
                 amplitude=sig_d.get("amplitude", 0.0)
             )
+        elif st == "callable_module":
+            if base_dir is None:
+                raise ValueError(
+                    "noise.sigma2.type='callable_module' requires base_dir; "
+                    "the workflow loader should pass it through."
+                )
+            if "module" not in sig_d:
+                raise ValueError(
+                    "noise.sigma2.type='callable_module' requires "
+                    "'module: <relative path to .py file>'."
+                )
+            mod_path = (base_dir / sig_d["module"]).resolve()
+            attr = sig_d.get("attr", "sigma2")
+            fn = _load_callable_from_module(mod_path, attr)
+            sigma2 = sp.CustomImpulse(fn=fn)
         else:
             raise ValueError(
-                f"Unsupported sigma2.type {st!r}.  Supported: 'constant'."
+                f"Unsupported sigma2.type {st!r}.  Supported: "
+                f"'constant', 'callable_module'."
             )
 
     return sp.GaussianNoise(kappa2=kappa2, sigma2=sigma2)

@@ -1825,13 +1825,26 @@ class DynamicCouplingPromise:
 
         ``label_t`` and ``label_x`` map every spatial label appearing
         in any dynamic symbol's legs to a ``(n_samples,)`` time
-        array / scalar-or-``(n_samples,)`` position respectively.
+        array / position respectively. Each ``label_x`` entry may be:
+
+        * a scalar (the historical / 1-D translation case) — produces
+          a per-leg broadcast of shape ``(n_samples,)``;
+        * a ``(d,)`` vector (e.g. a 3-D unit vector under
+          ``homogeneity='rotation'``) — produces a per-leg broadcast
+          of shape ``(n_samples, d)``.
+
+        The user callable then sees per-leg slices of shape ``(m,)`` or
+        ``(m, d)`` respectively (or, in the vectorised contract below,
+        ``(m, n_samples)`` / ``(m, n_samples, d)``). All legs of one
+        symbol must have the same position shape; mixing scalar and
+        vector legs raises from ``np.stack``.
 
         Per-symbol fast path: when the user marks a callable
         ``vectorized=True`` (e.g. via
         :class:`~sft_wick.workflow.specs.NonLocalVertex(coupling_vectorized=True)`
         or by setting ``fn.vectorized = True``), the wrapped
-        callable receives ``(m_legs, n_samples)`` arrays in a single
+        callable receives ``(m_legs, n_samples)`` arrays — or
+        ``(m_legs, n_samples, d)`` for d-dim positions — in a single
         call and returns a tensor of shape
         ``(n_samples,) + (N,)*order``. Otherwise we fall back to the
         ``n_samples`` per-sample calls of :meth:`evaluate_at`.
@@ -1858,26 +1871,35 @@ class DynamicCouplingPromise:
             leg_x_arrs = []
             for s in legs:
                 x_val = np.asarray(label_x[s], dtype=float)
-                # The dynamic-coupling QMC path is currently
-                # scalar-position-only. d-dim positions pass through
-                # the static / non-dynamic path (homogeneity-aware
-                # ``C_at_batch``) just fine -- only the user fn
-                # contract here insists on scalar legs. If you need
-                # vector positions plus a callable kappa^(m), wait
-                # for the deferred dynamic-d-dim work or supply a
-                # vectorized callable that pre-broadcasts the legs
-                # itself.
-                if x_val.ndim != 0:
-                    raise NotImplementedError(
-                        f"d-dim spatial positions not supported in "
-                        f"the dynamic-coupling QMC path: symbol "
-                        f"{name!r} leg at label {s!r} has position "
-                        f"shape {x_val.shape}. Use scalar positions "
-                        f"or a constant-tensor coupling for this "
-                        f"vertex."
+                # Positions per leg are *fixed* across samples (they
+                # are the integration's external coordinates), so we
+                # broadcast a leading sample axis of length n_samples.
+                #
+                # Two regimes:
+                # * scalar position (x_val.ndim == 0): broadcast to
+                #   (n_samples,) -- the historical case; produces a
+                #   final n_arr of shape (m, n_samples) and a per-
+                #   sample slice of shape (m,) for the user callable.
+                # * d-dim vector position (x_val.ndim >= 1): broadcast
+                #   to (n_samples, *x_val.shape) -- produces a final
+                #   n_arr of shape (m, n_samples, *vec_shape) and a
+                #   per-sample slice of shape (m, *vec_shape) for the
+                #   user callable.  The user callable is responsible
+                #   for handling its own per-leg position shape.
+                if x_val.ndim == 0:
+                    leg_x_arrs.append(np.full((n_samples,), float(x_val)))
+                else:
+                    leg_x_arrs.append(
+                        np.broadcast_to(
+                            x_val[None, ...], (n_samples,) + x_val.shape
+                        )
                     )
-                leg_x_arrs.append(np.full((n_samples,), float(x_val)))
-            n_arr = np.stack(leg_x_arrs, axis=0)  # shape (m, n_samples)
+            # Mixing scalar and vector legs (or different vector dims
+            # across legs) makes ``np.stack`` raise -- a clear shape
+            # error that is more useful than a silent broadcast.
+            n_arr = np.stack(leg_x_arrs, axis=0)
+            # scalar legs -> (m, n_samples)
+            # d-dim legs  -> (m, n_samples, *vec_shape)
             per_symbol_legs[name] = (n_arr, t_2d)
 
         # Vectorised symbols: single fn call yields per-sample tensor
