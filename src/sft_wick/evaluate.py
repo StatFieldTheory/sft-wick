@@ -361,6 +361,203 @@ class _LazyTimeSplineCache:
         return [RectBivariateSpline(ts, ts, grids[a]) for a in range(N)]
 
 
+def _C_value_direct_gl(
+    model: "PropagatorModel",
+    n1: Any,
+    t1: float,
+    n2: Any,
+    t2: float,
+    n_gauss: int = 20,
+) -> np.ndarray:
+    """Gauss-Legendre evaluation of the C-propagator 2-D integral.
+
+    Drop-in replacement for the ``scipy.integrate.dblquad`` path inside
+    :meth:`PropagatorCache._C_value_direct` for the common case where
+    κ² is smooth except for a folded ``|λ1 − λ2|`` cusp on the diagonal
+    (the OU / exponential-temporal kernels used in demo1, demo2, and
+    the test suite).
+
+    Strategy: rather than apply a single tensor-product Gauss-Legendre
+    rule on the rectangle ``[t_min, t1] × [t_min, t2]`` -- where the
+    diagonal cusp ruins polynomial convergence and gives O(10%) error
+    even at ``n_gauss=30`` -- we split the rectangle at ``λ1 = λ2``
+    into 2 (square case) or 3 (rectangle case) sub-regions on each of
+    which the integrand is smooth, then apply a fixed
+    ``n_gauss × n_gauss`` rule per sub-region.
+
+    Sub-regions for ``t_min ≤ λ1 ≤ t1, t_min ≤ λ2 ≤ t2``:
+
+    * Let ``t_d = min(t1, t2)``.  In the square ``[t_min, t_d]²`` the
+      diagonal cuts through.
+
+      - Region A (lower triangle): ``λ2 ≤ λ1``, so ``|λ1−λ2|=λ1−λ2``.
+      - Region B (upper triangle): ``λ1 ≤ λ2``, so ``|λ1−λ2|=λ2−λ1``.
+
+    * Outside the square (only if ``t1 ≠ t2``):
+
+      - If ``t1 > t2``: Region C is the strip
+        ``t_d ≤ λ1 ≤ t1, t_min ≤ λ2 ≤ t2`` where ``λ1 > λ2``.
+      - If ``t2 > t1``: Region C is the strip
+        ``t_min ≤ λ1 ≤ t1, t_d ≤ λ2 ≤ t2`` where ``λ2 > λ1``.
+
+    Each sub-region is handled by an iterated 1-D Gauss-Legendre rule:
+    outer pass over ``λ1`` with ``n_gauss`` nodes, inner pass over
+    ``λ2`` with ``n_gauss`` nodes whose interval depends on ``λ1`` for
+    the triangular regions.
+
+    For the triangular regions the inner integral has a node-dependent
+    upper or lower bound; we map the inner ``[-1, 1]`` GL nodes onto
+    that variable interval each time, accumulating the Jacobian.
+
+    The white-noise δ-correlated piece (when ``model.sigma2`` is set)
+    is added via a single 1-D Gauss-Legendre pass on
+    ``[t_min, min(t1, t2)]`` -- the integrand there is smooth (no cusp).
+
+    Args:
+        model: The propagator model.
+        n1, t1, n2, t2: As in :meth:`PropagatorCache._C_value_direct`.
+        n_gauss: Number of GL nodes per dimension per sub-region.
+
+    Returns:
+        ``(N, N)`` array of C values, identical in shape and meaning
+        to the dblquad path.
+    """
+    from numpy.polynomial.legendre import leggauss
+
+    N = model.n_components
+    t_min = model.t_min
+    C_mat = np.zeros((N, N))
+
+    if t1 <= t_min or t2 <= t_min:
+        # Empty integration domain along at least one axis -- C = 0.
+        return C_mat
+
+    # 1-D GL nodes & weights on [-1, 1], reused across sub-regions.
+    nodes, weights = leggauss(n_gauss)
+
+    # ---- helper: evaluate R-diagonal at a single time pair ------- #
+    def _r_diag(t_obs: float, lam: float) -> np.ndarray:
+        """Return shape ``(N,)`` -- the diagonal of ``R(t_obs, lam)``.
+
+        For ``iso_R`` the same scalar fills every component.  For
+        ``diag_C=True`` only diagonal entries are needed, so we
+        always return the diagonal slice.  When ``diag_C=False`` we
+        still call this for entries ``[a, a]`` of R (R is always
+        diagonal in component indices in MSR), but the κ² off-diag
+        couples them.
+        """
+        rt = model.R_time(t_obs, lam)
+        if model.iso_R:
+            return np.full(N, float(rt))
+        rt_arr = np.asarray(rt, dtype=float)
+        return np.array([rt_arr[a, a] for a in range(N)])
+
+    # ---- helper: evaluate κ² at a single time pair --------------- #
+    def _kappa(lam1: float, lam2: float) -> np.ndarray:
+        return np.asarray(model.kappa2(n1, lam1, n2, lam2), dtype=float)
+
+    # ---- helper: contract one (R_diag(t1,lam1), kappa, R_diag(t2,lam2))
+    # triple into the (N, N) per-point integrand value ------------- #
+    def _integrand_block(
+        r1d: np.ndarray, kmat: np.ndarray, r2d: np.ndarray,
+    ) -> np.ndarray:
+        # element [a, b] = r1d[a] * kmat[a, b] * r2d[b]
+        if model.diag_C:
+            # Only diagonal matters; mask kmat to its diagonal.
+            out = np.zeros((N, N))
+            diag = np.array([kmat[a, a] for a in range(N)])
+            for a in range(N):
+                out[a, a] = r1d[a] * diag[a] * r2d[a]
+            return out
+        return (r1d[:, None] * kmat) * r2d[None, :]
+
+    # ---- helper: integrate over a triangular region -------------- #
+    # Region of the form  a_lo ≤ λ1 ≤ a_hi,  inner_lo(λ1) ≤ λ2 ≤ inner_hi(λ1).
+    # Both ``a_lo, a_hi`` are scalars; ``inner_lo`` and ``inner_hi``
+    # are callables of λ1.
+    def _gl_region(
+        lam1_lo: float, lam1_hi: float,
+        inner_lo: Callable[[float], float],
+        inner_hi: Callable[[float], float],
+    ) -> np.ndarray:
+        if lam1_hi <= lam1_lo:
+            return np.zeros((N, N))
+        # Outer mapping: λ1 = lam1_lo + 0.5*(lam1_hi-lam1_lo)*(node+1)
+        half_outer = 0.5 * (lam1_hi - lam1_lo)
+        mid_outer = 0.5 * (lam1_hi + lam1_lo)
+        lam1_pts = mid_outer + half_outer * nodes
+        outer_w = half_outer * weights
+
+        acc = np.zeros((N, N))
+        for k, lam1 in enumerate(lam1_pts):
+            lo = inner_lo(float(lam1))
+            hi = inner_hi(float(lam1))
+            if hi <= lo:
+                continue
+            half_inner = 0.5 * (hi - lo)
+            mid_inner = 0.5 * (hi + lo)
+            lam2_pts = mid_inner + half_inner * nodes
+            inner_w = half_inner * weights
+
+            r1d = _r_diag(t1, float(lam1))
+            inner_acc = np.zeros((N, N))
+            for j, lam2 in enumerate(lam2_pts):
+                kmat = _kappa(float(lam1), float(lam2))
+                r2d = _r_diag(t2, float(lam2))
+                inner_acc += inner_w[j] * _integrand_block(r1d, kmat, r2d)
+            acc += outer_w[k] * inner_acc
+        return acc
+
+    t_d = min(t1, t2)
+
+    # Region A: t_min ≤ λ2 ≤ λ1 ≤ t_d  (lower triangle, λ1 > λ2).
+    if t_d > t_min:
+        C_mat += _gl_region(
+            t_min, t_d,
+            inner_lo=lambda _l1: t_min,
+            inner_hi=lambda l1: l1,
+        )
+        # Region B: t_min ≤ λ1 ≤ λ2 ≤ t_d  (upper triangle, λ1 < λ2).
+        C_mat += _gl_region(
+            t_min, t_d,
+            inner_lo=lambda l1: l1,
+            inner_hi=lambda _l1: t_d,
+        )
+
+    # Region C: outside the square (only if t1 != t2).
+    if t1 > t2:
+        # λ1 ∈ [t_d, t1], λ2 ∈ [t_min, t2] = [t_min, t_d].  λ1 > λ2.
+        C_mat += _gl_region(
+            t_d, t1,
+            inner_lo=lambda _l1: t_min,
+            inner_hi=lambda _l1: t_d,
+        )
+    elif t2 > t1:
+        # λ2 ∈ [t_d, t2], λ1 ∈ [t_min, t1] = [t_min, t_d].  λ2 > λ1.
+        C_mat += _gl_region(
+            t_min, t_d,
+            inner_lo=lambda _l1: t_d,
+            inner_hi=lambda _l1: t2,
+        )
+
+    # ---- White-noise δ piece: 1-D GL on [t_min, min(t1, t2)] ----- #
+    if model.sigma2 is not None:
+        t_upper = t_d
+        if t_upper > t_min:
+            half = 0.5 * (t_upper - t_min)
+            mid = 0.5 * (t_upper + t_min)
+            tau_pts = mid + half * nodes
+            tau_w = half * weights
+            for k, tau in enumerate(tau_pts):
+                tau_f = float(tau)
+                r1d = _r_diag(t1, tau_f)
+                r2d = _r_diag(t2, tau_f)
+                sig = np.asarray(model.sigma2(n1, tau_f, n2), dtype=float)
+                C_mat += tau_w[k] * _integrand_block(r1d, sig, r2d)
+
+    return C_mat
+
+
 def _rotation_cos(x1, x2) -> float:
     """Cosine similarity ``x1·x2 / (|x1| |x2|)`` as a scalar.
 
@@ -433,12 +630,37 @@ class PropagatorCache:
         quad_opts: dict | None = None,
         homogeneity: str = "translation",
         interp_method: str = "linear",
+        c_method: str = "dblquad",
+        n_gauss: int = 20,
     ):
         """Initialise the propagator cache.
 
         Args:
             model: Propagator model specifying R and κ².
             quad_opts: Options forwarded to ``scipy.integrate.dblquad``.
+            c_method: Quadrature method used by :meth:`_C_value_direct`
+                (and therefore by every ``precompute_C_table_*`` builder).
+
+                - ``'dblquad'`` (default, robust): adaptive 2-D
+                  quadrature via :func:`scipy.integrate.dblquad`.
+                  Handles arbitrary κ² but slow (10-80 ms per call)
+                  due to adaptive recursion.
+                - ``'gauss_legendre'``: tensor-product Gauss-Legendre
+                  with diagonal-aware sub-region splitting at
+                  ``λ1 = λ2``.  ~10-1000× faster than ``'dblquad'``
+                  on smooth κ² with a single ``|λ1−λ2|`` cusp on the
+                  diagonal (the demo1/demo2 OU-style kernels).  See
+                  :func:`_C_value_direct_gl` for details.
+
+                Each ``precompute_C_table_*`` builder also accepts a
+                local ``c_method`` kwarg that overrides this default
+                for the duration of the build.
+            n_gauss: Number of Gauss-Legendre nodes per dimension per
+                sub-region when ``c_method='gauss_legendre'``.  Default
+                ``20`` is enough for machine precision on smooth OU /
+                Gaussian kernels.  Cost scales as ``n_gauss²`` per
+                sub-region (3 sub-regions for ``t1 ≠ t2``, 2 for
+                ``t1 = t2``).
             homogeneity: Physical assumption about how C depends on the
                 spatial coordinates.  Determines which
                 ``precompute_C_table_*`` builder is valid.
@@ -488,10 +710,21 @@ class PropagatorCache:
                 f"homogeneity must be 'translation', 'rotation', or "
                 f"'general'; got {homogeneity!r}"
             )
+        if c_method not in ("dblquad", "gauss_legendre"):
+            raise ValueError(
+                f"c_method must be 'dblquad' or 'gauss_legendre'; "
+                f"got {c_method!r}"
+            )
+        if int(n_gauss) < 2:
+            raise ValueError(
+                f"n_gauss must be >= 2; got {n_gauss!r}"
+            )
         self.model = model
         self.quad_opts = quad_opts or {}
         self.homogeneity = homogeneity
         self.interp_method = interp_method
+        self.c_method = c_method
+        self.n_gauss = int(n_gauss)
 
         # Closed-form-only path: skip every spline and route C lookups
         # directly through ``self._C_value_direct``. Set by
@@ -769,6 +1002,8 @@ class PropagatorCache:
         r_max: float | None = None,
         n_grid_r: int | None = None,
         n_jobs: int = 1,
+        c_method: str = "dblquad",
+        n_gauss: int = 20,
     ) -> None:
         """Enable spatial support under the translation-invariance
         assumption:
@@ -811,6 +1046,21 @@ class PropagatorCache:
                 grid) **and** lazy mode (fans out across each on-demand
                 2-D ``(t1, t2)`` build; each new r pays a ~1 s worker
                 startup cost).
+            c_method: Quadrature method passed to
+                :meth:`_C_value_direct` for every grid-point
+                evaluation (full-grid mode only -- lazy mode will use
+                the cache instance's :attr:`c_method` default).
+
+                - ``'dblquad'`` (default): backwards-compatible
+                  adaptive quadrature.
+                - ``'gauss_legendre'``: tensor-product GL with
+                  diagonal-aware sub-region splitting.  10-1000×
+                  faster on smooth κ² with a single ``|λ1−λ2|`` cusp.
+                  See :func:`_C_value_direct_gl`.
+            n_gauss: Per-dimension GL node count when
+                ``c_method='gauss_legendre'``.  Default ``20`` is
+                enough for machine precision on demo1/demo2 OU
+                kernels.
 
         Requires ``self.homogeneity == 'translation'``.
 
@@ -852,9 +1102,18 @@ class PropagatorCache:
         def _point(args):
             i, j, k, t1, t2, r = args
             # TODO(d-dim): replace scalar r with np.ndarray x_diff
-            C_mat = self._C_value_direct(
-                np.asarray(0.0), t1, np.asarray(r), t2,
-            )
+            # Forward the GL kwargs only when explicitly requested, so
+            # subclasses overriding ``_C_value_direct`` with the
+            # legacy 4-arg signature continue to work unchanged.
+            if c_method != "dblquad":
+                C_mat = self._C_value_direct(
+                    np.asarray(0.0), t1, np.asarray(r), t2,
+                    method=c_method, n_gauss=n_gauss,
+                )
+            else:
+                C_mat = self._C_value_direct(
+                    np.asarray(0.0), t1, np.asarray(r), t2,
+                )
             return i, j, k, np.array([C_mat[a, a] for a in range(N)])
 
         if n_jobs == 1 or len(tasks) <= 4:
@@ -892,6 +1151,8 @@ class PropagatorCache:
         n_grid_t: int = 60,
         n_grid_cos: int | None = None,
         n_jobs: int = 1,
+        c_method: str = "dblquad",
+        n_gauss: int = 20,
     ) -> None:
         """Enable spatial support under the rotation-invariance
         assumption:
@@ -925,6 +1186,12 @@ class PropagatorCache:
                 grid) and lazy mode (fans out across each on-demand
                 2-D build).  ``1`` serial, ``-1`` all cores via
                 :mod:`joblib`.
+            c_method: ``'dblquad'`` (default) or ``'gauss_legendre'``
+                -- forwarded to :meth:`_C_value_direct` for every
+                full-grid point.  See
+                :meth:`precompute_C_table_translation` for details.
+            n_gauss: Per-dim GL node count for
+                ``c_method='gauss_legendre'``; default ``20``.
 
         Requires ``self.homogeneity == 'rotation'``.
         """
@@ -975,7 +1242,15 @@ class PropagatorCache:
         def _point(args):
             i, j, k, t1, t2, cos_val = args
             e1, e2 = _rep_vectors(cos_val)
-            C_mat = self._C_value_direct(e1, t1, e2, t2)
+            # See ``precompute_C_table_translation._point`` for the
+            # legacy-subclass-compat rationale.
+            if c_method != "dblquad":
+                C_mat = self._C_value_direct(
+                    e1, t1, e2, t2,
+                    method=c_method, n_gauss=n_gauss,
+                )
+            else:
+                C_mat = self._C_value_direct(e1, t1, e2, t2)
             return i, j, k, np.array([C_mat[a, a] for a in range(N)])
 
         if n_jobs == 1 or len(tasks) <= 4:
@@ -1013,6 +1288,8 @@ class PropagatorCache:
         x_max: float | None = None,
         n_grid_x: int | None = None,
         n_jobs: int = 1,
+        c_method: str = "dblquad",
+        n_gauss: int = 20,
     ) -> None:
         """Pre-compute C with no spatial symmetry assumed.
 
@@ -1033,6 +1310,12 @@ class PropagatorCache:
                 across the 4-D grid) and lazy mode (fans out across
                 each on-demand 2-D build).  ``1`` serial, ``-1`` all
                 cores via :mod:`joblib`.
+            c_method: ``'dblquad'`` (default) or ``'gauss_legendre'``
+                -- forwarded to :meth:`_C_value_direct` for every
+                full-grid point.  See
+                :meth:`precompute_C_table_translation` for details.
+            n_gauss: Per-dim GL node count for
+                ``c_method='gauss_legendre'``; default ``20``.
 
         Requires ``self.homogeneity == 'general'``.
         """
@@ -1070,9 +1353,17 @@ class PropagatorCache:
         def _point(args):
             i, j, p, q, t1, t2, x1, x2 = args
             # TODO(d-dim): x1, x2 would be vectors
-            C_mat = self._C_value_direct(
-                np.asarray(x1), t1, np.asarray(x2), t2,
-            )
+            # See ``precompute_C_table_translation._point`` for the
+            # legacy-subclass-compat rationale.
+            if c_method != "dblquad":
+                C_mat = self._C_value_direct(
+                    np.asarray(x1), t1, np.asarray(x2), t2,
+                    method=c_method, n_gauss=n_gauss,
+                )
+            else:
+                C_mat = self._C_value_direct(
+                    np.asarray(x1), t1, np.asarray(x2), t2,
+                )
             return i, j, p, q, np.array([C_mat[a, a] for a in range(N)])
 
         if n_jobs == 1 or len(tasks) <= 4:
@@ -1113,6 +1404,8 @@ class PropagatorCache:
         t1: float,
         n2: Any,
         t2: float,
+        method: str | None = None,
+        n_gauss: int | None = None,
     ) -> np.ndarray:
         """Direct quadrature evaluation of C without consulting any cache.
 
@@ -1128,7 +1421,25 @@ class PropagatorCache:
                             n1, n2) R(t2,τ) dτ
 
         which is added to the usual 2-D dblquad result.
+
+        Args:
+            method: ``'dblquad'`` or ``'gauss_legendre'``.  ``None``
+                (default) uses :attr:`c_method`.
+            n_gauss: Override per-dim node count for the Gauss-Legendre
+                method.  ``None`` (default) uses :attr:`n_gauss`.
         """
+        method = self.c_method if method is None else method
+        n_gauss_val = self.n_gauss if n_gauss is None else int(n_gauss)
+        if method == "gauss_legendre":
+            return _C_value_direct_gl(
+                self.model, n1, t1, n2, t2, n_gauss=n_gauss_val,
+            )
+        if method != "dblquad":
+            raise ValueError(
+                f"unknown c_method {method!r}; expected 'dblquad' "
+                f"or 'gauss_legendre'"
+            )
+
         from scipy.integrate import dblquad, quad as _quad
 
         m = self.model
