@@ -193,13 +193,18 @@ External-vertex labels
 
 The label format flag controls the *default* text:
 
-==========================  ==============================
-Flag                        Default text
-==========================  ==============================
-``LABEL_COMPACT`` (default) ``$\phi_a$`` — no spatial argument
-``LABEL_FULL``              ``$\phi_a(x_1)$`` — pre-2026-04 default
-``LABEL_TIME_F``            ``$\phi_a(t_f)$``
-==========================  ==============================
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Flag
+     - Default text
+   * - ``LABEL_COMPACT`` (default)
+     - ``$\phi_a$`` — no spatial argument
+   * - ``LABEL_FULL``
+     - ``$\phi_a(x_1)$`` — pre-2026-04 default
+   * - ``LABEL_TIME_F``
+     - ``$\phi_a(t_f)$``
 
 Per-call overrides win:
 

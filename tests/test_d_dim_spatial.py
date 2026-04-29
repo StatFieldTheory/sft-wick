@@ -175,3 +175,46 @@ def test_DD2_expansion_evaluate_3d_separation_is_distance_only() -> None:
             f"total {res_b.total!r}."
         ),
     )
+
+
+def test_DD3_sweep_with_3d_positions_aggregates_via_pandas_groupby() -> None:
+    """Regression: ``Expansion.sweep(positions_grid={...})`` with
+    d-dim vector positions must produce a SweepResult whose
+    ``totals()`` (pandas groupby) does not crash with
+    ``TypeError: unhashable type: 'list'``.
+
+    Originally surfaced from a user config with
+    ``positions_grid: {x: [[0.0, 0.0, 1.0]], y: [[0.16, 0, 0.99], ...]}``;
+    pandas factorises group keys via a hash table that rejects
+    list-typed cells, so the rows constructed in
+    ``Expansion.sweep`` must coerce d-dim positions to tuples.
+    """
+    system = _build_demo1_system()
+    expansion = system.expand(
+        observable=("phi_a(x)", "phi_b(y)"), orders=(0,),
+    )
+    props = system.propagators(
+        t_max=2.0, n_grid_t=10,
+        c_closed_form=_load_demo1_C_fn(),
+        c_closed_form_only=True,
+        c_closed_form_vectorized=True,
+    )
+    sweep = expansion.sweep(
+        props,
+        positions_grid={
+            "x": [np.array([0.0, 0.0, 0.0])],
+            "y": [
+                np.array([0.5, 0.0, 0.0]),
+                np.array([1.0, 0.0, 0.0]),
+            ],
+        },
+        t_final_grid=[1.0],
+        component_pairs=[(0, 0)],
+        orders=(0,),
+        method="gauss_legendre",
+        n_gauss=4,
+    )
+    # The crash was in ``totals()``; make sure it succeeds and
+    # returns one row per (positions, t_final, a, b, order) cell.
+    df = sweep.totals()
+    assert len(df) == 2, f"expected 2 rows, got {len(df)}: {df!r}"
