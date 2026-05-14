@@ -698,6 +698,18 @@ class NonLocalVertex:
     order: int
     coupling: Any  # np.ndarray or callable — bare κ^(m)
     coupling_vectorized: bool = False
+    equal_time: bool = False
+    # When True, the m time legs of this vertex share a SINGLE
+    # integration variable (one ∫dt for the whole vertex), while the
+    # m spatial legs stay independent. This matches the case where
+    # ``coupling`` encodes the equal-shell connected cumulant
+    # ``δ(t_1 − t_2) … δ(t_{m−1} − t_m) · κ_eq(n_1, …, n_m; t)`` ---
+    # canonical example: the cosmological equal-shell bispectrum
+    # ``ζ_eq(γ_12, γ_23, γ_31; λ)`` returned by
+    # ``canoes.sachs.compute_kappa3_zeta_table``. Without this flag,
+    # sft-wick correctly integrates over m independent times, but
+    # such an equal-shell callable contributes a spurious
+    # ``(t_max)^(m−1)`` factor of integration measure.
 
     @property
     def msr_factor(self) -> complex:

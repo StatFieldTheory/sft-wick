@@ -252,6 +252,15 @@ class DiagramTerm:
     integration_vars: tuple[str, ...]
     summation_indices: tuple[tuple[str, int], ...]
     n_response: int
+    # Maps each non-representative internal spatial label to its
+    # canonical time representative for equal_time NonLocalVertex
+    # vertices. Default empty tuple means "no time aliasing"; the
+    # m legs of each contributing vertex integrate independently
+    # (the original sft-wick contract). When non-empty, the named
+    # labels share a single time integration variable while keeping
+    # independent spatial labels --- this is the equal-shell
+    # cumulant case (see ``NonLocalVertex.equal_time``).
+    equal_time_aliases: tuple[tuple[str, str], ...] = ()
 
     @property
     def propagator_indices(self) -> tuple[tuple[str, int], ...]:
@@ -633,6 +642,7 @@ class DiagramTerm:
             integration_vars=self.integration_vars,
             summation_indices=new_sum_indices,
             n_response=self.n_response,
+            equal_time_aliases=self.equal_time_aliases,
         )
 
     def to_latex(self) -> str:
@@ -1119,6 +1129,17 @@ def compute_moment(
                     for var in vi.spatial_variables
                 )
 
+                # Collect equal-time alias map from any equal_time
+                # NonLocalVertex instances; each maps a non-representative
+                # leg label → the canonical representative whose time
+                # variable is integrated. Empty when no equal_time vertex
+                # is present (back-compat).
+                _eq_time_alias_pairs: list[tuple[str, str]] = []
+                for vi in vertex_instances:
+                    for k, v in vi.equal_time_aliases or ():
+                        _eq_time_alias_pairs.append((k, v))
+                eq_time_aliases_tuple = tuple(sorted(_eq_time_alias_pairs))
+
                 # Build summation index info for DiagramTerm
                 sum_indices: list[tuple[str, int]] = []
                 for vi in vertex_instances:
@@ -1176,6 +1197,7 @@ def compute_moment(
                             n_response=sum(
                                 1 for p in dt_props if p.kind == "R"
                             ),
+                            equal_time_aliases=eq_time_aliases_tuple,
                         ))
                 else:
                     # --- Operator-level Wick contraction ---
@@ -2134,6 +2156,16 @@ def compute_moment_numerical(
                     var for vi in vis for var in vi.spatial_variables
                 )
 
+                # Collect equal-time alias map (see collect_topology
+                # branch above for the full motivation).
+                _eq_time_alias_pairs2: list[tuple[str, str]] = []
+                for vi in vis:
+                    for k, v in vi.equal_time_aliases or ():
+                        _eq_time_alias_pairs2.append((k, v))
+                eq_time_aliases_tuple2 = tuple(
+                    sorted(_eq_time_alias_pairs2)
+                )
+
                 # Spatial topology enumeration
                 spatial_results = wick_contract_spatial(
                     all_ops, ito=ito, vertex_points=integration_vars,
@@ -2242,6 +2274,7 @@ def compute_moment_numerical(
                                 1 for p in props_tuple
                                 if p.kind == "R"
                             ),
+                            equal_time_aliases=eq_time_aliases_tuple2,
                         ))
 
         # Apply diagonal constraints

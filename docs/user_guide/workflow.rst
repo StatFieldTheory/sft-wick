@@ -276,6 +276,71 @@ is supported.
    path; use a constant-tensor coupling for that vertex if you need
    d-dim spatial coordinates.
 
+Equal-time (single-shell) cumulants
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The default :class:`~sft_wick.workflow.NonLocalVertex` contract treats
+the vertex's coupling as the **full cross-spacetime** cumulant
+``κ^(m)(z_1, …, z_m)`` and integrates over ``m`` independent
+``(n, λ)`` arguments --- the literal MSR action
+``W^(m)[ψ] = (1/m!) ∫ dz_1 … dz_m  ψ(z_1) … ψ(z_m) κ^(m)``.
+
+Many applications (especially cosmological structure / lensing in the
+single-shell / Limber-like regime) only have an **equal-shell** or
+**equal-time** cumulant available, e.g. the equal-shell bispectrum
+``ζ_eq(γ_12, γ_23, γ_31; λ)`` from a CCL-like pipeline.  The
+action-level relation between the two is::
+
+   κ^(m)(z_1, ..., z_m)  ≈  δ(λ_1 − λ_2) · ... · δ(λ_{m−1} − λ_m)
+                              · κ_eq(n_1, ..., n_m;  λ)
+
+Passing ``ζ_eq`` as the ``coupling`` callable *without* declaring the
+δ-structure makes sft-wick faithfully sweep ``m`` independent times
+over ``[t_min, t_final]``, contributing a spurious ``(t_final − t_min)^(m−1)``
+factor of integration measure --- the answer is wrong by orders of
+magnitude.
+
+Use ``equal_time=True`` to declare the equal-time / single-shell
+form::
+
+   sw.NonLocalVertex(
+       "K", order=3, coupling=k3_equal_shell_callable,
+       equal_time=True,
+   )
+
+When set, sft-wick
+
+* collapses the ``m`` time-integration legs of this vertex into a
+  **single** integration variable (one ``∫dλ_K`` covering all ``m``
+  ψ-legs of one vertex insertion);
+* keeps the ``m`` spatial legs independent --- the callable still
+  receives ``m`` distinct positions, because ``ζ_eq`` IS a function
+  of ``m`` independent angular coordinates;
+* fills the callable's ``t_list`` with the *same* time value
+  replicated ``m`` times.
+
+YAML form::
+
+   nonlocal_vertices:
+     - name: K
+       order: 3
+       coupling_module: kappa3_callable.py
+       coupling_attr: coupling_fn
+       coupling_vectorized: false
+       equal_time: true
+
+Propagator topology, R / C wiring, direction groups, and the response
+phase are all unchanged by ``equal_time``; only the time-integration
+Jacobian and the per-leg ``t_list`` payload differ.
+
+When NOT to use ``equal_time``: if your callable returns the genuine
+cross-spacetime cumulant ``κ^(m)(z_1, …, z_m)`` (e.g. an unequal-time
+matter bispectrum with explicit linear-growth scaling
+``D(λ_1) D(λ_2) D(λ_3)`` and a stationary template), keep
+``equal_time=False`` (the default) --- otherwise the ``m`` independent
+``λ`` integrations that the cross-spacetime form requires would be
+incorrectly collapsed.
+
 d-dim spatial coordinates
 -------------------------
 

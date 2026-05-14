@@ -152,6 +152,7 @@ class System:
                     fields=[psi] * nv.order,
                     coupling=nv.name,
                     local=False,
+                    equal_time=nv.equal_time,
                 )
             )
 
