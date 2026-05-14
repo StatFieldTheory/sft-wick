@@ -10,7 +10,7 @@ Wick's theorem contractions for statistical field theory perturbative calculatio
 pip install -e ".[dev]"
 ```
 
-Dependencies: `networkx`, `matplotlib`, `numpy`, `scipy`, `pandas`, `pyyaml`. For parallel diagram evaluation: `pip install -e ".[parallel]"` (adds `joblib`). For development: `pytest`, `pytest-cov`.
+Dependencies: `numpy`, `scipy`, `networkx`, `matplotlib`, `pandas`, `pyyaml`, `tabulate`, `joblib`. The `parallel` extra is kept for compatibility with older install commands. For development: `pytest`, `pytest-cov`.
 
 The install also registers a CLI entry point:
 
@@ -346,7 +346,7 @@ result = compute_moment(obs, action, order=1)
 | Function | Description |
 |---|---|
 | `compute_moment(observable, action, order, ito=True, response_phase=True, collect_topology=True)` | Perturbative expansion of ⟨O⟩\_S up to given order |
-| `compute_moment_numerical(observable, action, order, coupling_values, fixed_indices, ..., n_jobs=1)` | Fast numerical path using nauty canonical labeling for diagram grouping. Enables order-6 calculations. Requires `pynauty`. Optional parallelization via `joblib` (`n_jobs=-1`). |
+| `compute_moment_numerical(observable, action, order, coupling_values, fixed_indices, ..., n_jobs=1)` | Fast numerical path using nauty canonical labeling for diagram grouping. Enables order-6 calculations. Requires `pynauty`. Parallelization uses `joblib` (`n_jobs=-1`). |
 | `wick_contract(operators, ito=True)` | Apply Wick's theorem to a product of field operators |
 | `contract_pair(op1, op2, ito=True)` | Contract two field operators into a propagator |
 | `apply_response_phase(expr)` | Multiply each term by (−i)^n for n response propagators |
@@ -444,7 +444,7 @@ Replaces the O(k!) canonical form search with the nauty graph isomorphism algori
 | 4     | 1,416      | 0.02s          | 0.25s             | ~0.3s  |
 | 6     | 738,900    | ~12s           | ~8 min            | ~10 min |
 
-Pass `n_jobs=-1` to parallelize across CPU cores (requires `joblib`).
+Pass `n_jobs=-1` to parallelize across CPU cores (`joblib` is installed by default).
 
 ### Known bottlenecks and future directions
 
