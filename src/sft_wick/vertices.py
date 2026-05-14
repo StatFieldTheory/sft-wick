@@ -29,16 +29,26 @@ class Vertex:
     fields: tuple[Field, ...]
     coupling: str
     local: bool = True
+    equal_time: bool = False  # non-local only; collapse m time legs into one
 
     def __init__(
         self,
         fields: Sequence[Field],
         coupling: str,
         local: bool = True,
+        equal_time: bool = False,
     ):
+        if equal_time and local:
+            raise ValueError(
+                "equal_time=True is only valid for non-local vertices "
+                "(local=False). A local vertex already shares one "
+                "spatial / time leg across all fields, so there is "
+                "nothing to collapse."
+            )
         object.__setattr__(self, "fields", tuple(fields))
         object.__setattr__(self, "coupling", coupling)
         object.__setattr__(self, "local", local)
+        object.__setattr__(self, "equal_time", bool(equal_time))
 
     @property
     def n_fields(self) -> int:
@@ -66,6 +76,14 @@ class VertexInstance:
     spatial_variables: list[str]
     component_indices: list[str]
     copy_id: int
+    # For an equal_time non-local vertex: each non-representative leg
+    # spatial label maps to the canonical representative (the first
+    # leg) so downstream time integration collapses m legs into one.
+    # Stored as a tuple of (non_rep, rep) pairs to match the invariant
+    # used by ``DiagramTerm.equal_time_aliases`` and
+    # ``SpatialStructure.equal_time_aliases``. Empty tuple for local or
+    # non-equal-time vertices.
+    equal_time_aliases: tuple[tuple[str, str], ...] = ()
 
     @classmethod
     def instantiate(
@@ -157,6 +175,12 @@ class VertexInstance:
                 spatial_args=tuple(spatial_vars),
             )
 
+        alias_pairs: list[tuple[str, str]] = []
+        if vertex.equal_time and len(spatial_vars) > 1:
+            rep = spatial_vars[0]
+            for var in spatial_vars[1:]:
+                alias_pairs.append((var, rep))
+
         return cls(
             vertex=vertex,
             field_operators=final_operators,
@@ -164,4 +188,5 @@ class VertexInstance:
             spatial_variables=spatial_vars,
             component_indices=comp_indices,
             copy_id=copy_id,
+            equal_time_aliases=tuple(alias_pairs),
         )

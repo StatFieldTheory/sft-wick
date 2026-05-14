@@ -953,3 +953,58 @@ def test_CF15_yaml_sigma2_callable_module_loads_and_runs(tmp_path: Path) -> None
     sweep, totals = run_workflow(cfg)
     assert len(totals) > 0
     assert np.all(np.isfinite(totals["value"].to_numpy()))
+
+
+# =====================================================================
+# CF18 — equal_time: true round-trips into Vertex.equal_time
+# =====================================================================
+
+
+def test_CF18_yaml_nonlocal_vertex_equal_time_round_trip(tmp_path: Path) -> None:
+    """``equal_time: true`` under ``nonlocal_vertices[]`` must thread
+    through to the L0 ``Vertex.equal_time`` flag so the time-collapse
+    alias map is built at instantiation. Default (omitted) is False."""
+    body = textwrap.dedent("""
+        system:
+          field: {name: phi, n_components: 2}
+          linear: {type: diagonal, gamma: [1.0, 1.0]}
+          vertices: []
+          nonlocal_vertices:
+            - name: K
+              order: 3
+              coupling:
+                - [[0.0, 0.0], [0.0, 0.0]]
+                - [[0.0, 0.0], [0.0, 0.0]]
+              equal_time: true
+            - name: J
+              order: 2
+              coupling: [[1.0, 0.0], [0.0, 1.0]]
+              # equal_time omitted -> default False
+          noise:
+            kappa2:
+              type: separable_translation
+              temporal: {type: exponential, lam: 0.05, sigma_t: 0.3}
+              spatial:  {type: exponential, sigma_x: 1.0}
+            sigma2: null
+        expand:
+          observable: ["phi_a(x)"]
+          orders: [0]
+        propagators: {t_max: 1.0, n_grid_t: 4}
+        sweep:
+          positions_grid: {x: [0.0]}
+          t_final_grid: [1.0]
+          component_pairs: [[0, 0]]
+    """)
+    cfg = load_workflow_config(_write(tmp_path, "c.yaml", body))
+    system = build_system(cfg.system)
+    assert len(system.nonlocal_vertices) == 2
+    # L1 spec carries the flag.
+    nv_K, nv_J = system.nonlocal_vertices
+    assert nv_K.name == "K" and nv_K.equal_time is True
+    assert nv_J.name == "J" and nv_J.equal_time is False
+    # L0 Vertex (built via System.build_action / vertex factory) also
+    # carries it. Easiest path: instantiate via the L1 -> L0 lowering.
+    l0_vertices = system.build_action().vertices
+    by_name = {v.coupling: v for v in l0_vertices}
+    assert by_name["K"].equal_time is True
+    assert by_name["J"].equal_time is False

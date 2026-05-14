@@ -47,6 +47,10 @@ class SpatialStructure:
     c_propagators: tuple[tuple[str, str, str | None, str | None], ...]
 
     #: Time integration variables, topologically sorted (innermost first).
+    #: For an ``equal_time`` non-local vertex, only the canonical
+    #: representative leg appears here; the other (m-1) legs of that
+    #: vertex are removed and their time values are read through the
+    #: ``equal_time_aliases`` map below.
     time_integration_vars: tuple[str, ...]
 
     #: Surviving direction integration variables (one per R-component that
@@ -55,6 +59,15 @@ class SpatialStructure:
 
     #: External (non-integration) spatial points.
     external_points: tuple[str, ...]
+
+    #: Maps non-representative internal spatial labels to their canonical
+    #: time representative, propagated from
+    #: ``DiagramTerm.equal_time_aliases``. The integration loops look up
+    #: every leg's time via ``equal_time_aliases.get(label, label)`` so
+    #: aliased legs share a single integration variable while keeping
+    #: independent spatial labels. Empty tuple ⇒ no aliasing (original
+    #: cross-spacetime cumulant behaviour).
+    equal_time_aliases: tuple[tuple[str, str], ...] = ()
 
 
 def _topological_sort_times(
@@ -102,6 +115,16 @@ def analyze_spatial(dt: "DiagramTerm") -> SpatialStructure:
     survive after δ-function elimination.
     """
     integration_set = set(dt.integration_vars)
+    # Equal-time non-local vertices share a single time integration
+    # variable across their m legs. Build the alias map (leg → canonical
+    # representative) and exclude the non-representatives from the
+    # surviving time-integration set so the Jacobian is one factor of
+    # ``width`` per vertex, not ``width^m``. Spatial labels remain
+    # independent (each leg keeps its own direction / position).
+    equal_time_aliases = dict(getattr(dt, "equal_time_aliases", ()) or ())
+    time_integration_set = set(integration_set)
+    for non_rep in equal_time_aliases:
+        time_integration_set.discard(non_rep)
 
     # Classify propagators
     r_props: list[tuple[str, str]] = []
@@ -167,8 +190,24 @@ def analyze_spatial(dt: "DiagramTerm") -> SpatialStructure:
         time_orderings.append((sr, sl))  # (earlier, later)
 
     # --- Topological sort of integration time variables ---
+    # Only the canonical equal-time representatives (and any non-equal-time
+    # internals) appear in time_integration_set; the topo sort drops the
+    # filtered non-representatives implicitly because they're absent from
+    # the input list and from any (earlier, later) entry whose endpoint is
+    # filtered (rewritten below). Time-orderings that touch a filtered
+    # label are remapped to its canonical representative so causality
+    # between an equal-time vertex and the rest of the diagram remains
+    # captured by R-propagators on the surviving (representative) legs.
+    time_orderings_collapsed: list[tuple[str, str]] = []
+    for earlier, later in time_orderings:
+        earlier_alias = equal_time_aliases.get(earlier, earlier)
+        later_alias = equal_time_aliases.get(later, later)
+        if earlier_alias == later_alias:
+            # Same physical time after collapse — no ordering needed.
+            continue
+        time_orderings_collapsed.append((earlier_alias, later_alias))
     sorted_time_vars = _topological_sort_times(
-        dt.integration_vars, time_orderings
+        tuple(sorted(time_integration_set)), time_orderings_collapsed
     )
 
     # --- External points ---
@@ -177,12 +216,13 @@ def analyze_spatial(dt: "DiagramTerm") -> SpatialStructure:
     return SpatialStructure(
         direction_groups=direction_groups,
         direction_map=direction_map,
-        time_orderings=tuple(time_orderings),
+        time_orderings=tuple(time_orderings_collapsed),
         r_propagators=tuple(r_props),
         c_propagators=tuple(c_props),
         time_integration_vars=tuple(sorted_time_vars),
         direction_integration_vars=tuple(sorted(direction_integration_vars)),
         external_points=external_points,
+        equal_time_aliases=tuple(sorted(equal_time_aliases.items())),
     )
 
 
@@ -2061,6 +2101,9 @@ class DiagramIntegrand:
 
         Args:
             times: ``{spatial_point: time_value}`` for ALL spatial points.
+                Aliased (non-representative) legs of equal-time non-local
+                vertices may be absent --- their values are filled in from
+                the canonical representatives inside this method.
             directions: ``{direction_var: value}`` for independent direction
                 variables (one per R-connected component, keyed by
                 the representative name from ``spatial.direction_map``).
@@ -2074,8 +2117,26 @@ class DiagramIntegrand:
         coeff = self.coupling_array
         model = cache.model
 
+        # Expand the times dict to fill in aliased legs of any
+        # equal_time non-local vertex; downstream propagator lookups
+        # (``cache.R_product``, ``times[sp_l]`` etc.) then work without
+        # special-case branches.
+        if spatial.equal_time_aliases:
+            times = dict(times)
+            for non_rep, rep in spatial.equal_time_aliases:
+                if non_rep not in times and rep in times:
+                    times[non_rep] = times[rep]
+
         # --- R product (scalar when iso_R) ---
-        r_val = cache.R_product(spatial.r_propagators, times)
+        #
+        # ``PropagatorCache.R_product`` is intentionally scalar-only.
+        # For matrix-valued R, resolve component indices alongside the
+        # C contraction below so order-0 R diagrams do not try to cast an
+        # (N, N) matrix to float.
+        r_val = (
+            cache.R_product(spatial.r_propagators, times)
+            if model.iso_R else 1.0
+        )
 
         # --- Evaluate C propagators ---
         prop_idx = dt.propagator_indices
@@ -2099,6 +2160,10 @@ class DiagramIntegrand:
                     c_val *= C_mat[a, b]
                 else:
                     c_val *= C_mat.trace()
+            if not model.iso_R:
+                c_val *= self._evaluate_r_product_general(
+                    times, cache, self.fixed_indices,
+                )
             return complex(r_val * complex(coeff) * c_val)
 
         # --- Map each C propagator to its propagator-index axis ---
@@ -2213,23 +2278,33 @@ class DiagramIntegrand:
 
             # For non-iso R: include R matrix elements
             if not cache.model.iso_R:
-                for sl, sr in spatial.r_propagators:
-                    R_mat = cache.R_time(times[sl], times[sr])
-                    # R propagators in the diagram may have indices
-                    r_prop = self._find_r_propagator(sl, sr)
-                    if r_prop and r_prop.index_left and r_prop.index_right:
-                        a = self._resolve_component(r_prop.index_left, idx_map)
-                        b = self._resolve_component(r_prop.index_right, idx_map)
-                        if a is not None and b is not None:
-                            c_val *= float(R_mat[a, b])
-                        else:
-                            c_val *= float(np.trace(R_mat))
-                    # If iso_R with indices stripped, R is already in r_val
-                r_val = 1.0  # already accounted for above
+                c_val *= self._evaluate_r_product_general(times, cache, idx_map)
 
             total += c_val
 
         return r_val * total
+
+    def _evaluate_r_product_general(
+        self,
+        times: dict[str, float],
+        cache: PropagatorCache,
+        idx_map: dict[str, int],
+    ) -> complex:
+        """Evaluate matrix-valued R propagators for one component assignment."""
+        result: complex = 1.0
+        for sl, sr in self.spatial.r_propagators:
+            R_mat = np.asarray(cache.R_time(times[sl], times[sr]))
+            r_prop = self._find_r_propagator(sl, sr)
+            if r_prop and r_prop.index_left and r_prop.index_right:
+                a = self._resolve_component(r_prop.index_left, idx_map)
+                b = self._resolve_component(r_prop.index_right, idx_map)
+                if a is not None and b is not None:
+                    result *= complex(R_mat[a, b])
+                else:
+                    result *= complex(np.trace(R_mat))
+            else:
+                result *= complex(np.trace(R_mat))
+        return result
 
     def _find_r_propagator(self, sl: str, sr: str) -> Propagator | None:
         """Find the R propagator matching spatial_left=sl, spatial_right=sr."""
@@ -2500,6 +2575,14 @@ class DiagramIntegrand:
         """
         from scipy.stats import qmc
 
+        if self.dynamic_coupling is not None:
+            raise NotImplementedError(
+                "method='qmc_scalar' does not support spacetime-dependent "
+                "(callable) couplings. The scalar loop evaluates the static "
+                "coupling_array placeholder; use method='qmc_vectorized' or "
+                "method='gauss_legendre' instead."
+            )
+
         spatial = self.spatial
         int_vars_parents_first = list(reversed(spatial.time_integration_vars))
         ext_vars = list(spatial.external_points)
@@ -2678,6 +2761,13 @@ class DiagramIntegrand:
             val = self.evaluate(fixed_times, directions, cache)
             return (val.real, 0.0)
 
+        if spatial.r_propagators and not cache.model.iso_R:
+            raise NotImplementedError(
+                "method='qmc_vectorized' currently supports scalar "
+                "iso_R=True response propagators only. Use method='qmc' "
+                "or method='qmc_scalar' for matrix-valued R."
+            )
+
         # Build causal parent map (per-internal-var upper bound list).
         parent_map: dict[str, list[str]] = defaultdict(list)
         for earlier, later in spatial.time_orderings:
@@ -2730,11 +2820,17 @@ class DiagramIntegrand:
         # constant ``lambda_f`` array.
         var_to_col = {var: i for i, var in enumerate(sobol_vars)}
         fixed_t = np.full(n_samples, lambda_f)
+        # Equal-time alias map: see analyze_spatial / SpatialStructure.
+        _et_alias = dict(spatial.equal_time_aliases or ())
 
         def _times(var: str) -> np.ndarray:
             """Return the per-sample time array for ``var`` — pulls
             from ``times_arr`` when integrated, or the constant
-            ``lambda_f`` array when fixed."""
+            ``lambda_f`` array when fixed. Non-representative legs of
+            an ``equal_time`` non-local vertex are transparently
+            redirected to their canonical representative so the
+            callable sees a single shared time across the m legs."""
+            var = _et_alias.get(var, var)
             col = var_to_col.get(var)
             if col is not None:
                 return times_arr[:, col]
@@ -2986,6 +3082,13 @@ class DiagramIntegrand:
             val = self.evaluate(fixed_times, directions, cache)
             return (val.real, 0.0)
 
+        if spatial.r_propagators and not cache.model.iso_R:
+            raise NotImplementedError(
+                "method='gauss_legendre' currently supports scalar "
+                "iso_R=True response propagators only. Use method='qmc' "
+                "or method='qmc_scalar' for matrix-valued R."
+            )
+
         # 1-D Gauss-Legendre nodes / weights mapped from [-1, 1] to [0, 1].
         nodes_1d, weights_1d = leggauss(n_gauss)
         u_1d = (nodes_1d + 1) / 2
@@ -3040,8 +3143,14 @@ class DiagramIntegrand:
 
         var_to_col = {var: i for i, var in enumerate(gl_vars)}
         fixed_t = np.full(n_samples, lambda_f)
+        # Equal-time alias: aliased K-vertex legs share the canonical
+        # representative's time variable. Resolved transparently inside
+        # ``_times`` so r-propagator, c-propagator, and dynamic-coupling
+        # call sites all see the collapsed time.
+        _et_alias = dict(spatial.equal_time_aliases or ())
 
         def _times(var: str) -> np.ndarray:
+            var = _et_alias.get(var, var)
             col = var_to_col.get(var)
             if col is not None:
                 return times_arr[:, col]
@@ -3343,7 +3452,8 @@ def integrate_moment(
 
     - If the cache supports batched C evaluation (either
       ``PropagatorCache.precompute_C_table`` has been called, or a
-      custom cache implements ``C_diagonal_batch`` natively) →
+      custom cache implements ``C_diagonal_batch`` natively) and
+      ``cache.model.iso_R`` is true →
       :meth:`integrate_moment_qmc_vectorized` (~200× faster than
       the scalar loop on typical workloads).
     - Otherwise → :meth:`integrate_moment_qmc` (scalar Python loop).
@@ -3377,7 +3487,7 @@ def integrate_moment(
         ``(estimate, error)`` tuple.
     """
     if method == "qmc":
-        if _cache_supports_batch_c(cache):
+        if cache.model.iso_R and _cache_supports_batch_c(cache):
             return integrand.integrate_moment_qmc_vectorized(
                 lambda_f, cache, t_min=t_min, direction=direction,
                 n_samples=n_samples, seed=seed, positions=positions,

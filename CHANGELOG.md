@@ -2,6 +2,60 @@
 
 ## Unreleased
 
+### Features
+
+- **`NonLocalVertex(equal_time=True)`** — opt-in mode for non-local
+  vertices whose `coupling` callable encodes an **equal-shell** /
+  **equal-time** connected cumulant (one common cosmology use case:
+  `canoes.sachs.compute_kappa3_zeta_table` which returns the
+  equal-shell bispectrum `ζ_eq(γ_12, γ_23, γ_31; λ)` for the LSS
+  matter / potential 3-point function).
+
+  When `equal_time=True`, the `m` time legs of that vertex collapse
+  into a **single** integration variable while the `m` spatial legs
+  remain independent (so the callable still receives `m` distinct
+  positions and only one shared time replicated `m` times in
+  `t_list`).  This matches the action-level relation
+  `κ^(m)(z_1,...,z_m) ≈ δ(λ_1−λ_2) … δ(λ_{m−1}−λ_m) · κ_eq(n_1,...,n_m; λ)`
+  used in single-shell / Limber-like cosmological approximations.
+
+  The default `equal_time=False` is unchanged — the full
+  cross-spacetime cumulant `κ^(m)(z_1,...,z_m)` with `m` independent
+  `(n, λ)` integrations is still the canonical contract.
+
+  Failure mode this guards against: passing an equal-shell ζ as
+  `coupling` without `equal_time=True` lets sft-wick faithfully
+  sweep `m` independent times, contributing a spurious `(t_max)^(m−1)`
+  factor of integration measure (e.g. `~5.6×10^6` for `m=3` and
+  `t_max=2360` Mpc).  This was the diagnosis-of-record for the
+  STF_lensing path-integral lensing Order-2 FK ⟨κκ⟩ bug.
+
+  Implementation spans `workflow/specs.py`, `workflow/system.py`,
+  `workflow/config.py`, `vertices.py`, `perturbation.py`, and
+  `evaluate.py`.  Threaded through as
+  `Vertex(equal_time=...)` → `VertexInstance.equal_time_aliases` →
+  `DiagramTerm.equal_time_aliases` →
+  `SpatialStructure.equal_time_aliases`, with time-alias resolution
+  in `_times` of the QMC + Gauss-Legendre paths and in
+  `DiagramIntegrand.evaluate`.  Diagram topology (R / C propagator
+  routing, direction groups) is unchanged — only the time-integration
+  Jacobian and the callable's `t_list` payload differ.
+
+  YAML usage::
+
+      nonlocal_vertices:
+        - name: K
+          order: 3
+          coupling_module: kappa3_callable.py
+          coupling_attr: coupling_fn
+          equal_time: true
+
+  See `docs/user_guide/workflow.rst` for the full discussion and
+  `docs/notes/equal_time_nonlocal_vertex.md` for the design note.
+  Regression coverage: `tests/test_equal_time_nonlocal.py`
+  (11 tests covering alias plumbing, static evaluation, dynamic
+  callables, and Jacobian ratio).
+
 ### Performance
 
 - **Test-suite wall time cut ~3.5×** (from ~18 min to ~5 min for the
