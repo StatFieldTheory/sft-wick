@@ -279,23 +279,62 @@ def _resolve_coupling(v: dict, base_dir: Path) -> dict:
 def _resolve_linear(
     lin: dict, base_dir: Path, *, default_dt: float | None = None
 ) -> dict:
-    """Resolve ``system.linear.gamma`` and the gamma-spline cache resolution.
+    """Resolve ``system.linear`` based on its ``type`` field.
 
-    ``gamma``: inline list of floats, or a 1D nested-list array.
-    ``gamma_module``: path to a ``.py`` module exporting an attribute
-        (default ``gamma``) used as a callable ``gamma(t) -> array(N)``.
-        Required for spacetime-dependent linear drift such as the
-        Sachs-saddle ``2 theta^(sa)(lambda)``.
+    Supported lowerings:
 
-    Discretization: the spline cache uses ``n_grid_cache`` points uniformly
-    on ``[0, t_max_cache]``. When the user provides ``dt`` (here or via
-    ``propagators.dt``), it is converted to ``n_grid_cache = ceil(t_max_cache
-    / dt)`` so a single ``dt`` controls every grid in the workflow. Providing
-    both ``dt`` and ``n_grid_cache`` is rejected to avoid ambiguity.
+    ``type: diagonal`` (default) -> :class:`sft_wick.workflow.specs.DiagonalA`
 
-    Forwarded to :class:`sft_wick.workflow.specs.DiagonalA`, which natively
-    accepts callables for the time-dependent path.
+        ``gamma``: inline list of floats, or a 1D nested-list array.
+        ``gamma_module``: path to a ``.py`` module exporting an attribute
+            (default ``gamma``) used as a callable ``gamma(t) -> array(N)``.
+            Required for spacetime-dependent linear drift such as the
+            Sachs-saddle ``2 theta^(sa)(lambda)``.
+
+        Discretization: the spline cache uses ``n_grid_cache`` points
+        uniformly on ``[0, t_max_cache]``. When the user provides ``dt``
+        (here or via ``propagators.dt``), it is converted to
+        ``n_grid_cache = ceil(t_max_cache / dt)`` so a single ``dt``
+        controls every grid in the workflow. Providing both ``dt`` and
+        ``n_grid_cache`` is rejected to avoid ambiguity.
+
+    ``type: explicit`` -> :class:`sft_wick.workflow.specs.ExplicitR`
+
+        Escape hatch for scalar closed-form R: the user supplies
+        ``R(t1, t2)`` directly, so the wrapper bypasses the
+        gamma-spline cache entirely. This unlocks YAML use cases the
+        diagonal lowering can't express -- e.g. causal kernels with
+        non-exponential decay, or pre-computed spline callables loaded
+        from disk.
+
+        ``R_time_module``: path to a ``.py`` module exporting an
+            attribute (default ``R_time``) used as a callable
+            ``R_time(t1, t2) -> float``. Must enforce causality
+            (return 0 when ``t1 < t2``).
+        ``iso_R``: must be ``True`` (default). Matrix-valued R remains
+            an L0/L1 escape hatch; the L2 YAML numerical wrappers are
+            scalar-R only.
+
+        γ-spline cache knobs (``gamma``, ``gamma_module``, ``dt``,
+        ``n_grid_cache``, ``t_max_cache``) do not apply under this
+        type and raise if specified -- the propagator is the user's
+        callable, not a derived spline.
     """
+    lt = lin.get("type", "diagonal")
+    if lt == "explicit":
+        return _resolve_linear_explicit(lin, base_dir)
+    if lt == "diagonal":
+        return _resolve_linear_diagonal(lin, base_dir, default_dt=default_dt)
+    raise ValueError(
+        f"Unsupported linear operator type {lt!r}.  "
+        f"Supported: 'diagonal', 'explicit'."
+    )
+
+
+def _resolve_linear_diagonal(
+    lin: dict, base_dir: Path, *, default_dt: float | None = None
+) -> dict:
+    """Parse-time resolver for ``type: diagonal``."""
     if "gamma" in lin and "gamma_module" in lin:
         raise ValueError(
             "system.linear: provide exactly one of {'gamma', 'gamma_module'}"
@@ -321,6 +360,56 @@ def _resolve_linear(
             )
         t_max_cache = float(lin.get("t_max_cache", 100.0))
         lin["n_grid_cache"] = max(2, int(math.ceil(t_max_cache / effective_dt)))
+    return lin
+
+
+def _resolve_linear_explicit(lin: dict, base_dir: Path) -> dict:
+    """Parse-time resolver for ``type: explicit``.
+
+    Loads ``R_time`` from a user module and rejects fields that only
+    make sense under the diagonal-with-gamma-spline path. The module
+    is registered for cross-process by-value serialisation by
+    :func:`_load_callable_from_module`, so the loaded callable composes
+    with ``propagators.n_jobs > 1`` / ``sweep.n_jobs > 1`` even when
+    joblib reuses a worker pool across calls.
+    """
+    forbidden = (
+        "gamma", "gamma_module", "gamma_attr",
+        "dt", "n_grid_cache", "t_max_cache",
+    )
+    present = [k for k in forbidden if k in lin]
+    if present:
+        raise ValueError(
+            f"system.linear.type='explicit' does not accept "
+            f"gamma-spline fields {present!r}.  Use 'type: diagonal' for "
+            f"those, or remove them under 'type: explicit'."
+        )
+    if "R_time" in lin:
+        raise ValueError(
+            "system.linear.type='explicit' does not support an inline "
+            "'R_time' (a callable cannot be expressed in YAML).  Use "
+            "'R_time_module' + 'R_time_attr' instead."
+        )
+    if "R_time_module" not in lin:
+        raise ValueError(
+            "system.linear.type='explicit' requires "
+            "'R_time_module: <relative path to .py file>'."
+        )
+    iso_r = lin.get("iso_R", True)
+    if isinstance(iso_r, str):
+        iso_r = iso_r.strip().lower() not in {"0", "false", "no", "off"}
+    else:
+        iso_r = bool(iso_r)
+    if not iso_r:
+        raise ValueError(
+            "system.linear.type='explicit' currently supports only scalar "
+            "R_time callables; set iso_R: true. Matrix-valued R is "
+            "available from the L0/L1 Python APIs, but not from L2 YAML."
+        )
+    lin["iso_R"] = True
+    mod_path = (base_dir / lin.pop("R_time_module")).resolve()
+    attr = lin.pop("R_time_attr", "R_time")
+    lin["R_time"] = _load_callable_from_module(mod_path, attr)
     return lin
 
 
@@ -530,10 +619,26 @@ def build_system(cfg: SystemConfig):
             if k in lin_d:
                 diag_kwargs[k] = lin_d[k]
         linear = sp.DiagonalA(**diag_kwargs)
+    elif lt == "explicit":
+        # User-supplied R(t1, t2): bypass the gamma-spline cache entirely.
+        iso_r = lin_d.get("iso_R", True)
+        if isinstance(iso_r, str):
+            iso_r = iso_r.strip().lower() not in {"0", "false", "no", "off"}
+        else:
+            iso_r = bool(iso_r)
+        if not iso_r:
+            raise ValueError(
+                "system.linear.type='explicit' currently supports only scalar "
+                "R_time callables; set iso_R: true."
+            )
+        linear = sp.ExplicitR(
+            R_time=lin_d["R_time"],
+            iso_R=True,
+        )
     else:
         raise ValueError(
             f"Unsupported linear operator type {lt!r}.  "
-            f"Supported: 'diagonal'."
+            f"Supported: 'diagonal', 'explicit'."
         )
 
     # Noise

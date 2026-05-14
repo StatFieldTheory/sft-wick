@@ -956,6 +956,237 @@ def test_CF15_yaml_sigma2_callable_module_loads_and_runs(tmp_path: Path) -> None
 
 
 # =====================================================================
+# CF16 - linear.type='explicit': YAML route to ExplicitR escape hatch
+# =====================================================================
+#
+# Locks the contract that user-supplied closed-form R(t1, t2) callables
+# can be wired through YAML, on top of the existing diagonal+gamma path.
+# Use cases:
+#   * full-matrix time-dependent A (time-ordered matrix exponential),
+#   * causal kernels with non-exponential decay,
+#   * pre-computed spline callables loaded from disk.
+#
+# Equivalence test (CF17): an explicit R that mirrors DiagonalA's
+# behaviour must produce bit-for-bit identical sweep totals -- this
+# proves the new lowering plugs into the same C-cache + integration
+# pipeline as the diagonal path.
+
+
+_EXPLICIT_R_MODULE = textwrap.dedent("""
+    import numpy as np
+
+    GAMMA = 1.0
+
+    def R_time(t1, t2):
+        # Iso-R: scalar Theta(t1-t2) * exp(-GAMMA*(t1-t2)).
+        # Mirrors what DiagonalA(gamma=[1.0, 1.0]) lowers to under
+        # _StaticIsoR -- so paired with demo1's C_fn (same GAMMA=1.0)
+        # the explicit and diagonal YAMLs must agree to round-off.
+        if t1 < t2:
+            return 0.0
+        return float(np.exp(-GAMMA * (t1 - t2)))
+""")
+
+
+def test_CF16_yaml_linear_explicit_builds_system(tmp_path: Path) -> None:
+    """`linear.type: explicit` + `R_time_module` lowers to ExplicitR."""
+    (tmp_path / "R_time.py").write_text(_EXPLICIT_R_MODULE)
+
+    body = textwrap.dedent("""
+        system:
+          field: {name: phi, n_components: 2}
+          linear:
+            type: explicit
+            R_time_module: ./R_time.py
+            iso_R: true
+          vertices:
+            - name: F
+              coupling:
+                - [[0.0, 0.0], [0.0, 1.0]]
+                - [[0.0, 0.5], [0.5, 0.0]]
+          nonlocal_vertices: []
+          noise:
+            kappa2:
+              type: separable_translation
+              temporal: {type: exponential, lam: 0.05, sigma_t: 0.3}
+              spatial:  {type: exponential, sigma_x: 1.0}
+            sigma2: null
+        expand:
+          observable: ["phi_a(x)", "phi_b(y)"]
+          orders: [0, 2]
+        propagators:
+          t_max: 2.0
+          n_grid_t: 12
+        sweep:
+          positions_grid: {x: [0.0], y: [0.0]}
+          t_final_grid: [1.0]
+          component_pairs: [[0, 0]]
+    """)
+    cfg = load_workflow_config(_write(tmp_path, "c.yaml", body))
+    system = build_system(cfg.system)
+
+    assert isinstance(system.linear, sw.ExplicitR)
+    assert system.linear.iso_R is True
+    # Causality: R(t1, t2) = 0 when t1 < t2.
+    assert system.linear.R_time(0.0, 1.0) == pytest.approx(0.0)
+    # Forward direction: matches exp(-1.0*(t1-t2)).
+    assert system.linear.R_time(1.0, 0.5) == pytest.approx(
+        float(np.exp(-0.5))
+    )
+
+
+def test_CF17_yaml_linear_explicit_matches_diagonal_equivalent(
+    tmp_path: Path,
+) -> None:
+    """Explicit-R YAML mirroring DiagonalA(gamma=1.0) must agree with
+    the diagonal-A YAML to round-off when paired with the demo1
+    closed-form C path (which is also pinned to GAMMA=1.0).
+    """
+    # Reference run: standard demo1 YAML (linear.type=diagonal).
+    cfg_ref = load_workflow_config(_write_demo1(tmp_path))
+    _, totals_ref = run_workflow(cfg_ref)
+
+    # Explicit-R run: stage R_time module and rewrite linear block.
+    (tmp_path / "R_time.py").write_text(_EXPLICIT_R_MODULE)
+    explicit_yaml = yaml.safe_load(_DEMO1_YAML)
+    explicit_yaml["system"]["linear"] = {
+        "type": "explicit",
+        "R_time_module": "./R_time.py",
+        "iso_R": True,
+    }
+    (tmp_path / "explicit.yaml").write_text(yaml.safe_dump(explicit_yaml))
+    cfg_exp = load_workflow_config(tmp_path / "explicit.yaml")
+    _, totals_exp = run_workflow(cfg_exp)
+
+    key = ["x", "y", "t_final", "a", "b", "order"]
+    ref_sorted = totals_ref.sort_values(key).reset_index(drop=True)
+    exp_sorted = totals_exp.sort_values(key).reset_index(drop=True)
+    np.testing.assert_allclose(
+        exp_sorted["value"].to_numpy(),
+        ref_sorted["value"].to_numpy(),
+        rtol=1e-10,
+    )
+
+
+def test_CF16_explicit_missing_R_time_module_raises(tmp_path: Path) -> None:
+    """Omitting R_time_module under `type: explicit` is a config error."""
+    body = textwrap.dedent("""
+        system:
+          field: {name: phi, n_components: 2}
+          linear: {type: explicit, iso_R: true}
+          vertices: []
+          nonlocal_vertices: []
+          noise:
+            kappa2:
+              type: separable_translation
+              temporal: {type: exponential, lam: 0.05, sigma_t: 0.3}
+              spatial:  {type: exponential, sigma_x: 1.0}
+            sigma2: null
+        expand:
+          observable: ["phi_a(x)"]
+          orders: [0]
+        propagators: {t_max: 1.0, n_grid_t: 4}
+        sweep:
+          positions_grid: {x: [0.0]}
+          t_final_grid: [1.0]
+          component_pairs: [[0, 0]]
+    """)
+    with pytest.raises(ValueError, match="R_time_module"):
+        load_workflow_config(_write(tmp_path, "c.yaml", body))
+
+
+def test_CF16_explicit_rejects_gamma_keys(tmp_path: Path) -> None:
+    """`type: explicit` must reject DiagonalA-only fields rather than
+    silently ignoring them -- otherwise a stray ``gamma:`` would
+    quietly do nothing under the explicit lowering."""
+    (tmp_path / "R_time.py").write_text(_EXPLICIT_R_MODULE)
+    body = textwrap.dedent("""
+        system:
+          field: {name: phi, n_components: 2}
+          linear:
+            type: explicit
+            R_time_module: ./R_time.py
+            gamma: [1.0, 1.0]
+          vertices: []
+          nonlocal_vertices: []
+          noise:
+            kappa2:
+              type: separable_translation
+              temporal: {type: exponential, lam: 0.05, sigma_t: 0.3}
+              spatial:  {type: exponential, sigma_x: 1.0}
+            sigma2: null
+        expand:
+          observable: ["phi_a(x)"]
+          orders: [0]
+        propagators: {t_max: 1.0, n_grid_t: 4}
+        sweep:
+          positions_grid: {x: [0.0]}
+          t_final_grid: [1.0]
+          component_pairs: [[0, 0]]
+    """)
+    with pytest.raises(ValueError, match="gamma"):
+        load_workflow_config(_write(tmp_path, "c.yaml", body))
+
+
+def test_CF16_explicit_rejects_matrix_R_in_yaml(tmp_path: Path) -> None:
+    """L2 YAML explicit-R is scalar-only until matrix-R integrators exist."""
+    (tmp_path / "R_time.py").write_text(_EXPLICIT_R_MODULE)
+    body = textwrap.dedent("""
+        system:
+          field: {name: phi, n_components: 2}
+          linear:
+            type: explicit
+            R_time_module: ./R_time.py
+            iso_R: false
+          vertices: []
+          nonlocal_vertices: []
+          noise:
+            kappa2:
+              type: separable_translation
+              temporal: {type: exponential, lam: 0.05, sigma_t: 0.3}
+              spatial:  {type: exponential, sigma_x: 1.0}
+            sigma2: null
+        expand:
+          observable: ["phi_a(x)"]
+          orders: [0]
+        propagators: {t_max: 1.0, n_grid_t: 4}
+        sweep:
+          positions_grid: {x: [0.0]}
+          t_final_grid: [1.0]
+          component_pairs: [[0, 0]]
+    """)
+    with pytest.raises(ValueError, match="iso_R"):
+        load_workflow_config(_write(tmp_path, "c.yaml", body))
+
+
+def test_CF16_unknown_linear_type_raises(tmp_path: Path) -> None:
+    """Unknown `linear.type` values surface a clear error at parse time."""
+    body = textwrap.dedent("""
+        system:
+          field: {name: phi, n_components: 2}
+          linear: {type: not_a_real_linear_type, gamma: [1.0]}
+          vertices: []
+          nonlocal_vertices: []
+          noise:
+            kappa2:
+              type: separable_translation
+              temporal: {type: exponential, lam: 0.05, sigma_t: 0.3}
+              spatial:  {type: exponential, sigma_x: 1.0}
+            sigma2: null
+        expand:
+          observable: ["phi_a(x)"]
+          orders: [0]
+        propagators: {t_max: 1.0, n_grid_t: 4}
+        sweep:
+          positions_grid: {x: [0.0]}
+          t_final_grid: [1.0]
+          component_pairs: [[0, 0]]
+    """)
+    with pytest.raises(ValueError, match="linear operator type"):
+        load_workflow_config(_write(tmp_path, "c.yaml", body))
+
+
+# =====================================================================
 # CF18 — equal_time: true round-trips into Vertex.equal_time
 # =====================================================================
 
