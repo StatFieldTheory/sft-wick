@@ -3,3 +3,11 @@ furo>=2024.1
 sphinx-copybutton>=0.5
 nbsphinx>=0.9
 ipykernel
+numpy>=1.24
+scipy>=1.10
+networkx>=3.0
+matplotlib>=3.7
+pandas>=2.0
+pyyaml>=6.0
+tabulate>=0.9
+joblib>=1.3

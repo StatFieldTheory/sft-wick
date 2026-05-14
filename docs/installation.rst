@@ -5,8 +5,14 @@ Requirements
 ------------
 
 - Python >= 3.10
+- `numpy <https://numpy.org/>`_ >= 1.24
+- `scipy <https://scipy.org/>`_ >= 1.10
 - `networkx <https://networkx.org/>`_ >= 3.0
 - `matplotlib <https://matplotlib.org/>`_ >= 3.7
+- `pandas <https://pandas.pydata.org/>`_ >= 2.0
+- `PyYAML <https://pyyaml.org/>`_ >= 6.0
+- `tabulate <https://pypi.org/project/tabulate/>`_ >= 0.9
+- `joblib <https://joblib.readthedocs.io/>`_ >= 1.3
 
 
 Install from Source
@@ -20,7 +26,8 @@ Clone the repository and install in editable mode:
    cd sft-wick
    pip install -e .
 
-To include parallel diagram evaluation support (``joblib``):
+The ``parallel`` extra is retained for compatibility with older install
+commands; ``joblib`` is now part of the default runtime install.
 
 .. code-block:: bash
 

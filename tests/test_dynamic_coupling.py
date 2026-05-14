@@ -27,12 +27,15 @@ from __future__ import annotations
 
 import importlib.util as _ilu
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 import sft_wick as sw
 from sft_wick.evaluate import DynamicCouplingPromise
+from sft_wick.expressions import Symbol
+from sft_wick.perturbation import DiagramTerm, Rational
 
 
 # Same demo1 closed-form C as the other test modules -- skipping
@@ -163,6 +166,25 @@ def test_DC1_prop_indexed_dynamic_raises_notimplemented(
             seed=0,
             positions={"x": 0.0, "y": 0.5},
         )
+
+
+def test_DC2_scalar_qmc_rejects_dynamic_coupling_placeholder() -> None:
+    """Scalar QMC must not silently integrate the dynamic placeholder zero."""
+
+    dt = DiagramTerm(
+        propagators=(),
+        coupling_sum=Symbol("K", indices=(), spatial_args=("s",)),
+        rational_prefactor=Rational(1, 1),
+        integration_vars=("s",),
+        summation_indices=(),
+        n_response=0,
+    )
+    ig = dt.build_integrand({"K": lambda n_list, t_list: 1.0})
+    assert ig.dynamic_coupling is not None
+
+    cache = SimpleNamespace(model=SimpleNamespace(iso_R=True, diag_C=True))
+    with pytest.raises(NotImplementedError, match="qmc_scalar"):
+        ig.integrate_moment_qmc(lambda_f=1.0, cache=cache, n_samples=8)
 
 
 # =====================================================================
