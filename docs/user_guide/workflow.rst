@@ -213,10 +213,29 @@ floats (constant γ) or a callable ``γ(t) → np.ndarray(shape=(N,))``:
 
 Internally the wrapper pre-computes
 :math:`\Gamma_a(t) = \int_0^t \gamma_a(\tau) d\tau` on the grid and
-caches it as a cubic spline for O(1) R lookups.  Full-matrix
-time-dependent A is currently supported only via
-:class:`~sft_wick.workflow.ExplicitR` with a user-supplied
-time-ordered matrix exponential.
+caches it as a cubic spline for O(1) R lookups.  Scalar closed-form
+``R(t_1, t_2)`` callables that the spline-cache lowering cannot
+express are supported via :class:`~sft_wick.workflow.ExplicitR`.
+From YAML this is the ``linear.type: explicit`` route::
+
+   system:
+     linear:
+       type: explicit
+       R_time_module: ./R_time.py     # exports R_time(t1, t2)
+       R_time_attr:   R_time           # default 'R_time'
+       iso_R:         true             # required: YAML explicit R is scalar
+
+The module is loaded at config-parse time and registered for
+cross-process by-value serialisation, so the explicit-R callable
+composes cleanly with ``propagators.n_jobs > 1``,
+``expand.n_jobs > 1``, and ``sweep.n_jobs > 1`` (same machinery
+``c_closed_form_module`` and ``coupling_module`` use).
+
+Matrix-valued R is still available from the lower-level Python APIs,
+where callers can choose scalar-loop integration paths explicitly.  The
+L2 YAML numerical wrapper currently rejects ``linear.type: explicit``
+with ``iso_R: false`` rather than silently routing a matrix R through a
+scalar-only vectorised integrator.
 
 Dynamic coupling (spacetime-dependent κ^(m))
 --------------------------------------------
@@ -413,21 +432,27 @@ fields must be present.
        n_components: 2       # required: number of internal components N
 
      linear:
-       type: diagonal        # only 'diagonal' supported in YAML today
+       type: diagonal        # 'diagonal' (DiagonalA) | 'explicit' (ExplicitR)
+       # ---- type: diagonal -- A_{ab} = -γ_a δ_{ab} ----
        gamma: [1.0, 1.0]     # length-N constant rates  -- OR
        # gamma_module: ./drift.py        # dotted path to callable γ(t)→array(N)
        # gamma_attr: gamma_fn            # default 'gamma_fn'
        # t_max_cache: 20.0               # γ-spline cache horizon (default = propagators.t_max)
        # n_grid_cache: 400               # γ-spline node count (default ceil(t_max_cache/dt))
+       # ---- type: explicit -- user-supplied scalar R(t1, t2) ----
+       # R_time_module: ./R_time.py      # path to a .py exporting R_time(t1, t2) -> float
+       # R_time_attr:   R_time           # default 'R_time'
+       # iso_R:         true             # required for YAML explicit R
 
      noise:
        kappa2:
          type: separable_translation     # 'separable_translation' | 'separable_rotation'
-                                         # | 'general' | 'callable_module'
+                                         # | 'callable_module'
          temporal: {type: exponential, lam: 0.05, sigma_t: 0.3}
-                                         # 'exponential' | 'gaussian' | 'custom'
+                                         # 'exponential' | 'gaussian'
          spatial:  {type: exponential, sigma_x: 1.0}
-                                         # 'exponential' | 'gaussian' | 'legendre_angular' | 'custom'
+                                         # 'exponential' | 'gaussian'
+         # angular: {type: legendre, coeffs: [1.0, 0.2]}  # separable_rotation
        sigma2: null                      # optional δ-correlated white-noise floor
                                          # 'constant'        -> {type: constant, amplitude: 0.01}
                                          # 'callable_module' -> {type: callable_module,
@@ -552,15 +577,15 @@ Section reference: ``system``
    * - ``linear.type``
      - ``str``
      - ``"diagonal"``
-     - Only ``"diagonal"`` is parsed by YAML today; ``ConstantMatrix``/``ExplicitR`` need L1 Python
+     - ``"diagonal"`` -> :class:`~sft_wick.workflow.DiagonalA`; ``"explicit"`` -> :class:`~sft_wick.workflow.ExplicitR`. ``ConstantMatrix`` still needs L1 Python.
    * - ``linear.gamma``
      - ``list[float]`` of length N
-     - **required** unless ``gamma_module`` set
+     - **required** unless ``gamma_module`` set (``type: diagonal``)
      - Constant decay rates :math:`\gamma_a`
    * - ``linear.gamma_module``
      - ``str`` (path)
      - ``null``
-     - Dotted-path / relative-path to a ``.py`` file exporting a callable ``γ(t) → ndarray(N,)``
+     - (``type: diagonal``) dotted-path / relative-path to a ``.py`` file exporting a callable ``γ(t) → ndarray(N,)``
    * - ``linear.gamma_attr``
      - ``str``
      - ``"gamma_fn"``
@@ -568,23 +593,35 @@ Section reference: ``system``
    * - ``linear.t_max_cache``
      - ``float``
      - ``propagators.t_max``
-     - Horizon for the :math:`\Gamma_a(t) = \int_0^t \gamma_a` cumulative-integral spline
+     - (``type: diagonal``) horizon for the :math:`\Gamma_a(t) = \int_0^t \gamma_a` cumulative-integral spline
    * - ``linear.n_grid_cache``
      - ``int``
      - derived from ``dt``
-     - Spline node count for cumulative Γ
+     - (``type: diagonal``) spline node count for cumulative Γ
+   * - ``linear.R_time_module``
+     - ``str`` (path)
+     - **required when** ``type: explicit``
+     - Path to a ``.py`` file exporting a scalar callable ``R_time(t1, t2) -> float``. Must enforce causality (return 0 when ``t1 < t2``).
+   * - ``linear.R_time_attr``
+     - ``str``
+     - ``"R_time"``
+     - Attribute name in ``R_time_module``
+   * - ``linear.iso_R``
+     - ``bool``
+     - ``true``
+     - (``type: explicit``) must be ``true``. Matrix-valued R is a lower-level Python API feature, not an L2 YAML mode.
    * - ``noise.kappa2.type``
      - ``str``
      - **required**
-     - ``"separable_translation"`` (1-D r), ``"separable_rotation"`` (Legendre angular), ``"general"``, ``"callable_module"``
+     - ``"separable_translation"`` (1-D r), ``"separable_rotation"`` (Legendre angular), ``"callable_module"``
    * - ``noise.kappa2.temporal``
      - block
      - **required** (separable variants)
-     - ``{type: exponential|gaussian|custom, lam, sigma_t}`` — see :doc:`expressions`
+     - ``{type: exponential|gaussian, lam, sigma_t}`` — see :doc:`expressions`
    * - ``noise.kappa2.spatial``
      - block
-     - **required** (separable variants)
-     - ``{type: exponential|gaussian|legendre_angular|custom, sigma_x}``
+     - **required** (``separable_translation``)
+     - ``{type: exponential|gaussian, sigma_x}``. For ``separable_rotation``, use ``angular: {type: legendre, coeffs: [...]}`` instead.
    * - ``noise.sigma2``
      - block or ``null``
      - ``null``
@@ -896,7 +933,7 @@ Decision matrix:
 User-Python hooks
 ~~~~~~~~~~~~~~~~~
 
-The YAML block can defer to user Python in five places — each
+The YAML block can defer to user Python in six places — each
 loads a callable from a ``.py`` module relative to the YAML file
 and registers it for joblib's worker-safe by-value module
 loading (so it composes cleanly with any of the
@@ -911,7 +948,10 @@ loading (so it composes cleanly with any of the
      - Purpose
    * - ``system.linear.gamma_module``
      - ``γ(t) → ndarray(N,)``
-     - Time-dependent linear drift (replaces ``linear.gamma``)
+     - Time-dependent linear drift (replaces ``linear.gamma`` under ``linear.type: diagonal``)
+   * - ``system.linear.R_time_module``
+     - ``R_time(t1, t2) → float``
+     - Scalar closed-form ``R`` (escape hatch via ``linear.type: explicit``; bypasses the γ-spline cache)
    * - ``system.noise.kappa2.type: callable_module``
      - ``κ²(n1,t1,n2,t2) → (N, N)``
      - Non-separable noise correlator (replaces ``separable_translation``/``separable_rotation``)
