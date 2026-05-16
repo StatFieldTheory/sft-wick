@@ -24,8 +24,10 @@ import matplotlib.pyplot as plt  # noqa: E402
 import pytest  # noqa: E402
 
 from sft_wick import (  # noqa: E402
+    Action,
     DiagramRenderer,
     FeynmanDiagram,
+    Field,
     LABEL_COMPACT,
     LABEL_FULL,
     LABEL_TIME_F,
@@ -36,6 +38,10 @@ from sft_wick import (  # noqa: E402
     grayscale_style,
     minimal_style,
     publication_style,
+    compute_moment,
+    compute_layout,
+    reset_uid_counter,
+    Vertex,
 )
 
 
@@ -265,6 +271,103 @@ class TestRenderer:
         assert mock_show.call_count == 0
         # Returned figure has expected number of axes
         assert len(fig.axes) >= 2
+        assert fig._suptitle is None
+        assert len(fig.legends) == 1
+        assert all(ax.get_legend() is None for ax in fig.axes)
+        plt.close("all")
+
+    def test_draw_all_uses_upper_right_empty_panel_for_shared_legend(
+        self, two_external_diagram,
+    ):
+        renderer = DiagramRenderer()
+        fig = renderer.draw_all(
+            [two_external_diagram, two_external_diagram, two_external_diagram],
+            ncols=2,
+        )
+
+        assert len(fig.legends) == 0
+        assert fig.axes[1].get_legend() is not None
+        assert fig.axes[1].get_title() == ""
+        assert not fig.axes[1].lines
+        assert not fig.axes[1].patches
+        plt.close("all")
+
+    def test_draw_all_can_use_per_panel_legends(self, two_external_diagram):
+        renderer = DiagramRenderer()
+        fig = renderer.draw_all([two_external_diagram], shared_legend=False)
+        assert len(fig.legends) == 0
+        assert fig.axes[0].get_legend() is not None
+        plt.close("all")
+
+    def test_draw_all_compact_rows_do_not_overlap(self):
+        reset_uid_counter()
+        x_field = Field("X", "physical", n_components=3)
+        psi = Field("psi", "response", n_components=3)
+        action = Action(vertices=[
+            Vertex(fields=[psi, x_field, x_field], coupling="F"),
+            Vertex(fields=[psi, psi, psi], coupling="K", local=False),
+        ])
+        result = compute_moment(
+            [x_field("a", "x"), x_field("b", "y"), x_field("c", "z")],
+            action,
+            order=1,
+            response_phase=True,
+        )
+
+        fig = result.draw_diagrams(order=1, figsize=(3.8, 3.0), ncols=4)
+        assert fig is not None
+        assert len(fig.legends) == 0
+        assert fig.axes[3].get_legend() is not None
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        active_axes = [
+            ax for ax in fig.axes
+            if ax.get_title() or ax.lines or ax.patches or ax.texts
+        ]
+        rows: dict[float, list] = {}
+        for ax in active_axes:
+            rows.setdefault(round(ax.get_position().y0, 4), []).append(
+                ax.get_tightbbox(renderer),
+            )
+        row_bounds = [
+            (row_y, min(b.y0 for b in boxes), max(b.y1 for b in boxes))
+            for row_y, boxes in rows.items()
+        ]
+        row_bounds.sort(key=lambda item: item[0], reverse=True)
+
+        for upper, lower in zip(row_bounds, row_bounds[1:]):
+            assert upper[1] - lower[2] >= 8.0
+        assert max(b[2] for b in row_bounds) <= fig.bbox.y1
+        plt.close("all")
+
+    def test_interaction_diagrams_are_not_flat_compressed(self):
+        reset_uid_counter()
+        x_field = Field("X", "physical", n_components=3)
+        psi = Field("psi", "response", n_components=3)
+        action = Action(vertices=[
+            Vertex(fields=[psi, x_field, x_field], coupling="F"),
+        ])
+        result = compute_moment(
+            [x_field("a", "x"), x_field("b", "y")],
+            action,
+            order=2,
+            response_phase=True,
+        )
+
+        fig = result.draw_diagrams(order=2)
+        assert fig is not None
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+
+        for ax in fig.axes:
+            if not ax.get_title():
+                continue
+            y0, y1 = ax.get_ylim()
+            assert y1 - y0 > 4.0
+            for artist in [*ax.lines, *ax.patches]:
+                bbox = artist.get_window_extent(renderer)
+                assert bbox.y0 >= ax.bbox.y0 - 1.0
+                assert bbox.y1 <= ax.bbox.y1 + 1.0
         plt.close("all")
 
     def test_draw_all_show_true_calls_show(self, two_external_diagram):
@@ -273,6 +376,36 @@ class TestRenderer:
             renderer.draw_all([two_external_diagram], show=True)
         assert mock_show.call_count == 1
         plt.close("all")
+
+    def test_result_draw_diagrams_returns_figure(self):
+        reset_uid_counter()
+        phi = Field("phi", "physical")
+        psi = Field("psi", "response")
+        action = Action(vertices=[Vertex(fields=[phi, psi], coupling="g")])
+        result = compute_moment([phi("x"), phi("y")], action, order=1)
+
+        with patch.object(plt, "show") as mock_show:
+            fig = result.draw_diagrams(order=1, show=True, ncols=1)
+
+        assert fig is not None
+        assert len(fig.axes) >= 1
+        assert mock_show.call_count == 1
+        plt.close("all")
+
+    def test_disconnected_components_are_separated(self):
+        fd = FeynmanDiagram()
+        e0 = fd.add_external_point("a", "physical", spatial="x")
+        v0 = fd.add_vertex("F")
+        e1 = fd.add_external_point("b", "physical", spatial="y")
+        v1 = fd.add_vertex("F")
+        fd.add_propagator(e0, v0, "R", phi_end=e0, psi_end=v0)
+        fd.add_propagator(e1, v1, "R", phi_end=e1, psi_end=v1)
+
+        pos = compute_layout(fd)
+        left = [pos[e0][0], pos[v0][0]]
+        right = [pos[e1][0], pos[v1][0]]
+        gap = min(right) - max(left)
+        assert gap >= 0.9
 
     def test_legacy_PROP_STYLES_override(self, two_external_diagram):
         from matplotlib.patches import FancyArrowPatch

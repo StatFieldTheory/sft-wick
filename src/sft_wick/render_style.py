@@ -135,6 +135,10 @@ class LayoutParams:
                            this are pushed apart in a post-pass.
         margin:            Padding added to axis limits around the
                            diagram bounding box (matplotlib only).
+        component_gap:     Minimum horizontal gap between disconnected
+                           connected components before bbox
+                           normalisation.  Helps factorised diagrams
+                           remain visually separated.
         normalize_bbox:    If ``True`` (default), the final layout is
                            re-centred on the origin and uniformly
                            scaled so it fits within
@@ -152,9 +156,10 @@ class LayoutParams:
     spring_iterations: int = 200
     spring_seed: int | None = 42
     min_vertex_dist: float = 0.8
-    margin: float = 1.3
+    margin: float = 0.75
+    component_gap: float = 1.0
     normalize_bbox: bool = True
-    target_extent: tuple[float, float] = (6.0, 4.0)
+    target_extent: tuple[float, float] = (5.6, 3.6)
 
 
 # ----------------------------------------------------------------------
@@ -207,9 +212,9 @@ class RenderStyle:
     vertex_node: NodeStyle
     external_label: LabelStyle
     vertex_label: LabelStyle
-    title_fontsize: float = 10.0
+    title_fontsize: float = 12.0
     suptitle_fontsize: float = 14.0
-    legend_fontsize: float = 7.0
+    legend_fontsize: float = 12.0
     legend_loc: str = "lower right"
     show_legend: bool = True
     layout: LayoutParams = field(default_factory=LayoutParams)
@@ -307,11 +312,11 @@ def default_style() -> RenderStyle:
         propagators=_default_propagators(),
         external_node=NodeStyle(shape="circle", size=8.0),
         vertex_node=NodeStyle(shape="square", size=10.0),
-        external_label=LabelStyle(fontsize=9.0, bold=False, offset_pt=26.0),
-        vertex_label=LabelStyle(fontsize=9.0, bold=True, offset_pt=20.0),
-        title_fontsize=10.0,
+        external_label=LabelStyle(fontsize=12.0, bold=False, offset_pt=24.0),
+        vertex_label=LabelStyle(fontsize=12.0, bold=True, offset_pt=18.0),
+        title_fontsize=12.0,
         suptitle_fontsize=14.0,
-        legend_fontsize=7.0,
+        legend_fontsize=12.0,
         show_legend=True,
         layout=LayoutParams(),
         label_format=LABEL_COMPACT,
@@ -347,14 +352,14 @@ def publication_style(*, usetex: bool = False) -> RenderStyle:
         external_node=NodeStyle(shape="circle", size=6.0),
         vertex_node=NodeStyle(shape="square", size=7.0),
         external_label=LabelStyle(
-            fontsize=11.0, bold=False, bbox=False, offset_pt=22.0,
+            fontsize=12.0, bold=False, bbox=False, offset_pt=22.0,
         ),
         vertex_label=LabelStyle(
-            fontsize=10.0, bold=False, bbox=False, offset_pt=18.0,
+            fontsize=12.0, bold=False, bbox=False, offset_pt=18.0,
         ),
-        title_fontsize=11.0,
+        title_fontsize=12.0,
         suptitle_fontsize=13.0,
-        legend_fontsize=9.0,
+        legend_fontsize=11.0,
         legend_loc="lower right",
         show_legend=True,
         layout=LayoutParams(),
@@ -385,14 +390,14 @@ def grayscale_style() -> RenderStyle:
         external_node=NodeStyle(shape="circle", size=6.5),
         vertex_node=NodeStyle(shape="square", size=7.5),
         external_label=LabelStyle(
-            fontsize=10.0, bold=False, bbox=False, offset_pt=22.0,
+            fontsize=11.0, bold=False, bbox=False, offset_pt=22.0,
         ),
         vertex_label=LabelStyle(
-            fontsize=9.5, bold=False, bbox=False, offset_pt=18.0,
+            fontsize=11.0, bold=False, bbox=False, offset_pt=18.0,
         ),
-        title_fontsize=10.5,
+        title_fontsize=11.0,
         suptitle_fontsize=13.0,
-        legend_fontsize=8.0,
+        legend_fontsize=10.5,
         show_legend=True,
         layout=LayoutParams(),
         label_format=LABEL_COMPACT,

@@ -36,7 +36,6 @@ from .render_labels import (
 )
 from .render_layout import compute_layout, label_offset, neighbor_center
 from .render_style import (
-    LayoutParams,
     NodeStyle,
     PropagatorStyle,
     RenderStyle,
@@ -206,10 +205,13 @@ class DiagramRenderer:
         self,
         diagrams: list[FeynmanDiagram],
         ncols: int = 3,
-        suptitle: str = "Feynman Diagrams",
+        suptitle: str = "",
         suptitle_kwargs: Mapping[str, Any] | None = None,
         subtitle_fn: Callable[[int, FeynmanDiagram, int], str] | None = None,
         multiplicities: Sequence[int] | None = None,
+        shared_legend: bool = True,
+        wspace: float = 0.04,
+        hspace: float | None = None,
         show: bool = False,
         external_labels: Mapping[int, Mapping[str, str]] | None = None,
     ) -> plt.Figure:
@@ -225,6 +227,15 @@ class DiagramRenderer:
                              ``None`` → ``"#i: <summary>  [xN]"``.
             multiplicities:  Optional per-diagram multiplicities (for
                              default subtitles).
+            shared_legend:   If ``True`` (default), suppress per-panel
+                             legends and draw one figure-level legend for
+                             all propagator kinds present in the grid.
+                             ``False`` restores per-panel legends.
+            wspace, hspace:  Optional subplot spacing passed to
+                             ``Figure.subplots_adjust`` after
+                             ``tight_layout``.  ``hspace=None`` uses a
+                             compact automatic value and relaxes it if
+                             rendered rows would overlap.
             show:            If ``True``, call ``plt.show()`` after
                              building the figure.  Default ``False``
                              — callers that ``savefig`` should leave
@@ -263,7 +274,25 @@ class DiagramRenderer:
                 axes = np.array([axes])
             axes_flat = np.array(axes).flatten()
 
-            for i, (diagram, ax) in enumerate(zip(diagrams, axes_flat)):
+            edge_kinds = {
+                data.get("kind")
+                for diagram in diagrams
+                for _, _, data in diagram.graph.edges(data=True)
+            }
+            handles = (
+                self._legend_handles(edge_kinds, style)
+                if shared_legend and style.show_legend else []
+            )
+            legend_panel_idx = (
+                _legend_panel_index(n, ncols, nrows)
+                if handles else None
+            )
+            diagram_axes = [
+                ax for idx, ax in enumerate(axes_flat)
+                if idx != legend_panel_idx
+            ][:n]
+
+            for i, (diagram, ax) in enumerate(zip(diagrams, diagram_axes)):
                 mult = multiplicities[i]
                 if subtitle_fn is not None:
                     label = subtitle_fn(i, diagram, mult)
@@ -284,21 +313,52 @@ class DiagramRenderer:
                     external_labels=ext_overrides,
                     vertex_labels=None,
                     positions=None,
-                    show_legend=None,
+                    show_legend=False if shared_legend else None,
                     style=style,
                 )
 
-            for j in range(n, len(axes_flat)):
-                axes_flat[j].axis("off")
+            used_axes = set(diagram_axes)
+            if legend_panel_idx is not None:
+                legend_ax = axes_flat[legend_panel_idx]
+                _draw_shared_legend_panel(legend_ax, handles, style)
+                used_axes.add(legend_ax)
 
+            for ax in axes_flat:
+                if ax not in used_axes:
+                    ax.axis("off")
+
+            fig_legend_at_top = bool(handles and legend_panel_idx is None)
+            if fig_legend_at_top:
+                fig.legend(
+                    handles=handles,
+                    loc="upper center",
+                    bbox_to_anchor=(0.5, 0.995 if not suptitle else 0.94),
+                    ncol=len(handles),
+                    fontsize=style.legend_fontsize,
+                    frameon=False,
+                )
+
+            bottom = 0.02
+            if fig_legend_at_top:
+                top = 0.84 if suptitle else 0.89
+            else:
+                top = 0.94 if suptitle else 0.97
             if suptitle:
                 kw: dict[str, Any] = {"fontsize": style.suptitle_fontsize}
                 if suptitle_kwargs:
                     kw.update(dict(suptitle_kwargs))
                 fig.suptitle(suptitle, **kw)
-                fig.tight_layout(rect=(0, 0, 1, 0.95))
-            else:
-                fig.tight_layout()
+            fig.tight_layout(rect=(0, bottom, 1, top), pad=0.35)
+            effective_hspace = 0.22 if hspace is None else hspace
+            adjust_kwargs: dict[str, float] = {}
+            if wspace is not None:
+                adjust_kwargs["wspace"] = wspace
+            if effective_hspace is not None:
+                adjust_kwargs["hspace"] = effective_hspace
+            if adjust_kwargs:
+                fig.subplots_adjust(**adjust_kwargs)
+            if hspace is None and nrows > 1:
+                _relax_vertical_spacing(fig, diagram_axes)
 
         if show:
             plt.show()
@@ -447,11 +507,32 @@ class DiagramRenderer:
             # Use the standardised target extent so every panel in a
             # grid has identical coordinate limits — this is what
             # makes loop radii, edge thicknesses, and marker sizes
-            # look consistent across diagrams.
+            # look consistent across diagrams.  Very flat diagrams
+            # (for example a bare two-point line) get a shallower
+            # y-range anchored near the panel title so they do not
+            # float in the middle of an otherwise empty subplot.
             half_w = style.layout.target_extent[0] / 2.0
             half_h = style.layout.target_extent[1] / 2.0
             ax.set_xlim(-half_w - margin, half_w + margin)
-            ax.set_ylim(-half_h - margin, half_h + margin)
+            data_h = ax.dataLim.height
+            bare_propagator = not diagram.vertex_nodes
+            if (
+                bare_propagator
+                and np.isfinite(data_h)
+                and data_h < 0.25 * style.layout.target_extent[1]
+            ):
+                data_center_y = 0.5 * (ax.dataLim.y0 + ax.dataLim.y1)
+                min_h = 0.6
+                ax.set_ylim(
+                    data_center_y - min_h / 2.0 - 2.4 * margin,
+                    data_center_y + min_h / 2.0 + 0.15 * margin,
+                )
+                ax.set_anchor("N")
+            else:
+                ax.set_ylim(
+                    -half_h - 1.8 * margin,
+                    half_h + 0.2 * margin,
+                )
         else:
             ax.set_xlim(
                 all_pts[:, 0].min() - margin, all_pts[:, 0].max() + margin,
@@ -610,6 +691,21 @@ class DiagramRenderer:
         style: RenderStyle,
     ) -> None:
         edge_kinds = {data.get("kind") for _, _, data in g.edges(data=True)}
+        handles = self._legend_handles(edge_kinds, style)
+        if handles:
+            ax.legend(
+                handles=handles,
+                loc=style.legend_loc,
+                fontsize=style.legend_fontsize,
+                framealpha=0.8,
+                edgecolor="none",
+            )
+
+    def _legend_handles(
+        self,
+        edge_kinds: set[Any],
+        style: RenderStyle,
+    ) -> list[plt.Line2D]:
         handles = []
         for kind, prop in style.propagators.items():
             if kind not in edge_kinds:
@@ -624,14 +720,7 @@ class DiagramRenderer:
                 lw=prop.linewidth,
                 label=label,
             ))
-        if handles:
-            ax.legend(
-                handles=handles,
-                loc=style.legend_loc,
-                fontsize=style.legend_fontsize,
-                framealpha=0.8,
-                edgecolor="none",
-            )
+        return handles
 
     def _set_title(
         self,
@@ -642,7 +731,7 @@ class DiagramRenderer:
     ) -> None:
         if not title or style.title_fontsize <= 0:
             return
-        kw: dict[str, Any] = {"fontsize": style.title_fontsize}
+        kw: dict[str, Any] = {"fontsize": style.title_fontsize, "pad": 0.0}
         if title_kwargs:
             kw.update(dict(title_kwargs))
         ax.set_title(title, **kw)
@@ -685,3 +774,86 @@ def _matplotlib_linestyle_to_name(ls: str | None) -> str | None:
         "-.": "dashdot",
     }
     return inverse.get(ls, ls)
+
+
+def _legend_panel_index(n: int, ncols: int, nrows: int) -> int | None:
+    """Reserve the upper-right empty panel for a shared legend."""
+    total_panels = ncols * nrows
+    if ncols <= 1 or total_panels <= n:
+        return None
+    return ncols - 1
+
+
+def _draw_shared_legend_panel(
+    ax: plt.Axes,
+    handles: Sequence[plt.Line2D],
+    style: RenderStyle,
+) -> None:
+    """Use an otherwise empty subplot as the shared legend panel."""
+    ax.axis("off")
+    ax.legend(
+        handles=handles,
+        loc="center",
+        ncol=1,
+        fontsize=style.legend_fontsize,
+        frameon=False,
+        handlelength=2.4,
+        borderaxespad=0.0,
+    )
+
+
+def _relax_vertical_spacing(
+    fig: plt.Figure,
+    axes: Sequence[plt.Axes],
+    *,
+    min_gap_px: float = 8.0,
+    max_hspace: float = 0.8,
+) -> None:
+    """Increase row spacing until rendered tight-bboxes no longer touch."""
+    if len(axes) <= 1:
+        return
+
+    for _ in range(8):
+        fig.canvas.draw()
+        gap = _minimum_row_gap_px(fig, axes)
+        if gap is None or gap >= min_gap_px:
+            return
+
+        current = fig.subplotpars.hspace or 0.0
+        if current >= max_hspace:
+            return
+        fig.subplots_adjust(hspace=min(max_hspace, current + 0.06))
+
+
+def _minimum_row_gap_px(
+    fig: plt.Figure,
+    axes: Sequence[plt.Axes],
+) -> float | None:
+    """Return the smallest vertical gap between neighbouring rows."""
+    renderer = fig.canvas.get_renderer()
+    rows: dict[float, list[Any]] = {}
+    for ax in axes:
+        bbox = ax.get_tightbbox(renderer)
+        if bbox is None:
+            continue
+        row_key = round(ax.get_position().y0, 4)
+        rows.setdefault(row_key, []).append(bbox)
+
+    if len(rows) <= 1:
+        return None
+
+    row_bounds = []
+    for row_y, bboxes in rows.items():
+        row_bounds.append((
+            row_y,
+            min(b.y0 for b in bboxes),
+            max(b.y1 for b in bboxes),
+        ))
+    row_bounds.sort(key=lambda item: item[0], reverse=True)
+
+    gaps = []
+    for upper, lower in zip(row_bounds, row_bounds[1:]):
+        upper_min_y = upper[1]
+        lower_max_y = lower[2]
+        gaps.append(upper_min_y - lower_max_y)
+    return min(gaps) if gaps else None

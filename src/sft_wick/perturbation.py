@@ -43,7 +43,8 @@ from .vertices import VertexInstance
 from .wick import Pairing, SpatialSignature, wick_contract, wick_contract_spatial
 
 if TYPE_CHECKING:
-    pass
+    from .evaluate import DiagramIntegrand, SpatialStructure
+    from matplotlib.figure import Figure
 
 
 class PerturbativeResult:
@@ -132,7 +133,7 @@ class PerturbativeResult:
                     lines.append(f"O({n}): {expr.to_latex()}")
         return "\n".join(lines)
 
-    def draw_diagrams(self, order: int | None = None, **kwargs) -> None:
+    def draw_diagrams(self, order: int | None = None, **kwargs) -> "Figure | None":
         """Draw Feynman diagrams using matplotlib.
 
         Topologically identical diagrams are drawn only once, with a
@@ -142,12 +143,40 @@ class PerturbativeResult:
             order: If given, draw only diagrams at this perturbative
                 order.  Otherwise draw all diagrams.
             **kwargs: Forwarded to :class:`~sft_wick.drawing.DiagramRenderer`
-                (e.g. ``figsize``).
+                (e.g. ``figsize``).  Grid-level options accepted by
+                :meth:`~sft_wick.drawing.DiagramRenderer.draw_all`
+                (``ncols``, ``suptitle``, ``suptitle_kwargs``,
+                ``subtitle_fn``, ``shared_legend``, ``wspace``,
+                ``hspace``, ``show``, ``external_labels``) are forwarded
+                there instead.
+
+        Returns:
+            The matplotlib ``Figure`` containing the rendered diagrams,
+            or ``None`` when there are no diagrams.  Returning the figure
+            makes the method display reliably as the final expression in
+            notebooks and lets scripts call ``fig.savefig(...)``.
         """
         from collections import OrderedDict
 
         from .diagrams import FeynmanDiagram
         from .drawing import DiagramRenderer
+
+        draw_all_keys = {
+            "ncols",
+            "suptitle",
+            "suptitle_kwargs",
+            "subtitle_fn",
+            "shared_legend",
+            "wspace",
+            "hspace",
+            "show",
+            "external_labels",
+        }
+        draw_all_kwargs = {
+            key: kwargs.pop(key)
+            for key in list(kwargs.keys())
+            if key in draw_all_keys
+        }
 
         renderer = DiagramRenderer(**kwargs)
         if order is not None:
@@ -174,7 +203,11 @@ class PerturbativeResult:
         unique_diagrams = [group[0] for group in groups.values()]
         multiplicities = [len(group) for group in groups.values()]
 
-        renderer.draw_all(unique_diagrams, multiplicities=multiplicities)
+        return renderer.draw_all(
+            unique_diagrams,
+            multiplicities=multiplicities,
+            **draw_all_kwargs,
+        )
 
     def __repr__(self) -> str:
         return self.to_latex()
@@ -298,7 +331,7 @@ class DiagramTerm:
         self,
         coupling_values: dict,
         fixed_indices: dict[str, int] | None = None,
-    ) -> "numpy.ndarray":
+    ) -> "np.ndarray":
         """Substitute numeric coupling tensor values and return an array.
 
         The output is indexed by **propagator indices** only.  For each
@@ -341,7 +374,7 @@ class DiagramTerm:
         prop_shape = tuple(dim for _, dim in prop_idx)
         coup_shape = tuple(dim for _, dim in coup_idx)
 
-        def _sum_coupling(prop_map: dict[str, int]) -> "numpy.number":
+        def _sum_coupling(prop_map: dict[str, int]) -> "np.number":
             """Evaluate coupling_sum with prop_map fixed, summing over coup_idx."""
             if not coup_idx:
                 return dtype(_eval_symbolic(self.coupling_sum, coupling_values, prop_map))
@@ -369,7 +402,7 @@ class DiagramTerm:
         coupling_values_batched: dict,
         n_samples: int,
         fixed_indices: dict[str, int] | None = None,
-    ) -> "numpy.ndarray":
+    ) -> "np.ndarray":
         """Vectorised counterpart of :meth:`evaluate_coupling`.
 
         Same contract as :meth:`evaluate_coupling`, but every per-sample
@@ -1891,7 +1924,7 @@ def _eval_symbolic_batched(
     symbol_values_batched: dict,
     index_map: dict[str, int],
     n_samples: int,
-) -> "numpy.ndarray":
+) -> "np.ndarray":
     """Vectorised counterpart of :func:`_eval_symbolic`.
 
     Walks the symbolic expression tree once and returns an array of
