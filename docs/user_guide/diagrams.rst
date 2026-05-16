@@ -84,6 +84,12 @@ Rendering with ``DiagramRenderer``
    fd_list = [d.to_feynman_diagram() for d in result.diagrams_by_order[1]]
    renderer.draw_all(fd_list, ncols=3, suptitle="Order-1 Diagrams")
 
+By default a grid has no figure-level title and uses one shared
+propagator legend for the whole figure.  If the grid has an empty
+cell, the legend occupies the upper-right panel; otherwise it sits in
+the top figure margin.  Pass ``suptitle=...`` when you want an overall
+title, or ``shared_legend=False`` to restore per-panel legends.
+
 
 Quick Visualisation
 -------------------
@@ -298,7 +304,12 @@ Per-axes titles use ``style.title_fontsize``; pass
 ``title_kwargs={…}`` on :meth:`draw` to override that for one call.
 The figure-level suptitle in :meth:`draw_all` honours
 ``style.suptitle_fontsize`` and accepts a ``suptitle_kwargs``
-override.
+override.  The default is no suptitle.
+
+``draw_all`` uses compact subplot spacing and one shared legend by
+default.  Columns are tightened with ``wspace``; row spacing uses a
+compact automatic value that is relaxed if rendered rows would
+overlap.  Pass ``hspace=…`` to take manual control.
 
 ``draw_all`` no longer calls ``plt.show()`` implicitly — pass
 ``show=True`` if you want it.  This makes it safe to use inside

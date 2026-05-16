@@ -156,6 +156,11 @@ def compute_layout(
                     pos[v][1],
                 ])
 
+    # Disconnected diagrams can otherwise collapse visually because
+    # spring_layout has no edges tying their components apart.
+    if not pinned and params.component_gap > 0:
+        _separate_connected_components(g, pos, params.component_gap)
+
     # ------------------------------------------------------------------
     # Normalise the bounding box so every diagram has a comparable
     # visual extent.  Skipped whenever the caller pinned any node —
@@ -237,6 +242,45 @@ def _enforce_min_distance(
                     changed = True
         if not changed:
             break
+
+
+def _separate_connected_components(
+    g: nx.MultiGraph,
+    pos: dict[str, np.ndarray],
+    component_gap: float,
+) -> None:
+    """Move disconnected components apart horizontally in-place."""
+    components = [list(c) for c in nx.connected_components(g)]
+    if len(components) <= 1:
+        return
+
+    boxes = []
+    for comp in components:
+        pts = np.array([pos[n] for n in comp], dtype=float)
+        boxes.append({
+            "nodes": comp,
+            "min_x": float(pts[:, 0].min()),
+            "max_x": float(pts[:, 0].max()),
+            "center_x": float(pts[:, 0].mean()),
+        })
+    boxes.sort(key=lambda b: b["center_x"])
+
+    old_center = np.mean(np.array(list(pos.values()), dtype=float), axis=0)
+    current_right = boxes[0]["max_x"]
+    for box in boxes[1:]:
+        shift = max(0.0, current_right + component_gap - box["min_x"])
+        if shift:
+            for node in box["nodes"]:
+                pos[node] = pos[node] + np.array([shift, 0.0])
+            box["min_x"] += shift
+            box["max_x"] += shift
+            box["center_x"] += shift
+        current_right = max(current_right, box["max_x"])
+
+    new_center = np.mean(np.array(list(pos.values()), dtype=float), axis=0)
+    delta = new_center - old_center
+    for node in pos:
+        pos[node] = pos[node] - delta
 
 
 def neighbor_center(
