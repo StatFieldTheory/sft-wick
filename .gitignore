@@ -1,6 +1,8 @@
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+*cache/
+.benchmarks/
 __pycache__/
 **/__pycache__/
 *.pyc
