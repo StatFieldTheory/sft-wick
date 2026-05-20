@@ -63,6 +63,74 @@ multiple integrations appear:
    v_nl = Vertex(fields=[psi, psi], coupling='K', local=False)
 
 
+Non-local vertex flags
+^^^^^^^^^^^^^^^^^^^^^^
+
+A non-local :class:`~sft_wick.vertices.Vertex` accepts two opt-in
+specialisation flags that shape the integration topology produced
+downstream by :func:`~sft_wick.perturbation.compute_moment` /
+:func:`~sft_wick.evaluate.integrate_moment`.  Both are exposed at the
+**L0 surface** (you can construct them directly here, without going
+through the L1 :class:`~sft_wick.workflow.NonLocalVertex` wrapper),
+and they propagate through the diagram pipeline via
+:class:`~sft_wick.vertices.VertexInstance` →
+:class:`~sft_wick.perturbation.DiagramTerm` →
+:class:`~sft_wick.evaluate.SpatialStructure`.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 50 20
+
+   * - Flag
+     - Effect on the diagram
+     - When to use
+   * - ``equal_time=True``
+     - Collapses the ``m`` leg-time integration variables into a
+       **single** shared time (the m spatial legs stay independent).
+       Models the action-level identity
+       ``κ^(m)(z_1,…,z_m) ≈ δ(λ_1−λ_2) ⋯ δ(λ_{m−1}−λ_m) · κ_eq``.
+     - Equal-shell / Limber-like cumulants (e.g. cosmological
+       equal-time bispectrum ``ζ_eq``)
+   * - ``already_R_contracted=True``
+     - Each ψ leg's R-propagator (with its Wick partner φ) is **absorbed**:
+       it stays in the diagram graph for direction grouping but
+       contributes a factor of 1; the leg's time/direction is aliased
+       to its partner's, dropping the m leg-time integrations entirely.
+       The coupling callable is expected to return the
+       R-contracted form
+       ``κ^(m)_R(z_1',…,z_m') := ∫ ∏R(z_i',z_i)·κ^(m)`` evaluated at
+       the **partner** spacetime points.
+     - Narrow-kernel ``κ^(m)`` whose m leg-time integrations are
+       prohibitively expensive (e.g. canoes' squeezed κ³ at
+       :math:`\ell_{max} \to \infty`)
+
+The two flags are mutually exclusive and rejected at construction
+time.  Both are accepted on local vertices only as ``False``
+(``local=True`` already shares a spacetime point, so neither
+collapse is meaningful):
+
+.. code-block:: python
+
+   # Equal-time (single-shell) non-local cumulant.
+   v_K_equal = Vertex(
+       fields=[psi, psi, psi], coupling='K',
+       local=False, equal_time=True,
+   )
+
+   # Already-R-contracted non-local cumulant.
+   v_K_abs = Vertex(
+       fields=[psi, psi, psi], coupling='K',
+       local=False, already_R_contracted=True,
+   )
+
+The L1 :class:`~sft_wick.workflow.NonLocalVertex` wrapper and the L2
+YAML config both expose the same flags by name.  See
+:doc:`workflow` → *Equal-time (single-shell) cumulants* and *Already-R-contracted
+vertices* for the L1/L2 surface and the math / validation details, and
+``docs/notes/R_contracted_nonlocal_vertex.md`` for the design note
+behind the R-absorption dispatch.
+
+
 Building an Action
 ------------------
 

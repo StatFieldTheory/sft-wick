@@ -418,6 +418,14 @@ YAML form::
        coupling_vectorized: false
        already_R_contracted: true
 
+The same flag is also exposed at the **L0 surface** as
+``Vertex(fields=[psi]*m, coupling='K', local=False,
+already_R_contracted=True)`` for users driving
+:func:`~sft_wick.perturbation.compute_moment` /
+:func:`~sft_wick.evaluate.integrate_moment` directly.  See
+:doc:`vertices_and_actions` → *Non-local vertex flags* for the L0
+ergonomics.
+
 Building the R-contracted callable
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -448,9 +456,18 @@ Compatibility:
   already integrated over its leg coordinates).
 * All existing knobs (``coupling_vectorized``, MSR factor, response
   phase, diagonal / isotropic simplification) work unchanged.
-* The dispatch is bit-identical to the raw path when both pipelines
-  receive analytically-equivalent inputs (locked by
-  ``tests/test_R_contracted_vertex.py`` at ``rtol=1e-12``).
+* The dispatch is **mathematically equivalent** to the raw path when
+  both pipelines receive analytically-equivalent inputs — locked at
+  machine precision (``rtol=1e-12``, observed ``rel_diff ≈ 1.8e-15``)
+  by the constant-κ³ equivalence test in
+  ``tests/test_R_contracted_vertex.py``. The two paths are **not
+  bit-identical**: raw integrates the diagram on a higher-dimensional
+  causal simplex (m extra leg-time variables per absorbed vertex), so
+  the floating-point sums use different node sets and the last few
+  bits of float64 necessarily differ. Convergence under refinement
+  (e.g. demo2 FK at ``n_gauss=16``: ``rel_diff ≈ 7e-4``) confirms the
+  dispatch on real spacetime-dependent κ³ — see
+  ``docs/notes/R_contracted_nonlocal_vertex.md`` §4.1.
 
 Design details and the equivalence-validation evidence on demo2 FK
 live at ``docs/notes/R_contracted_nonlocal_vertex.md``.
