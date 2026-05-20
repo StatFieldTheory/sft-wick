@@ -1,24 +1,45 @@
-"""Tests for ``NonLocalVertex(already_R_contracted=True)`` foundation.
+"""Tests for ``already_R_contracted=True`` across all three API layers.
 
-Covers the Phase-1 deliverables:
+Coverage:
 
-  1. ``NonLocalVertex.already_R_contracted`` accepts ``False`` (default)
-     and ``True`` as a boolean flag.
-  2. ``already_R_contracted=True`` together with ``equal_time=True`` is
-     rejected at construction (vacuous combination).
-  3. The YAML config layer round-trips ``already_R_contracted`` through
-     the ``nonlocal_vertices`` block.
-  4. ``System.build_action()`` raises ``NotImplementedError`` (with a
-     pointer to the design note) when an R-contracted vertex is present
-     — locking the Phase-1 safeguard in place until the Phase-2
-     dispatch lands.
-  5. ``sft_wick.build_R_contracted_callable`` brute-force-computes the
-     R-contracted κ³ on a small grid and recovers the analytical
-     limit case ``R = 1`` (returning ``κ³`` integrated over χ).
+  L0 (raw ``Vertex`` / ``compute_moment``):
+    * ``Vertex(already_R_contracted=True, local=True)`` rejected.
+    * ``Vertex(already_R_contracted=True, equal_time=True)`` rejected.
+    * ``compute_moment`` populates ``DiagramTerm.r_absorbed_pairs`` with
+      exactly m=3 pairs per FK diagram (one per κ leg).
+    * ``n_response`` invariant: identical multiset across raw vs
+      absorbed paths (the absorbed R stays in the diagram graph; only
+      its numerical kernel value is skipped).
 
-The dispatch-level equivalence test (paired raw vs R_contracted run
-on demo2 FK) is deferred to Phase 2; see
-``docs/notes/R_contracted_nonlocal_vertex.md`` §4.
+  L1 (``NonLocalVertex`` / ``System.expand`` / ``Expansion.sweep``):
+    * Schema (``False`` default, ``True`` accepted, bad combos rejected).
+    * ``System.build_action`` propagates the flag to L0 ``Vertex``.
+    * Machine-precision equivalence (``rtol=1e-12``,
+      ``rel_diff ≈ 1.8e-15``) between raw and ``already_R_contracted``
+      paths on a constant-κ³ F+K diagram (analytic case where Fubini
+      is term-by-term exact).
+    * Four-way ``{raw, R_contracted} × {per-sample, vectorised}``
+      equivalence (the vectorised dispatch rides on the existing
+      ``equal_time_aliases`` ``DynamicCouplingPromise.evaluate_at_batch``
+      lookup — no separate code path needed).
+    * Structural: FK diagrams carry the expected 3 ``r_absorbed_pairs``;
+      raw diagrams carry ``()``.
+
+  L2 (YAML / CLI):
+    * ``already_R_contracted: true/false`` round-trips through
+      ``load_workflow_config`` + ``build_system``.
+    * Missing key defaults to ``False`` (backward compat).
+
+  Reference utility (``sft_wick.build_R_contracted_callable``):
+    * Recovers the analytical ``R = 1`` limit (plain m-leg integral).
+    * Causal short-circuit when every χ-sample is acausal.
+    * Input validation.
+
+The demo2-FK numerical convergence study (raw 4-D GL vs absorbed 1-D
+GL converging to ``rel_diff ≈ 7e-4`` at ``n_gauss=16``) is out-of-tree
+because the brute-force κ³_R reference costs ~3 min per cell at
+production resolution; see ``docs/notes/R_contracted_nonlocal_vertex.md``
+§4.1 for the table.
 """
 
 from __future__ import annotations
@@ -341,6 +362,140 @@ def test_raw_path_carries_no_r_absorbed_pairs():
     exp_raw = sys_raw.expand(("phi_a(x)", "phi_b(y)"), orders=[2])
     for dt in exp_raw.diagrams(2):
         assert dt.r_absorbed_pairs == ()
+
+
+# ---------------------------------------------------------------------------
+# L0 surface: Vertex(already_R_contracted=...) directly, no System wrapper.
+#
+# The R-absorption flag is plumbed through:
+#     L0 Vertex.already_R_contracted
+#       → VertexInstance (carries vertex reference)
+#       → DiagramTerm.r_absorbed_pairs (via _collect_r_absorbed_pairs)
+#       → SpatialStructure.r_absorbed_pairs
+#       → _kept_r_propagators in the integrand R-product loops.
+# These tests prove that a user driving compute_moment directly (no L1
+# workflow) gets the same dispatch wiring.
+# ---------------------------------------------------------------------------
+
+
+def test_L0_Vertex_already_R_contracted_local_rejected():
+    """L0 Vertex enforces the same invariants as the L1 wrapper:
+    ``already_R_contracted`` is only valid for non-local vertices."""
+    from sft_wick import Field, Vertex
+    psi = Field("psi", "response", n_components=2)
+    with pytest.raises(ValueError, match="only valid for non-local"):
+        Vertex(
+            fields=[psi, psi, psi], coupling="K",
+            local=True,  # contradicts already_R_contracted
+            already_R_contracted=True,
+        )
+
+
+def test_L0_Vertex_already_R_contracted_equal_time_rejected():
+    from sft_wick import Field, Vertex
+    psi = Field("psi", "response", n_components=2)
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        Vertex(
+            fields=[psi, psi, psi], coupling="K",
+            local=False,
+            equal_time=True,
+            already_R_contracted=True,
+        )
+
+
+def test_L0_compute_moment_populates_r_absorbed_pairs():
+    """Pure L0 path: construct a Vertex(already_R_contracted=True)
+    directly, run compute_moment, and verify the resulting FK
+    DiagramTerms carry the correct r_absorbed_pairs."""
+    from sft_wick import (
+        Field, Vertex, Action, compute_moment, reset_uid_counter,
+    )
+
+    reset_uid_counter()
+    phi = Field("phi", "physical", n_components=2)
+    psi = Field("psi", "response", n_components=2)
+
+    v_F = Vertex(fields=[psi, phi, phi], coupling="F", local=True)
+    v_K_raw = Vertex(fields=[psi, psi, psi], coupling="K", local=False)
+    v_K_abs = Vertex(
+        fields=[psi, psi, psi], coupling="K", local=False,
+        already_R_contracted=True,
+    )
+
+    obs = [phi("a", "x"), phi("b", "y")]
+    res_raw = compute_moment(obs, Action(vertices=[v_F, v_K_raw]), order=2)
+    res_abs = compute_moment(obs, Action(vertices=[v_F, v_K_abs]), order=2)
+
+    dts_raw = res_raw.diagram_terms(2)
+    dts_abs = res_abs.diagram_terms(2)
+
+    # Same diagram count (R-absorption does not change topology).
+    assert len(dts_abs) == len(dts_raw)
+
+    # Raw side: every DiagramTerm has empty r_absorbed_pairs.
+    assert all(not dt.r_absorbed_pairs for dt in dts_raw)
+
+    # Absorbed side: every FK diagram (the ones touching K) has exactly
+    # m=3 absorbed pairs, one per κ leg.
+    def _is_FK(dt):
+        s = str(dt.coupling_sum)
+        return "F" in s and "K" in s
+
+    fk_abs = [dt for dt in dts_abs if _is_FK(dt)]
+    assert fk_abs, "expected FK diagrams at order 2"
+    for dt in fk_abs:
+        assert len(dt.r_absorbed_pairs) == 3, (
+            f"K has 3 ψ legs, expected 3 absorbed pairs, "
+            f"got {dt.r_absorbed_pairs}"
+        )
+        # Each leg label appears in equal_time_aliases too.
+        absorbed_legs = {leg for _, leg in dt.r_absorbed_pairs}
+        aliased_legs = {leg for leg, _ in dt.equal_time_aliases}
+        assert absorbed_legs <= aliased_legs
+
+
+def test_L0_n_response_invariant_under_absorption():
+    """The MSR ``(-i)^n_response`` phase MUST be invariant under
+    ``already_R_contracted``: absorbed R-propagators stay in
+    ``dt.propagators`` (only their numerical value gets skipped), so
+    ``n_response`` counts identically on both paths.  Violation of
+    this invariant would break the diagram's MSR signature by a factor
+    of ``i^m`` per absorbed vertex."""
+    from sft_wick import (
+        Field, Vertex, Action, compute_moment, reset_uid_counter,
+    )
+
+    reset_uid_counter()
+    phi = Field("phi", "physical", n_components=2)
+    psi = Field("psi", "response", n_components=2)
+
+    v_F = Vertex(fields=[psi, phi, phi], coupling="F", local=True)
+    v_K_raw = Vertex(fields=[psi, psi, psi], coupling="K", local=False)
+    v_K_abs = Vertex(
+        fields=[psi, psi, psi], coupling="K", local=False,
+        already_R_contracted=True,
+    )
+
+    obs = [phi("a", "x"), phi("b", "y")]
+    res_raw = compute_moment(obs, Action(vertices=[v_F, v_K_raw]), order=2)
+    res_abs = compute_moment(obs, Action(vertices=[v_F, v_K_abs]), order=2)
+
+    def _is_FK(dt):
+        s = str(dt.coupling_sum)
+        return "F" in s and "K" in s
+
+    n_raw = sorted(
+        dt.n_response for dt in res_raw.diagram_terms(2) if _is_FK(dt)
+    )
+    n_abs = sorted(
+        dt.n_response for dt in res_abs.diagram_terms(2) if _is_FK(dt)
+    )
+    assert n_raw == n_abs, (
+        f"n_response multiset must be identical (raw vs absorbed). "
+        f"raw={n_raw}, absorbed={n_abs}"
+    )
+    # FK order-2 has 4 R-propagators (1 from F + 3 from K).
+    assert all(n == 4 for n in n_raw)
 
 
 # ---------------------------------------------------------------------------
