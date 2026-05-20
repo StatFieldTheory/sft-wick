@@ -74,6 +74,7 @@ from .wick import wick_contract
 
 # ---------- High-level workflow API (user-facing wrapper) ---------- #
 from .workflow import (  # noqa: E402
+    build_R_contracted_callable,
     ConstantImpulse,
     CustomImpulse,
     CustomKernel,
@@ -102,6 +103,7 @@ from .workflow import (  # noqa: E402
 )
 
 __all__ = [
+    "build_R_contracted_callable",
     "Action",
     "ConstantImpulse",
     "LABEL_COMPACT",

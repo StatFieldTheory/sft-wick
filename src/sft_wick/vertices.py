@@ -30,6 +30,15 @@ class Vertex:
     coupling: str
     local: bool = True
     equal_time: bool = False  # non-local only; collapse m time legs into one
+    # When True, every ψ leg of this non-local vertex has had its
+    # R-propagator pre-integrated into the coupling callable
+    # (``κ^(m)_R``). At DiagramTerm construction the R-propagators
+    # attached to this vertex's legs are tagged for absorption: each
+    # leg's time / direction is aliased onto its Wick partner's, and
+    # the integrand R-product loop skips those R-factors. Always
+    # ``False`` for local vertices (a local vertex's legs sit at one
+    # shared spacetime point, so there is nothing to absorb across).
+    already_R_contracted: bool = False
 
     def __init__(
         self,
@@ -37,6 +46,7 @@ class Vertex:
         coupling: str,
         local: bool = True,
         equal_time: bool = False,
+        already_R_contracted: bool = False,
     ):
         if equal_time and local:
             raise ValueError(
@@ -45,10 +55,25 @@ class Vertex:
                 "spatial / time leg across all fields, so there is "
                 "nothing to collapse."
             )
+        if already_R_contracted and local:
+            raise ValueError(
+                "already_R_contracted=True is only valid for non-local "
+                "vertices (local=False). A local vertex's legs sit at a "
+                "single spacetime point, so R-absorption is vacuous."
+            )
+        if already_R_contracted and equal_time:
+            raise ValueError(
+                "already_R_contracted=True and equal_time=True are "
+                "mutually exclusive on a non-local vertex. The "
+                "R-contracted callable has already integrated over its "
+                "leg coordinates; declaring the result equal-shell "
+                "would be vacuous."
+            )
         object.__setattr__(self, "fields", tuple(fields))
         object.__setattr__(self, "coupling", coupling)
         object.__setattr__(self, "local", local)
         object.__setattr__(self, "equal_time", bool(equal_time))
+        object.__setattr__(self, "already_R_contracted", bool(already_R_contracted))
 
     @property
     def n_fields(self) -> int:

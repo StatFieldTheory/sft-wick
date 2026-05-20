@@ -294,6 +294,17 @@ class DiagramTerm:
     # independent spatial labels --- this is the equal-shell
     # cumulant case (see ``NonLocalVertex.equal_time``).
     equal_time_aliases: tuple[tuple[str, str], ...] = ()
+    # ``(partner_label, leg_label)`` pairs identifying R-propagators
+    # whose factor has been absorbed into an upstream ``κ^(m)_R``
+    # callable (``NonLocalVertex(already_R_contracted=True)``). The
+    # propagator stays in ``self.propagators`` so direction-group
+    # union-find continues to identify the leg with its partner, but
+    # the integrand R-product loop skips its R-factor (replaces by 1),
+    # the leg time is aliased onto the partner via
+    # ``equal_time_aliases``, and per-leg coupling lookups receive the
+    # partner coordinates instead of the κ leg's own. Empty tuple ⇒
+    # no R-absorption (original sft-wick contract).
+    r_absorbed_pairs: tuple[tuple[str, str], ...] = ()
 
     @property
     def propagator_indices(self) -> tuple[tuple[str, int], ...]:
@@ -676,6 +687,7 @@ class DiagramTerm:
             summation_indices=new_sum_indices,
             n_response=self.n_response,
             equal_time_aliases=self.equal_time_aliases,
+            r_absorbed_pairs=self.r_absorbed_pairs,
         )
 
     def to_latex(self) -> str:
@@ -943,6 +955,67 @@ class DiagramTerm:
             fixed_indices=fi,
             dynamic_coupling=promise,
         )
+
+
+def _collect_r_absorbed_pairs(
+    props: tuple[Propagator, ...],
+    vertex_instances,
+) -> tuple[tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]]:
+    """Identify R-propagators that touch a leg of an
+    ``already_R_contracted`` non-local vertex.
+
+    For each such R-propagator, the leg's ψ-side gets aliased onto the
+    partner's φ-side (so time and direction integration collapses), and
+    the propagator is recorded as ``(partner, leg)`` in the returned
+    ``r_absorbed_pairs`` tuple. The integrand evaluator skips the
+    R-factor at evaluation time for any propagator in that set.
+
+    Canonical order from :func:`~sft_wick.propagators.contract_pair`:
+    ``R(spatial_left, spatial_right) = ⟨φ(spatial_left) ψ(spatial_right)⟩``,
+    so the κ-leg lives at ``spatial_right`` and the partner φ at
+    ``spatial_left``.
+
+    Returns:
+        ``(r_absorbed_pairs, leg_to_partner_aliases)`` — the first
+        feeds ``DiagramTerm.r_absorbed_pairs``; the second is a list of
+        ``(leg, partner)`` alias pairs to merge into the diagram's
+        ``equal_time_aliases`` so the leg's time variable is dropped
+        from integration.
+    """
+    absorbed_legs: set[str] = set()
+    for vi in vertex_instances:
+        if getattr(vi.vertex, "already_R_contracted", False):
+            absorbed_legs.update(vi.spatial_variables)
+    if not absorbed_legs:
+        return (), ()
+
+    pairs: list[tuple[str, str]] = []
+    aliases: list[tuple[str, str]] = []
+    seen_legs: set[str] = set()
+    for p in props:
+        if p.kind != "R":
+            continue
+        # canonical order: spatial_right is the ψ-side (leg).
+        if p.spatial_right in absorbed_legs:
+            leg = p.spatial_right
+            partner = p.spatial_left
+        elif p.spatial_left in absorbed_legs:
+            # Defensive: if a non-canonical ordering ever slips through,
+            # treat the absorbed-leg endpoint as the leg.
+            leg = p.spatial_left
+            partner = p.spatial_right
+        else:
+            continue
+        if leg in seen_legs:
+            # Each absorbed leg participates in exactly one R-propagator
+            # (every operator pairs once in a valid Wick contraction).
+            # Defensive guard against unexpected multi-pairing.
+            continue
+        seen_legs.add(leg)
+        pairs.append((partner, leg))
+        aliases.append((leg, partner))
+
+    return tuple(sorted(pairs)), tuple(sorted(aliases))
 
 
 def _collect_symbol_names(expr: Expr) -> set[str]:
@@ -1221,6 +1294,17 @@ def compute_moment(
                     for dt_props, dt_coupling in _extract_diagram_records(
                         inner
                     ):
+                        r_absorbed_pairs, leg_aliases = (
+                            _collect_r_absorbed_pairs(
+                                dt_props, vertex_instances,
+                            )
+                        )
+                        merged_aliases = (
+                            tuple(sorted(
+                                set(eq_time_aliases_tuple) | set(leg_aliases)
+                            ))
+                            if leg_aliases else eq_time_aliases_tuple
+                        )
                         order_dterms.append(DiagramTerm(
                             propagators=dt_props,
                             coupling_sum=dt_coupling,
@@ -1230,7 +1314,8 @@ def compute_moment(
                             n_response=sum(
                                 1 for p in dt_props if p.kind == "R"
                             ),
-                            equal_time_aliases=eq_time_aliases_tuple,
+                            equal_time_aliases=merged_aliases,
+                            r_absorbed_pairs=r_absorbed_pairs,
                         ))
                 else:
                     # --- Operator-level Wick contraction ---
@@ -2297,6 +2382,15 @@ def compute_moment_numerical(
 
                     for props in all_routing_props:
                         props_tuple = tuple(props)
+                        r_absorbed_pairs2, leg_aliases2 = (
+                            _collect_r_absorbed_pairs(props_tuple, vis)
+                        )
+                        merged_aliases2 = (
+                            tuple(sorted(
+                                set(eq_time_aliases_tuple2) | set(leg_aliases2)
+                            ))
+                            if leg_aliases2 else eq_time_aliases_tuple2
+                        )
                         integrands.append(DiagramTerm(
                             propagators=props_tuple,
                             coupling_sum=coupling_expr,
@@ -2307,7 +2401,8 @@ def compute_moment_numerical(
                                 1 for p in props_tuple
                                 if p.kind == "R"
                             ),
-                            equal_time_aliases=eq_time_aliases_tuple2,
+                            equal_time_aliases=merged_aliases2,
+                            r_absorbed_pairs=r_absorbed_pairs2,
                         ))
 
         # Apply diagonal constraints

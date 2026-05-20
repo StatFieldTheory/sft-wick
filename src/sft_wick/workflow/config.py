@@ -659,6 +659,7 @@ def build_system(cfg: SystemConfig):
             coupling=_coupling_value(v),
             coupling_vectorized=bool(v.get("coupling_vectorized", False)),
             equal_time=bool(v.get("equal_time", False)),
+            already_R_contracted=bool(v.get("already_R_contracted", False)),
         )
         for v in cfg.nonlocal_vertices
     ]

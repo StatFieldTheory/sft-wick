@@ -360,6 +360,101 @@ matter bispectrum with explicit linear-growth scaling
 ``λ`` integrations that the cross-spacetime form requires would be
 incorrectly collapsed.
 
+Already-R-contracted vertices
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The default :class:`~sft_wick.workflow.NonLocalVertex` returns the
+**bare** ``κ^(m)`` at the m leg points and lets sft-wick handle every
+R-propagator that lands on a leg via the Wick contraction. For
+**narrow-kernel** ``κ^(m)`` (canonical case: canoes' squeezed κ³ at
+``ℓ_max → ∞``, with diagonal width ``Δχ ~ χ_max / ℓ_max``), the m
+leg-time integrations on the causal simplex demand prohibitively
+many quadrature nodes. The trick is to recognise the math identity
+
+.. math::
+
+   \kappa^{(m)}_R(\gamma; z_1', \ldots, z_m')
+       \;:=\; \int dz_1 \cdots dz_m \,
+                \prod_{i=1}^m R(z_i', z_i) \,
+                \kappa^{(m)}(\gamma; z_1, \ldots, z_m),
+
+i.e. **fold the m R-propagators on the κ legs into the coupling
+callable itself**. Pass ``already_R_contracted=True`` and supply a
+callable that returns ``κ^(m)_R`` (the partner-time R-contracted
+form) instead of the bare ``κ^(m)``::
+
+   sw.NonLocalVertex(
+       "K", order=3, coupling=k3_R_callable,
+       already_R_contracted=True,
+   )
+
+When set, sft-wick
+
+* tags the m R-propagators attached to this vertex's ψ legs as
+  **absorbed** — they remain in the diagram graph (so direction
+  groups continue to identify the leg with its partner) but
+  contribute a factor of **1** instead of the usual ``R_time`` value;
+* aliases each leg's time onto its Wick partner's time via the
+  existing ``equal_time_aliases`` machinery, so the m leg-time
+  integration variables drop out of the simplex;
+* feeds the callable ``(n_list, t_list)`` where the entries are now
+  the **partner (outer) spacetime points** ``(z_1', …, z_m')``,
+  not the leg's own ``(z_1, …, z_m)``.
+
+The dimensionality of the diagram-side integration drops by ``m`` per
+R-contracted vertex (e.g. an order-2 F+K diagram on a 4-D simplex
+becomes 1-D after absorption). Beyond the speedup, the surviving
+integrand is **smoother** — the narrow-kernel peak has been folded
+into the (presumably smooth) ``κ^(m)_R``, so Gauss-Legendre converges
+exponentially with far fewer nodes.
+
+YAML form::
+
+   nonlocal_vertices:
+     - name: K
+       order: 3
+       coupling_module: kappa3_R_callable.py
+       coupling_attr: coupling_fn
+       coupling_vectorized: false
+       already_R_contracted: true
+
+Building the R-contracted callable
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For validation, sft-wick ships a brute-force wrapper that turns a raw
+``κ^(m)`` callable + an R kernel into a numerical ``κ^(m)_R`` via
+tensor-product trapezoid on a user-supplied χ-grid::
+
+   from sft_wick import build_R_contracted_callable
+
+   k3_R = build_R_contracted_callable(
+       raw_coupling_fn=raw_k3,
+       R_time=R_kernel,
+       chi_grid=np.linspace(0.0, t_max, n_chi),
+       order=3,
+       n_components=N,
+       causal=True,        # use causal Heaviside on R
+   )
+
+This is slow (O(n_chi^m) raw-callable evaluations per outer point);
+its purpose is to validate the dispatch against a known raw kernel.
+**For production work, supply an analytical / pre-tabulated**
+``κ^(m)_R`` **callable** — e.g. canoes' FFTlog-of-W chain.
+
+Compatibility:
+
+* ``already_R_contracted=True`` rejects ``equal_time=True`` at
+  construction (vacuous combination — the R-contracted callable has
+  already integrated over its leg coordinates).
+* All existing knobs (``coupling_vectorized``, MSR factor, response
+  phase, diagonal / isotropic simplification) work unchanged.
+* The dispatch is bit-identical to the raw path when both pipelines
+  receive analytically-equivalent inputs (locked by
+  ``tests/test_R_contracted_vertex.py`` at ``rtol=1e-12``).
+
+Design details and the equivalence-validation evidence on demo2 FK
+live at ``docs/notes/R_contracted_nonlocal_vertex.md``.
+
 d-dim spatial coordinates
 -------------------------
 
@@ -663,7 +758,32 @@ Section reference: ``system``
      - Switches the loaded callable to the batched contract
      - When the callable does heavy work that vectorises well
 
-Non-local vertices additionally **require** ``order: <m>`` (the number of ψ-legs).
+Non-local vertices additionally **require** ``order: <m>`` (the number
+of ψ-legs) and accept two specialisation flags:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 56 22
+
+   * - Flag
+     - Meaning
+     - When to use
+   * - ``equal_time: true``
+     - Callable returns the equal-shell cumulant
+       :math:`\zeta_{eq}(n_1,\ldots,n_m;\lambda)` (one shared time
+       across all m legs)
+     - Cosmological equal-shell bispectrum, single-shell limber
+   * - ``already_R_contracted: true``
+     - Callable returns the R-contracted form
+       :math:`\kappa^{(m)}_R(\gamma; z_1', \ldots, z_m')` evaluated at
+       the **partner** spacetime points; sft-wick absorbs the m
+       R-propagators on this vertex's legs (no per-leg integration)
+     - Narrow-kernel :math:`\kappa^{(m)}` where the m leg-time
+       integrations are too expensive (e.g. squeezed κ³ at
+       :math:`\ell_{max} \to \infty`)
+
+The two flags are **mutually exclusive** — combining them is rejected
+at construction time.
 
 Section reference: ``expand``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -962,7 +1082,7 @@ loading (so it composes cleanly with any of the
      - ``F(n,t) → (N,)*n_legs``
      - Spacetime-dependent local F (rare; ``coupling`` literal is the common case)
    * - ``system.nonlocal_vertices[].coupling_module``
-     - ``κ^(m)(n_list,t_list) → (N,)*m`` (per-sample) **or** ``κ^(m)(n_2d,t_2d) → (n_samples,)+(N,)*m`` (vectorised; opt-in via ``coupling_vectorized: true``)
+     - ``κ^(m)(n_list,t_list) → (N,)*m`` (per-sample) **or** ``κ^(m)(n_2d,t_2d) → (n_samples,)+(N,)*m`` (vectorised; opt-in via ``coupling_vectorized: true``). With ``already_R_contracted: true`` the callable returns the partner-time R-contracted ``κ^(m)_R`` and sft-wick skips the m leg-time integrations.
      - Spacetime-dependent non-local coupling (e.g. demo2's :math:`\kappa^{(3)}`)
    * - ``propagators.c_closed_form_module``
      - ``C_fn(n1,t1,n2,t2) → (N,N)``  or vectorised ``(n,N,N)`` (opt-in via ``c_closed_form_vectorized: true``)
