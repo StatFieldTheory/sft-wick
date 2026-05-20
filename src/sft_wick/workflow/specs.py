@@ -711,6 +711,37 @@ class NonLocalVertex:
     # such an equal-shell callable contributes a spurious
     # ``(t_max)^(m−1)`` factor of integration measure.
 
+    already_R_contracted: bool = False
+    # ``False`` (default): the callable returns the bare ``κ^(m)``
+    # evaluated at the m vertex-leg spacetime points; the runtime
+    # Wick-contracts each leg with surrounding φ's, producing an
+    # R-propagator per leg, and integrates over the leg times.
+    #
+    # ``True``: the callable returns the **already R-contracted**
+    # vertex
+    # ``κ^(m)_R(z_1', …, z_m') := ∫ ∏ R(z_i', z_i) · κ^(m)(z_1, …, z_m) dz_1…dz_m``
+    # where ``z_i'`` are the leg-partner spacetime points (the φ's
+    # the m ψ-legs would otherwise contract with). The runtime then
+    # treats each of the m R-propagators on this vertex's legs as
+    # already absorbed: the leg time is fused with the partner's
+    # time and the R-factor in the integrand is replaced by 1.
+    # Cuts integration dimensionality by ``m`` per vertex and
+    # bypasses the narrow-kernel cost when ``κ^(m)`` is sharply
+    # peaked on the diagonal (the canonical squeezed-κ³ case at
+    # ``ℓ_max → ∞``). See
+    # ``docs/notes/R_contracted_nonlocal_vertex.md`` for the design
+    # rationale and validation strategy.
+
+    def __post_init__(self) -> None:
+        if self.already_R_contracted and self.equal_time:
+            raise ValueError(
+                f"NonLocalVertex(name={self.name!r}): "
+                f"already_R_contracted=True is mutually exclusive "
+                f"with equal_time=True. The R-contracted callable has "
+                f"already integrated over its leg coordinates, so an "
+                f"equal-shell δ-structure on those legs is vacuous."
+            )
+
     @property
     def msr_factor(self) -> complex:
         """The ``−(i^m) / m!`` prefactor applied to the bare

@@ -56,6 +56,67 @@
   (11 tests covering alias plumbing, static evaluation, dynamic
   callables, and Jacobian ratio).
 
+- **`NonLocalVertex(already_R_contracted=True)`** — opt-in mode where
+  the user-supplied callable returns the **R-contracted** form
+  `κ^(m)_R(γ; z_1', …, z_m') := ∫ ∏ R(z_i', z_i) · κ^(m) dz_1…dz_m`
+  evaluated at the **partner** (outer) spacetime points rather than
+  the κ's own legs. When set, sft-wick
+
+  * tags the m R-propagators attached to this vertex's ψ legs as
+    **absorbed** — they remain in the diagram graph (so direction
+    groups continue to identify the leg with its partner) but
+    contribute a factor of 1 instead of the usual `R_time` value;
+  * aliases each leg's time onto its Wick partner's time via the
+    existing `equal_time_aliases` machinery, so the m leg-time
+    integration variables drop out of the simplex;
+  * feeds the callable `(n_list, t_list)` with the **partner**
+    coordinates instead of the leg's own.
+
+  Cuts integration dimensionality by `m` per such vertex (e.g. an
+  order-2 F+K diagram becomes 1-D after absorbing K's 3 legs). The
+  surviving integrand is also **smoother** because the narrow-kernel
+  peak has been folded into κ^(m)_R, so Gauss-Legendre converges
+  exponentially with far fewer nodes. Motivating use case: canoes'
+  squeezed κ³ at `ℓ_max = 5000, z_s = 1100`, where the raw kernel
+  has diagonal width `Δχ ~ 2 Mpc/h` and the per-leg χ-integration
+  would otherwise demand `~10^11` quadrature points.
+
+  Mutually exclusive with `equal_time=True` (rejected at
+  construction). Default `already_R_contracted=False` is unchanged.
+
+  Implementation spans `workflow/specs.py`, `workflow/system.py`,
+  `workflow/config.py`, `vertices.py`, `perturbation.py`, and
+  `evaluate.py`. Threaded through as
+  `Vertex(already_R_contracted=...)` →
+  `DiagramTerm.r_absorbed_pairs` (collected per-routing in
+  `_collect_r_absorbed_pairs`, merged into `equal_time_aliases`) →
+  `SpatialStructure.r_absorbed_pairs`, with R-factor skipping
+  centralised in `evaluate.py::_kept_r_propagators` (used by all
+  five R-product sites: scalar / matrix per-sample, QMC-vectorised,
+  GL tensor-product, integrate-over external).
+
+  YAML usage::
+
+      nonlocal_vertices:
+        - name: K
+          order: 3
+          coupling_module: kappa3_R_callable.py
+          coupling_attr: coupling_fn
+          already_R_contracted: true
+
+  Companion utility `sft_wick.build_R_contracted_callable` wraps a
+  raw κ^(m) + R kernel into the R-contracted form via brute-force
+  trapezoid quadrature on a user χ-grid — for validation comparand
+  use; production callers should supply the analytical / pre-
+  tabulated κ^(m)_R directly (e.g. canoes' FFTlog-of-W chain).
+
+  See `docs/user_guide/workflow.rst` and
+  `docs/notes/R_contracted_nonlocal_vertex.md` for full
+  documentation. Regression coverage:
+  `tests/test_R_contracted_vertex.py` (15 tests including the
+  machine-precision constant-κ³ equivalence at `rtol=1e-12` and the
+  four-way per-sample × vectorised contract check).
+
 ### Performance
 
 - **Test-suite wall time cut ~3.5×** (from ~18 min to ~5 min for the

@@ -69,6 +69,36 @@ class SpatialStructure:
     #: cross-spacetime cumulant behaviour).
     equal_time_aliases: tuple[tuple[str, str], ...] = ()
 
+    #: ``(partner_label, leg_label)`` pairs identifying R-propagators
+    #: whose factor has been absorbed into an upstream
+    #: ``NonLocalVertex(already_R_contracted=True)`` callable.
+    #: Propagated straight from ``DiagramTerm.r_absorbed_pairs``. The
+    #: integrand R-product loop iterates over this set to **skip** the
+    #: matching propagators (so the factor becomes 1 rather than
+    #: ``R(t, t) = 0`` under Itô after the leg time aliases onto the
+    #: partner's). The leg's time / direction collapse onto the
+    #: partner's via the accompanying ``equal_time_aliases`` entries.
+    r_absorbed_pairs: tuple[tuple[str, str], ...] = ()
+
+
+def _kept_r_propagators(
+    spatial: "SpatialStructure",
+) -> tuple[tuple[str, str], ...]:
+    """Return ``spatial.r_propagators`` minus any pair listed in
+    ``spatial.r_absorbed_pairs``.
+
+    Absorbed R-propagators contribute to direction grouping and time
+    ordering (the leg label is union-find'd with its partner via the
+    original R-propagator) but their R-factor has been folded into an
+    upstream ``κ^(m)_R`` callable. The integrand R-product loops must
+    skip them; calling this helper centralises the filter so every
+    factor-multiplication site applies the same rule.
+    """
+    if not spatial.r_absorbed_pairs:
+        return spatial.r_propagators
+    absorbed = set(spatial.r_absorbed_pairs)
+    return tuple(p for p in spatial.r_propagators if p not in absorbed)
+
 
 def _topological_sort_times(
     integration_vars: tuple[str, ...],
@@ -223,6 +253,7 @@ def analyze_spatial(dt: "DiagramTerm") -> SpatialStructure:
         direction_integration_vars=tuple(sorted(direction_integration_vars)),
         external_points=external_points,
         equal_time_aliases=tuple(sorted(equal_time_aliases.items())),
+        r_absorbed_pairs=tuple(getattr(dt, "r_absorbed_pairs", ()) or ()),
     )
 
 
@@ -2134,7 +2165,7 @@ class DiagramIntegrand:
         # C contraction below so order-0 R diagrams do not try to cast an
         # (N, N) matrix to float.
         r_val = (
-            cache.R_product(spatial.r_propagators, times)
+            cache.R_product(_kept_r_propagators(spatial), times)
             if model.iso_R else 1.0
         )
 
@@ -2292,7 +2323,7 @@ class DiagramIntegrand:
     ) -> complex:
         """Evaluate matrix-valued R propagators for one component assignment."""
         result: complex = 1.0
-        for sl, sr in self.spatial.r_propagators:
+        for sl, sr in _kept_r_propagators(self.spatial):
             R_mat = np.asarray(cache.R_time(times[sl], times[sr]))
             r_prop = self._find_r_propagator(sl, sr)
             if r_prop and r_prop.index_left and r_prop.index_right:
@@ -2841,9 +2872,11 @@ class DiagramIntegrand:
         coeff = self.coupling_array
         prop_idx = dt.propagator_indices
 
-        # R product (vectorized)
+        # R product (vectorized) — skip absorbed R's per
+        # ``DiagramTerm.r_absorbed_pairs``; those factors are already
+        # baked into the κ^(m)_R callable.
         r_product = np.ones(n_samples)
-        for sl, sr in spatial.r_propagators:
+        for sl, sr in _kept_r_propagators(spatial):
             t_l = _times(sl)
             t_r = _times(sr)
             r_product *= cache.R_time_batch(t_l, t_r)
@@ -3162,7 +3195,7 @@ class DiagramIntegrand:
         prop_idx = dt.propagator_indices
 
         r_product = np.ones(n_samples)
-        for sl, sr in spatial.r_propagators:
+        for sl, sr in _kept_r_propagators(spatial):
             r_product *= cache.R_time_batch(_times(sl), _times(sr))
 
         fi = self.fixed_indices
@@ -3774,7 +3807,7 @@ def integrate_two_point_qmc(
 
         # --- Vectorised R product ---
         r_prod = np.ones(n_samples)
-        for sl, sr in sp.r_propagators:
+        for sl, sr in _kept_r_propagators(sp):
             r_prod *= cache.R_time_batch(
                 t_arr[:, var_col[sl]], t_arr[:, var_col[sr]]
             )

@@ -153,6 +153,7 @@ class System:
                     coupling=nv.name,
                     local=False,
                     equal_time=nv.equal_time,
+                    already_R_contracted=nv.already_R_contracted,
                 )
             )
 
@@ -465,7 +466,8 @@ def _system_spec_key(system: System) -> Any:
             for v in system.vertices
         ),
         "nonlocal_vertices": tuple(
-            (v.name, v.order) for v in system.nonlocal_vertices
+            (v.name, v.order, v.equal_time, v.already_R_contracted)
+            for v in system.nonlocal_vertices
         ),
         "t_min": system.t_min,
     }
