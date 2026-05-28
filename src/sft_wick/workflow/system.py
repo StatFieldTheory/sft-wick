@@ -102,8 +102,19 @@ class System:
     # Lowering to raw API objects
     # --------------------------------------------------------------- #
 
-    def build_propagator_model(self) -> PropagatorModel:
-        """Lower the spec to a :class:`PropagatorModel`."""
+    def build_propagator_model(self, diag_C: bool = True) -> PropagatorModel:
+        """Lower the spec to a :class:`PropagatorModel`.
+
+        Args:
+            diag_C: when ``True`` (default), the numerical C propagator is
+                represented as a diagonal vector ``(n, N)``. When ``False``,
+                the full ``(n, N, N)`` matrix is preserved -- required for
+                observables that probe cross-component C entries
+                (e.g. lensing kappa-gamma cross-correlation). Off-diagonal
+                support is only meaningful in combination with
+                ``Propagators.build(c_closed_form_only=True)`` because the
+                spline-table paths build only diagonal entries.
+        """
         R_time = (
             self.explicit_R
             if self.explicit_R is not None
@@ -120,7 +131,7 @@ class System:
             kappa2=kappa2,
             n_components=self.n_components,
             iso_R=self.iso_R,
-            diag_C=True,  # wrapper currently assumes diagonal C
+            diag_C=diag_C,
             t_min=self.t_min,
             sigma2=sigma2,
         )
@@ -289,6 +300,7 @@ class System:
         c_closed_form_vectorized: bool = False,
         c_method: str = "dblquad",
         c_n_gauss: int = 20,
+        diag_C: bool = True,
     ) -> "Propagators":
         """Build a :class:`Propagators` object with a precomputed
         spatial table matching ``self.homogeneity``.
@@ -354,6 +366,15 @@ class System:
                 ``c_method='gauss_legendre'`` (default 20 → machine
                 precision on smooth kernels). Cost ``c_n_gauss²`` per
                 sub-region.
+            diag_C: when ``True`` (default), the numerical C propagator is
+                represented as a diagonal vector ``(n, N)`` -- the
+                bit-identical behaviour for every pre-existing caller.
+                When ``False``, the full ``(n, N, N)`` matrix is preserved
+                so observables can read off-diagonal entries
+                ``C[a, b]`` with ``a != b`` (e.g. the lensing
+                κ-γ₊ cross-correlation). Only meaningful with
+                ``c_closed_form_only=True``: spline-table paths build
+                diagonal entries only.
         """
         from .propagators import Propagators
 
@@ -375,6 +396,7 @@ class System:
             c_closed_form_vectorized=c_closed_form_vectorized,
             c_method=c_method,
             c_n_gauss=c_n_gauss,
+            diag_C=diag_C,
         )
 
 

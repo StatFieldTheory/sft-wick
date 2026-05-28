@@ -100,6 +100,28 @@ def _kept_r_propagators(
     return tuple(p for p in spatial.r_propagators if p not in absorbed)
 
 
+def _select_C_batch(
+    C_batch: np.ndarray,
+    a: int | None,
+    b: int | None,
+) -> np.ndarray:
+    """Select a per-sample C component from either diagonal or full batches."""
+    C_arr = np.asarray(C_batch)
+    if C_arr.ndim == 3:
+        if a is not None and b is not None:
+            return C_arr[:, a, b]
+        return np.einsum("iaa->i", C_arr)
+    if C_arr.ndim != 2:
+        raise ValueError(
+            f"C batch must have shape (n, N) or (n, N, N); got {C_arr.shape}."
+        )
+    if a is not None and b is not None:
+        if a != b:
+            return np.zeros(C_arr.shape[0], dtype=C_arr.dtype)
+        return C_arr[:, a]
+    return C_arr.sum(axis=1)
+
+
 def _topological_sort_times(
     integration_vars: tuple[str, ...],
     time_orderings: list[tuple[str, str]],
@@ -915,8 +937,16 @@ class PropagatorCache:
                 return self._C_value_from_table(t1, t2)
 
         # Check (n1, t1, n2, t2) LRU cache
-        cache_key = (id(n1) if isinstance(n1, np.ndarray) else n1,
-                     t1, id(n2) if isinstance(n2, np.ndarray) else n2, t2)
+        def _cache_key_part(obj):
+            if isinstance(obj, np.ndarray):
+                return ("ndarray", id(obj))
+            if isinstance(obj, list):
+                return tuple(_cache_key_part(v) for v in obj)
+            if isinstance(obj, tuple):
+                return tuple(_cache_key_part(v) for v in obj)
+            return obj
+
+        cache_key = (_cache_key_part(n1), t1, _cache_key_part(n2), t2)
         if cache_key in self._c_cache:
             return self._c_cache[cache_key]
 
@@ -1732,8 +1762,11 @@ class PropagatorCache:
         x2,
     ) -> np.ndarray:
         """Direct lookup for ``closed_form_only=True``: skips every
-        spline, calls ``self._C_value_direct`` (the user's c_fn) and
-        returns the per-sample diagonal of the (N, N) result.
+        spline, calls ``self._C_value_direct`` (the user's c_fn), and
+        returns either per-sample diagonals or full matrices.
+
+        When ``model.diag_C`` is true the return shape is ``(n, N)``.
+        Otherwise the full-matrix return shape is ``(n, N, N)``.
 
         Two contracts:
 
@@ -1772,17 +1805,27 @@ class PropagatorCache:
                     f"vectorised closed-form c_fn must return shape "
                     f"(n, N, N); got {full.shape} for n={n}, N={N}."
                 )
+            if not self.model.diag_C:
+                return full.astype(float, copy=False)
             # Diagonal per sample: result[i, a] = full[i, a, a].
             return np.einsum("iaa->ia", full).astype(float, copy=False)
 
         # Per-sample fallback. Slow but always correct.
-        result = np.empty((n, N), dtype=float)
+        if self.model.diag_C:
+            result = np.empty((n, N), dtype=float)
+            for i in range(n):
+                xi = x1_b[i]
+                xj = x2_b[i]
+                C_mat = np.asarray(self._C_value_direct(xi, t1[i], xj, t2[i]))
+                result[i] = np.diag(C_mat)
+            return result
+
+        result_full = np.empty((n, N, N), dtype=float)
         for i in range(n):
             xi = x1_b[i]
             xj = x2_b[i]
-            C_mat = np.asarray(self._C_value_direct(xi, t1[i], xj, t2[i]))
-            result[i] = np.diag(C_mat)
-        return result
+            result_full[i] = np.asarray(self._C_value_direct(xi, t1[i], xj, t2[i]))
+        return result_full
 
     def _lazy_lookup(
         self,
@@ -2398,6 +2441,91 @@ class DiagramIntegrand:
             group_x[dvar_sample] = x_val
         return group_x
 
+    def _evaluate_zero_dimensional(
+        self,
+        lambda_f: float,
+        cache: PropagatorCache,
+        *,
+        direction: Any = 0,
+        positions: dict[str, Any] | None = None,
+    ) -> float:
+        """Evaluate an integrand with no surviving time variables.
+
+        Dynamic non-local couplings still need to be materialised here. This
+        occurs for already-R-contracted vertices whose absorbed R legs alias
+        directly onto fixed external points.
+        """
+        spatial = self.spatial
+        if _cache_has_spatial_table(cache):
+            directions = self._resolve_group_x(spatial, positions, direction)
+        else:
+            dir_vars = set(spatial.direction_map.values())
+            directions = {d: direction for d in dir_vars}
+
+        fixed_times = {v: lambda_f for v in spatial.external_points}
+        if self.dynamic_coupling is None:
+            val = self.evaluate(fixed_times, directions, cache)
+            return float(val.real if val.imag == 0 else abs(val))
+
+        n_samples = 1
+        fixed_t = np.full(n_samples, lambda_f)
+        et_alias = dict(spatial.equal_time_aliases or ())
+
+        def _times(var: str) -> np.ndarray:
+            _ = et_alias.get(var, var)
+            return fixed_t
+
+        r_product = np.ones(n_samples)
+        for sl, sr in _kept_r_propagators(spatial):
+            r_product *= cache.R_time_batch(_times(sl), _times(sr))
+
+        spatial_aware = _cache_has_spatial_table(cache)
+        group_x: dict[str, Any] | None = None
+        if spatial_aware:
+            group_x = self._resolve_group_x(spatial, positions, direction)
+
+        def _lookup_C(sp_l, sp_r, t_l, t_r):
+            if not spatial_aware:
+                return cache.C_diagonal_batch(t_l, t_r)
+            x_l = group_x[spatial.direction_map[sp_l]]  # type: ignore[index]
+            x_r = group_x[spatial.direction_map[sp_r]]  # type: ignore[index]
+            return cache.C_at_batch(t_l, t_r, x_l, x_r)
+
+        fi = self.fixed_indices
+        c_product = np.ones(n_samples)
+        for sp_l, sp_r, il, ir in spatial.c_propagators:
+            C_batch = _lookup_C(sp_l, sp_r, _times(sp_l), _times(sp_r))
+            a_i = (
+                DiagramIntegrand._resolve_component(il, fi)
+                if il is not None else None
+            )
+            b_i = (
+                DiagramIntegrand._resolve_component(ir, fi)
+                if ir is not None else None
+            )
+            c_product *= _select_C_batch(C_batch, a_i, b_i)
+
+        all_spatial_labels = set(spatial.direction_map.keys())
+        label_t = {lab: _times(lab) for lab in all_spatial_labels}
+        if spatial_aware:
+            label_x = {
+                lab: group_x[spatial.direction_map[lab]]  # type: ignore[index]
+                for lab in all_spatial_labels
+            }
+        else:
+            label_x = {
+                lab: float(direction)
+                for lab in all_spatial_labels
+            }
+
+        couplings = self.dynamic_coupling.evaluate_at_batch(
+            label_t=label_t,
+            label_x=label_x,
+            n_samples=n_samples,
+        )
+        values = couplings.real * r_product * c_product
+        return float(values[0])
+
     def make_scipy_integrand(
         self,
         external_times: dict[str, float],
@@ -2775,22 +2903,12 @@ class DiagramIntegrand:
         n_total = len(sobol_vars)
 
         if n_total == 0:
-            # No integration — purely evaluate at the fixed external
-            # times.  Use ``_resolve_group_x`` to thread user-supplied
-            # ``positions`` into the ``directions`` dict so the C
-            # propagator still picks up the spatial factor (e.g. the
-            # ``exp(-r/σ_x)`` at order 0 for observables like
-            # ``⟨φ(x) φ(y)⟩``).
-            if _cache_has_spatial_table(cache):
-                directions = self._resolve_group_x(
-                    spatial, positions, direction,
-                )
-            else:
-                dir_vars = set(spatial.direction_map.values())
-                directions = {d: direction for d in dir_vars}
-            fixed_times = {v: lambda_f for v in ext_fixed}
-            val = self.evaluate(fixed_times, directions, cache)
-            return (val.real, 0.0)
+            # No integration variables, but callable couplings can still be
+            # dynamic after R-absorption aliases their legs to fixed externals.
+            val = self._evaluate_zero_dimensional(
+                lambda_f, cache, direction=direction, positions=positions,
+            )
+            return (val, 0.0)
 
         if spatial.r_propagators and not cache.model.iso_R:
             raise NotImplementedError(
@@ -2943,10 +3061,7 @@ class DiagramIntegrand:
                     DiagramIntegrand._resolve_component(ir, fi)
                     if ir is not None else None
                 )
-                if a_i is not None and b_i is not None:
-                    c_product *= C_batch[:, a_i]
-                else:
-                    c_product *= C_batch.sum(axis=1)
+                c_product *= _select_C_batch(C_batch, a_i, b_i)
 
             # --- B: pre-build per-symbol-leg time / position arrays. ---
             label_t = {lab: _times(lab) for lab in all_spatial_labels}
@@ -2986,12 +3101,9 @@ class DiagramIntegrand:
                 if il is not None and ir is not None:
                     a = DiagramIntegrand._resolve_component(il, fi)
                     b = DiagramIntegrand._resolve_component(ir, fi)
-                    if a is not None and b is not None:
-                        c_product *= C_diag_batch[:, a]
-                    else:
-                        c_product *= C_diag_batch.sum(axis=1)
+                    c_product *= _select_C_batch(C_diag_batch, a, b)
                 else:
-                    c_product *= C_diag_batch.sum(axis=1)
+                    c_product *= _select_C_batch(C_diag_batch, None, None)
 
             values = r_product * complex(coeff).real * c_product * jacobians
 
@@ -3014,10 +3126,7 @@ class DiagramIntegrand:
                     C_diag_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
                     a = DiagramIntegrand._resolve_component(il, idx_map)
                     b = DiagramIntegrand._resolve_component(ir, idx_map)
-                    if a is not None and b is not None:
-                        c_prod *= C_diag_batch[:, a]
-                    else:
-                        c_prod *= C_diag_batch.sum(axis=1)
+                    c_prod *= _select_C_batch(C_diag_batch, a, b)
 
                 values += c_val * r_product * c_prod * jacobians
 
@@ -3102,18 +3211,12 @@ class DiagramIntegrand:
         n_total = len(gl_vars)
 
         if n_total == 0:
-            # No integration -- defer to the standard non-integrated
-            # evaluation path (parity with QMC vectorised).
-            if _cache_has_spatial_table(cache):
-                directions = self._resolve_group_x(
-                    spatial, positions, direction,
-                )
-            else:
-                dir_vars = set(spatial.direction_map.values())
-                directions = {d: direction for d in dir_vars}
-            fixed_times = {v: lambda_f for v in ext_fixed}
-            val = self.evaluate(fixed_times, directions, cache)
-            return (val.real, 0.0)
+            # No integration variables, but callable couplings can still be
+            # dynamic after R-absorption aliases their legs to fixed externals.
+            val = self._evaluate_zero_dimensional(
+                lambda_f, cache, direction=direction, positions=positions,
+            )
+            return (val, 0.0)
 
         if spatial.r_propagators and not cache.model.iso_R:
             raise NotImplementedError(
@@ -3228,10 +3331,7 @@ class DiagramIntegrand:
                     DiagramIntegrand._resolve_component(ir, fi)
                     if ir is not None else None
                 )
-                if a_i is not None and b_i is not None:
-                    c_product *= C_batch[:, a_i]
-                else:
-                    c_product *= C_batch.sum(axis=1)
+                c_product *= _select_C_batch(C_batch, a_i, b_i)
 
             label_t = {lab: _times(lab) for lab in all_spatial_labels}
             if spatial_aware:
@@ -3261,12 +3361,9 @@ class DiagramIntegrand:
                 if il is not None and ir is not None:
                     a = DiagramIntegrand._resolve_component(il, fi)
                     b = DiagramIntegrand._resolve_component(ir, fi)
-                    if a is not None and b is not None:
-                        c_product *= C_diag_batch[:, a]
-                    else:
-                        c_product *= C_diag_batch.sum(axis=1)
+                    c_product *= _select_C_batch(C_diag_batch, a, b)
                 else:
-                    c_product *= C_diag_batch.sum(axis=1)
+                    c_product *= _select_C_batch(C_diag_batch, None, None)
             values = r_product * complex(coeff).real * c_product * jacobians
 
         else:
@@ -3288,10 +3385,7 @@ class DiagramIntegrand:
                     C_diag_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
                     a = DiagramIntegrand._resolve_component(il, idx_map)
                     b = DiagramIntegrand._resolve_component(ir, idx_map)
-                    if a is not None and b is not None:
-                        c_prod *= C_diag_batch[:, a]
-                    else:
-                        c_prod *= C_diag_batch.sum(axis=1)
+                    c_prod *= _select_C_batch(C_diag_batch, a, b)
                 values += c_val * r_product * c_prod * jacobians
 
         # --- GL aggregation: weighted sum (NOT mean). ---
@@ -3346,8 +3440,10 @@ class DiagramIntegrand:
         fixed_times = {v: lambda_f for v in ext_fixed}
 
         if n_total == 0:
-            val = self.evaluate(fixed_times, directions, cache)
-            return (val.real if val.imag == 0 else abs(val), 0.0)
+            val = self._evaluate_zero_dimensional(
+                lambda_f, cache, direction=direction, positions=positions,
+            )
+            return (val, 0.0)
 
         # Spacetime-dependent (callable) couplings are NOT supported
         # by the nquad path: ``self.evaluate`` uses the static

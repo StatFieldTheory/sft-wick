@@ -95,6 +95,15 @@ class PropagatorsConfig:
     interp_method: str = "linear"
     c_method: str = "dblquad"  # 'dblquad' | 'gauss_legendre'
     c_n_gauss: int = 20  # nodes per dim under c_method='gauss_legendre'
+    diag_C: bool = True  # set False to preserve off-diagonal C entries
+    #                       (e.g. lensing kappa-gamma_+ cross). Requires
+    #                       c_closed_form_only=True. When False, also
+    #                       sets expand.diag_C=False so the symbolic
+    #                       simplification keeps the (a, b) observable
+    #                       indices distinct -- without that step the
+    #                       order-0 cross pair (a != b) collapses to 0
+    #                       via the KroneckerDelta(a, b) inserted by
+    #                       DiagramTerm.apply_diagonal.
 
 
 @dataclass(frozen=True)
@@ -550,6 +559,7 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
         interp_method=str(d.get("interp_method", "linear")),
         c_method=str(d.get("c_method", "dblquad")),
         c_n_gauss=int(d.get("c_n_gauss", 20)),
+        diag_C=bool(d.get("diag_C", True)),
     )
 
 
@@ -775,6 +785,22 @@ def run_workflow(cfg: WorkflowConfig):
     """
     system = build_system(cfg.system)
 
+    # ``propagators.diag_C`` is the user-facing knob (the single
+    # source of truth for "is C diagonal?"). The symbolic-side
+    # ``expand.diag_C`` must agree: with ``propagators.diag_C=False``
+    # the closed-form C returns a full (N, N) matrix per sample, but
+    # ``expand.diag_C=True`` would collapse the observable (a, b)
+    # index pair through ``KroneckerDelta(a, b)`` -- zeroing every
+    # cross-component pair at order 0. Reject the contradictory
+    # combination with a clear pointer instead of silently rounding
+    # the result to zero.
+    expand_diag_C = cfg.expand.diag_C
+    if (not cfg.propagators.diag_C) and cfg.expand.diag_C:
+        # User opted into off-diagonal C but left expand.diag_C at its
+        # default (True). Auto-sync so the common case works without
+        # forcing users to set the knob twice.
+        expand_diag_C = False
+
     expansion = system.expand(
         observable=cfg.expand.observable,
         orders=cfg.expand.orders,
@@ -783,7 +809,7 @@ def run_workflow(cfg: WorkflowConfig):
         collect_topology=cfg.expand.collect_topology,
         iso_R=cfg.expand.iso_R,
         diag_R=cfg.expand.diag_R,
-        diag_C=cfg.expand.diag_C,
+        diag_C=expand_diag_C,
         iso_C=cfg.expand.iso_C,
         cache_path=cfg.expand.cache_path,
     )
@@ -815,6 +841,7 @@ def run_workflow(cfg: WorkflowConfig):
         c_closed_form_vectorized=cfg.propagators.c_closed_form_vectorized,
         c_method=cfg.propagators.c_method,
         c_n_gauss=cfg.propagators.c_n_gauss,
+        diag_C=cfg.propagators.diag_C,
     )
 
     # Mutual-exclusion: parallelism layers cannot nest because joblib's

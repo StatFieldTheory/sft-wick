@@ -51,6 +51,7 @@ class Propagators:
         c_closed_form_vectorized: bool = False,
         c_method: str = "dblquad",
         c_n_gauss: int = 20,
+        diag_C: bool = True,
     ) -> "Propagators":
         """Construct a ``Propagators`` for ``system``.  Called
         indirectly via :meth:`System.propagators`.
@@ -127,6 +128,19 @@ class Propagators:
                 "c_closed_form_only=True; the vectorised contract is "
                 "specific to the no-spline lookup path."
             )
+        # diag_C=False propagates the full (N, N) matrix returned by
+        # c_fn through the integrator. The spline-table builders
+        # (precompute_C_table_* in evaluate.py) only fill diagonal
+        # entries, so off-diagonal preservation is meaningless without
+        # the closed-form-only path. Reject the combination early to
+        # avoid silently dropping off-diagonals at lookup time.
+        if (not diag_C) and (not c_closed_form_only):
+            raise ValueError(
+                "diag_C=False requires c_closed_form_only=True. "
+                "Spline-table paths only build diagonal C entries; "
+                "off-diagonal observables (e.g. kappa-gamma cross "
+                "correlations) need the closed-form-only path."
+            )
         from .cache import load_or_compute
 
         hom = homogeneity if homogeneity is not None else system.homogeneity
@@ -152,10 +166,11 @@ class Propagators:
             "interp_method": interp_method,
             "c_method": c_method,
             "c_n_gauss": int(c_n_gauss),
+            "diag_C": bool(diag_C),
         }
 
         def _build() -> "Propagators":
-            model = system.build_propagator_model()
+            model = system.build_propagator_model(diag_C=diag_C)
             if c_closed_form is not None:
                 cache = _ClosedFormPropagatorCache(
                     model=model, homogeneity=hom, c_fn=c_closed_form,
@@ -260,11 +275,11 @@ class _ClosedFormPropagatorCache(PropagatorCache):
         # When the user supplies a vectorised c_fn (returns
         # (n, N, N)) but a legacy single-point caller hands in
         # scalar t1/t2, the result is a 3-D array with a length-1
-        # leading axis. Squeeze it so callers expecting the
-        # legacy ``(N, N)`` matrix shape still work -- in
-        # particular the order-0 single-point ``evaluate`` path,
-        # which the no-spline route still goes through.
-        if arr.ndim == 3 and arr.shape[0] == 1:
+        # leading axis. Squeeze only for true scalar-time calls so the
+        # batched no-spline path can keep its required ``(1, N, N)``
+        # shape when t1/t2 arrive as length-1 arrays.
+        scalar_time = np.asarray(t1).ndim == 0 and np.asarray(t2).ndim == 0
+        if scalar_time and arr.ndim == 3 and arr.shape[0] == 1:
             return arr[0]
         return arr
 
