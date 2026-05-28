@@ -350,6 +350,51 @@ def test_R_contracted_diagram_carries_r_absorbed_pairs():
         )
 
 
+@pytest.mark.parametrize("method", ["gauss_legendre", "qmc_vectorized", "nquad"])
+def test_R_contracted_zero_dim_dynamic_K_is_materialised(method):
+    """A pure already-R-contracted K diagram has no surviving time
+    integration variables. It must still call the dynamic coupling rather
+    than returning the placeholder zero coupling array."""
+    calls = []
+
+    def k3(n_list, t_list):  # noqa: ARG001
+        calls.append((np.asarray(n_list).copy(), np.asarray(t_list).copy()))
+        tensor = np.zeros((2, 2, 2))
+        tensor[0, 0, 0] = 7.0
+        return tensor
+
+    system = sw.System(
+        field=sw.FieldSpec("phi", n_components=2),
+        linear=sw.DiagonalA(gamma=[1.0, 1.0]),
+        vertices=[],
+        nonlocal_vertices=[sw.NonLocalVertex(
+            name="K", order=3, coupling=k3,
+            already_R_contracted=True,
+        )],
+        noise=sw.GaussianNoise(kappa2=sw.SeparableTranslation(
+            temporal=sw.ExponentialTemporal(lam=0.1, sigma_t=0.3),
+            spatial=sw.ExponentialSpatial(sigma_x=1.0),
+        )),
+    )
+    exp = system.expand(("phi_a(x)", "phi_b(y)", "phi_c(z)"), orders=[1])
+    props = system.propagators(t_max=2.0, n_grid_t=8)
+    res = exp.evaluate(
+        props,
+        positions={"x": 0.1, "y": 0.2, "z": 0.3},
+        t_final=1.0,
+        component_pair=(0, 0, 0),
+        orders=[1],
+        vertex_types=["K"],
+        method=method,
+        n_samples=8,
+        n_gauss=3,
+    )
+
+    np.testing.assert_allclose(res.total, 7.0, rtol=1e-14, atol=1e-14)
+    assert calls, "dynamic K callable was not materialised"
+    np.testing.assert_allclose(calls[-1][1], np.array([1.0, 1.0, 1.0]))
+
+
 def test_raw_path_carries_no_r_absorbed_pairs():
     """Default raw path must NOT populate r_absorbed_pairs."""
     K_tensor = np.zeros((2, 2, 2))
