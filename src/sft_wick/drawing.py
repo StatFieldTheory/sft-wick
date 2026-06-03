@@ -430,16 +430,28 @@ class DiagramRenderer:
                 total = edge_pair_count[pair]
                 edge_pair_idx[pair] += 1
 
+                # R propagators are directed: the arrowhead must land
+                # on the physical (φ) end, i.e. the arrow points ψ → φ
+                # (matches the TikZ renderer — see drawing_tikz.py).
+                #
+                # The edge geometry is ALWAYS drawn p1→p2 (the stored
+                # u→v orientation) so that the curvature side of
+                # parallel edges (``rad`` below) is independent of the
+                # arrow direction.  If we flipped p1/p2 to steer the
+                # head, a reversed R edge would bow onto its parallel
+                # C/R partner and overlap it.  Instead the head is
+                # placed on ``phi_end`` via the arrowstyle:
+                # ``"<|-"`` puts it on posA (=u), ``"-|>"`` on posB (=v).
                 phi_end = data.get("phi_end")
-                if prop_style.arrow and phi_end is not None and phi_end == u:
-                    self._draw_edge(ax, p1, p2, prop_style,
-                                    key=idx, n_parallel=total)
-                elif prop_style.arrow and phi_end is not None:
-                    self._draw_edge(ax, p2, p1, prop_style,
-                                    key=idx, n_parallel=total)
-                else:
-                    self._draw_edge(ax, p1, p2, prop_style,
-                                    key=idx, n_parallel=total)
+                head_at_start = (
+                    prop_style.arrow
+                    and phi_end is not None
+                    and phi_end == u
+                )
+                self._draw_edge(ax, p1, p2, prop_style,
+                                key=idx, n_parallel=total,
+                                head_at_start=head_at_start,
+                                curvature=style.layout.parallel_edge_curvature)
 
         # Nodes
         ext_nodes = diagram.external_nodes
@@ -555,6 +567,8 @@ class DiagramRenderer:
         style: PropagatorStyle,
         key: int = 0,
         n_parallel: int = 1,
+        head_at_start: bool = False,
+        curvature: float = 0.6,
     ) -> None:
         from matplotlib.patches import FancyArrowPatch
 
@@ -562,13 +576,23 @@ class DiagramRenderer:
             rad = 0.0
         else:
             idx = key - (n_parallel - 1) / 2.0
-            rad = idx * 0.35
+            rad = idx * curvature
+
+        # ``head_at_start`` steers a directed edge's arrowhead onto
+        # posA (the start) instead of posB (the end), without changing
+        # the geometry — see the directed-edge comment in the edge loop.
+        if not style.arrow:
+            arrowstyle = "-"
+        elif head_at_start:
+            arrowstyle = "<|-"
+        else:
+            arrowstyle = "-|>"
 
         arrow = FancyArrowPatch(
             posA=tuple(p1),
             posB=tuple(p2),
             connectionstyle=f"arc3,rad={rad}",
-            arrowstyle="-|>" if style.arrow else "-",
+            arrowstyle=arrowstyle,
             color=style.color,
             linestyle=_MPL_LINESTYLE.get(style.linestyle, style.linestyle),
             linewidth=style.linewidth,

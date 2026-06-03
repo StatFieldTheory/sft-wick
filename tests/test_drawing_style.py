@@ -438,3 +438,117 @@ class TestRenderer:
         ax = DiagramRenderer().draw(fd, title="empty")
         assert ax.get_title() == "empty"
         plt.close("all")
+
+
+class TestRPropagatorArrowDirection:
+    """The R propagator is directed: the arrow must point from the
+    response (ψ) end to the physical (φ) end — the arrowhead lands on
+    ``phi_end``.  This locks the convention shared with the TikZ
+    renderer (drawing_tikz.py: "arrow points psi → phi") and guards
+    against the historical bug where the matplotlib renderer drew φ → ψ.
+
+    The head is steered onto ``phi_end`` via the arrowstyle (``"<|-"``
+    head on posA, ``"-|>"`` head on posB) rather than by swapping
+    posA/posB — swapping would flip the curvature side and make
+    parallel edges overlap (see ``test_parallel_..._do_not_overlap``).
+    """
+
+    @staticmethod
+    def _r_arrowhead_xy(phi_x: float, psi_x: float):
+        """Render one R edge with φ/ψ ends pinned and return the
+        coordinates of the arrowHEAD (resolved from the arrowstyle)."""
+        from matplotlib.patches import FancyArrowPatch
+
+        fd = FeynmanDiagram()
+        e0 = fd.add_external_point("a", "physical", spatial="x")
+        v = fd.add_vertex("F")
+        fd.add_propagator(e0, v, kind="R", phi_end=e0, psi_end=v)
+
+        pos = {e0: (phi_x, 0.0), v: (psi_x, 0.0)}
+        ax = DiagramRenderer().draw(fd, positions=pos)
+        arrows = [p for p in ax.patches if isinstance(p, FancyArrowPatch)]
+        assert len(arrows) == 1, "expected exactly one R edge"
+        arr = arrows[0]
+        posA, posB = arr._posA_posB
+        # "<|-" → CurveFilledA (head on posA); "-|>" → CurveFilledB (posB).
+        head = posA if type(arr.get_arrowstyle()).__name__.endswith("A") else posB
+        plt.close("all")
+        return head
+
+    def test_arrowhead_lands_on_phi_end(self):
+        # φ end at x=0, ψ end at x=2 → head must land near x=0 (φ).
+        head = self._r_arrowhead_xy(phi_x=0.0, psi_x=2.0)
+        assert abs(head[0] - 0.0) < abs(head[0] - 2.0), (
+            f"R arrowhead should point to the φ end (x=0), got {head}"
+        )
+
+    def test_arrowhead_follows_phi_end_when_swapped(self):
+        # Swap the geometry: φ end at x=2, ψ end at x=0 → head near x=2.
+        head = self._r_arrowhead_xy(phi_x=2.0, psi_x=0.0)
+        assert abs(head[0] - 2.0) < abs(head[0] - 0.0), (
+            f"R arrowhead should follow the φ end (x=2), got {head}"
+        )
+
+    def test_parallel_C_and_R_edges_do_not_overlap(self):
+        """A C edge and an R edge between the same node pair must bow to
+        opposite sides.  That requires (a) an identical posA→posB
+        orientation for both and (b) opposite-sign curvature, so they
+        fan apart.  Reversing the R edge's orientation to steer its head
+        (the historical regression) breaks (a) and the two coincide.
+        """
+        from matplotlib.patches import FancyArrowPatch
+
+        fd = FeynmanDiagram()
+        v1 = fd.add_vertex("F")
+        v2 = fd.add_vertex("F")
+        # Two parallel propagators between the same vertex pair (as in
+        # the order-2 2-point diagrams #4/#6: one C, one R).
+        fd.add_propagator(v1, v2, kind="C")
+        fd.add_propagator(v1, v2, kind="R", phi_end=v1, psi_end=v2)
+
+        pos = {v1: (0.0, 0.0), v2: (2.0, 0.0)}
+        ax = DiagramRenderer().draw(fd, positions=pos)
+        arrows = [p for p in ax.patches if isinstance(p, FancyArrowPatch)]
+        assert len(arrows) == 2, "expected one C edge and one R edge"
+
+        starts = {
+            (round(float(a._posA_posB[0][0]), 6), round(float(a._posA_posB[0][1]), 6))
+            for a in arrows
+        }
+        rads = [a.get_connectionstyle().rad for a in arrows]
+        assert len(starts) == 1, (
+            "parallel edges drawn with inconsistent orientation — they "
+            f"will bow onto the same side; got starts={starts}"
+        )
+        assert rads[0] == pytest.approx(-rads[1]) and rads[0] != 0.0, (
+            f"parallel edges should curve to opposite sides; got rads={rads}"
+        )
+        plt.close("all")
+
+    def test_parallel_edge_curvature_is_configurable(self):
+        """``LayoutParams.parallel_edge_curvature`` controls the bow of a
+        parallel-edge bundle: a 2-edge bundle should render with
+        ``rad = ±0.5 × curvature``."""
+        from matplotlib.patches import FancyArrowPatch
+
+        fd = FeynmanDiagram()
+        v1 = fd.add_vertex("F")
+        v2 = fd.add_vertex("F")
+        fd.add_propagator(v1, v2, kind="C")
+        fd.add_propagator(v1, v2, kind="R", phi_end=v1, psi_end=v2)
+        pos = {v1: (0.0, 0.0), v2: (2.0, 0.0)}
+
+        for curv in (0.35, 0.6, 1.0):
+            style = dataclasses.replace(
+                default_style(),
+                layout=dataclasses.replace(
+                    default_style().layout, parallel_edge_curvature=curv
+                ),
+            )
+            ax = DiagramRenderer(style=style).draw(fd, positions=pos)
+            arrows = [p for p in ax.patches if isinstance(p, FancyArrowPatch)]
+            mags = sorted(abs(a.get_connectionstyle().rad) for a in arrows)
+            assert mags == pytest.approx([0.5 * curv, 0.5 * curv]), (
+                f"curvature={curv}: expected |rad|=0.5×curv, got {mags}"
+            )
+            plt.close("all")

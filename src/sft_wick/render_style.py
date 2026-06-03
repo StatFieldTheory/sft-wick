@@ -150,6 +150,15 @@ class LayoutParams:
                            normalised bounding box, in matplotlib
                            units.  Default ``(6.0, 4.0)`` matches a
                            4:3 ish aspect-ratio panel.
+        parallel_edge_curvature:
+                           Bow strength for parallel edges between the
+                           same node pair (matplotlib backend).  Each
+                           edge in a bundle is drawn as an ``arc3`` with
+                           ``rad = (key - (n-1)/2) * parallel_edge_curvature``,
+                           so a 2-edge bundle bows by ``±0.5 ×`` this
+                           value to opposite sides.  Larger → fuller
+                           arcs.  Default ``0.6`` (apex offset ≈ 30 % of
+                           the chord for a 2-edge bundle).
     """
     ext_radius: float = 2.5
     spring_k: float = 2.0
@@ -160,6 +169,7 @@ class LayoutParams:
     component_gap: float = 1.0
     normalize_bbox: bool = True
     target_extent: tuple[float, float] = (5.6, 3.6)
+    parallel_edge_curvature: float = 0.6
 
 
 # ----------------------------------------------------------------------

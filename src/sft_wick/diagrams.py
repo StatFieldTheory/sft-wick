@@ -121,6 +121,18 @@ class FeynmanDiagram:
                 (φ) side.  ``None`` for C propagators.
             psi_end: For R propagators, the node ID on the response
                 (ψ) side.  ``None`` for C propagators.
+
+        Note:
+            Arrow-direction convention for R propagators.  An R edge
+            ``R = ⟨φ ψ⟩`` is *directed*: when rendered, the arrowhead
+            points **from the response (ψ) end to the physical (φ)
+            end** — i.e. the arrow lands on ``phi_end``.  This encodes
+            the causal/retarded flow (a perturbation entering at the ψ
+            leg produces the response at the φ leg).  Both renderers
+            honour this: :class:`~sft_wick.drawing.DiagramRenderer`
+            (matplotlib) and
+            :class:`~sft_wick.drawing_tikz.TikzRenderer` (TikZ).  C
+            propagators are undirected and carry no arrow.
         """
         self.graph.add_edge(
             node1,
