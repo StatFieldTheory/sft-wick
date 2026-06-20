@@ -1,5 +1,5 @@
 {
-  "title": "sft-wick: Wick's theorem contractions for statistical field theory",
+  "title": "sft-wick: Feynman diagrammatic expansion and evaluation for statistical field theory",
   "description": "An open-source Python package that constructs diagram tables and computes their integrals numerically for stochastic field dynamics cast into a path-integral (Martin-Siggia-Rose) formulation. Given an action and an observable, it enumerates topologically distinct Feynman diagrams, derives their algebraic coefficients, and evaluates the resulting diagram integrals from user-supplied response and cumulant functions. The core algorithm enumerates spatial topologies before routing component indices, avoiding contraction-by-contraction Wick expansion; response-field constraints (vanishing response-response contractions, the Ito prescription, absence of causal response loops) are enforced during enumeration.",
   "upload_type": "software",
   "license": "BSD-3-Clause",

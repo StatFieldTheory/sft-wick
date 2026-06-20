@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite both the software and the paper below."
-title: "sft-wick: Wick's theorem contractions for statistical field theory"
+title: "sft-wick: Feynman diagrammatic expansion and evaluation for statistical field theory"
 abstract: >-
   An open-source Python package that constructs diagram tables and computes
   their integrals numerically for stochastic field dynamics cast into a
