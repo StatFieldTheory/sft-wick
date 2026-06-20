@@ -21,7 +21,7 @@ authors:
     given-names: Zheng
     email: zzhang0123@gmail.com
     orcid: "https://orcid.org/0000-0002-9154-2803"
-version: "0.1.0"
+version: "0.1.1"
 license: BSD-3-Clause
 repository-code: "https://github.com/StatFieldTheory/sft-wick"
 url: "https://sft-wick.readthedocs.io"
