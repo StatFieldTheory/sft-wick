@@ -2,6 +2,7 @@
 
 [![Documentation](https://img.shields.io/badge/docs-readthedocs-blue)](https://sft-wick.readthedocs.io)
 [![arXiv](https://img.shields.io/badge/arXiv-2606.19480-b31b1b)](https://arxiv.org/abs/2606.19480)
+[![DOI](https://zenodo.org/badge/1162069108.svg)](https://doi.org/10.5281/zenodo.20776358)
 [![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-green)](LICENSE)
 
 **Feynman-diagram expansion and evaluation for stochastic field theories.**
@@ -536,7 +537,18 @@ If you use `sft-wick`, please cite the accompanying paper
 }
 ```
 
-and the archived software release (Zenodo DOI, to be assigned).
+and the archived software release ([DOI:10.5281/zenodo.20776358](https://doi.org/10.5281/zenodo.20776358)):
+
+```bibtex
+@software{zhang2026sftwick_software,
+  author    = {Zhang, Zheng},
+  title     = {sft-wick: Wick's theorem contractions for statistical field theory},
+  year      = {2026},
+  publisher = {Zenodo},
+  doi       = {10.5281/zenodo.20776358},
+  url       = {https://doi.org/10.5281/zenodo.20776358},
+}
+```
 
 ## License
 
