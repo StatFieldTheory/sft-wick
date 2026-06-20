@@ -7,6 +7,8 @@ Wick's theorem contractions for statistical field theory perturbative calculatio
 ## Installation
 
 ```bash
+git clone https://github.com/StatFieldTheory/sft-wick.git
+cd sft-wick
 pip install -e ".[dev]"
 ```
 
@@ -461,7 +463,7 @@ At order 6, the dominant cost is **component routing** (`_enumerate_component_ro
 pytest tests/ -v
 ```
 
-**275 tests, ~3.5 min on M-series**.  The suite is organised into
+**460 tests** (a few minutes on a laptop).  The suite is organised into
 eight deductive phases:
 
 1. Phase 1 — Symbolic expansion (`test_deductive_expansion.py`)
@@ -475,3 +477,61 @@ eight deductive phases:
 8. Phase 8 — Time-dependent linear operator (`test_diagonal_A_time_dependent.py`)
 
 See `docs/verification/index.rst` for the per-phase test matrix, tolerances, and design rationale.
+
+## Repository layout
+
+| Path | Contents |
+|------|----------|
+| `src/sft_wick/` | Package source: diagram enumeration, propagators, numerical evaluation, drawing, and the `workflow/` high-level API + CLI |
+| `examples/` | Worked examples — `demo1/` (Gaussian noise), `demo2/` (non-Gaussian, non-zero κ³), and tutorial notebooks |
+| `tests/` | pytest suite (eight deductive phases) |
+| `docs/` | Sphinx documentation (ReadTheDocs source) |
+
+## Worked examples (reproducible test runs)
+
+Two end-to-end examples ship with committed inputs **and** outputs, each covering
+symbolic diagram expansion *and* numerical evaluation against a direct Langevin
+simulation:
+
+```bash
+# demo1 — Gaussian driving noise
+python examples/demo1/run_simulation.py            # writes sim_cache.npz (~50k realisations)
+# then run examples/demo1/analysis.ipynb           # diagrams + theory-vs-simulation figures
+
+# demo2 — non-Gaussian noise (non-zero third cumulant kappa^3)
+python examples/demo2/run_simulation.py --alpha 0.6   # non-Gaussian
+python examples/demo2/run_simulation.py --alpha 0.0   # Gaussian control
+# then run examples/demo2/analysis.ipynb           # kappa^3 cross-check + FK channel
+```
+
+The `sim_cache.npz` files and reference figures are committed, so a reviewer can
+re-run the scripts and diff against the shipped outputs. See also
+`examples/nonlocal_vertex_2pt.ipynb` for a non-local-vertex tutorial.
+
+## Documentation
+
+Full documentation (API reference, user guide, theory background) is hosted at
+<https://sft-wick.readthedocs.io>.
+
+## Citation
+
+If you use `sft-wick`, please cite the accompanying paper
+([arXiv:2606.19480](https://arxiv.org/abs/2606.19480)):
+
+```bibtex
+@misc{zhang2026sftwickformalismpackagefeynmandiagram,
+      title={sft-wick: A formalism and package for Feynman-diagram expansion and evaluation in stochastic field theories},
+      author={Zheng Zhang},
+      year={2026},
+      eprint={2606.19480},
+      archivePrefix={arXiv},
+      primaryClass={physics.comp-ph},
+      url={https://arxiv.org/abs/2606.19480},
+}
+```
+
+and the archived software release (Zenodo DOI, to be assigned).
+
+## License
+
+`sft-wick` is released under the BSD 3-Clause License — see [LICENSE](LICENSE).

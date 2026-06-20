@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 # -- Project information -----------------------------------------------------
 
 project = "sft-wick"
-copyright = "2024, sft-wick contributors"
-author = "sft-wick contributors"
+copyright = "2026-present, Zheng Zhang"
+author = "Zheng Zhang"
 
 try:
     release = get_version("sft-wick")
@@ -72,7 +72,7 @@ html_title = "sft-wick"
 html_static_path = ["_static"]
 
 html_theme_options = {
-    "source_repository": "https://github.com/sft-wick/sft-wick",
+    "source_repository": "https://github.com/StatFieldTheory/sft-wick",
     "source_branch": "main",
     "source_directory": "docs/",
 }
