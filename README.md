@@ -1,8 +1,14 @@
 # sft-wick
 
-Wick's theorem contractions for statistical field theory perturbative calculations.
+[![Documentation](https://img.shields.io/badge/docs-readthedocs-blue)](https://sft-wick.readthedocs.io)
+[![arXiv](https://img.shields.io/badge/arXiv-2606.19480-b31b1b)](https://arxiv.org/abs/2606.19480)
+[![License: BSD-3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-green)](LICENSE)
 
-`sft-wick` automates the computation of perturbative expansions in the path integral formalism for stochastic differential equations. Given an observable and an interaction action, it applies Wick's theorem to express arbitrary field moments in terms of two-point propagators — the correlation function C and the response function R.
+**Feynman-diagram expansion and evaluation for stochastic field theories.**
+
+> 📖 **Documentation (API reference · user guide · theory background): <https://sft-wick.readthedocs.io>**
+
+`sft-wick` automates perturbative calculations for **stochastic (partial) differential equations** in the Martin–Siggia–Rose (MSR) response-field formalism. Starting from a Langevin-type field equation — a deterministic drift plus noise that may be non-Gaussian and spatially correlated — it builds the interaction action, applies **Wick's theorem** to expand arbitrary field moments order by order, and writes every term using just two two-point propagators: the correlation function *C* = ⟨φφ⟩ and the response (Green's) function *R* = ⟨φψ⟩. Diagrams are enumerated symbolically, rendered as Feynman graphs, and evaluated numerically — end to end, from a YAML config to theory-vs-simulation curves.
 
 ## Installation
 

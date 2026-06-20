@@ -1,11 +1,14 @@
-sft-wick: Wick Contractions for Statistical Field Theory
-=========================================================
+sft-wick: Feynman-Diagram Expansion for Stochastic Field Theories
+=================================================================
 
-**sft-wick** automates the computation of perturbative expansions in the
-path-integral formalism for stochastic differential equations.  Given an
-observable and an interaction action, it applies Wick's theorem to express
-arbitrary field moments in terms of two-point propagators --- the correlation
-function :math:`C` and the response function :math:`R`.
+**sft-wick** automates perturbative calculations for **stochastic (partial)
+differential equations** in the Martin--Siggia--Rose (MSR) response-field
+formalism.  Starting from a Langevin-type field equation --- a deterministic
+drift plus noise that may be non-Gaussian and spatially correlated --- it
+builds the interaction action, applies Wick's theorem to expand arbitrary
+field moments order by order, and writes every term using just two two-point
+propagators: the correlation function :math:`C = \langle\phi\phi\rangle` and
+the response (Green's) function :math:`R = \langle\phi\psi\rangle`.
 
 .. math::
 
