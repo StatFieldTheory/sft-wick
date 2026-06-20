@@ -522,8 +522,7 @@ Full documentation (API reference, user guide, theory background) is hosted at
 
 ## Citation
 
-If you use `sft-wick`, please cite the accompanying paper
-([arXiv:2606.19480](https://arxiv.org/abs/2606.19480)):
+If you use `sft-wick`, please cite the paper:
 
 ```bibtex
 @misc{zhang2026sftwickformalismpackagefeynmandiagram,
@@ -537,18 +536,7 @@ If you use `sft-wick`, please cite the accompanying paper
 }
 ```
 
-and the archived software release ([DOI:10.5281/zenodo.20776358](https://doi.org/10.5281/zenodo.20776358)):
-
-```bibtex
-@software{zhang2026sftwick_software,
-  author    = {Zhang, Zheng},
-  title     = {sft-wick: Feynman diagrammatic expansion and evaluation for statistical field theory},
-  year      = {2026},
-  publisher = {Zenodo},
-  doi       = {10.5281/zenodo.20776358},
-  url       = {https://doi.org/10.5281/zenodo.20776358},
-}
-```
+A specific software version can additionally be referenced via its Zenodo archive ([DOI:10.5281/zenodo.20776358](https://doi.org/10.5281/zenodo.20776358)).
 
 ## License
 
