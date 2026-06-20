@@ -542,7 +542,7 @@ and the archived software release ([DOI:10.5281/zenodo.20776358](https://doi.org
 ```bibtex
 @software{zhang2026sftwick_software,
   author    = {Zhang, Zheng},
-  title     = {sft-wick: Wick's theorem contractions for statistical field theory},
+  title     = {sft-wick: Feynman diagrammatic expansion and evaluation for statistical field theory},
   year      = {2026},
   publisher = {Zenodo},
   doi       = {10.5281/zenodo.20776358},
