@@ -1038,8 +1038,11 @@ class PropagatorCache:
 
     def _C_diagonal_from_table(self, t1: float, t2: float) -> np.ndarray:
         """Look up C diagonal from spline table."""
+        # ``np.squeeze`` keeps this robust across SciPy versions: newer
+        # SciPy returns a 1-element 1-D array from a scalar ``grid=False``
+        # call, and ``float()`` on a non-0-D array raises under NumPy >= 2.
         return np.array([
-            float(s(t1, t2, grid=False)) for s in self._c_splines  # type: ignore[union-attr]
+            float(np.squeeze(s(t1, t2, grid=False))) for s in self._c_splines  # type: ignore[union-attr]
         ])
 
     def _C_value_from_table(self, t1: float, t2: float) -> np.ndarray:
@@ -1047,7 +1050,7 @@ class PropagatorCache:
         N = self.model.n_components
         C_mat = np.zeros((N, N))
         for a, s in enumerate(self._c_splines):  # type: ignore[union-attr]
-            C_mat[a, a] = float(s(t1, t2, grid=False))
+            C_mat[a, a] = float(np.squeeze(s(t1, t2, grid=False)))
         return C_mat
 
     # --- Vectorized methods for batch evaluation ---
