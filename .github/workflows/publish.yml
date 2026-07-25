@@ -1,0 +1,162 @@
+name: Publish
+
+# Two-stage release pipeline using PyPI Trusted Publishing (OIDC) — no
+# API tokens or stored secrets.
+#
+#   * Push a `vX.Y.Z` tag        -> build, test, publish to TestPyPI.
+#   * Publish a GitHub Release   -> build, test, publish to PyPI, then
+#                                   sign the artifacts with Sigstore and
+#                                   attach them to the release.
+#
+# Recommended flow (avoids a double trigger):
+#   1. git tag v0.2.0 && git push origin v0.2.0     # -> TestPyPI
+#   2. verify the TestPyPI upload, then create a GitHub Release *from the
+#      existing tag*                                # -> PyPI
+on:
+  push:
+    tags:
+      - 'v*'
+  release:
+    types: [published]
+
+# Serialize publish runs for a given ref so a tag push and a release of the
+# same version never race (two OIDC mints / two builds).  Never cancel an
+# in-flight publish — queue instead.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test before publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Run test suite
+        run: pytest tests/ -v
+
+  build:
+    name: Build distribution
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build tooling
+        run: python -m pip install --upgrade pip build twine
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Validate distribution metadata
+        run: twine check --strict dist/*
+
+      - name: Upload distribution artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish-testpypi:
+    name: Publish to TestPyPI
+    # Only on a tag *push* (the "dry run" stage).  A `release` event also
+    # has `github.ref == refs/tags/...`, so we must gate on the event name
+    # too, otherwise a real release would double-publish to TestPyPI.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/sft-wick
+    permissions:
+      id-token: write  # mandatory for Trusted Publishing (OIDC)
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  publish-pypi:
+    name: Publish to PyPI
+    # Only when a GitHub Release is published (the real release stage).
+    if: github.event_name == 'release'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/sft-wick
+    permissions:
+      id-token: write  # mandatory for Trusted Publishing (OIDC)
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    name: Sign artifacts and attach to the GitHub Release
+    if: github.event_name == 'release'
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # to upload assets to the release
+      id-token: write  # to mint the Sigstore signing certificate
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Sign the distribution with Sigstore
+        uses: sigstore/gh-action-sigstore-python@v3.0.0
+        with:
+          inputs: >-
+            ./dist/*.tar.gz
+            ./dist/*.whl
+
+      - name: Upload signed artifacts to the GitHub Release
+        # Pass the tag through an env var rather than interpolating it
+        # directly into the shell, to avoid any script-injection risk.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        # `--clobber` keeps the step idempotent if a later re-run re-uploads
+        # assets; `dist/*` (not `dist/**`) is an explicit flat-glob of the
+        # sdist, wheel, and their Sigstore `*.sigstore.json` bundles.
+        run: >-
+          gh release upload "$RELEASE_TAG"
+          dist/*
+          --repo "${{ github.repository }}"
+          --clobber

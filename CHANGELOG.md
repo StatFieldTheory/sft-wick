@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-07-25
+
+First release on PyPI (`pip install sft-wick`).
 
 ### Features
 

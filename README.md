@@ -1,5 +1,7 @@
 # sft-wick
 
+[![PyPI](https://img.shields.io/pypi/v/sft-wick)](https://pypi.org/project/sft-wick/)
+[![Python versions](https://img.shields.io/pypi/pyversions/sft-wick)](https://pypi.org/project/sft-wick/)
 [![Documentation](https://img.shields.io/badge/docs-readthedocs-blue)](https://sft-wick.readthedocs.io)
 [![arXiv](https://img.shields.io/badge/arXiv-2606.19480-b31b1b)](https://arxiv.org/abs/2606.19480)
 [![DOI](https://zenodo.org/badge/1162069108.svg)](https://doi.org/10.5281/zenodo.20776358)
@@ -12,6 +14,12 @@
 `sft-wick` automates perturbative calculations for **stochastic (partial) differential equations** in the Martin–Siggia–Rose (MSR) response-field formalism. Starting from a Langevin-type field equation — a deterministic drift plus noise that may be non-Gaussian and spatially correlated — it builds the interaction action, applies **Wick's theorem** to expand arbitrary field moments order by order, and writes every term using just two two-point propagators: the correlation function *C* = ⟨φφ⟩ and the response (Green's) function *R* = ⟨φψ⟩. Diagrams are enumerated symbolically, rendered as Feynman graphs, and evaluated numerically — end to end, from a YAML config to theory-vs-simulation curves.
 
 ## Installation
+
+```bash
+pip install sft-wick
+```
+
+For development (editable install with the test suite):
 
 ```bash
 git clone https://github.com/StatFieldTheory/sft-wick.git
