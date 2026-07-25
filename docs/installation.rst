@@ -15,6 +15,19 @@ Requirements
 - `joblib <https://joblib.readthedocs.io/>`_ >= 1.3
 
 
+Install from PyPI
+-----------------
+
+The recommended way to install ``sft-wick`` is from PyPI:
+
+.. code-block:: bash
+
+   pip install sft-wick
+
+This pulls in all runtime dependencies and registers the ``sft-wick``
+command-line entry point.
+
+
 Install from Source
 -------------------
 
@@ -22,7 +35,7 @@ Clone the repository and install in editable mode:
 
 .. code-block:: bash
 
-   git clone https://github.com/sft-wick/sft-wick.git
+   git clone https://github.com/StatFieldTheory/sft-wick.git
    cd sft-wick
    pip install -e .
 

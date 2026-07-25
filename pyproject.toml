@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sft-wick"
-version = "0.1.1"
+version = "0.2.0"
 description = "Wick's theorem contractions for statistical field theory perturbative calculations"
 readme = "README.md"
 authors = [{ name = "Zheng Zhang", email = "zzhang0123@gmail.com" }]
@@ -57,6 +57,18 @@ docs = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/sft_wick"]
+
+[tool.hatch.build.targets.sdist]
+# Keep the source distribution lean: ship the package, tests, docs source,
+# and example scripts/configs, but exclude regenerable / heavy binary
+# outputs (rendered notebooks, generated figures, simulation caches).
+exclude = [
+    "examples/**/*.ipynb",
+    "examples/**/*.pdf",
+    "examples/**/*.npz",
+    "examples/**/figures/",
+    "docs/_build/",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

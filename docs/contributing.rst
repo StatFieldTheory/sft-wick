@@ -10,7 +10,7 @@ Development Setup
 
 .. code-block:: bash
 
-   git clone https://github.com/sft-wick/sft-wick.git
+   git clone https://github.com/StatFieldTheory/sft-wick.git
    cd sft-wick
    pip install -e ".[dev,docs]"
    pytest tests/ -v
@@ -135,3 +135,73 @@ Building Documentation
    make html
 
 The output is in ``docs/_build/html/``.  Open ``index.html`` to review.
+
+
+Continuous Integration
+----------------------
+
+Every push and pull request runs the ``CI`` workflow
+(``.github/workflows/ci.yml``): the full test suite across Python 3.10,
+3.11, and 3.12, plus a packaging check (``python -m build`` followed by
+``twine check --strict`` and a clean-environment install smoke test).
+
+
+Making a Release
+----------------
+
+Releases are published to PyPI automatically by the ``Publish`` workflow
+(``.github/workflows/publish.yml``) using `PyPI Trusted Publishing
+<https://docs.pypi.org/trusted-publishers/>`_ (OpenID Connect) — there
+are **no API tokens or stored secrets**.
+
+The version is single-sourced from ``pyproject.toml``; bump it there
+before tagging.  The pipeline then has two stages:
+
+#. **Tag → TestPyPI.**  Push a ``vX.Y.Z`` tag.  The workflow runs the
+   tests, builds the distribution, and uploads it to `TestPyPI
+   <https://test.pypi.org/project/sft-wick/>`_ so you can verify the
+   artifacts before the real release.
+
+   .. code-block:: bash
+
+      # after bumping `version` in pyproject.toml and committing:
+      git tag v0.2.0
+      git push origin v0.2.0
+
+   Optionally smoke-test the TestPyPI build in a fresh environment:
+
+   .. code-block:: bash
+
+      pip install --index-url https://test.pypi.org/simple/ \
+          --extra-index-url https://pypi.org/simple/ sft-wick
+
+#. **GitHub Release → PyPI.**  Once the TestPyPI upload looks good,
+   publish a GitHub Release **from the existing tag**.  The same workflow
+   then publishes to `PyPI <https://pypi.org/project/sft-wick/>`_ and
+   attaches Sigstore-signed artifacts to the release.
+
+   .. code-block:: bash
+
+      gh release create v0.2.0 --generate-notes
+
+.. warning::
+
+   Always **push the tag first** (step 1), then create the release *from
+   that existing tag*.  If you instead use GitHub's "Draft a new release"
+   UI with a tag that does **not yet exist**, GitHub creates the tag and
+   publishes the release in one action — firing *both* the ``push`` and
+   ``release`` events — which publishes straight to PyPI and skips the
+   TestPyPI dry run.  The ``pypi`` environment reviewer gate below is the
+   backstop that makes this safe even if it happens.
+
+**One-time setup** (already configured for this project):
+
+- A *pending publisher* is registered on both `PyPI
+  <https://pypi.org/manage/account/publishing/>`_ and `TestPyPI
+  <https://test.pypi.org/manage/account/publishing/>`_ pointing at
+  repository ``StatFieldTheory/sft-wick``, workflow ``publish.yml``, and
+  GitHub environments ``pypi`` / ``testpypi`` respectively.
+- **Recommended:** in the repository's *Settings → Environments*, create
+  the ``pypi`` and ``testpypi`` environments and add a **required
+  reviewer** to ``pypi``.  The ``publish-pypi`` job then pauses for a
+  one-click approval before any upload to the immutable PyPI index.
