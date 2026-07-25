@@ -157,10 +157,9 @@ are **no API tokens or stored secrets**.
 The version is single-sourced from ``pyproject.toml``; bump it there
 before tagging.  The pipeline then has two stages:
 
-#. **Tag → TestPyPI.**  Push a ``vX.Y.Z`` tag.  The workflow runs the
-   tests, builds the distribution, and uploads it to `TestPyPI
-   <https://test.pypi.org/project/sft-wick/>`_ so you can verify the
-   artifacts before the real release.
+#. **Tag → validate.**  Push a ``vX.Y.Z`` tag.  The workflow runs the
+   tests and builds + ``twine check``\ s the distribution, but publishes
+   nothing — a dry run that confirms the release candidate is healthy.
 
    .. code-block:: bash
 
@@ -168,17 +167,11 @@ before tagging.  The pipeline then has two stages:
       git tag v0.2.0
       git push origin v0.2.0
 
-   Optionally smoke-test the TestPyPI build in a fresh environment:
-
-   .. code-block:: bash
-
-      pip install --index-url https://test.pypi.org/simple/ \
-          --extra-index-url https://pypi.org/simple/ sft-wick
-
-#. **GitHub Release → PyPI.**  Once the TestPyPI upload looks good,
-   publish a GitHub Release **from the existing tag**.  The same workflow
-   then publishes to `PyPI <https://pypi.org/project/sft-wick/>`_ and
-   attaches Sigstore-signed artifacts to the release.
+#. **GitHub Release → PyPI.**  Once the tag run is green, publish a
+   GitHub Release **from the existing tag**.  The same workflow then runs
+   the tests, builds, publishes to `PyPI
+   <https://pypi.org/project/sft-wick/>`_, and attaches Sigstore-signed
+   artifacts to the release.
 
    .. code-block:: bash
 
@@ -186,22 +179,18 @@ before tagging.  The pipeline then has two stages:
 
 .. warning::
 
-   Always **push the tag first** (step 1), then create the release *from
-   that existing tag*.  If you instead use GitHub's "Draft a new release"
-   UI with a tag that does **not yet exist**, GitHub creates the tag and
-   publishes the release in one action — firing *both* the ``push`` and
-   ``release`` events — which publishes straight to PyPI and skips the
-   TestPyPI dry run.  The ``pypi`` environment reviewer gate below is the
-   backstop that makes this safe even if it happens.
+   Push the tag first (step 1), then create the release *from that
+   existing tag*.  Creating a release from a brand-new tag in GitHub's
+   UI fires both the ``push`` and ``release`` events at once; the tag
+   (``push``) run only validates, and the ``pypi`` environment reviewer
+   gate keeps the actual PyPI upload behind a manual approval either way.
 
 **One-time setup** (already configured for this project):
 
-- A *pending publisher* is registered on both `PyPI
-  <https://pypi.org/manage/account/publishing/>`_ and `TestPyPI
-  <https://test.pypi.org/manage/account/publishing/>`_ pointing at
-  repository ``StatFieldTheory/sft-wick``, workflow ``publish.yml``, and
-  GitHub environments ``pypi`` / ``testpypi`` respectively.
-- **Recommended:** in the repository's *Settings → Environments*, create
-  the ``pypi`` and ``testpypi`` environments and add a **required
-  reviewer** to ``pypi``.  The ``publish-pypi`` job then pauses for a
+- A *pending publisher* is registered on `PyPI
+  <https://pypi.org/manage/account/publishing/>`_ pointing at repository
+  ``StatFieldTheory/sft-wick``, workflow ``publish.yml``, and GitHub
+  environment ``pypi``.
+- In the repository's *Settings → Environments*, the ``pypi`` environment
+  has a **required reviewer**, so the ``publish-pypi`` job pauses for a
   one-click approval before any upload to the immutable PyPI index.

@@ -1,17 +1,18 @@
 name: Publish
 
-# Two-stage release pipeline using PyPI Trusted Publishing (OIDC) — no
-# API tokens or stored secrets.
+# Release pipeline using PyPI Trusted Publishing (OIDC) — no API tokens
+# or stored secrets.
 #
-#   * Push a `vX.Y.Z` tag        -> build, test, publish to TestPyPI.
-#   * Publish a GitHub Release   -> build, test, publish to PyPI, then
-#                                   sign the artifacts with Sigstore and
-#                                   attach them to the release.
+#   * Push a `vX.Y.Z` tag       -> run tests + build the distribution
+#                                  (validation dry run; nothing is published).
+#   * Publish a GitHub Release   -> run tests, build, publish to PyPI, then
+#                                  sign the artifacts with Sigstore and
+#                                  attach them to the release.
 #
-# Recommended flow (avoids a double trigger):
-#   1. git tag v0.2.0 && git push origin v0.2.0     # -> TestPyPI
-#   2. verify the TestPyPI upload, then create a GitHub Release *from the
-#      existing tag*                                # -> PyPI
+# Recommended flow:
+#   1. git tag v0.2.0 && git push origin v0.2.0   # validates the build
+#   2. once the tag run is green, create a GitHub Release *from the existing
+#      tag*                                       # -> publishes to PyPI
 on:
   push:
     tags:
@@ -19,9 +20,8 @@ on:
   release:
     types: [published]
 
-# Serialize publish runs for a given ref so a tag push and a release of the
-# same version never race (two OIDC mints / two builds).  Never cancel an
-# in-flight publish — queue instead.
+# Serialize runs for a given ref so a tag push and a release of the same
+# version never race.  Never cancel an in-flight publish — queue instead.
 concurrency:
   group: publish-${{ github.ref }}
   cancel-in-progress: false
@@ -31,7 +31,7 @@ permissions:
 
 jobs:
   test:
-    name: Test before publish
+    name: Run tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -52,7 +52,7 @@ jobs:
         run: pytest tests/ -v
 
   build:
-    name: Build distribution
+    name: Build & validate distribution
     needs: test
     runs-on: ubuntu-latest
     steps:
@@ -78,34 +78,10 @@ jobs:
           name: dist
           path: dist/
 
-  publish-testpypi:
-    name: Publish to TestPyPI
-    # Only on a tag *push* (the "dry run" stage).  A `release` event also
-    # has `github.ref == refs/tags/...`, so we must gate on the event name
-    # too, otherwise a real release would double-publish to TestPyPI.
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: testpypi
-      url: https://test.pypi.org/p/sft-wick
-    permissions:
-      id-token: write  # mandatory for Trusted Publishing (OIDC)
-    steps:
-      - name: Download distribution artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
-      - name: Publish to TestPyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
-
   publish-pypi:
     name: Publish to PyPI
-    # Only when a GitHub Release is published (the real release stage).
+    # Only when a GitHub Release is published.  A plain tag push runs just
+    # `test` + `build` above (a validation dry run) and stops here.
     if: github.event_name == 'release'
     needs: build
     runs-on: ubuntu-latest
