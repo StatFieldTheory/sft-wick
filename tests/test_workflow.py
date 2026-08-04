@@ -205,14 +205,33 @@ def test_WF4_end_to_end_matches_validate_phase5(demo1_system):
     totals = sweep.totals()
 
     # Reference values from examples/demo1/validate_phase5.py run.
+    #
+    # The four INTERACTING entries were re-pinned when the C-table diagonal
+    # kink was fixed (see test_F21_* in test_msr_numerics_regressions.py).
+    # C(t1,t2) has a derivative discontinuity of exactly -sigma2(t) on
+    # t1 == t2, which a tensor-product spline cannot represent; on the
+    # diagonal the table did not converge at all (22.3% relative error at
+    # n_grid=41, still 21.4% at 321), while staying clean O(h^4) off it.
+    # Harvesting the grid's own i == j entries into a 1-D spline restores
+    # O(h^4) there.  Re-pinned against the MORE ACCURATE value, not by
+    # loosening the 1e-5 tolerance:
+    #
+    #   (0,0,0.5,2): 3.212865e-02 -> 3.222453e-02   (rel 2.98e-03)
+    #   (0,0,0.5,4): 2.231587e-03 -> 2.236403e-03   (rel 2.16e-03)
+    #   (1,1,1.0,2): 9.620743e-03 -> 9.627814e-03   (rel 7.35e-04)
+    #   (1,1,1.0,4): 7.882002e-04 -> 7.887824e-04   (rel 7.39e-04)
+    #
+    # Both order-0 entries are UNCHANGED, which is the consistency check:
+    # order 0 has no tadpole, so it never evaluates C on the diagonal.
     reference = {
         (0, 0, 0.0, 15.0, 0): 3.996863e-01,
         (0, 0, 0.5, 15.0, 0): 2.424220e-01,
-        (0, 0, 0.5, 15.0, 2): 3.212865e-02,
-        (0, 0, 0.5, 15.0, 4): 2.231587e-03,
-        (1, 1, 1.0, 15.0, 2): 9.620743e-03,
-        (1, 1, 1.0, 15.0, 4): 7.882002e-04,
+        (0, 0, 0.5, 15.0, 2): 3.222453e-02,
+        (0, 0, 0.5, 15.0, 4): 2.236403e-03,
+        (1, 1, 1.0, 15.0, 2): 9.627814e-03,
+        (1, 1, 1.0, 15.0, 4): 7.887824e-04,
     }
+    bad = []
     for (a, b, r, t_f, ord_), expected in reference.items():
         mask = (
             (totals["a"] == a)
@@ -223,10 +242,12 @@ def test_WF4_end_to_end_matches_validate_phase5(demo1_system):
         )
         got = float(totals.loc[mask, "value"].iloc[0])
         rel = abs(got - expected) / abs(expected)
-        assert rel < 1e-5, (
-            f"WF4 at (a={a},b={b},r={r},t_f={t_f},ord={ord_}): "
-            f"wrapper={got:.6e} vs ref={expected:.6e}, rel={rel:.2e}"
-        )
+        if rel >= 1e-5:
+            bad.append(
+                f"  (a={a},b={b},r={r},t_f={t_f},ord={ord_}): "
+                f"got {got:.6e} ref {expected:.6e} rel {rel:.2e}"
+            )
+    assert not bad, "WF4 reference mismatches:\n" + "\n".join(bad)
 
 
 # =====================================================================

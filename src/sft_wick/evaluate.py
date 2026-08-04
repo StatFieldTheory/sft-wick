@@ -285,6 +285,14 @@ def analyze_spatial(dt: "DiagramTerm") -> SpatialStructure:
 
 
 #: Relative tolerance used when projecting a diagram value onto the reals.
+#: Two times are treated as ON the C-table diagonal when they differ by no
+#: more than this, relatively.  C(t1,t2) has a derivative kink of exactly
+#: -sigma2(t) on t1 == t2 (the integral's upper limit is min(t1,t2)), so the
+#: substitution error from using the diagonal spline is bounded by
+#: sigma2 * _DIAG_TOL -- orders below the table's own accuracy, hence never
+#: the worse choice.
+_DIAG_TOL = 1e-9
+
 _REALITY_TOL = 1e-9
 #: Values below this magnitude are treated as an exact zero (a diagram that
 #: cancelled), so a denormal-scale imaginary residue never raises.
@@ -499,7 +507,65 @@ class _LazyTimeSplineCache:
             for a in range(N):
                 grids[a][i, j] = cvec[a]
 
-        return [RectBivariateSpline(ts, ts, grids[a]) for a in range(N)]
+        from scipy.interpolate import CubicSpline
+
+        # Wrap each 2-D spline with the diagonal spline harvested from the
+        # SAME grid -- the lazy spatial path carried the identical kink as
+        # the legacy table (measured 22.3% at n_grid_t=41, bit-for-bit the
+        # same numbers), and this is the path examples/demo1 uses.
+        return [
+            _DiagAwareSpline(
+                RectBivariateSpline(ts, ts, grids[a]),
+                CubicSpline(ts, np.diag(grids[a])),
+            )
+            for a in range(N)
+        ]
+
+
+class _DiagAwareSpline:
+    """A 2-D ``(t1, t2)`` C-spline that knows about the diagonal kink.
+
+    ``C(t1,t2) = int_0^{min(t1,t2)} R(t1,l) sigma2(l) R(t2,l) dl`` has a
+    derivative discontinuity of exactly ``-sigma2(t)`` on ``t1 == t2``, which a
+    tensor-product spline (C^2 by construction) cannot represent: it stops
+    converging there while staying clean O(h^4) off the diagonal.  Every
+    tadpole evaluates ``C(s,s)``, exactly on the kink.
+
+    This wraps the 2-D spline together with a 1-D spline of the SAME grid's
+    ``i == j`` entries -- no extra quadrature -- and routes equal times to it.
+    ``t -> C(t,t)`` is smooth, so the 1-D spline restores O(h^4).
+
+    The call signature matches ``RectBivariateSpline.__call__`` exactly, so it
+    drops into every existing call site unchanged.
+    """
+
+    __slots__ = ("_s2d", "_sdiag")
+
+    def __init__(self, s2d, sdiag):
+        self._s2d = s2d
+        self._sdiag = sdiag
+
+    def __call__(self, t1, t2, grid=False):
+        out = self._s2d(t1, t2, grid=grid)
+        if self._sdiag is None or grid:
+            return out
+        t1a = np.asarray(t1, dtype=float)
+        t2a = np.asarray(t2, dtype=float)
+        on_diag = np.abs(t1a - t2a) <= _DIAG_TOL * np.maximum(
+            1.0, np.maximum(np.abs(t1a), np.abs(t2a))
+        )
+        if not np.any(on_diag):
+            return out
+        td = 0.5 * (t1a + t2a)
+        out = np.asarray(out, dtype=float)
+        if out.ndim == 0:
+            return np.asarray(self._sdiag(float(td)))
+        out = out.copy()
+        out[on_diag] = self._sdiag(np.atleast_1d(td)[on_diag])
+        return out
+
+    def __getattr__(self, name):
+        return getattr(self._s2d, name)
 
 
 def _C_value_direct_gl(
@@ -1106,6 +1172,10 @@ class PropagatorCache:
         # Legacy 2-D (t1, t2) spline at fixed x — still populated by
         # ``precompute_C_table`` for backward compatibility.
         self._c_splines: list | None = None
+        #: 1-D splines of C(t, t) harvested from the same grid -- see
+        #: ``precompute_C_table``.  The 2-D tensor-product spline is C^2 by
+        #: construction and cannot represent the diagonal kink.
+        self._c_diag_splines: list | None = None
         self._c_table_range: tuple[float, float] | None = None
 
         # Full N-D spatial splines, populated by precompute_C_table_*
@@ -1285,6 +1355,7 @@ class PropagatorCache:
         """Clear the C value cache and spline table."""
         self._c_cache.clear()
         self._c_splines = None
+        self._c_diag_splines = None
         self._c_table_range = None
 
     def precompute_C_table(
@@ -1309,7 +1380,7 @@ class PropagatorCache:
             n_grid: Number of grid points per axis (default 100).
             direction: Direction value to use for kappa2 evaluation.
         """
-        from scipy.interpolate import RectBivariateSpline
+        from scipy.interpolate import CubicSpline, RectBivariateSpline
 
         m = self.model
         N = m.n_components
@@ -1329,6 +1400,24 @@ class PropagatorCache:
             RectBivariateSpline(ts, ts, grids[a])
             for a in range(N)
         ]
+        # Harvest the i == j entries into a separate 1-D spline.  Zero extra
+        # quadrature -- they are already in ``grids``.
+        #
+        # ``C(t1,t2) = int_0^{min(t1,t2)} R(t1,l) sigma2(l) R(t2,l) dl`` has a
+        # derivative discontinuity of exactly ``-sigma2(t)`` on the diagonal:
+        # approaching from t1 < t2 the moving upper limit contributes an extra
+        # ``R(t1,t1) sigma2(t1) R(t2,t1)``, absent from the other side.  A
+        # tensor-product spline is C^2 everywhere, so it smears that kink and
+        # stops converging there -- measured 22.3% relative error at n_grid=41
+        # and still 21.4% at n_grid=321, i.e. p = 0.009, no convergence at all,
+        # while the same table is clean O(h^4) away from the diagonal.  Every
+        # tadpole evaluates C(s,s), exactly on the kink.
+        #
+        # Along the diagonal itself ``t -> C(t,t)`` is smooth, so a 1-D cubic
+        # spline restores O(h^4).
+        self._c_diag_splines = [
+            CubicSpline(ts, np.diag(grids[a])) for a in range(N)
+        ]
         self._c_table_range = (t_min, t_max)
 
     @property
@@ -1336,8 +1425,23 @@ class PropagatorCache:
         """Whether a pre-computed C table is available."""
         return self._c_splines is not None
 
+    @staticmethod
+    def _on_diagonal(t1, t2):
+        """Whether ``t1`` and ``t2`` are numerically the same time."""
+        return np.abs(np.asarray(t1) - np.asarray(t2)) <= _DIAG_TOL * np.maximum(
+            1.0, np.maximum(np.abs(np.asarray(t1)), np.abs(np.asarray(t2)))
+        )
+
     def _C_diagonal_from_table(self, t1: float, t2: float) -> np.ndarray:
-        """Look up C diagonal from spline table."""
+        """Look up C diagonal from spline table.
+
+        Routes equal times through the 1-D diagonal spline: the 2-D spline
+        cannot represent the kink there (see ``precompute_C_table``).
+        """
+        if self._c_diag_splines is not None and self._on_diagonal(t1, t2):
+            t = 0.5 * (float(t1) + float(t2))
+            return np.array([float(np.squeeze(s(t)))
+                             for s in self._c_diag_splines])
         # ``np.squeeze`` keeps this robust across SciPy versions: newer
         # SciPy returns a 1-element 1-D array from a scalar ``grid=False``
         # call, and ``float()`` on a non-0-D array raises under NumPy >= 2.
@@ -1346,11 +1450,16 @@ class PropagatorCache:
         ])
 
     def _C_value_from_table(self, t1: float, t2: float) -> np.ndarray:
-        """Look up C matrix from spline table (diagonal only)."""
+        """Look up C matrix from spline table (diagonal only).
+
+        Shares :meth:`_C_diagonal_from_table`'s diagonal-kink routing so the
+        two accessors cannot disagree about C(t, t).
+        """
         N = self.model.n_components
         C_mat = np.zeros((N, N))
-        for a, s in enumerate(self._c_splines):  # type: ignore[union-attr]
-            C_mat[a, a] = float(np.squeeze(s(t1, t2, grid=False)))
+        diag = self._C_diagonal_from_table(t1, t2)
+        for a in range(N):
+            C_mat[a, a] = diag[a]
         return C_mat
 
     # --- Vectorized methods for batch evaluation ---
@@ -1379,6 +1488,15 @@ class PropagatorCache:
         result = np.empty((n, N))
         for a, s in enumerate(self._c_splines):
             result[:, a] = s(t1, t2, grid=False)
+        if self._c_diag_splines is not None:
+            # Tadpoles evaluate C(s, s): both legs are the SAME sampled time,
+            # so this mask is hit exactly, not approximately.
+            on_diag = self._on_diagonal(t1, t2)
+            if np.any(on_diag):
+                td = 0.5 * (np.asarray(t1, dtype=float)[on_diag]
+                            + np.asarray(t2, dtype=float)[on_diag])
+                for a, sd in enumerate(self._c_diag_splines):
+                    result[on_diag, a] = sd(td)
         return result
 
     def R_time_batch(self, t1: np.ndarray, t2: np.ndarray) -> np.ndarray:

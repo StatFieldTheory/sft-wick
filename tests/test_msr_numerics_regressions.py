@@ -1593,3 +1593,167 @@ def test_F20_lambda_f_must_not_stand_in_for_an_external_time(method):
         f"{method}: {got:.8f} vs closed form {want:.8f} — lambda_f={lam} "
         f"leaked in as the time of external 'x' (t_x={tx})"
     )
+
+
+# --------------------------------------------------------------------- #
+# F21 (7b): the diagonal kink in precompute_C_table
+# --------------------------------------------------------------------- #
+#
+# C(t1,t2) = int_0^{min(t1,t2)} R(t1,l) sigma2(l) R(t2,l) dl.  The min() puts a
+# derivative discontinuity of exactly -sigma2(t) on t1 == t2: approaching from
+# t1 < t2 the moving upper limit contributes an extra R(t1,t1) sigma2(t1)
+# R(t2,t1), absent from the other side.
+#
+# `RectBivariateSpline` is C^2 by construction and cannot represent that, so
+# the table stopped converging ON the diagonal while staying clean O(h^4) off
+# it.  Every tadpole evaluates C(s,s), exactly on the kink.  Measured relative
+# error of C_diagonal(t,t) at mid-cell t:
+#
+#     n_grid      before        after
+#         41    2.227e-01    3.525e-04
+#         81    2.178e-01    4.773e-05
+#        161    2.152e-01    6.210e-06
+#        321    2.139e-01    7.920e-07
+#     exponent p   0.009        2.97
+#
+# i.e. before, refining the grid 8x moved the error from 22.3% to 21.4%.
+#
+# To be precise about WHERE that lives: the ABSOLUTE error on the diagonal is
+# clean O(h) (p = 1.00 measured), versus O(h^4) off it.  The *relative* max
+# stalls only because it is attained as t -> 0, where C(t,t) is itself O(h),
+# so numerator and denominator shrink together.  At an ordinary time the
+# relative error does fall, but only linearly: 1.42% / 0.71% / 0.36% / 0.18%
+# at t = 2 for n_grid = 41 / 81 / 161 / 321.  So the practical cost is an
+# accuracy FLOOR that refining the time grid cannot remove.
+#
+# The fix harvests the i == j grid entries -- already computed -- into a 1-D
+# CubicSpline, which IS smooth along the diagonal.
+
+_F21_TMAX = 4.0
+
+
+def _f21_cache(n_grid):
+    """Cache whose grid is the EXACT C sampled on nodes.
+
+    `c_value_fn` removes the quadrature entirely, so what these tests measure
+    is interpolation error and nothing else.
+    """
+    cache = _scalar_cache()
+    cache.precompute_C_table(t_max=_F21_TMAX, n_grid=n_grid)
+    return cache
+
+
+def _f21_max_rel_err(cache, n_grid, offset=0.0):
+    ts = np.linspace(0.0, _F21_TMAX, n_grid)
+    mids = 0.5 * (ts[:-1] + ts[1:])          # worst case: between nodes
+    worst = 0.0
+    for t in mids:
+        t2 = t + offset
+        if t2 > _F21_TMAX:
+            continue
+        got = float(cache.C_diagonal(0, t, 0, t2)[0])
+        exact = _C0(t, t2)
+        worst = max(worst, abs(got - exact) / max(abs(exact), 1e-30))
+    return worst
+
+
+def test_F21_diagonal_converges_instead_of_stalling():
+    """On the diagonal the table must converge, not sit at ~22%."""
+    errs = {n: _f21_max_rel_err(_f21_cache(n), n) for n in (41, 161)}
+    assert errs[41] < 1e-3, (
+        f"mid-cell C(t,t) rel err {errs[41]:.3e} at n_grid=41 "
+        f"(was 2.227e-01 with the 2-D spline alone)"
+    )
+    p = np.log(errs[41] / errs[161]) / np.log(4.0)
+    assert p > 2.5, f"diagonal convergence exponent {p:.3f} (was 0.009)"
+
+
+def test_F21_off_diagonal_is_untouched():
+    """The working path must keep its O(h^4) -- this is a control."""
+    # n=41 is still pre-asymptotic here (its own step measures p ~ 7.6), so
+    # take the exponent in the asymptotic range.
+    errs = {n: _f21_max_rel_err(_f21_cache(n), n, offset=1.0)
+            for n in (161, 321)}
+    p = np.log(errs[161] / errs[321]) / np.log(2.0)
+    assert 3.5 < p < 4.5, f"off-diagonal exponent {p:.3f}, expected ~4"
+    assert errs[321] < 1e-8
+
+
+def test_F21_the_kink_is_exactly_minus_sigma2():
+    """Pin WHY a tensor-product spline cannot do this, not just that it can't.
+
+    Independent of sft-wick: differentiate the closed form across t1 == t2.
+    """
+    t, eps = 2.0, 1e-6
+    d_above = (_C0(t + eps, t) - _C0(t, t)) / eps
+    d_below = (_C0(t, t) - _C0(t - eps, t)) / eps
+    assert (d_above - d_below) == pytest.approx(-2.0 * D, rel=1e-5), (
+        "the derivative jump across the diagonal is not -sigma2"
+    )
+
+
+def test_F21_tadpole_coefficient_is_accurate():
+    """The physically meaningful payoff.
+
+    <x^2> at O(g) is -3 int_0^T ds R0(T,s)^2 C0(s,s) -- every term ON the
+    diagonal.  Before: 7.285e-03 at n_grid=41, falling only as O(h)
+    (3.651e-03 / 1.826e-03 / 9.130e-04 at 81/161/321).
+    """
+    from scipy.integrate import quad as _quad
+
+    T = 3.0
+    exact, _ = _quad(lambda s: np.exp(-2 * MU * (T - s)) * _C0(s, s), 0.0, T,
+                     limit=400)
+    exact *= -3.0
+    cache = _f21_cache(41)
+    ss = np.linspace(0.0, T, 2001)
+    vals = np.array([float(cache.C_diagonal(0, s, 0, s)[0]) for s in ss])
+    got = -3.0 * np.trapezoid(np.exp(-2 * MU * (T - ss)) * vals, ss)
+    assert got == pytest.approx(exact, rel=1e-5), (
+        f"tadpole c1 {got:.10f} vs exact {exact:.10f} "
+        f"(was 7.3e-03 relative at this grid)"
+    )
+
+
+def test_F21_batch_and_scalar_accessors_agree_on_the_diagonal():
+    """All three table accessors must route identically.
+
+    `_C_diagonal_from_table`, `_C_value_from_table` and `C_diagonal_batch`
+    are three entry points to the same table; letting only some of them
+    take the diagonal spline is exactly the two-conventions failure mode.
+    """
+    cache = _f21_cache(41)
+    ts = np.array([0.35, 1.15, 2.75, 3.9])
+    batch = cache.C_diagonal_batch(ts, ts)
+    for k, t in enumerate(ts):
+        scalar = float(cache.C_diagonal(0, t, 0, t)[0])
+        matrix = float(cache.C_value(0, t, 0, t)[0, 0])
+        assert batch[k, 0] == pytest.approx(scalar, rel=1e-14)
+        assert matrix == pytest.approx(scalar, rel=1e-14)
+        assert scalar == pytest.approx(_C0(t, t), rel=1e-3)
+
+
+def test_F21_lazy_spatial_path_has_the_same_diagonal_fix():
+    """The LAZY spatial builder carried the identical kink.
+
+    It builds its own `RectBivariateSpline(ts, ts, grid)` per parameter value,
+    so it reproduced the legacy table's numbers bit-for-bit: 2.227e-01 at
+    n_grid_t=41, 2.178e-01 at 81.  This is the path `examples/demo1` uses --
+    the earlier note that the defect "touches zero shipped demo output" was
+    wrong, and fixing it moves demo1's rows by up to 6.1e-3 relative.
+    """
+    t_max = 4.0
+    for n in (41, 81):
+        cache = _scalar_cache()
+        cache.precompute_C_table_translation(t_max=t_max, n_grid_t=n)
+        ts = np.linspace(0.0, t_max, n)
+        z = np.array([0.0])
+        worst = max(
+            abs(float(cache.C_at_batch(np.array([t]), np.array([t]), z, z)[0, 0])
+                - _C0(t, t)) / max(abs(_C0(t, t)), 1e-30)
+            for t in 0.5 * (ts[:-1] + ts[1:])
+        )
+        assert worst < 1e-3, (
+            f"lazy spatial path, n_grid_t={n}: mid-cell C(t,t) rel err "
+            f"{worst:.3e} (was 2.2e-01)"
+        )
