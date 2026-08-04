@@ -650,6 +650,14 @@ def test_F12_two_point_qmc_agrees_with_the_other_backends():
     It had no lower bounds at all and its zero-dimensional branch used
     `val.real` (a 15th unprojected site), so for a response observable it
     disagreed with all four other backends by 100%.
+
+    NOTE: since Theta landed, BOTH sides of the assert are 0.0 at both
+    orders and it is structurally impossible for them to be anything else
+    (every external sits at T, so the R joining them is killed).  This is
+    a cross-backend consistency check, not coverage: it cannot detect any
+    change to the ni == 0 branch.  That branch is covered by F14 (spatial
+    factor) and F17 (delegation), and the projection itself by
+    test_F2_real_or_raise_boundary.
     """
     from sft_wick.evaluate import integrate_two_point_qmc
 
@@ -709,25 +717,32 @@ def _f13_reference() -> float:
     return val
 
 
-@pytest.mark.parametrize("method,kw,tol", [
-    ("nquad", {}, 1e-6),
-    ("qmc", {"n_samples": 2 ** 14, "seed": 7}, 1e-5),
-    ("qmc_scalar", {"n_samples": 2 ** 14, "seed": 7}, 1e-5),
-    ("qmc_vectorized", {"n_samples": 2 ** 14, "seed": 7}, 1e-5),
-    ("gauss_legendre", {"n_gauss": 8}, 2e-3),
-    ("gauss_legendre", {"n_gauss": 32}, 2e-4),
+@pytest.mark.parametrize("method,kw,tol,batch", [
+    # `batch` picks the cache: _ScalarBatchCache advertises batch C, which
+    # makes the `qmc` DISPATCHER resolve to qmc_vectorized.  The scalar
+    # cells therefore use the plain cache, so that "qmc" and
+    # "qmc_vectorized" are genuinely different code paths and not the same
+    # call counted twice.
+    ("nquad", {}, 1e-6, False),
+    ("qmc", {"n_samples": 2 ** 14, "seed": 7}, 1e-5, False),
+    ("qmc_scalar", {"n_samples": 2 ** 14, "seed": 7}, 1e-5, False),
+    ("qmc_vectorized", {"n_samples": 2 ** 14, "seed": 7}, 1e-5, True),
+    ("gauss_legendre", {"n_gauss": 8}, 2e-3, True),
+    ("gauss_legendre", {"n_gauss": 32}, 2e-4, True),
 ])
-def test_F13_swept_external_lower_bound_is_applied(method, kw, tol):
+def test_F13_swept_external_lower_bound_is_applied(method, kw, tol, batch):
     """Every backend must carry the variable lower bound, not drop it.
 
-    Tolerances are set just above what each backend *achieves* with the
-    bound (QMC 2.8e-7 at 2^14, nquad ~1e-9), not at a comfortable round
-    number: a tolerance wider than the effect makes the cell unfalsifiable.
-    Verified by mutation — blanking the variable sources fails all six.
+    Tolerances bound what each backend achieves with the bound *and* stay
+    below what it achieves without -- the QMC cells are the tight ones
+    (2.8e-7 achieved vs ~1e-3 under mutation); nquad and gauss_legendre
+    clear theirs by a wide margin, so for those the tolerance is bounded
+    from above by the mutation, not from below by the quadrature.
+    Verified by mutation: blanking the variable sources fails all six.
     """
     from sft_wick.evaluate import integrate_moment
 
-    cache = _ScalarBatchCache()
+    cache = _ScalarBatchCache() if batch else _scalar_cache()
     res = _quartic(1, obs=[Field("phi", "physical")("x"),
                            Field("psi", "response")("y")])
     total = 0.0
@@ -773,6 +788,8 @@ def test_F13_gauss_legendre_recovers_fast_convergence():
     assert errs[8] < 1e-3, (
         f"n_gauss=8 rel err {errs[8]:.2e} — was 2.2e-1 with the bound dropped"
     )
+    # Secondary, and deliberately weak: it also holds under the mutation
+    # (0.060 < 0.225), so `errs[8] < 1e-3` above is the actual detector.
     assert errs[32] < errs[8], f"not converging: {errs}"
 
 
@@ -1057,3 +1074,160 @@ def test_F16_R_time_batch_handles_a_fully_acausal_batch():
     out = cache.R_time_batch(np.array([1.0, 2.0]), np.array([3.0, 4.0]))
     assert out.shape == (2,)
     assert np.all(out == 0.0)
+
+
+# --------------------------------------------------------------------- #
+# F17: the ni == 0 branch must delegate whenever `evaluate` sees positions
+# --------------------------------------------------------------------- #
+#
+# The first attempt at F14 routed *every* ni == 0 diagram through the
+# vectorised legacy-table-times-kappa2-ratio path.  That was a regression:
+# `C_value` is position-blind ONLY on the legacy time-only spline table.
+# With a spatial table it takes the exact `C_at_batch` fast path, and with
+# no table at all it falls through to dblquad / c_value_fn -- both exact.
+# Adversarial review measured 4.9% -> 34.3% degradation (r = 0.5 -> 4) for a
+# kernel whose correlation length grows with time, plus a hard RuntimeError
+# for a table-less cache.  These tests pin all three configurations.
+
+_F17_T = 4.0
+_F17_N = 2
+
+
+def _f17_igs(kappa2, diag_C=True, n_comp=_F17_N, fixed=None):
+    phi = Field("phi", "physical", n_components=n_comp)
+    psi = Field("psi", "response", n_components=n_comp)
+    res = compute_moment(
+        [phi("a", "x"), phi("b", "y")],
+        Action([Vertex(fields=[psi, phi, phi], coupling="F")]),
+        order=0, response_phase=True, diag_R=True, diag_C=diag_C, iso_R=True,
+    )
+    model = PropagatorModel(
+        R_time=lambda t, tp: np.exp(-MU * (t - tp)), kappa2=kappa2,
+        n_components=n_comp, iso_R=True, diag_C=diag_C, t_min=0.0,
+    )
+    igs = [dt.build_integrand({"F": -1j * np.zeros((n_comp,) * 3)},
+                              fixed_indices=fixed or {"a": 0, "b": 0})
+           for dt in res.diagram_terms(0)]
+    assert all(len(ig.spatial.time_integration_vars) == 0 for ig in igs)
+    return igs, model
+
+
+def _f17_sep(n1, n2):
+    a = np.atleast_1d(np.asarray(n1, dtype=float)).ravel()
+    b = np.atleast_1d(np.asarray(n2, dtype=float)).ravel()
+    return float(abs(a[0] - b[0]))
+
+
+@pytest.mark.parametrize("r", [0.5, 2.0, 4.0])
+def test_F17_spatial_table_stays_exact_for_a_nonseparable_kernel(r):
+    """With a spatial table the kappa2 ratio must NOT be substituted.
+
+    The ratio is taken at a single t_ref, so it is exact only for a
+    separable kernel.  Here the correlation length grows with time, and the
+    exact answer is a genuine double time integral.
+    """
+    from sft_wick.evaluate import integrate_two_point_qmc
+    from scipy.integrate import dblquad
+
+    def kappa2(n1, t1, n2, t2):
+        ell = 1.0 + 0.25 * (t1 + t2)
+        return np.eye(_F17_N) * np.exp(-_f17_sep(n1, n2) / ell)
+
+    igs, model = _f17_igs(kappa2)
+    cache = PropagatorCache(model)
+    cache.precompute_C_table_translation(t_max=_F17_T, n_grid_t=40)
+    cache.precompute_C_table(t_max=_F17_T, n_grid=40)  # legacy present too
+
+    got, _ = integrate_two_point_qmc(igs, _F17_T, {"x": 0.0, "y": r}, cache,
+                                     n_samples=2 ** 8, seed=0)
+    exact, _e = dblquad(
+        lambda l2, l1: (np.exp(-MU * (_F17_T - l1))
+                        * np.exp(-r / (1.0 + 0.25 * (l1 + l2)))
+                        * np.exp(-MU * (_F17_T - l2))),
+        0.0, _F17_T, lambda _: 0.0, lambda _: _F17_T, epsabs=1e-11,
+    )
+    assert got == pytest.approx(exact, rel=1e-3), (
+        f"r={r}: {got:.9f} vs exact {exact:.9f} — the kappa2 ratio was "
+        f"substituted for an exact spatial C"
+    )
+
+
+def test_F17_cache_without_a_legacy_table_still_works_at_order_0():
+    """A table-less cache must not turn into a RuntimeError."""
+    from sft_wick.evaluate import integrate_two_point_qmc
+
+    sigma_x = 1.0
+
+    def kappa2(n1, t1, n2, t2):
+        return np.eye(_F17_N) * np.exp(-_f17_sep(n1, n2) / sigma_x)
+
+    igs, model = _f17_igs(kappa2)
+    cache = PropagatorCache(model)  # no table of any kind
+
+    for r in (0.0, 1.0, 2.0):
+        got, _ = integrate_two_point_qmc(igs, _F17_T, {"x": 0.0, "y": r},
+                                         cache, n_samples=2 ** 8, seed=0)
+        exact = (np.exp(-r / sigma_x)
+                 * ((1.0 - np.exp(-MU * _F17_T)) / MU) ** 2)
+        assert got == pytest.approx(exact, rel=1e-6), f"r={r}"
+
+
+def test_F17_off_diagonal_C_uses_both_propagator_indices():
+    """diag_C=False must keep C_{01}, not collapse onto C_{00}.
+
+    `C_diagonal_batch` can only ever return diagonals, and the vectorised
+    branch resolves the left leg index only -- so a diag_C=False cache must
+    be delegated, not batched.
+    """
+    from sft_wick.evaluate import integrate_two_point_qmc
+
+    M = np.array([[1.0, 0.7], [0.7, 1.0]])
+    sigma_x = 1.0
+
+    def kappa2(n1, t1, n2, t2):
+        return M * np.exp(-_f17_sep(n1, n2) / sigma_x)
+
+    r = 1.0
+    scale = np.exp(-r / sigma_x) * ((1.0 - np.exp(-MU * _F17_T)) / MU) ** 2
+    for (a, b), want in [((0, 0), M[0, 0] * scale), ((0, 1), M[0, 1] * scale)]:
+        igs, model = _f17_igs(kappa2, diag_C=False, fixed={"a": a, "b": b})
+        cache = PropagatorCache(model)
+        got, _ = integrate_two_point_qmc(igs, _F17_T, {"x": 0.0, "y": r},
+                                         cache, n_samples=2 ** 8, seed=0)
+        assert got == pytest.approx(want, rel=1e-6), (
+            f"<phi_{a} phi_{b}>: {got:.9f} vs {want:.9f} "
+            f"(M[{a},{b}]={M[a, b]})"
+        )
+
+
+def test_F13_two_swept_externals_pick_the_right_column():
+    """With one swept external the column index is always 0.
+
+    `ext_integrated.index(src_v)` would then be untestable, so sweep TWO and
+    make the lower-bound source the SECOND one.  Reference is the closed
+    form double-integrated over both swept times.
+    """
+    from sft_wick.evaluate import integrate_moment
+    from scipy.integrate import dblquad
+
+    L = 3.0
+    cache = _ScalarBatchCache()
+    res = _quartic(1, obs=[Field("phi", "physical")("x"),
+                           Field("psi", "response")("y")])
+    igs = [dt.build_integrand({"g": np.array(1j)})
+           for dt in res.diagram_terms(1)]
+
+    ref, _e = dblquad(lambda ty, tx: _d1R_closed_form(tx, ty),
+                      0.0, L, lambda _: 0.0, lambda _: L, epsabs=1e-10)
+
+    for method, kw, tol in [("nquad", {}, 1e-5),
+                            ("qmc_vectorized",
+                             {"n_samples": 2 ** 14, "seed": 3}, 5e-3)]:
+        total = sum(
+            integrate_moment(ig, L, cache, method=method, t_min=0.0,
+                             integrate_over=["x", "y"], **kw)[0]
+            for ig in igs
+        )
+        assert total == pytest.approx(ref, rel=tol), (
+            f"{method}: {total:.8f} vs {ref:.8f}"
+        )
