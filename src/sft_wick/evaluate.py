@@ -1150,6 +1150,38 @@ def _swept_external_order(
     return placed, lowers, const_lo, const_hi
 
 
+def _real_batch_or_raise(values, e_psi: int = 0, *, where: str = "") -> np.ndarray:
+    """Array counterpart of :func:`_real_or_raise`.
+
+    The dynamic-coupling batch sites took a bare ``np.real(...)`` after the
+    ``i**E_psi`` rotation, so a mis-specified action -- a real coupling where
+    the MSR convention wants an imaginary one, say -- silently lost its
+    imaginary part instead of being reported.  That is a hole in the reality
+    projection on precisely the feature this branch adds.
+
+    Vectorised so a per-sample batch is checked in one pass: the residue is
+    judged against the batch's own scale, matching the scalar helper's
+    ``max(|re|, scale)`` rule rather than element-by-element, which would
+    reject legitimate near-zero samples inside an otherwise healthy batch.
+    """
+    z = np.asarray(values) * (1j ** int(e_psi))
+    re_ = np.real(z)
+    im_ = np.imag(z)
+    if not np.any(im_):
+        return re_
+    scale = float(np.max(np.abs(re_))) if re_.size else 0.0
+    worst = float(np.max(np.abs(im_))) if im_.size else 0.0
+    if worst <= _REALITY_TOL * max(scale, _REALITY_FLOOR):
+        return re_
+    raise ValueError(
+        f"Diagram integrand batch{where} has a non-negligible imaginary part "
+        f"after the i**E_psi rotation (E_psi={e_psi}): worst |Im| = {worst:.3e} "
+        f"against |Re| scale {scale:.3e}.  Check the coupling's phase "
+        f"convention -- the MSR reality theorem gives i**(-E_psi) x real only "
+        f"when each vertex coupling carries (+-i)**n_psi(v)."
+    )
+
+
 def _rotation_cos(x1, x2) -> float:
     """Cosine similarity ``x1·x2 / (|x1| |x2|)`` as a scalar.
 
@@ -3221,7 +3253,9 @@ class DiagramIntegrand:
             label_x=label_x,
             n_samples=n_samples,
         )
-        values = np.real(couplings * self.observable_phase) * r_product * c_product
+        values = _real_batch_or_raise(
+            couplings, self._e_psi, where=' (dynamic coupling, qmc)',
+        ) * r_product * c_product
         return float(values[0])
 
     def make_scipy_integrand(
@@ -3870,7 +3904,9 @@ class DiagramIntegrand:
             # NotImplementedError for prop-indexed dynamic is raised
             # inside ``evaluate_at_batch``.
             values = (
-                np.real(couplings * self.observable_phase)
+                _real_batch_or_raise(
+                    couplings, self._e_psi,
+                    where=' (dynamic coupling, gauss-legendre)')
                 * r_product * c_product * jacobians
             )
 
@@ -4179,7 +4215,8 @@ class DiagramIntegrand:
                 label_x=label_x,
                 n_samples=n_samples,
             )
-            values = (np.real(couplings * self.observable_phase)
+            values = (_real_batch_or_raise(
+                couplings, self._e_psi, where=' (dynamic coupling, nquad)')
                       * r_product * c_product * jacobians)
 
         elif not prop_idx:

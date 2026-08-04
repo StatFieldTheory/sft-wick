@@ -2,7 +2,105 @@
 
 ## Unreleased
 
+> **Numbers move.** Several fixes below change results that were previously
+> wrong. If you have pinned values, re-pin them against the corrected output
+> rather than loosening tolerances — every change is documented with its
+> measured size. The two that move the most output: the causal **lower**
+> bounds (any observable with an external response leg) and the **C-table
+> diagonal** fix (every tadpole, i.e. every interacting order).
+
+### Added
+
+- **`external_times={point: time}`** on `integrate_moment_{qmc,qmc_vectorized,
+  gauss_legendre,nquad}`, the `integrate_moment` dispatcher,
+  `_evaluate_zero_dimensional` and `integrate_two_point_qmc`. Every integrator
+  previously pinned *all* fixed externals at a single `lambda_f`, so `R(t,t')`
+  and `C(t,t')` were unreachable — and because Θ kills an R joining two
+  externals at the same time, **every observable with an external response leg
+  came back identically 0** at every order through all five backends.
+  `external_times=None` reproduces the old numbers bit-for-bit.
+- **Time-dependent (callable) *local* couplings.** The vertex's single
+  spacetime point was discarded, so a callable local coupling was rejected.
+- **`PropagatorCache(model, c_value_fn=...)`** — a public L0 hook for supplying
+  C directly, without subclassing and overriding semi-private methods.
+
 ### Fixed
+
+- **Causal *lower* bounds from external response legs were dropped entirely.**
+  Every bound-builder wrote `if earlier in int_vars: upper_bounds[...]`, which
+  silently discards any ordering whose *earlier* endpoint is external — exactly
+  the orderings an external ψ leg creates, since `<φ(u) ψ(y)> = R(u,y)` forces
+  `t_u >= t_y`. The O(g) response was integrated over `[t_min, t_x]` instead of
+  `[t_y, t_x]`: up to 5x wrong, and −11.25 instead of exactly 0 at `t_y = t_x`.
+  Lower bounds are now also transitively closed along internal edges, and
+  inverted intervals are clamped so `nquad` never integrates backwards (which
+  returned a negative volume, sign-inverting the O(g²) response).
+- **A swept external's causal bounds are now carried, not refused.** With
+  `integrate_over`, a bound from a swept point is variable-valued. Dropping it
+  is not a correctness error — Θ already zeroes the integrand there — but it is
+  a quadrature error for a fixed-node rule, because Θ leaves a jump *inside*
+  the domain: `gauss_legendre` measured **22.5 % wrong at the library default
+  `n_gauss=8`**, converging only as O(1/n). Now exact at n=8. The same applies
+  to orderings between two swept externals (**29 %** at n=8) and, since they
+  can be mediated by an internal vertex or involve a fixed external, the whole
+  ordering graph is closed transitively rather than by edge kind.
+- **Retardation (Θ) is applied at diagram evaluation.** `R_time` is the raw
+  Θ-stripped model accessor; the three consumers that multiply R factors now
+  apply Θ with a strict `t_left > t_right` test. An R joining two *fixed*
+  externals has no integration domain to enforce it, so an order-0 response
+  returned the unbounded acausal `exp(+μ(t_y−t_x))`, and 1 instead of 0 at
+  equal times.
+- **The C builder contracted only `diag(R)`** instead of `R κ Rᵀ` — 57 %
+  Frobenius error for a dense drift.
+- **Eighteen complex→real projection sites** took `abs()` of a complex value or
+  `.real` of an imaginary one, destroying the sign (or zeroing the value) of
+  any diagram whose observable carries external response legs. All now route
+  through a checked projection using the reality theorem: with
+  `n_R = Σ_v n_ψ(v) + E_ψ`, a diagram equals `i^(−E_ψ) ×` a real number.
+- **The C table did not converge on its diagonal.** `C(t1,t2)` integrates up to
+  `min(t1,t2)`, so `∂C/∂t1` jumps by exactly `−σ²(t)` across `t1 == t2`; a
+  tensor-product spline is C² and cannot represent that ridge. Measured
+  mid-cell relative error **22.3 % at `n_grid=41`, still 21.4 % at 321**
+  (absolute error O(h) against O(h⁴) off the diagonal) — and *every tadpole*
+  evaluates `C(s,s)`, exactly on it. The grid's own `i == j` entries are now
+  harvested into a separate interpolator, for the legacy table, the lazy
+  spatial builder and the three full spatial grids. This **changes every
+  interacting order**: `examples/demo1`'s YAML-workflow sweep moves in 42 of
+  48 rows by up to 6.1e-3 relative. (The demo1 *notebook*, which produces the
+  paper figures, is unaffected — it uses a closed-form analytical cache.)
+- **`integrate_two_point_qmc` ignored spatial separation at order 0** and, above
+  order 0, ignored a spatial C table in favour of the single-`t_ref` κ² ratio.
+  The first returned the coincident-point value at *every* separation (a factor
+  e² at r = 2σ); the second was 8.2 % off at order 2 for a kernel whose
+  correlation length grows with time.
+- `DiagramIntegrand.evaluate` silently returned 0 for a callable coupling, and
+  a scalar-field coupling of the wrong rank raised an opaque `TypeError`.
+- The reality projection ran *before* the negligibility guard on three
+  prop-indexed sites, so a coupling entry that is float noise around zero
+  raised instead of being skipped.
+
+### Changed
+
+- `ito=False` is documented as a **symbolic** switch. It keeps the equal-point
+  R terms in the expression tree but does not change any number: Θ(0)=0 and the
+  absent Stratonovich functional Jacobian cancel exactly, and for additive noise
+  the Itô and Stratonovich answers coincide. Do **not** "fix" this by setting
+  Θ(0)=1/2 without emitting the Jacobian — for the linear vertex that adds a
+  spurious term growing without bound in the final time (measured 200 %/400 %/
+  800 % of the exact answer at T = 4/8/16).
+- `PropagatorCache.R_time`'s docstring is now the single authoritative
+  statement of the Θ convention, which was previously described three
+  inconsistent ways.
+
+### Internal
+
+- `PropagatorCache` stays picklable with a C table built: the diagonal
+  interpolator serialises only its nodes and values, since
+  `scipy.interpolate.CubicSpline` is not picklable on scipy ≥ 1.18. This keeps
+  `propagators.cache_path`, `integrate_diagrams(n_jobs>1)` and
+  `Expansion.sweep(n_jobs>1)` working.
+
+### Fixed (details of the first item above)
 
 - **`DiagramIntegrand.integration_bounds` returned wrong integration bounds.**
   `scipy.integrate.nquad` calls `ranges[i]` with the **outer** integration
