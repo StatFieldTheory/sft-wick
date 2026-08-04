@@ -581,3 +581,56 @@ def test_F9_acausal_external_times_give_exactly_zero(order):
         val, _ = nquad(f, bounds, opts={"epsabs": 1e-12, "epsrel": 1e-10})
         total += val
     assert total == pytest.approx(0.0, abs=1e-12)
+
+
+def test_F12_two_point_qmc_agrees_with_the_other_backends():
+    """integrate_two_point_qmc is a 6th bound-builder and was missed.
+
+    It had no lower bounds at all and its zero-dimensional branch used
+    `val.real` (a 15th unprojected site), so for a response observable it
+    disagreed with all four other backends by 100%.
+    """
+    from sft_wick.evaluate import integrate_two_point_qmc
+
+    T = 3.0
+    cache = _scalar_cache()
+    cache.precompute_C_table(t_max=4.0, n_grid=201, direction=0)
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    for order in (0, 1):
+        res = compute_moment(
+            [phi("x"), psi("y")],
+            Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
+            order=order, ito=True, response_phase=True, collect_topology=True,
+            diag_R=True, diag_C=True, iso_R=True, iso_C=True,
+        )
+        igs = [dt.build_integrand({"g": np.array(1j)})
+               for dt in res.diagram_terms(order)]
+        tp, _ = integrate_two_point_qmc(
+            igs, T, {"x": 0.0, "y": 0.0}, cache, t_min=0.0,
+            n_samples=2 ** 14, seed=1,
+        )
+        ref = sum(ig.integrate_moment_nquad(lambda_f=T, cache=cache, t_min=0.0)[0]
+                  for ig in igs)
+        assert tp == pytest.approx(ref, abs=1e-8), f"order {order}"
+
+
+def test_F13_integrated_external_lower_bound_is_refused_not_dropped():
+    """A swept external that lower-bounds a vertex must raise, not be ignored.
+
+    The bound is variable-valued and the samplers cannot carry it yet;
+    dropping it was measured 205%-749% wrong.
+    """
+    cache = _scalar_cache()
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    res = compute_moment(
+        [phi("x"), psi("y")],
+        Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
+        order=1, ito=True, response_phase=True, collect_topology=True,
+        diag_R=True, diag_C=True, iso_R=True, iso_C=True,
+    )
+    ig = res.diagram_terms(1)[0].build_integrand({"g": np.array(1j)})
+    with pytest.raises(NotImplementedError, match="bound the internal time"):
+        ig.integrate_moment_nquad(lambda_f=3.0, cache=cache, t_min=0.0,
+                                  integrate_over=["y"])
