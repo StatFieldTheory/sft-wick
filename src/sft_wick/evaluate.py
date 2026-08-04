@@ -727,15 +727,58 @@ def _causal_lower_bounds(
     least one external lower bound; ``t_min`` is folded in, so the caller can
     use the value directly as ``lo``.
     """
+    return _causal_lower_bound_sources(
+        spatial, int_vars, external_times, t_min,
+    )[0]
+
+
+def _causal_lower_bound_sources(
+    spatial,
+    int_vars,
+    external_times: dict,
+    t_min: float,
+    swept: tuple = (),
+) -> tuple[dict, dict]:
+    """Lower bounds split into a constant part and a *variable* part.
+
+    ``external_times`` maps each **fixed** external point to its time, and
+    ``swept`` names the externals the caller is sampling (``integrate_over``).
+    An ordering from a swept external is still a lower bound, but its value
+    is only known per sample, so it is reported as a *source name* rather
+    than a number.
+
+    Returns ``(const, sources)`` where
+
+    * ``const[v]`` is the constant lower limit for internal variable ``v``
+      (``t_min`` folded in), exactly what :func:`_causal_lower_bounds`
+      returns, and
+    * ``sources[v]`` is a tuple of names drawn from ``swept`` that also
+      bound ``v`` from below, so the caller can take a per-sample
+      ``max(const[v], *[t(s) for s in sources[v]])``.
+
+    Only names in ``swept`` become sources.  A point that is in neither
+    ``external_times`` nor ``swept`` -- an aliased leg of an ``equal_time``
+    non-local vertex, say -- is skipped exactly as before, so the caller
+    never receives a name it has no column for.
+
+    Every sampler in this module draws the integrated externals *before*
+    any internal variable, and ``nquad`` places them outside every internal
+    variable in ``all_vars``, so a source's value is always available by
+    the time the bound is needed.
+    """
     int_set = set(int_vars)
+    swept_set = set(swept)
     lowers: dict = {}
+    sources: dict = {}
     # Direct constraints: (external earlier) -> (internal later).
     for earlier, later in spatial.time_orderings:
         if later in int_set and earlier not in int_set:
             t_e = external_times.get(earlier)
             if t_e is None:
-                continue
-            lowers[later] = max(lowers.get(later, t_min), float(t_e))
+                if earlier in swept_set:
+                    sources.setdefault(later, set()).add(earlier)
+            else:
+                lowers[later] = max(lowers.get(later, t_min), float(t_e))
 
     # TRANSITIVE CLOSURE along internal edges.  A chain
     # ``ext -> v1 -> v2`` implies ``t_v2 >= t_v1 >= t_ext``, but only ``v1``
@@ -744,6 +787,8 @@ def _causal_lower_bounds(
     # ``[t_ext, t_v2]`` inverts -- nquad then integrates backwards and returns
     # a negative volume.  The internal orderings form a DAG, so this fixpoint
     # terminates; it is cheap because diagrams have very few vertices.
+    # Variable sources propagate along the same edges and for the same
+    # reason.
     changed = True
     while changed:
         changed = False
@@ -753,44 +798,11 @@ def _causal_lower_bounds(
                 if lo_e is not None and lo_e > lowers.get(later, t_min):
                     lowers[later] = lo_e
                     changed = True
-    return lowers
-
-
-def _reject_integrated_external_lower_bounds(
-    spatial, int_vars, ext_integrated,
-) -> None:
-    """Refuse the one causal constraint the integrators cannot yet express.
-
-    An ordering ``(earlier, later)`` with ``earlier`` an external point and
-    ``later`` internal is a LOWER bound on the internal time (see
-    :func:`_causal_lower_bounds`).  When that external is *fixed* the bound is
-    a constant and is applied.  When it is swept via ``integrate_over`` the
-    bound is a *variable*, which the current samplers cannot carry, so the
-    constraint would simply be dropped -- measured 205%-749% wrong for the
-    integrated moment of a response function.
-
-    Raising keeps a silently wrong number from reaching the user.  The
-    constraint is expressible in principle (integrated externals are sampled
-    before every internal variable in all backends), so this is a missing
-    feature, not an impossibility.
-    """
-    if not ext_integrated:
-        return
-    int_set, ext_int_set = set(int_vars), set(ext_integrated)
-    offenders = [
-        (e, l) for e, l in spatial.time_orderings
-        if l in int_set and e in ext_int_set
-    ]
-    if offenders:
-        raise NotImplementedError(
-            f"integrate_over sweeps external point(s) "
-            f"{sorted({e for e, _ in offenders})}, which causally bound the "
-            f"internal time(s) {sorted({l for _, l in offenders})} from below "
-            f"(orderings {offenders}). Variable lower bounds are not yet "
-            f"implemented, and dropping them would be silently wrong. Fix the "
-            f"external time instead of integrating over it, or use "
-            f"make_scipy_integrand()+integration_bounds() with explicit times."
-        )
+                src_e = sources.get(earlier)
+                if src_e and not src_e <= sources.get(later, set()):
+                    sources.setdefault(later, set()).update(src_e)
+                    changed = True
+    return lowers, {v: tuple(sorted(s)) for v, s in sources.items()}
 
 
 def _rotation_cos(x1, x2) -> float:
@@ -3031,15 +3043,12 @@ class DiagramIntegrand:
                 parent_map[earlier].append(later)
 
         # Lower limits from external response legs (see
-        # _causal_lower_bounds).  Only fixed externals can impose one; an
-        # integrated external is itself swept, and its ordering with an
-        # internal variable is already carried by ``parent_map``.
-        _reject_integrated_external_lower_bounds(
-            spatial, int_vars_parents_first, ext_integrated,
-        )
-        lowers = _causal_lower_bounds(
+        # _causal_lower_bound_sources).  A *fixed* external contributes a
+        # constant; a swept one contributes a per-sample value, read below
+        # from ``times`` (integrated externals are drawn first).
+        lowers, lower_srcs = _causal_lower_bound_sources(
             spatial, int_vars_parents_first,
-            {v: lambda_f for v in ext_fixed}, t_min,
+            {v: lambda_f for v in ext_fixed}, t_min, swept=ext_integrated,
         )
 
         # Generate Sobol samples in [0,1]^d
@@ -3070,6 +3079,8 @@ class DiagramIntegrand:
                 else:
                     hi = lambda_f
                 lo = lowers.get(var, t_min)
+                for src in lower_srcs.get(var, ()):
+                    lo = max(lo, times[src])
                 width = hi - lo
                 if width <= 0:
                     jacobian = 0.0
@@ -3194,12 +3205,14 @@ class DiagramIntegrand:
         for earlier, later in spatial.time_orderings:
             if earlier in int_vars_pf:
                 parent_map[earlier].append(later)
-        # Lower limits from external response legs (see _causal_lower_bounds).
-        _reject_integrated_external_lower_bounds(
-            spatial, int_vars_pf, ext_integrated,
-        )
-        lowers = _causal_lower_bounds(
+        # Lower limits from external response legs (see
+        # _causal_lower_bound_sources).  A *fixed* external contributes a
+        # constant; a swept one contributes a per-sample column of
+        # ``times_arr`` (integrated externals occupy the first n_ext_int
+        # columns and are filled before this loop runs).
+        lowers, lower_srcs = _causal_lower_bound_sources(
             spatial, int_vars_pf, {v: lambda_f for v in ext_fixed}, t_min,
+            swept=ext_integrated,
         )
 
         # Sobol samples
@@ -3239,6 +3252,9 @@ class DiagramIntegrand:
                 hi = np.full(n_samples, lambda_f)
 
             lo_v = lowers.get(var, t_min)
+            for src_v in lower_srcs.get(var, ()):
+                col = ext_integrated.index(src_v)
+                lo_v = np.maximum(lo_v, times_arr[:, col])
             width = hi - lo_v
             valid = width > 0
             times_arr[:, idx] = np.where(valid, lo_v + u[:, idx] * width, lo_v)
@@ -3527,12 +3543,14 @@ class DiagramIntegrand:
         for earlier, later in spatial.time_orderings:
             if earlier in int_vars_pf:
                 parent_map[earlier].append(later)
-        # Lower limits from external response legs (see _causal_lower_bounds).
-        _reject_integrated_external_lower_bounds(
-            spatial, int_vars_pf, ext_integrated,
-        )
-        lowers = _causal_lower_bounds(
+        # Lower limits from external response legs (see
+        # _causal_lower_bound_sources).  A *fixed* external contributes a
+        # constant; a swept one contributes a per-sample column of
+        # ``times_arr`` (integrated externals occupy the first n_ext_int
+        # columns and are filled before this loop runs).
+        lowers, lower_srcs = _causal_lower_bound_sources(
             spatial, int_vars_pf, {v: lambda_f for v in ext_fixed}, t_min,
+            swept=ext_integrated,
         )
 
         span = lambda_f - t_min
@@ -3561,6 +3579,9 @@ class DiagramIntegrand:
                 hi = np.full(n_samples, lambda_f)
 
             lo_v = lowers.get(var, t_min)
+            for src_v in lower_srcs.get(var, ()):
+                col = ext_integrated.index(src_v)
+                lo_v = np.maximum(lo_v, times_arr[:, col])
             width = hi - lo_v
             valid = width > 0
             times_arr[:, idx] = np.where(valid, lo_v + u[:, idx] * width, lo_v)
@@ -3769,11 +3790,14 @@ class DiagramIntegrand:
             if earlier in int_vars:
                 upper_bounds[earlier].append(later)
 
-        # Lower limits from external response legs (see _causal_lower_bounds).
-        _reject_integrated_external_lower_bounds(
-            spatial, int_vars, ext_integrated,
+        # Lower limits from external response legs (see
+        # _causal_lower_bound_sources).  ``all_vars`` is internals-first,
+        # so every swept external sits *outside* every internal variable
+        # and scipy has already bound it by the time an inner range
+        # callable fires -- a variable lower bound is expressible here.
+        lowers, lower_srcs = _causal_lower_bound_sources(
+            spatial, int_vars, fixed_times, t_min, swept=ext_integrated,
         )
-        lowers = _causal_lower_bounds(spatial, int_vars, fixed_times, t_min)
 
         ranges: list = []
         for i, var in enumerate(all_vars):
@@ -3781,8 +3805,9 @@ class DiagramIntegrand:
                 ranges.append((t_min, lambda_f))
             else:
                 lo_var = lowers.get(var, t_min)
+                lo_dyn = lower_srcs.get(var, ())
                 ub_sources = upper_bounds.get(var, [])
-                if not ub_sources:
+                if not ub_sources and not lo_dyn:
                     ranges.append((lo_var, max(lo_var, lambda_f)))
                 else:
                     # Fixed externals contribute a constant upper bound
@@ -3791,23 +3816,24 @@ class DiagramIntegrand:
                               if src not in fixed_times]
 
                     def make_bound(
-                        ub: list[str], avars: list[str],
+                        ub: list[str], lb: tuple, avars: list[str],
                         lo: float, hi: float, cur_i: int,
                     ) -> Callable:
                         def bound_func(*later_args: float) -> tuple[float, float]:
-                            hi_vals = [hi]
-                            for src in ub:
+                            def outer(src: str, default: float) -> float:
                                 j = avars.index(src) - cur_i - 1
                                 if 0 <= j < len(later_args):
-                                    hi_vals.append(later_args[j])
-                                else:
-                                    hi_vals.append(hi)
-                            hi_v = min(hi_vals)
+                                    return later_args[j]
+                                return default
+
+                            hi_v = min([hi] + [outer(s, hi) for s in ub])
+                            lo_v = max([lo] + [outer(s, lo) for s in lb])
                             # Never integrate backwards (see integration_bounds).
-                            return (lo, hi_v if hi_v > lo else lo)
+                            return (lo_v, hi_v if hi_v > lo_v else lo_v)
                         return bound_func
                     ranges.append(
-                        make_bound(ub_dyn, all_vars, lo_var, lambda_f, i)
+                        make_bound(ub_dyn, lo_dyn, all_vars, lo_var,
+                                   lambda_f, i)
                     )
 
         val, err = _nquad(f, ranges)
@@ -4161,16 +4187,7 @@ def integrate_two_point_qmc(
                 factor = np.where(safe, diag_sep / diag_00, 0.0)
                 c_spatial_factors.append(factor)
 
-        # --- Zero integration variables: direct evaluation ---
-        et = {v: t_f for v in evs}
         ni = len(ivs)
-        if ni == 0:
-            val = ig.evaluate(et, directions, cache)
-            total += _real_or_raise(
-                val, ig._e_psi,
-                where=" (two-point qmc, zero-dimensional)",
-            )
-            continue
 
         # --- Causal parent map (upper bounds) ---
         pm: dict[str, list[str]] = defaultdict(list)
@@ -4181,33 +4198,47 @@ def integrate_two_point_qmc(
         lowers = _causal_lower_bounds(sp, ivs, {v: t_f for v in evs}, t_min)
 
         # --- Sobol samples ---
-        u = _qmc.Sobol(d=ni, seed=seed).random(n_samples)
-        t_s = np.zeros((n_samples, ni))
-        jac = np.ones(n_samples)
-        for k, var in enumerate(ivs):
-            ps = pm.get(var, [])
-            pi = [ivs.index(p) for p in ps if p in ivs]
-            ep = [t_f for p in ps if p not in ivs]
-            hi = np.min(t_s[:, pi], axis=1) if pi else np.full(n_samples, t_f)
-            if ep:
-                hi = np.minimum(hi, min(ep))
-            lo_v = lowers.get(var, t_min)
-            w = hi - lo_v
-            ok = w > 0
-            t_s[:, k] = np.where(ok, lo_v + u[:, k] * w, lo_v)
-            jac = np.where(ok, jac * w, 0.0)
+        #
+        # ``ni == 0`` — every order-0 diagram — is run as a degenerate
+        # ONE-sample batch with a unit Jacobian rather than delegated to
+        # ``ig.evaluate``.  The delegated path never applied
+        # ``c_spatial_factors``: ``C_value`` short-circuits to the
+        # direction-agnostic legacy spline table, so the order-0
+        # correlator came back at its coincident-point value for *every*
+        # separation while the sampled path below scaled correctly —
+        # one function, two spatial conventions (a factor e² at r = 2σ).
+        # Sharing the code makes the branches agree structurally rather
+        # than by maintenance.
+        n_eval = n_samples if ni else 1
+        t_s = np.zeros((n_eval, ni))
+        jac = np.ones(n_eval)
+        if ni:
+            u = _qmc.Sobol(d=ni, seed=seed).random(n_samples)
+            for k, var in enumerate(ivs):
+                ps = pm.get(var, [])
+                pi = [ivs.index(p) for p in ps if p in ivs]
+                ep = [t_f for p in ps if p not in ivs]
+                hi = (np.min(t_s[:, pi], axis=1) if pi
+                      else np.full(n_samples, t_f))
+                if ep:
+                    hi = np.minimum(hi, min(ep))
+                lo_v = lowers.get(var, t_min)
+                w = hi - lo_v
+                ok = w > 0
+                t_s[:, k] = np.where(ok, lo_v + u[:, k] * w, lo_v)
+                jac = np.where(ok, jac * w, 0.0)
 
         # --- Full time array ---
         all_vars = evs + ivs
         var_col = {v: j for j, v in enumerate(all_vars)}
-        t_arr = np.empty((n_samples, len(all_vars)))
+        t_arr = np.empty((n_eval, len(all_vars)))
         for j in range(len(evs)):
             t_arr[:, j] = t_f
         for j in range(ni):
             t_arr[:, len(evs) + j] = t_s[:, j]
 
         # --- Vectorised R product ---
-        r_prod = np.ones(n_samples)
+        r_prod = np.ones(n_eval)
         for sl, sr in _kept_r_propagators(sp):
             r_prod *= cache.R_time_batch(
                 t_arr[:, var_col[sl]], t_arr[:, var_col[sr]]
@@ -4227,7 +4258,7 @@ def integrate_two_point_qmc(
 
         if not prop_idx:
             # Scalar coupling (iso_R + iso_C)
-            c_prod = np.ones(n_samples)
+            c_prod = np.ones(n_eval)
             for ci, (sp_l, sp_r, il, ir) in enumerate(sp.c_propagators):
                 t_l = t_arr[:, var_col[sp_l]]
                 t_r = t_arr[:, var_col[sp_r]]
@@ -4246,7 +4277,7 @@ def integrate_two_point_qmc(
             # Propagator-indexed coupling
             idx_names = [name for name, _ in prop_idx]
             prop_shape = tuple(dim for _, dim in prop_idx)
-            values = np.zeros(n_samples)
+            values = np.zeros(n_eval)
             for pidx in np.ndindex(*prop_shape):
                 c_val = _real_or_raise(
                     coeff[pidx] if coeff.ndim > 0 else coeff,
@@ -4256,7 +4287,7 @@ def integrate_two_point_qmc(
                 if abs(c_val) < 1e-20:
                     continue
                 idx_map = {**fi, **dict(zip(idx_names, pidx))}
-                c_prod = np.ones(n_samples)
+                c_prod = np.ones(n_eval)
                 for ci, (sp_l, sp_r, il, ir) in enumerate(
                     sp.c_propagators
                 ):
@@ -4276,11 +4307,14 @@ def integrate_two_point_qmc(
         est = float(np.mean(values))
         total += est
 
-        # Error from 8 sub-batches
-        bs = n_samples // 8
-        bm = np.array(
-            [np.mean(values[j * bs : (j + 1) * bs]) for j in range(8)]
-        )
-        total_err_sq += (float(np.std(bm, ddof=1) / np.sqrt(8))) ** 2
+        # Error from 8 sub-batches.  A zero-dimensional diagram is a
+        # single deterministic evaluation, so it contributes no
+        # quadrature variance.
+        if ni:
+            bs = n_samples // 8
+            bm = np.array(
+                [np.mean(values[j * bs : (j + 1) * bs]) for j in range(8)]
+            )
+            total_err_sq += (float(np.std(bm, ddof=1) / np.sqrt(8))) ** 2
 
     return (total, np.sqrt(total_err_sq))

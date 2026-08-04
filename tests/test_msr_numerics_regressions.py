@@ -15,6 +15,15 @@ Covered:
   F6  callable (time-dependent) LOCAL couplings were rejected outright.
   F7a DiagramIntegrand.evaluate silently returned 0 for a callable coupling.
   F7c a scalar-field coupling of the wrong rank raised an opaque TypeError.
+  F9  causal LOWER bounds from external response legs were dropped by every
+      bound-builder, and were not transitively closed along internal edges.
+  F10 the zero-dimensional QMC branch projected with `.real`.
+  F11 R propagators between two fixed externals had no Theta.
+  F12 integrate_two_point_qmc was a sixth bound-builder and was missed.
+  F13 a SWEPT external's lower bound is variable-valued; dropping it costs
+      gauss_legendre its spectral convergence (22% at the default n_gauss=8).
+  F14 integrate_two_point_qmc dropped the spatial factor at ni == 0, so the
+      order-0 correlator ignored separation entirely.
 """
 
 from __future__ import annotations
@@ -34,16 +43,47 @@ def _C0(t1: float, t2: float) -> float:
     return (D / MU) * (np.exp(-MU * abs(t1 - t2)) - np.exp(-MU * (t1 + t2)))
 
 
-def _scalar_cache(**kw) -> PropagatorCache:
-    model = PropagatorModel(
+def _scalar_model() -> PropagatorModel:
+    return PropagatorModel(
         R_time=lambda t, tp: np.exp(-MU * (t - tp)),
         kappa2=lambda n1, t1, n2, t2: np.zeros((1, 1)),
         sigma2=lambda n1, t, n2: np.array([[2.0 * D]]),
         n_components=1, iso_R=True, diag_C=True, t_min=0.0,
     )
+
+
+def _scalar_cache(**kw) -> PropagatorCache:
     return PropagatorCache(
-        model, c_value_fn=lambda n1, t1, n2, t2: np.array([[_C0(t1, t2)]]), **kw
+        _scalar_model(),
+        c_value_fn=lambda n1, t1, n2, t2: np.array([[_C0(t1, t2)]]), **kw
     )
+
+
+class _ScalarBatchCache(PropagatorCache):
+    """``_scalar_cache`` plus a closed-form **batch** C.
+
+    ``gauss_legendre`` and ``qmc_vectorized`` reject a cache without batch C,
+    and would otherwise need ``precompute_C_table`` — whose derivative kink on
+    the ``t1 == t2`` diagonal costs ~0.05% on its own, larger than the effect
+    some of these tests resolve.  Overriding the scalar accessors too keeps
+    every backend on the same machine-precision propagator values.
+    """
+
+    def __init__(self):
+        super().__init__(
+            _scalar_model(),
+            c_value_fn=lambda n1, t1, n2, t2: np.array([[_C0(t1, t2)]]),
+        )
+        self._c_splines = True  # sentinel: "batch C is available"
+
+    def C_value(self, n1, t1, n2, t2):
+        return np.array([[_C0(t1, t2)]])
+
+    def C_diagonal(self, n, t1, n_prime=None, t2=None):
+        return np.array([_C0(t1, t1 if t2 is None else t2)])
+
+    def C_diagonal_batch(self, t1, t2):
+        return np.asarray(_C0(t1, t2), dtype=float)[:, None]
 
 
 def _quartic(order: int, obs=None):
@@ -615,22 +655,245 @@ def test_F12_two_point_qmc_agrees_with_the_other_backends():
         assert tp == pytest.approx(ref, abs=1e-8), f"order {order}"
 
 
-def test_F13_integrated_external_lower_bound_is_refused_not_dropped():
-    """A swept external that lower-bounds a vertex must raise, not be ignored.
+# --------------------------------------------------------------------- #
+# F13: a SWEPT external that lower-bounds a vertex
+# --------------------------------------------------------------------- #
+#
+# ``integrate_over=['y']`` sweeps the psi leg, so the ordering (y -> vertex)
+# is a lower bound whose value changes sample to sample.  Every backend
+# dropped it.  Two corrections to the original diagnosis, both measured:
+#
+#   * It is no longer a *correctness* defect.  Since Theta is applied
+#     pointwise at every R site, the integrand already vanishes wherever
+#     s < y, so the too-large domain only wastes evaluations.  Measured at
+#     HEAD~ with the bound dropped: nquad 0.022%, qmc 0.012%,
+#     qmc_vectorized 0.144% (2^14) -> 0.002% (2^20).  The 205%/749% figures
+#     recorded earlier were measured before Theta landed.
+#   * It IS a quadrature defect, and only for a fixed-node smooth rule.
+#     Theta puts a jump inside the domain, which costs gauss_legendre its
+#     spectral convergence: 22.454% at the library default n_gauss=8, then
+#     6.035 / 1.544 / 0.766% at n=32/128/256 — error ~ 1/n.
+#
+# The bound is expressible in every backend (integrated externals are drawn
+# before all internals; nquad places them outside every internal variable),
+# so it is now applied rather than refused.  With it, n_gauss=8 gives 0.006%.
 
-    The bound is variable-valued and the samplers cannot carry it yet;
-    dropping it was measured 205%-749% wrong.
+_F13_LAMBDA_F = 3.0
+
+
+def _f13_reference() -> float:
+    """int_0^lambda_f dy  delta_1 R(lambda_f, y), from the closed form."""
+    val, _ = quad(lambda y: _d1R_closed_form(_F13_LAMBDA_F, y),
+                  0.0, _F13_LAMBDA_F, limit=200)
+    return val
+
+
+@pytest.mark.parametrize("method,kw,tol", [
+    ("nquad", {}, 1e-6),
+    ("qmc", {"n_samples": 2 ** 14, "seed": 7}, 1e-5),
+    ("qmc_scalar", {"n_samples": 2 ** 14, "seed": 7}, 1e-5),
+    ("qmc_vectorized", {"n_samples": 2 ** 14, "seed": 7}, 1e-5),
+    ("gauss_legendre", {"n_gauss": 8}, 2e-3),
+    ("gauss_legendre", {"n_gauss": 32}, 2e-4),
+])
+def test_F13_swept_external_lower_bound_is_applied(method, kw, tol):
+    """Every backend must carry the variable lower bound, not drop it.
+
+    Tolerances are set just above what each backend *achieves* with the
+    bound (QMC 2.8e-7 at 2^14, nquad ~1e-9), not at a comfortable round
+    number: a tolerance wider than the effect makes the cell unfalsifiable.
+    Verified by mutation — blanking the variable sources fails all six.
     """
-    cache = _scalar_cache()
-    phi = Field("phi", "physical")
-    psi = Field("psi", "response")
-    res = compute_moment(
-        [phi("x"), psi("y")],
-        Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
-        order=1, ito=True, response_phase=True, collect_topology=True,
-        diag_R=True, diag_C=True, iso_R=True, iso_C=True,
+    from sft_wick.evaluate import integrate_moment
+
+    cache = _ScalarBatchCache()
+    res = _quartic(1, obs=[Field("phi", "physical")("x"),
+                           Field("psi", "response")("y")])
+    total = 0.0
+    for dt in res.diagram_terms(1):
+        v, _ = integrate_moment(
+            dt.build_integrand({"g": np.array(1j)}), _F13_LAMBDA_F, cache,
+            method=method, t_min=0.0, integrate_over=["y"], **kw
+        )
+        total += v
+    ref = _f13_reference()
+    assert total == pytest.approx(ref, rel=tol), (
+        f"{method} {kw}: {total:.8f} vs closed form {ref:.8f} "
+        f"(rel {abs(total - ref) / abs(ref):.2e})"
     )
-    ig = res.diagram_terms(1)[0].build_integrand({"g": np.array(1j)})
-    with pytest.raises(NotImplementedError, match="bound the internal time"):
-        ig.integrate_moment_nquad(lambda_f=3.0, cache=cache, t_min=0.0,
-                                  integrate_over=["y"])
+
+
+def test_F13_gauss_legendre_recovers_fast_convergence():
+    """The bound removes the interior Theta jump, so GL stops being O(1/n).
+
+    Dropping it left gauss_legendre at 22% for the default n_gauss=8 and
+    first-order convergence thereafter.  Pinning the *default* is what
+    matters: a user who never tunes n_gauss must still get a usable number.
+    """
+    from sft_wick.evaluate import integrate_moment
+
+    cache = _ScalarBatchCache()
+    res = _quartic(1, obs=[Field("phi", "physical")("x"),
+                           Field("psi", "response")("y")])
+    igs = [dt.build_integrand({"g": np.array(1j)})
+           for dt in res.diagram_terms(1)]
+    ref = _f13_reference()
+
+    errs = {}
+    for n_gauss in (8, 32):
+        total = sum(
+            integrate_moment(ig, _F13_LAMBDA_F, cache,
+                             method="gauss_legendre", t_min=0.0,
+                             integrate_over=["y"], n_gauss=n_gauss)[0]
+            for ig in igs
+        )
+        errs[n_gauss] = abs(total - ref) / abs(ref)
+
+    assert errs[8] < 1e-3, (
+        f"n_gauss=8 rel err {errs[8]:.2e} — was 2.2e-1 with the bound dropped"
+    )
+    assert errs[32] < errs[8], f"not converging: {errs}"
+
+
+def test_F13_variable_lower_bound_sources_are_transitively_closed():
+    """A chain ``swept-external -> v1 -> v2`` must bound v2 as well.
+
+    The constant part of the closure was already covered by F9; the variable
+    part propagates along the same internal edges and for the same reason.
+    """
+    from sft_wick.evaluate import _causal_lower_bound_sources
+
+    class _Sp:
+        time_orderings = (("y", "v1"), ("v1", "v2"), ("v2", "x"))
+
+    const, srcs = _causal_lower_bound_sources(
+        _Sp(), ["v1", "v2"], {"x": 5.0}, 0.0, swept=("y",)
+    )
+    assert srcs.get("v1") == ("y",)
+    assert srcs.get("v2") == ("y",), (
+        f"y must propagate to v2 through v1; got {srcs}"
+    )
+    assert "v1" not in const and "v2" not in const
+
+
+# --------------------------------------------------------------------- #
+# F14: integrate_two_point_qmc dropped the spatial factor at ni == 0
+# --------------------------------------------------------------------- #
+#
+# The zero-integration-variable branch delegated to ``DiagramIntegrand.
+# evaluate``, whose C lookup short-circuits to the *direction-agnostic*
+# legacy spline table.  So the order-0 two-point function came back at its
+# coincident-point value for **every** separation, while the ni >= 1 branch
+# in the same function applied ``c_spatial_factors`` correctly.  One call,
+# two spatial conventions.
+#
+# Ground truth (independent of sft-wick): for a separable kernel
+#
+#     kappa_ab(n1, t1; n2, t2) = delta_ab * exp(-|n1 - n2| / sigma_x)
+#
+# and R(t, t') = exp(-mu (t - t')), the order-0 correlator is exactly
+#
+#     C_aa(x, T; y, T) = exp(-|x-y| / sigma_x) * ((1 - exp(-mu T)) / mu)^2
+#
+# and a diagram with n_cross C-propagators spanning the two external points
+# carries exp(-n_cross |x-y| / sigma_x).
+
+_F14_SIGMA_X = 1.0
+_F14_T = 4.0
+_F14_NCOMP = 2
+
+
+def _f14_setup(order: int):
+    """Return (integrands, cache) for the separable two-point model."""
+    def kappa2(n1, t1, n2, t2):
+        a1 = np.atleast_1d(np.asarray(n1, dtype=float))
+        a2 = np.atleast_1d(np.asarray(n2, dtype=float))
+        r = float(np.abs(a1[0] - a2[0]))
+        return np.eye(_F14_NCOMP) * np.exp(-r / _F14_SIGMA_X)
+
+    phi = Field("phi", "physical", n_components=_F14_NCOMP)
+    psi = Field("psi", "response", n_components=_F14_NCOMP)
+    res = compute_moment(
+        [phi("a", "x"), phi("b", "y")],
+        Action([Vertex(fields=[psi, phi, phi], coupling="F")]),
+        order=order, ito=True, response_phase=True, collect_topology=True,
+        diag_R=True, diag_C=True, iso_R=True,
+    )
+    F = np.zeros((_F14_NCOMP,) * 3)
+    F[0, 0, 0] = F[1, 1, 1] = -0.5
+    model = PropagatorModel(
+        R_time=lambda t, tp: np.exp(-MU * (t - tp)), kappa2=kappa2,
+        n_components=_F14_NCOMP, iso_R=True, diag_C=True, t_min=0.0,
+    )
+    cache = PropagatorCache(model)
+    cache.precompute_C_table(t_max=_F14_T, n_grid=60)
+    igs = [dt.build_integrand({"F": -1j * F}, fixed_indices={"a": 0, "b": 0})
+           for dt in res.diagram_terms(order)]
+    return igs, cache
+
+
+def _f14_n_cross(ig, positions):
+    """C-propagators whose two ends sit at different external positions."""
+    sp = ig.spatial
+    pos_of = {}
+    for pt in sp.external_points:
+        dvar = sp.direction_map.get(pt)
+        if dvar is not None:
+            pos_of[dvar] = positions.get(pt, 0.0)
+    return sum(
+        1 for sl, sr, _il, _ir in sp.c_propagators
+        if abs(pos_of.get(sp.direction_map[sl], 0.0)
+               - pos_of.get(sp.direction_map[sr], 0.0)) > 1e-15
+    )
+
+
+@pytest.mark.parametrize("r", [0.0, 0.5, 1.0, 2.0])
+def test_F14_two_point_qmc_order0_carries_the_spatial_factor(r):
+    """ni == 0 must fall off with separation, not return the r=0 value."""
+    from sft_wick.evaluate import integrate_two_point_qmc
+
+    igs, cache = _f14_setup(order=0)
+    assert all(len(ig.spatial.time_integration_vars) == 0 for ig in igs)
+
+    val, _ = integrate_two_point_qmc(
+        igs, _F14_T, {"x": 0.0, "y": r}, cache, n_samples=2 ** 12, seed=0,
+    )
+    exact = (np.exp(-r / _F14_SIGMA_X)
+             * ((1.0 - np.exp(-MU * _F14_T)) / MU) ** 2)
+    assert val == pytest.approx(exact, rel=1e-6), (
+        f"r={r}: got {val:.10f}, closed form {exact:.10f}"
+    )
+
+
+@pytest.mark.parametrize("order", [0, 2])
+def test_F14_cross_propagator_count_sets_the_separation_scaling(order):
+    """Both branches must obey exp(-n_cross r / sigma_x), exactly.
+
+    Grouping by ``n_cross`` is what makes this a sharp test: the *sum* over
+    an order's diagrams mixes several exponentials, so an ungrouped ratio
+    check is blunt enough to hide the ni == 0 defect behind quadrature noise.
+    """
+    from sft_wick.evaluate import integrate_two_point_qmc
+
+    igs, cache = _f14_setup(order=order)
+    groups: dict[int, list] = {}
+    for ig in igs:
+        groups.setdefault(_f14_n_cross(ig, {"x": 0.0, "y": 1.0}), []).append(ig)
+    assert groups, f"order {order} produced no diagrams"
+
+    for n_cross, gigs in sorted(groups.items()):
+        base = None
+        for r in (0.0, 0.5, 1.0, 2.0):
+            val, _ = integrate_two_point_qmc(
+                gigs, _F14_T, {"x": 0.0, "y": r}, cache,
+                n_samples=2 ** 12, seed=0,
+            )
+            if base is None:
+                base = val
+                assert abs(base) > 1e-12, f"n_cross={n_cross} vanishes at r=0"
+                continue
+            want = np.exp(-n_cross * r / _F14_SIGMA_X)
+            assert val / base == pytest.approx(want, rel=1e-12), (
+                f"order {order}, n_cross={n_cross}, r={r}: "
+                f"ratio {val / base:.12f} != exp(-{n_cross} r/sx) = {want:.12f}"
+            )
