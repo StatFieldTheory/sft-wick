@@ -446,20 +446,30 @@ def test_F9_response_at_order1_respects_the_lower_causal_bound(t2):
         assert total == pytest.approx(truth, rel=1e-8)
 
 
-def test_F9_lower_bound_helper_only_fires_for_external_earlier_endpoints():
-    """Only (external -> internal) orderings become lower bounds.
+def test_F9_lower_bounds_seed_externally_then_propagate():
+    """Lower bounds are SEEDED by (external -> internal) orderings only, then
+    propagated transitively along internal edges.
 
-    (internal -> anything) is already expressible as an upper bound on the
-    internal variable; turning it into a lower bound as well would double-count.
+    An (internal -> internal) ordering never *seeds* a lower bound — it is
+    already carried as an upper bound on the earlier variable — but it does
+    *propagate* one: ``x_ext -> s_a -> s_b`` implies ``t_s_b >= t_x_ext``.
+    An internal variable with no external ancestor keeps ``t_min``.
     """
     from sft_wick.evaluate import _causal_lower_bounds
 
-    class _SP:
-        time_orderings = (("x_ext", "s_a"),   # external earlier -> lower bound
-                          ("s_a", "s_b"),      # internal earlier -> not ours
-                          ("s_b", "x_ext"))    # internal earlier -> not ours
-    got = _causal_lower_bounds(_SP(), ["s_a", "s_b"], {"x_ext": 3.0}, 0.0)
-    assert got == {"s_a": 3.0}
+    class _Chain:
+        time_orderings = (("x_ext", "s_a"),   # seeds s_a
+                          ("s_a", "s_b"),      # propagates to s_b
+                          ("s_b", "x_ext"))
+    assert _causal_lower_bounds(
+        _Chain(), ["s_a", "s_b"], {"x_ext": 3.0}, 0.0
+    ) == {"s_a": 3.0, "s_b": 3.0}
+
+    class _NoExternalAncestor:
+        time_orderings = (("s_a", "s_b"), ("s_b", "x_ext"))
+    assert _causal_lower_bounds(
+        _NoExternalAncestor(), ["s_a", "s_b"], {"x_ext": 3.0}, 0.0
+    ) == {}
 
 
 def test_F10_qmc_scalar_zero_dim_uses_the_reality_projection():
@@ -484,3 +494,50 @@ def test_F10_qmc_scalar_zero_dim_uses_the_reality_projection():
     reference = ig.integrate_moment_nquad(lambda_f=T, cache=cache, t_min=0.0)[0]
     assert scalar == pytest.approx(reference, rel=1e-12)
     assert scalar != 0.0
+
+
+def test_F9_lower_bounds_are_transitively_closed():
+    """A chain ext -> v1 -> v2 induces t_v2 >= t_ext, not just t_v1 >= t_ext.
+
+    Bounding only v1 lets v2 range below t_ext, at which point v1's interval
+    [t_ext, t_v2] inverts.  Measured 13.5% low (44 sigma) on order-2 <phi psi>
+    before the closure was added.
+    """
+    from sft_wick.evaluate import _causal_lower_bounds
+
+    class _SP:
+        time_orderings = (("y", "y_0"), ("y_0", "y_1"), ("y_1", "x"))
+
+    got = _causal_lower_bounds(_SP(), ["y_0", "y_1"], {"y": 1.5, "x": 4.0}, 0.0)
+    assert got == {"y_0": 1.5, "y_1": 1.5}
+
+
+@pytest.mark.parametrize("order", [1, 2])
+def test_F9_acausal_external_times_give_exactly_zero(order):
+    """R is retarded: <phi(t_x) psi(t_y)> must vanish for t_x < t_y.
+
+    The domain is empty, so the integral is 0 -- never a negative volume from
+    scipy integrating an inverted interval backwards.
+    """
+    cache = _scalar_cache()
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    res = compute_moment(
+        [phi("x"), psi("y")],
+        Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
+        order=order, ito=True, response_phase=True, collect_topology=True,
+        diag_R=True, diag_C=True, iso_R=True, iso_C=True,
+    )
+    ext = {"x": 1.0, "y": 3.0}          # acausal: t_x < t_y
+    total = 0.0
+    for dt in res.diagram_terms(order):
+        ig = dt.build_integrand({"g": np.array(1j)})
+        dirs = {d: 0 for d in set(ig.spatial.direction_map.values())}
+        bounds = ig.integration_bounds(ext, t_min=0.0)
+        for b in bounds:
+            if not callable(b):
+                assert b[1] >= b[0], f"inverted constant range {b}"
+        f = ig.make_scipy_integrand(ext, dirs, cache)
+        val, _ = nquad(f, bounds, opts={"epsabs": 1e-12, "epsrel": 1e-10})
+        total += val
+    assert total == pytest.approx(0.0, abs=1e-12)

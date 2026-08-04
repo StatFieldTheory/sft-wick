@@ -727,13 +727,32 @@ def _causal_lower_bounds(
     least one external lower bound; ``t_min`` is folded in, so the caller can
     use the value directly as ``lo``.
     """
+    int_set = set(int_vars)
     lowers: dict = {}
+    # Direct constraints: (external earlier) -> (internal later).
     for earlier, later in spatial.time_orderings:
-        if later in int_vars and earlier not in int_vars:
+        if later in int_set and earlier not in int_set:
             t_e = external_times.get(earlier)
             if t_e is None:
                 continue
             lowers[later] = max(lowers.get(later, t_min), float(t_e))
+
+    # TRANSITIVE CLOSURE along internal edges.  A chain
+    # ``ext -> v1 -> v2`` implies ``t_v2 >= t_v1 >= t_ext``, but only ``v1``
+    # is named in a direct (external, internal) ordering.  Leaving ``v2`` at
+    # ``t_min`` lets it range below ``t_ext``, at which point ``v1``'s interval
+    # ``[t_ext, t_v2]`` inverts -- nquad then integrates backwards and returns
+    # a negative volume.  The internal orderings form a DAG, so this fixpoint
+    # terminates; it is cheap because diagrams have very few vertices.
+    changed = True
+    while changed:
+        changed = False
+        for earlier, later in spatial.time_orderings:
+            if earlier in int_set and later in int_set:
+                lo_e = lowers.get(earlier)
+                if lo_e is not None and lo_e > lowers.get(later, t_min):
+                    lowers[later] = lo_e
+                    changed = True
     return lowers
 
 
@@ -2773,7 +2792,7 @@ class DiagramIntegrand:
                 # time.  Unreachable in practice: every MSR vertex carries a ψ
                 # leg and is therefore the earlier endpoint of at least one R
                 # ordering.
-                bounds.append((lo_var, default_hi))
+                bounds.append((lo_var, max(lo_var, default_hi)))
             else:
                 def make_bound(
                     ub: list[str],
@@ -2798,7 +2817,10 @@ class DiagramIntegrand:
                             else:
                                 hi_vals.append(fallback)
                         hi = min(hi_vals) if hi_vals else fallback
-                        return (lo, hi)
+                        # An acausal / collapsed region must integrate to zero,
+                        # not backwards: scipy happily returns a NEGATIVE
+                        # volume for hi < lo.
+                        return (lo, hi if hi > lo else lo)
 
                     return bound_func
 
@@ -3682,7 +3704,7 @@ class DiagramIntegrand:
                 lo_var = lowers.get(var, t_min)
                 ub_sources = upper_bounds.get(var, [])
                 if not ub_sources:
-                    ranges.append((lo_var, lambda_f))
+                    ranges.append((lo_var, max(lo_var, lambda_f)))
                 else:
                     # Fixed externals contribute a constant upper bound
                     # ``lambda_f`` (no longer showing up in later_args).
@@ -3701,7 +3723,9 @@ class DiagramIntegrand:
                                     hi_vals.append(later_args[j])
                                 else:
                                     hi_vals.append(hi)
-                            return (lo, min(hi_vals))
+                            hi_v = min(hi_vals)
+                            # Never integrate backwards (see integration_bounds).
+                            return (lo, hi_v if hi_v > lo else lo)
                         return bound_func
                     ranges.append(
                         make_bound(ub_dyn, all_vars, lo_var, lambda_f, i)
