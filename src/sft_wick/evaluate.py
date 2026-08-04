@@ -2369,6 +2369,16 @@ class DiagramIntegrand:
         return getattr(self.diagram_term, "n_external_response", 0)
 
     @property
+    def observable_phase(self) -> complex:
+        """``i**E_psi`` — rotates this integrand's raw value onto the reals.
+
+        Inverse of :attr:`expected_phase`.  Used where a *batch* of complex
+        values must be projected, so :func:`_real_or_raise` (scalar) does not
+        apply.
+        """
+        return (1j) ** self._e_psi
+
+    @property
     def expected_phase(self) -> complex:
         """``i**(-E_psi)`` — the phase a correctly-specified action produces.
 
@@ -2755,7 +2765,7 @@ class DiagramIntegrand:
             label_x=label_x,
             n_samples=n_samples,
         )
-        values = couplings.real * r_product * c_product
+        values = np.real(couplings * self.observable_phase) * r_product * c_product
         return float(values[0])
 
     def make_scipy_integrand(
@@ -3358,7 +3368,8 @@ class DiagramIntegrand:
             # NotImplementedError for prop-indexed dynamic is raised
             # inside ``evaluate_at_batch``.
             values = (
-                couplings.real * r_product * c_product * jacobians
+                np.real(couplings * self.observable_phase)
+                * r_product * c_product * jacobians
             )
 
         elif not prop_idx:
@@ -3628,7 +3639,8 @@ class DiagramIntegrand:
                 label_x=label_x,
                 n_samples=n_samples,
             )
-            values = couplings.real * r_product * c_product * jacobians
+            values = (np.real(couplings * self.observable_phase)
+                      * r_product * c_product * jacobians)
 
         elif not prop_idx:
             c_product = np.ones(n_samples)
