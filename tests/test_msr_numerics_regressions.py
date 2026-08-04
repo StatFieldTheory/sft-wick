@@ -388,3 +388,99 @@ def test_F7c_wrong_rank_scalar_coupling_names_the_symbol():
         dt.build_integrand({"g": np.zeros((2, 2, 2, 2), dtype=complex)})
     # a size-1 array in any shape is accepted
     dt.build_integrand({"g": np.array(1j).reshape(1, 1, 1, 1)})
+
+
+# --------------------------------------------------------------------- #
+# F9 — causal LOWER bounds from external response legs
+# --------------------------------------------------------------------- #
+def _d1R_closed_form(tx: float, ty: float) -> float:
+    """O(g) response of dx/dt = -mu x - g x^3 + xi.
+
+    Wick: psi(t_y) must reach a vertex phi (pairing it with x(t_x) strands
+    psi(s) on R(s,s)=0), so
+        delta_1 R = -3 g int_{t_y}^{t_x} R0(t_x,s) R0(s,t_y) C0(s,s) ds
+                  = -3 g exp(-mu (t_x - t_y)) int_{t_y}^{t_x} C0(s,s) ds.
+    The LOWER limit t_y comes from R0(s,t_y) being retarded; dropping it was
+    the defect this test pins.  At t_x = t_y the domain collapses and the
+    result is exactly zero.
+    """
+    if tx <= ty:
+        return 0.0
+    a = D / MU
+    val, _ = quad(lambda s: np.exp(-MU * (tx - s)) * np.exp(-MU * (s - ty))
+                  * a * (1.0 - np.exp(-2.0 * MU * s)), ty, tx, limit=400)
+    return -3.0 * val
+
+
+@pytest.mark.parametrize("t2", [0.5, 2.0, 3.5, 5.0, 6.5, 7.5, 8.0])
+def test_F9_response_at_order1_respects_the_lower_causal_bound(t2):
+    """An external psi leg bounds the vertex time from BELOW.
+
+    Before lower bounds existed the vertex was integrated over [t_min, t_x]
+    instead of [t_y, t_x] — up to 5x wrong, and non-zero at t_x = t_y where
+    the exact answer is 0.
+    """
+    T = 8.0
+    cache = _scalar_cache()
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    res = compute_moment(
+        [phi("x"), psi("y")],
+        Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
+        order=1, ito=True, response_phase=True, collect_topology=True,
+        diag_R=True, diag_C=True, iso_R=True, iso_C=True,
+    )
+    total = 0.0
+    ext = {"x": T, "y": t2}
+    for dt in res.diagram_terms(1):
+        ig = dt.build_integrand({"g": np.array(1j)})
+        dirs = {d: 0 for d in set(ig.spatial.direction_map.values())}
+        f = ig.make_scipy_integrand(ext, dirs, cache)
+        val, _ = nquad(f, ig.integration_bounds(ext, t_min=0.0),
+                       opts={"epsabs": 1e-12, "epsrel": 1e-10, "limit": 300})
+        total += val
+    truth = _d1R_closed_form(T, t2)
+    if truth == 0.0:
+        assert total == pytest.approx(0.0, abs=1e-12)
+    else:
+        assert total == pytest.approx(truth, rel=1e-8)
+
+
+def test_F9_lower_bound_helper_only_fires_for_external_earlier_endpoints():
+    """Only (external -> internal) orderings become lower bounds.
+
+    (internal -> anything) is already expressible as an upper bound on the
+    internal variable; turning it into a lower bound as well would double-count.
+    """
+    from sft_wick.evaluate import _causal_lower_bounds
+
+    class _SP:
+        time_orderings = (("x_ext", "s_a"),   # external earlier -> lower bound
+                          ("s_a", "s_b"),      # internal earlier -> not ours
+                          ("s_b", "x_ext"))    # internal earlier -> not ours
+    got = _causal_lower_bounds(_SP(), ["s_a", "s_b"], {"x_ext": 3.0}, 0.0)
+    assert got == {"s_a": 3.0}
+
+
+def test_F10_qmc_scalar_zero_dim_uses_the_reality_projection():
+    """integrate_moment_qmc has its OWN zero-dimensional branch.
+
+    It used `val.real`, so every observable with an external response leg
+    returned exactly 0.0 at order 0 — including R(t,t') itself.
+    """
+    T = 4.0
+    cache = _scalar_cache()
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    res = compute_moment(
+        [phi("x"), psi("y")],
+        Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
+        order=0, ito=True, response_phase=True, collect_topology=True,
+        diag_R=True, diag_C=True, iso_R=True, iso_C=True,
+    )
+    ig = res.diagram_terms(0)[0].build_integrand({"g": np.array(1j)})
+    scalar = ig.integrate_moment_qmc(lambda_f=T, cache=cache, t_min=0.0,
+                                     n_samples=256, seed=1)[0]
+    reference = ig.integrate_moment_nquad(lambda_f=T, cache=cache, t_min=0.0)[0]
+    assert scalar == pytest.approx(reference, rel=1e-12)
+    assert scalar != 0.0
