@@ -4227,18 +4227,44 @@ def integrate_two_point_qmc(
         # --- Causal lower bounds from external response legs ---
         lowers = _causal_lower_bounds(sp, ivs, {v: t_f for v in evs}, t_min)
 
-        # --- Sobol samples ---
+        # --- Zero integration variables ---
         #
-        # ``ni == 0`` — every order-0 diagram — is run as a degenerate
-        # ONE-sample batch with a unit Jacobian rather than delegated to
-        # ``ig.evaluate``.  The delegated path never applied
-        # ``c_spatial_factors``: ``C_value`` short-circuits to the
-        # direction-agnostic legacy spline table, so the order-0
-        # correlator came back at its coincident-point value for *every*
-        # separation while the sampled path below scaled correctly —
-        # one function, two spatial conventions (a factor e² at r = 2σ).
-        # Sharing the code makes the branches agree structurally rather
-        # than by maintenance.
+        # ``c_spatial_factors`` (the kappa2 ratio at a single ``t_ref``)
+        # exists to patch ONE blind spot: the legacy time-only spline
+        # table, which ignores position entirely.  ``ig.evaluate`` ->
+        # ``C_value`` is position-AWARE everywhere else — through the
+        # spatial fast path when a translation/rotation/general table has
+        # been built, and through the ``_C_value_direct`` (dblquad /
+        # ``c_value_fn``) fallback when no table has.  In those cases the
+        # delegated call is *exact* and the ratio is a strictly worse
+        # approximation, so applying it there would be a regression:
+        # measured 4.9% at r=0.5 rising to 34.3% at r=4 for a kernel whose
+        # correlation length grows with time, where delegation reproduces
+        # the closed form to every printed digit.  Routing a table-less
+        # cache through the batch path is worse still — ``C_diagonal_batch``
+        # raises, turning a working call into a RuntimeError.
+        #
+        # So delegate whenever ``evaluate`` can see the positions, and use
+        # the vectorised legacy-table-times-ratio path only when it cannot.
+        # That is the *only* configuration in which the order-0 correlator
+        # was ever wrong (it returned the coincident-point value at every
+        # separation — a factor e^2 at r = 2 sigma).
+        legacy_position_blind = (
+            not _cache_has_spatial_table(cache)
+            and getattr(cache, "_c_splines", None) is not None
+            and cache.model.diag_C
+        )
+        if ni == 0 and not legacy_position_blind:
+            et = {v: t_f for v in evs}
+            total += _real_or_raise(
+                ig.evaluate(et, directions, cache), ig._e_psi,
+                where=" (two-point qmc, zero-dimensional)",
+            )
+            continue
+
+        # --- Sobol samples (ni == 0 runs as a degenerate one-sample
+        # batch with a unit Jacobian, sharing the sampled path's code so
+        # the two cannot drift apart on the legacy-table convention) ---
         n_eval = n_samples if ni else 1
         t_s = np.zeros((n_eval, ni))
         jac = np.ones(n_eval)
