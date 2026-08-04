@@ -142,7 +142,13 @@ since the retarded propagator :math:`R \propto \Theta(t - t')` would
 require a cyclic time ordering :math:`t_a > t_b > \cdots > t_a`, which
 is impossible.
 
-Pass ``ito=False`` to keep all R terms symbolic.
+Pass ``ito=False`` to keep all R terms symbolic.  This affects the
+*expression* only: the numerical layer applies :math:`\Theta(0)=0`
+unconditionally, and because sft-wick does not emit the Stratonovich
+functional Jacobian that would cancel a :math:`\Theta(0)=1/2`
+prescription, :math:`\Theta(0)=0` is the self-consistent choice — and
+the correct one, since Itô and Stratonovich agree for additive noise.
+``ito=False`` therefore evaluates to exactly the ``ito=True`` value.
 
 
 Response Phase Convention

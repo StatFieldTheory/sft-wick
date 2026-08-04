@@ -1028,11 +1028,29 @@ class PropagatorCache:
         self._lazy_general: _LazyTimeSplineCache | None = None
 
     def R_time(self, t_left: float, t_right: float) -> float | np.ndarray:
-        """Evaluate R_time(t_left, t_right).
+        """Evaluate R_time(t_left, t_right) — the RAW model accessor.
 
         Returns scalar if ``model.iso_R=True``, else ``(N, N)`` array.
-        The Θ function is NOT enforced here — the integration domain
-        handles causality.
+
+        Θ is deliberately **not** applied here.  This is the single
+        authoritative statement of the convention, which used to be
+        described three inconsistent ways across this module:
+
+        * ``R_time`` is Θ-stripped, so a model author writes only the
+          retarded branch and never has to encode the step function.
+        * Θ is applied at **diagram evaluation**, by every consumer that
+          multiplies R factors together: :meth:`R_product`,
+          :meth:`R_time_batch`, and
+          ``DiagramIntegrand._evaluate_r_product_general``.  All three use
+          the strict test ``t_left > t_right`` (Itô: equal times give 0),
+          and none of them calls this method for an acausal pair.
+        * The older claim that "the integration domain handles causality"
+          holds only where an integration domain exists.  An R propagator
+          joining two *fixed external* points has none — see
+          :meth:`R_product`.
+
+        Callers wanting the physical, Θ-enforced propagator should use
+        :meth:`R_time_batch` (or evaluate a diagram), not this method.
         """
         return self.model.R_time(t_left, t_right)
 
@@ -1275,12 +1293,24 @@ class PropagatorCache:
         Returns:
             Array of shape ``(n,)``.  R(t1, t2) = Θ(t1−t2) × R_time(t1, t2).
         """
-        # Vectorize the user-provided R_time function.  Θ is applied here:
-        # the docstring has always promised it, and an R propagator joining
-        # two fixed external points has no integration domain to enforce it.
-        R_vec = np.vectorize(self.model.R_time)
-        out = np.asarray(R_vec(t1, t2), dtype=float)
-        return np.where(np.asarray(t1) > np.asarray(t2), out, 0.0)
+        # Θ is applied here: an R propagator joining two fixed external
+        # points has no integration domain to enforce it (see R_product).
+        #
+        # The user's R_time is called ONLY on the causal pairs, matching
+        # R_product and _evaluate_r_product_general, which short-circuit
+        # before calling it.  Evaluating everywhere and masking afterwards
+        # would make the three sites behave differently for a model whose
+        # R_time raises or overflows on acausal input — the same number,
+        # but a spurious exception or RuntimeWarning through this path only.
+        t1a = np.asarray(t1, dtype=float)
+        t2a = np.asarray(t2, dtype=float)
+        causal = t1a > t2a
+        out = np.zeros(np.broadcast(t1a, t2a).shape, dtype=float)
+        if causal.any():
+            R_vec = np.vectorize(self.model.R_time, otypes=[float])
+            b1, b2 = np.broadcast_arrays(t1a, t2a)
+            out[causal] = R_vec(b1[causal], b2[causal])
+        return out
 
     # ------------------------------------------------------------------ #
     # Spatial-aware extension: (t, x) coordinates via homogeneity modes

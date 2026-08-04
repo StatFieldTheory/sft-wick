@@ -1243,6 +1243,26 @@ def compute_moment(
             :math:`\Theta(0)=0`: the response propagator vanishes at
             equal spatial points, :math:`R(x,x)=0`, and causal
             R-loops are eliminated.
+
+            ``ito=False`` is a **symbolic** switch.  It keeps those
+            terms in the expression tree so they can be inspected or
+            rendered, but it does not change any *number*: the
+            numerical layer applies :math:`\Theta(0)=0` at every R
+            evaluation, and this package does not generate the
+            Stratonovich functional Jacobian
+            :math:`-\tfrac{1}{2}\int\mathrm{d}s\,\partial F/\partial\phi`.
+            Those two omissions cancel exactly, and for additive noise
+            the Itô and Stratonovich answers coincide anyway, so
+            ``ito=False`` evaluates to the correct physical value — the
+            same one ``ito=True`` gives.
+
+            Do **not** "fix" this by setting
+            :math:`\Theta(0)=\tfrac{1}{2}` without also emitting the
+            Jacobian counter-term.  For the linear vertex that adds a
+            spurious :math:`-k\,C(T,T)\,T/2`, which grows without bound
+            in :math:`T` — measured at 200%/400%/800% of the exact
+            answer for :math:`T=4/8/16`.  See
+            ``test_F15_ito_false_changes_the_expression_not_the_number``.
         response_phase: If ``True``, multiply each term by
             :math:`(-\mathrm{i})^n` where *n* is the number of
             response propagators in that term, implementing the
