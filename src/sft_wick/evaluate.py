@@ -284,6 +284,62 @@ def analyze_spatial(dt: "DiagramTerm") -> SpatialStructure:
 # ---------------------------------------------------------------------------
 
 
+#: Relative tolerance used when projecting a diagram value onto the reals.
+#: Two times are treated as ON the C-table diagonal when they differ by no
+#: more than this, relatively.  C(t1,t2) has a derivative kink of exactly
+#: -sigma2(t) on t1 == t2 (the integral's upper limit is min(t1,t2)), so the
+#: substitution error from using the diagonal spline is bounded by
+#: sigma2 * _DIAG_TOL -- orders below the table's own accuracy, hence never
+#: the worse choice.
+_DIAG_TOL = 1e-9
+
+_REALITY_TOL = 1e-9
+#: Values below this magnitude are treated as an exact zero (a diagram that
+#: cancelled), so a denormal-scale imaginary residue never raises.
+_REALITY_FLOOR = 1e-290
+
+
+def _real_or_raise(value, e_psi: int = 0, *, scale: float = 0.0,
+                   where: str = "") -> float:
+    """Project a diagram value onto the reals **without guessing a sign**.
+
+    By the MSR reality theorem (see
+    :meth:`~sft_wick.perturbation.DiagramTerm.observable_phase_factor`) a
+    diagram equals ``i**(-E_psi)`` times a real number, provided each vertex
+    coupling carries the ``(+/-i)**n_psi`` factor demanded by
+    ``<phi psi> = -i R``.  Rotating by ``i**E_psi`` therefore lands exactly on
+    the real axis.
+
+    Anything left over is a mis-specified action -- most often a missing MSR
+    factor on a multi-psi vertex, for which the required coefficient is
+    ``-(i**m)/m!`` (see ``NonLocalVertex.msr_factor``).  That is reported, not
+    silently turned into ``abs()`` (which flips the sign of negative
+    contributions) or into ``0`` (which reads as "no contribution").
+
+    Args:
+        value: raw complex diagram value.
+        e_psi: number of external response legs of the observable.
+        scale: magnitude of the largest summand contributing to ``value``, so
+            the test stays well posed when the diagram cancels to near zero.
+        where: short context string included in the error message.
+    """
+    z = complex(value) * (1j ** int(e_psi))
+    re_, im_ = z.real, z.imag
+    if im_ == 0.0 or abs(z) <= _REALITY_FLOOR:
+        return re_
+    if abs(im_) <= _REALITY_TOL * max(abs(re_), abs(scale)):
+        return re_
+    raise ValueError(
+        f"Diagram integrand{where} evaluated to {value!r}; after the "
+        f"i**E_psi rotation (E_psi={e_psi}) it is {z!r}, whose imaginary part "
+        f"is not negligible at {_REALITY_TOL:g} relative tolerance. Each "
+        f"vertex coupling must carry the (+/-i)**n_psi factor demanded by "
+        f"<phi psi> = -i R; for an m-leg all-psi vertex that factor is "
+        f"-(i**m)/m! (see NonLocalVertex.msr_factor). Passing a real coupling "
+        f"where an imaginary one is required is the usual cause."
+    )
+
+
 @dataclass(frozen=True)
 class PropagatorModel:
     """Physical propagator functions for numerical evaluation.
@@ -451,7 +507,202 @@ class _LazyTimeSplineCache:
             for a in range(N):
                 grids[a][i, j] = cvec[a]
 
-        return [RectBivariateSpline(ts, ts, grids[a]) for a in range(N)]
+        # Wrap each 2-D spline with the diagonal spline harvested from the
+        # SAME grid -- the lazy spatial path carried the identical kink as
+        # the legacy table (measured 22.3% at n_grid_t=41, bit-for-bit the
+        # same numbers), and this is the path examples/demo1 uses.
+        return [
+            _DiagAwareSpline(
+                RectBivariateSpline(ts, ts, grids[a]),
+                _diag_line_interp(ts, np.diag(grids[a])),
+            )
+            for a in range(N)
+        ]
+
+
+class _DiagLineSpline:
+    """Picklable 1-D cubic spline of a C-table diagonal.
+
+    Two things are true at once and neither alone gives a usable answer:
+
+    * ``scipy.interpolate.CubicSpline`` is NOT picklable (scipy 1.18:
+      ``TypeError: cannot pickle 'module' object``), so a
+      :class:`PropagatorCache` holding one cannot be sent through joblib or
+      saved -- a regression against ``RectBivariateSpline``, which is.
+    * ``RegularGridInterpolator(method='cubic')`` IS picklable but DIVERGES on
+      this data as the grid refines: mid-cell relative error 4.0e-04 at
+      n_grid=41 but 8.2e-03 at n_grid=321.  Swapping to it trades a
+      serialisation bug for a numerical one.
+
+    So keep the CubicSpline and make the *container* picklable: only the nodes
+    and values are serialised, and the spline is rebuilt on first use.
+    """
+
+    __slots__ = ("_ts", "_v", "_cs")
+
+    def __init__(self, ts, values):
+        object.__setattr__(self, "_ts", np.asarray(ts, dtype=float))
+        object.__setattr__(self, "_v", np.asarray(values, dtype=float))
+        object.__setattr__(self, "_cs", None)
+
+    def _spline(self):
+        if self._cs is None:
+            from scipy.interpolate import CubicSpline
+            object.__setattr__(self, "_cs", CubicSpline(self._ts, self._v))
+        return self._cs
+
+    def __call__(self, t):
+        return np.asarray(self._spline()(np.asarray(t, dtype=float)),
+                          dtype=float)
+
+    def __getstate__(self):
+        return (self._ts, self._v)
+
+    def __setstate__(self, state):
+        object.__setattr__(self, "_ts", state[0])
+        object.__setattr__(self, "_v", state[1])
+        object.__setattr__(self, "_cs", None)
+
+
+def _diag_line_interp(ts, values):
+    """Picklable 1-D cubic interpolator for a C-table diagonal."""
+    return _DiagLineSpline(ts, values)
+
+
+def _diag_line_eval(itp, t):
+    """Evaluate a :func:`_diag_line_interp` interpolator at scalar or array t."""
+    return np.atleast_1d(itp(np.atleast_1d(np.asarray(t, dtype=float))))
+
+
+def _diag_grid_interp(axes, grid, method):
+    """Interpolator over ``(t, *extra)`` built from ``grid[i, i, ...]``.
+
+    The first two axes of every spatial C table are the SAME time grid, so
+    ``grid[i, i, ...]`` is the diagonal slice -- already computed, no extra
+    quadrature.  See :class:`_DiagAwareGridInterp` for why it is needed.
+    """
+    from scipy.interpolate import RegularGridInterpolator
+
+    ts = np.asarray(axes[0])
+    idx = np.arange(len(ts))
+    return RegularGridInterpolator(
+        (ts,) + tuple(axes[2:]), grid[idx, idx],
+        bounds_error=False, fill_value=None, method=method,
+    )
+
+
+class _DiagAwareGridInterp:
+    """A ``(t1, t2, *extra)`` C interpolator that knows about the ridge.
+
+    ``C`` has a derivative discontinuity of exactly ``-sigma2(t)`` on
+    ``t1 == t2`` (the integral's upper limit is ``min(t1, t2)``).  Any
+    tensor-product rule blends across it: a cell straddling the diagonal mixes
+    corners from both sides, so the ridge gets cut off.  Every tadpole
+    evaluates ``C(s, s)``, exactly on it.
+
+    This pairs the full interpolator with one built from the SAME grid's
+    diagonal slice and routes numerically-equal times to it.  ``t -> C(t,t)``
+    is smooth, so the diagonal interpolator has no ridge to resolve.
+
+    ``__call__`` matches ``RegularGridInterpolator.__call__`` -- an ``(n, ndim)``
+    array of points -- so it drops into every call site unchanged.
+    """
+
+    __slots__ = ("_full", "_diag")
+
+    def __init__(self, full, diag):
+        self._full = full
+        self._diag = diag
+
+    def __call__(self, pts):
+        pts = np.asarray(pts, dtype=float)
+        out = np.asarray(self._full(pts), dtype=float)
+        if self._diag is None or pts.ndim < 2 or pts.shape[-1] < 2:
+            return out
+        t1, t2 = pts[..., 0], pts[..., 1]
+        on = np.abs(t1 - t2) <= _DIAG_TOL * np.maximum(
+            1.0, np.maximum(np.abs(t1), np.abs(t2))
+        )
+        if not np.any(on):
+            return out
+        td = 0.5 * (t1 + t2)
+        dpts = np.concatenate([td[..., None], pts[..., 2:]], axis=-1)
+        out = out.copy()
+        out[on] = np.asarray(self._diag(dpts[on]), dtype=float)
+        return out
+
+
+    # Pickle: ``__slots__`` plus ``__getattr__`` delegation would otherwise
+    # recurse forever on unpickling, when the slots are not yet set.
+    def __getstate__(self):
+        return {n: getattr(self, n) for n in self.__slots__}
+
+    def __setstate__(self, state):
+        for n, v in state.items():
+            object.__setattr__(self, n, v)
+
+    def __getattr__(self, name):
+        if name.startswith("__") and name.endswith("__"):
+            raise AttributeError(name)
+        return getattr(self._full, name)
+
+
+class _DiagAwareSpline:
+    """A 2-D ``(t1, t2)`` C-spline that knows about the diagonal kink.
+
+    ``C(t1,t2) = int_0^{min(t1,t2)} R(t1,l) sigma2(l) R(t2,l) dl`` has a
+    derivative discontinuity of exactly ``-sigma2(t)`` on ``t1 == t2``, which a
+    tensor-product spline (C^2 by construction) cannot represent: it stops
+    converging there while staying clean O(h^4) off the diagonal.  Every
+    tadpole evaluates ``C(s,s)``, exactly on the kink.
+
+    This wraps the 2-D spline together with a 1-D spline of the SAME grid's
+    ``i == j`` entries -- no extra quadrature -- and routes equal times to it.
+    ``t -> C(t,t)`` is smooth, so the 1-D spline restores O(h^4).
+
+    The call signature matches ``RectBivariateSpline.__call__`` exactly, so it
+    drops into every existing call site unchanged.
+    """
+
+    __slots__ = ("_s2d", "_sdiag")
+
+    def __init__(self, s2d, sdiag):
+        self._s2d = s2d
+        self._sdiag = sdiag
+
+    def __call__(self, t1, t2, grid=False):
+        out = self._s2d(t1, t2, grid=grid)
+        if self._sdiag is None or grid:
+            return out
+        t1a = np.asarray(t1, dtype=float)
+        t2a = np.asarray(t2, dtype=float)
+        on_diag = np.abs(t1a - t2a) <= _DIAG_TOL * np.maximum(
+            1.0, np.maximum(np.abs(t1a), np.abs(t2a))
+        )
+        if not np.any(on_diag):
+            return out
+        td = 0.5 * (t1a + t2a)
+        out = np.asarray(out, dtype=float)
+        if out.ndim == 0:
+            return _diag_line_eval(self._sdiag, td)[0]
+        out = out.copy()
+        out[on_diag] = _diag_line_eval(self._sdiag, np.atleast_1d(td)[on_diag])
+        return out
+
+
+    # Pickle: ``__slots__`` plus ``__getattr__`` delegation would otherwise
+    # recurse forever on unpickling, when the slots are not yet set.
+    def __getstate__(self):
+        return {n: getattr(self, n) for n in self.__slots__}
+
+    def __setstate__(self, state):
+        for n, v in state.items():
+            object.__setattr__(self, n, v)
+
+    def __getattr__(self, name):
+        if name.startswith("__") and name.endswith("__"):
+            raise AttributeError(name)
+        return getattr(self._s2d, name)
 
 
 def _C_value_direct_gl(
@@ -528,41 +779,40 @@ def _C_value_direct_gl(
     # 1-D GL nodes & weights on [-1, 1], reused across sub-regions.
     nodes, weights = leggauss(n_gauss)
 
-    # ---- helper: evaluate R-diagonal at a single time pair ------- #
-    def _r_diag(t_obs: float, lam: float) -> np.ndarray:
-        """Return shape ``(N,)`` -- the diagonal of ``R(t_obs, lam)``.
+    # ---- helper: evaluate the R matrix at a single time pair ------ #
+    def _r_mat(t_obs: float, lam: float) -> np.ndarray:
+        """Return the full ``(N, N)`` response matrix ``R(t_obs, lam)``.
 
-        For ``iso_R`` the same scalar fills every component.  For
-        ``diag_C=True`` only diagonal entries are needed, so we
-        always return the diagonal slice.  When ``diag_C=False`` we
-        still call this for entries ``[a, a]`` of R (R is always
-        diagonal in component indices in MSR), but the κ² off-diag
-        couples them.
+        For ``iso_R`` this is ``R_time * I``.  Otherwise ``R_time`` is
+        expected to return the full matrix; note it is **not** in general
+        diagonal in component indices — that holds only when the linear
+        operator itself is diagonal in the chosen basis.  Using only the
+        diagonal here silently corrupts C for any dense drift matrix
+        (e.g. ``A = H + lambda`` with ``H = X^T X / N``).
         """
         rt = model.R_time(t_obs, lam)
         if model.iso_R:
-            return np.full(N, float(rt))
-        rt_arr = np.asarray(rt, dtype=float)
-        return np.array([rt_arr[a, a] for a in range(N)])
+            return float(rt) * np.eye(N)
+        return np.asarray(rt, dtype=float)
 
     # ---- helper: evaluate κ² at a single time pair --------------- #
     def _kappa(lam1: float, lam2: float) -> np.ndarray:
         return np.asarray(model.kappa2(n1, lam1, n2, lam2), dtype=float)
 
-    # ---- helper: contract one (R_diag(t1,lam1), kappa, R_diag(t2,lam2))
-    # triple into the (N, N) per-point integrand value ------------- #
+    # ---- helper: contract one (R(t1,lam1), kappa, R(t2,lam2)) ----- #
+    # triple into the (N, N) per-point integrand value.
     def _integrand_block(
-        r1d: np.ndarray, kmat: np.ndarray, r2d: np.ndarray,
+        r1: np.ndarray, kmat: np.ndarray, r2: np.ndarray,
     ) -> np.ndarray:
-        # element [a, b] = r1d[a] * kmat[a, b] * r2d[b]
+        # C_{ab} = sum_{c,d} R_{ac}(t1,l1) kappa_{cd}(l1,l2) R_{bd}(t2,l2)
+        #        = [ R1 @ kappa @ R2^T ]_{ab}
+        # The transpose is essential and invisible for symmetric R --
+        # do not "simplify" it away.
+        out = r1 @ np.asarray(kmat, dtype=float) @ r2.T
         if model.diag_C:
-            # Only diagonal matters; mask kmat to its diagonal.
-            out = np.zeros((N, N))
-            diag = np.array([kmat[a, a] for a in range(N)])
-            for a in range(N):
-                out[a, a] = r1d[a] * diag[a] * r2d[a]
-            return out
-        return (r1d[:, None] * kmat) * r2d[None, :]
+            # Project onto the diagonal AFTER contracting, never before.
+            return np.diag(np.diag(out))
+        return out
 
     # ---- helper: integrate over a triangular region -------------- #
     # Region of the form  a_lo ≤ λ1 ≤ a_hi,  inner_lo(λ1) ≤ λ2 ≤ inner_hi(λ1).
@@ -592,12 +842,12 @@ def _C_value_direct_gl(
             lam2_pts = mid_inner + half_inner * nodes
             inner_w = half_inner * weights
 
-            r1d = _r_diag(t1, float(lam1))
+            r1m = _r_mat(t1, float(lam1))
             inner_acc = np.zeros((N, N))
             for j, lam2 in enumerate(lam2_pts):
                 kmat = _kappa(float(lam1), float(lam2))
-                r2d = _r_diag(t2, float(lam2))
-                inner_acc += inner_w[j] * _integrand_block(r1d, kmat, r2d)
+                r2m = _r_mat(t2, float(lam2))
+                inner_acc += inner_w[j] * _integrand_block(r1m, kmat, r2m)
             acc += outer_w[k] * inner_acc
         return acc
 
@@ -643,12 +893,293 @@ def _C_value_direct_gl(
             tau_w = half * weights
             for k, tau in enumerate(tau_pts):
                 tau_f = float(tau)
-                r1d = _r_diag(t1, tau_f)
-                r2d = _r_diag(t2, tau_f)
+                r1m = _r_mat(t1, tau_f)
+                r2m = _r_mat(t2, tau_f)
                 sig = np.asarray(model.sigma2(n1, tau_f, n2), dtype=float)
-                C_mat += tau_w[k] * _integrand_block(r1d, sig, r2d)
+                C_mat += tau_w[k] * _integrand_block(r1m, sig, r2m)
 
     return C_mat
+
+
+def _causal_lower_bounds(
+    spatial,
+    int_vars,
+    external_times: dict,
+    t_min: float,
+) -> dict:
+    """Lower limits imposed on internal times by *external* response legs.
+
+    A time ordering ``(earlier, later)`` from an R propagator can be expressed
+    as an **upper** bound only when ``earlier`` is itself an integration
+    variable — that is the form every bound-builder in this module uses::
+
+        for earlier, later in spatial.time_orderings:
+            if earlier in int_vars:
+                upper_bounds[earlier].append(later)
+
+    The mirrored case is silently dropped by that filter: when ``earlier`` is an
+    **external** point and ``later`` is internal, the constraint
+    ``t_later >= t_earlier`` is a **lower** bound and has nowhere to go.  That
+    case arises whenever the observable itself carries a response leg, since
+    ``<phi(u) psi(y)> = R(u, y)`` forces ``t_u >= t_y``.  For the order-1
+    response function of a quartic theory the orderings are
+    ``(('y','y_0'), ('y_0','x'))`` and only the second was ever applied, so the
+    vertex time was integrated over ``[t_min, t_x]`` instead of ``[t_y, t_x]``.
+
+    Returns ``{int_var: lower_limit}`` for every internal variable that has at
+    least one external lower bound; ``t_min`` is folded in, so the caller can
+    use the value directly as ``lo``.
+    """
+    return _causal_lower_bound_sources(
+        spatial, int_vars, external_times, t_min,
+    )[0]
+
+
+def _causal_lower_bound_sources(
+    spatial,
+    int_vars,
+    external_times: dict,
+    t_min: float,
+    swept: tuple = (),
+) -> tuple[dict, dict]:
+    """Lower bounds split into a constant part and a *variable* part.
+
+    ``external_times`` maps each **fixed** external point to its time, and
+    ``swept`` names the externals the caller is sampling (``integrate_over``).
+    An ordering from a swept external is still a lower bound, but its value
+    is only known per sample, so it is reported as a *source name* rather
+    than a number.
+
+    Returns ``(const, sources)`` where
+
+    * ``const[v]`` is the constant lower limit for internal variable ``v``
+      (``t_min`` folded in), exactly what :func:`_causal_lower_bounds`
+      returns, and
+    * ``sources[v]`` is a tuple of names drawn from ``swept`` that also
+      bound ``v`` from below, so the caller can take a per-sample
+      ``max(const[v], *[t(s) for s in sources[v]])``.
+
+    Only names in ``swept`` become sources.  A point that is in neither
+    ``external_times`` nor ``swept`` -- an aliased leg of an ``equal_time``
+    non-local vertex, say -- is skipped exactly as before, so the caller
+    never receives a name it has no column for.
+
+    Every sampler in this module draws the integrated externals *before*
+    any internal variable, and ``nquad`` places them outside every internal
+    variable in ``all_vars``, so a source's value is always available by
+    the time the bound is needed.
+    """
+    int_set = set(int_vars)
+    swept_set = set(swept)
+    lowers: dict = {}
+    sources: dict = {}
+    # Direct constraints: (external earlier) -> (internal later).
+    for earlier, later in spatial.time_orderings:
+        if later in int_set and earlier not in int_set:
+            t_e = external_times.get(earlier)
+            if t_e is None:
+                if earlier in swept_set:
+                    sources.setdefault(later, set()).add(earlier)
+            else:
+                lowers[later] = max(lowers.get(later, t_min), float(t_e))
+
+    # TRANSITIVE CLOSURE along internal edges.  A chain
+    # ``ext -> v1 -> v2`` implies ``t_v2 >= t_v1 >= t_ext``, but only ``v1``
+    # is named in a direct (external, internal) ordering.  Leaving ``v2`` at
+    # ``t_min`` lets it range below ``t_ext``, at which point ``v1``'s interval
+    # ``[t_ext, t_v2]`` inverts -- nquad then integrates backwards and returns
+    # a negative volume.  The internal orderings form a DAG, so this fixpoint
+    # terminates; it is cheap because diagrams have very few vertices.
+    # Variable sources propagate along the same edges and for the same
+    # reason.
+    changed = True
+    while changed:
+        changed = False
+        for earlier, later in spatial.time_orderings:
+            if earlier in int_set and later in int_set:
+                lo_e = lowers.get(earlier)
+                if lo_e is not None and lo_e > lowers.get(later, t_min):
+                    lowers[later] = lo_e
+                    changed = True
+                src_e = sources.get(earlier)
+                if src_e and not src_e <= sources.get(later, set()):
+                    sources.setdefault(later, set()).update(src_e)
+                    changed = True
+    return lowers, {v: tuple(sorted(s)) for v, s in sources.items()}
+
+
+def _resolve_external_times(
+    spatial, ext_fixed, lambda_f: float, external_times=None,
+    integrate_over=(),
+) -> tuple[dict, float]:
+    """``{fixed external point -> its time}`` plus the global time ceiling.
+
+    ``lambda_f`` plays two distinct roles in this module and only one of them
+    generalises:
+
+    * the **sweep limit** for an integrated external, and the default upper
+      bound for an internal variable with no causal parent -- these stay tied
+      to ``lambda_f`` (raised to the ceiling below when some external is
+      pinned later than it), and
+    * the **time of a fixed external point** -- which ``external_times`` now
+      overrides per point.  Conflating the two is why unequal external times
+      were unreachable: an observable such as ``R(t, t')`` needs its two legs
+      at different times, and every production integrator pinned them both.
+
+    ``external_times=None`` reproduces the old behaviour exactly.
+
+    Returns ``(times, ceiling)`` where ``ceiling = max(lambda_f, *times)`` --
+    an internal variable with no causal parent may still precede an external
+    pinned beyond ``lambda_f``, so the default upper bound must cover it.
+
+    Raises:
+        ValueError: for an unknown point name, or for a point that is both
+            pinned here and swept via ``integrate_over``.
+    """
+    if external_times:
+        known = set(spatial.external_points)
+        unknown = sorted(set(external_times) - known)
+        if unknown:
+            raise ValueError(
+                f"external_times names unknown external point(s) {unknown}; "
+                f"this diagram's external points are {sorted(known)}."
+            )
+        clash = sorted(set(external_times) & set(integrate_over or ()))
+        if clash:
+            raise ValueError(
+                f"external point(s) {clash} appear in BOTH external_times and "
+                f"integrate_over -- a point cannot be pinned at a fixed time "
+                f"and swept at the same time."
+            )
+    et = external_times or {}
+    times = {v: float(et.get(v, lambda_f)) for v in ext_fixed}
+    ceiling = max([float(lambda_f), *times.values()]) if times else float(lambda_f)
+    return times, ceiling
+
+
+def _causal_reachability(time_orderings) -> dict:
+    """``{node: set of nodes strictly later than it}``, transitively closed.
+
+    Closing over the WHOLE ordering graph -- not just edges whose endpoints are
+    of one kind -- is what makes the constraint table exhaustive.  Enumerating
+    edge kinds by endpoint type ({fixed-ext, swept-ext, internal}^2) and
+    handling each directly is how the branch previously missed three cells:
+    swept -> internal -> swept, fixed-ext -> swept, and swept -> fixed-ext.
+    """
+    succ: dict = {}
+    for e, l in time_orderings:
+        succ.setdefault(e, set()).add(l)
+        succ.setdefault(l, set())
+    changed = True
+    while changed:                      # the ordering graph is a small DAG
+        changed = False
+        for n in list(succ):
+            grown = set(succ[n])
+            for m in succ[n]:
+                grown |= succ.get(m, set())
+            if grown != succ[n]:
+                succ[n] = grown
+                changed = True
+    return succ
+
+
+def _swept_external_order(
+    spatial, ext_integrated, fixed_times=None, lambda_f=None, t_min=0.0,
+) -> tuple:
+    """Causal constraints ON the swept externals themselves.
+
+    A swept external is drawn freely over ``[t_min, lambda_f]`` unless some
+    ordering constrains it.  Three kinds do, and none is carried by
+    ``_causal_lower_bound_sources`` (which needs the LATER endpoint internal)
+    or by ``parent_map`` / ``upper_bounds`` (which need the EARLIER one
+    internal):
+
+    * **swept -> swept**, directly or through internal vertices.  Both give
+      ``t_later > t_earlier``; the mediated case is why this works off the
+      transitive closure rather than the raw edge list.
+    * **fixed-ext -> swept**: a constant lower bound at the fixed point's time.
+    * **swept -> fixed-ext**: a constant upper bound at that time.
+
+    Theta keeps the VALUE right in every case -- the integrand vanishes on the
+    unconstrained part -- so these are quadrature concerns.  But they are the
+    same jump-inside-the-domain that costs ``gauss_legendre`` its spectral
+    convergence (measured 22% and 29% at the library default ``n_gauss=8``).
+
+    Returns ``(order, lowers, const_lo, const_hi)``: the swept externals
+    topologically sorted so every predecessor is drawn first, the swept
+    predecessors of each, and its constant bounds.  With no constraint at all
+    the order is the caller's own and the dicts are empty, so sampling stays
+    bit-identical.
+    """
+    ext_set = set(ext_integrated)
+    succ = _causal_reachability(tuple(spatial.time_orderings))
+    fixed_times = fixed_times or {}
+
+    lowers: dict = {}
+    const_lo: dict = {}
+    const_hi: dict = {}
+    for v in ext_integrated:
+        pre = [u for u in succ if v in succ.get(u, ()) and u != v]
+        sw = [u for u in pre if u in ext_set]
+        if sw:
+            lowers[v] = sorted(sw)
+        fx = [fixed_times[u] for u in pre if u in fixed_times]
+        if fx:
+            const_lo[v] = max([float(t_min)] + [float(t) for t in fx])
+        post_fx = [fixed_times[u] for u in succ.get(v, ()) if u in fixed_times]
+        if post_fx and lambda_f is not None:
+            const_hi[v] = min([float(lambda_f)] + [float(t) for t in post_fx])
+
+    if not lowers:
+        return list(ext_integrated), {}, const_lo, const_hi
+
+    # Kahn topological sort, stable in the caller's order.  A cycle cannot
+    # arise from retarded R propagators; fall back rather than drop a variable.
+    remaining = list(ext_integrated)
+    placed: list = []
+    placed_set: set = set()
+    while remaining:
+        ready = [v for v in remaining
+                 if all(src in placed_set for src in lowers.get(v, ()))]
+        if not ready:
+            return list(ext_integrated), {}, const_lo, const_hi
+        for v in ready:
+            placed.append(v)
+            placed_set.add(v)
+            remaining.remove(v)
+    return placed, lowers, const_lo, const_hi
+
+
+def _real_batch_or_raise(values, e_psi: int = 0, *, where: str = "") -> np.ndarray:
+    """Array counterpart of :func:`_real_or_raise`.
+
+    The dynamic-coupling batch sites took a bare ``np.real(...)`` after the
+    ``i**E_psi`` rotation, so a mis-specified action -- a real coupling where
+    the MSR convention wants an imaginary one, say -- silently lost its
+    imaginary part instead of being reported.  That is a hole in the reality
+    projection on precisely the feature this branch adds.
+
+    Vectorised so a per-sample batch is checked in one pass: the residue is
+    judged against the batch's own scale, matching the scalar helper's
+    ``max(|re|, scale)`` rule rather than element-by-element, which would
+    reject legitimate near-zero samples inside an otherwise healthy batch.
+    """
+    z = np.asarray(values) * (1j ** int(e_psi))
+    re_ = np.real(z)
+    im_ = np.imag(z)
+    if not np.any(im_):
+        return re_
+    scale = float(np.max(np.abs(re_))) if re_.size else 0.0
+    worst = float(np.max(np.abs(im_))) if im_.size else 0.0
+    if worst <= _REALITY_TOL * max(scale, _REALITY_FLOOR):
+        return re_
+    raise ValueError(
+        f"Diagram integrand batch{where} has a non-negligible imaginary part "
+        f"after the i**E_psi rotation (E_psi={e_psi}): worst |Im| = {worst:.3e} "
+        f"against |Re| scale {scale:.3e}.  Check the coupling's phase "
+        f"convention -- the MSR reality theorem gives i**(-E_psi) x real only "
+        f"when each vertex coupling carries (+-i)**n_psi(v)."
+    )
 
 
 def _rotation_cos(x1, x2) -> float:
@@ -725,12 +1256,29 @@ class PropagatorCache:
         interp_method: str = "linear",
         c_method: str = "dblquad",
         n_gauss: int = 20,
+        c_value_fn: Callable | None = None,
     ):
         """Initialise the propagator cache.
 
         Args:
             model: Propagator model specifying R and κ².
             quad_opts: Options forwarded to ``scipy.integrate.dblquad``.
+            c_value_fn: Optional ``(n1, t1, n2, t2) -> (N, N)`` callable that
+                **replaces** the quadrature construction of C entirely.
+
+                By default C is *derived* from R and the noise cumulant as
+                ``C = ∫∫ R κ R``.  That relation does not hold for every
+                physically meaningful propagator pair — notably a
+                disorder-averaged (DMFT) solution, where
+                ``⟨R κ R⟩ ≠ ⟨R⟩ κ ⟨R⟩`` — so such a C must be supplied
+                directly.  This is the public, L0 equivalent of the L1
+                ``Propagators.build(c_closed_form=..., c_closed_form_only=True)``
+                route; previously it required subclassing and overriding
+                :meth:`_C_value_direct`.
+
+                It is consulted by :meth:`_C_value_direct`, hence by
+                :meth:`C_value`, :meth:`C_diagonal` and every
+                ``precompute_C_table_*`` builder.
             c_method: Quadrature method used by :meth:`_C_value_direct`
                 (and therefore by every ``precompute_C_table_*`` builder).
 
@@ -818,6 +1366,8 @@ class PropagatorCache:
         self.interp_method = interp_method
         self.c_method = c_method
         self.n_gauss = int(n_gauss)
+        #: Optional user-supplied C, bypassing the ``∫∫ R κ R`` construction.
+        self.c_value_fn = c_value_fn
 
         # Closed-form-only path: skip every spline and route C lookups
         # directly through ``self._C_value_direct``. Set by
@@ -835,6 +1385,10 @@ class PropagatorCache:
         # Legacy 2-D (t1, t2) spline at fixed x — still populated by
         # ``precompute_C_table`` for backward compatibility.
         self._c_splines: list | None = None
+        #: 1-D splines of C(t, t) harvested from the same grid -- see
+        #: ``precompute_C_table``.  The 2-D tensor-product spline is C^2 by
+        #: construction and cannot represent the diagonal kink.
+        self._c_diag_splines: list | None = None
         self._c_table_range: tuple[float, float] | None = None
 
         # Full N-D spatial splines, populated by precompute_C_table_*
@@ -855,11 +1409,29 @@ class PropagatorCache:
         self._lazy_general: _LazyTimeSplineCache | None = None
 
     def R_time(self, t_left: float, t_right: float) -> float | np.ndarray:
-        """Evaluate R_time(t_left, t_right).
+        """Evaluate R_time(t_left, t_right) — the RAW model accessor.
 
         Returns scalar if ``model.iso_R=True``, else ``(N, N)`` array.
-        The Θ function is NOT enforced here — the integration domain
-        handles causality.
+
+        Θ is deliberately **not** applied here.  This is the single
+        authoritative statement of the convention, which used to be
+        described three inconsistent ways across this module:
+
+        * ``R_time`` is Θ-stripped, so a model author writes only the
+          retarded branch and never has to encode the step function.
+        * Θ is applied at **diagram evaluation**, by every consumer that
+          multiplies R factors together: :meth:`R_product`,
+          :meth:`R_time_batch`, and
+          ``DiagramIntegrand._evaluate_r_product_general``.  All three use
+          the strict test ``t_left > t_right`` (Itô: equal times give 0),
+          and none of them calls this method for an acausal pair.
+        * The older claim that "the integration domain handles causality"
+          holds only where an integration domain exists.  An R propagator
+          joining two *fixed external* points has none — see
+          :meth:`R_product`.
+
+        Callers wanting the physical, Θ-enforced propagator should use
+        :meth:`R_time_batch` (or evaluate a diagram), not this method.
         """
         return self.model.R_time(t_left, t_right)
 
@@ -871,10 +1443,21 @@ class PropagatorCache:
         """Product of R_time over all R propagator pairs.
 
         Only valid when ``model.iso_R=True`` (R is scalar).
+
+        Retardation is enforced here.  ``R_time`` itself is the raw model
+        accessor and deliberately does not apply Θ ("the integration domain
+        handles causality") — but that only holds when there *is* an
+        integration domain.  An R propagator joining two **fixed external**
+        points has none: at order 0, ``<phi(t_x) psi(t_y)>`` would otherwise
+        evaluate to the unbounded acausal ``exp(+mu (t_y - t_x))`` for
+        ``t_y > t_x``.  Under the Itô prescription equal times give 0 as well.
         """
         result = 1.0
         for sl, sr in r_pairs:
-            result *= float(self.R_time(times[sl], times[sr]))
+            t_l, t_r = times[sl], times[sr]
+            if not t_l > t_r:
+                return 0.0
+            result *= float(self.R_time(t_l, t_r))
         return result
 
     def C_value(
@@ -985,6 +1568,7 @@ class PropagatorCache:
         """Clear the C value cache and spline table."""
         self._c_cache.clear()
         self._c_splines = None
+        self._c_diag_splines = None
         self._c_table_range = None
 
     def precompute_C_table(
@@ -1029,6 +1613,24 @@ class PropagatorCache:
             RectBivariateSpline(ts, ts, grids[a])
             for a in range(N)
         ]
+        # Harvest the i == j entries into a separate 1-D spline.  Zero extra
+        # quadrature -- they are already in ``grids``.
+        #
+        # ``C(t1,t2) = int_0^{min(t1,t2)} R(t1,l) sigma2(l) R(t2,l) dl`` has a
+        # derivative discontinuity of exactly ``-sigma2(t)`` on the diagonal:
+        # approaching from t1 < t2 the moving upper limit contributes an extra
+        # ``R(t1,t1) sigma2(t1) R(t2,t1)``, absent from the other side.  A
+        # tensor-product spline is C^2 everywhere, so it smears that kink and
+        # stops converging there -- measured 22.3% relative error at n_grid=41
+        # and still 21.4% at n_grid=321, i.e. p = 0.009, no convergence at all,
+        # while the same table is clean O(h^4) away from the diagonal.  Every
+        # tadpole evaluates C(s,s), exactly on the kink.
+        #
+        # Along the diagonal itself ``t -> C(t,t)`` is smooth, so a 1-D cubic
+        # spline restores O(h^4).
+        self._c_diag_splines = [
+            _diag_line_interp(ts, np.diag(grids[a])) for a in range(N)
+        ]
         self._c_table_range = (t_min, t_max)
 
     @property
@@ -1036,8 +1638,23 @@ class PropagatorCache:
         """Whether a pre-computed C table is available."""
         return self._c_splines is not None
 
+    @staticmethod
+    def _on_diagonal(t1, t2):
+        """Whether ``t1`` and ``t2`` are numerically the same time."""
+        return np.abs(np.asarray(t1) - np.asarray(t2)) <= _DIAG_TOL * np.maximum(
+            1.0, np.maximum(np.abs(np.asarray(t1)), np.abs(np.asarray(t2)))
+        )
+
     def _C_diagonal_from_table(self, t1: float, t2: float) -> np.ndarray:
-        """Look up C diagonal from spline table."""
+        """Look up C diagonal from spline table.
+
+        Routes equal times through the 1-D diagonal spline: the 2-D spline
+        cannot represent the kink there (see ``precompute_C_table``).
+        """
+        if self._c_diag_splines is not None and self._on_diagonal(t1, t2):
+            t = 0.5 * (float(t1) + float(t2))
+            return np.array([float(_diag_line_eval(s, t)[0])
+                             for s in self._c_diag_splines])
         # ``np.squeeze`` keeps this robust across SciPy versions: newer
         # SciPy returns a 1-element 1-D array from a scalar ``grid=False``
         # call, and ``float()`` on a non-0-D array raises under NumPy >= 2.
@@ -1046,11 +1663,16 @@ class PropagatorCache:
         ])
 
     def _C_value_from_table(self, t1: float, t2: float) -> np.ndarray:
-        """Look up C matrix from spline table (diagonal only)."""
+        """Look up C matrix from spline table (diagonal only).
+
+        Shares :meth:`_C_diagonal_from_table`'s diagonal-kink routing so the
+        two accessors cannot disagree about C(t, t).
+        """
         N = self.model.n_components
         C_mat = np.zeros((N, N))
-        for a, s in enumerate(self._c_splines):  # type: ignore[union-attr]
-            C_mat[a, a] = float(np.squeeze(s(t1, t2, grid=False)))
+        diag = self._C_diagonal_from_table(t1, t2)
+        for a in range(N):
+            C_mat[a, a] = diag[a]
         return C_mat
 
     # --- Vectorized methods for batch evaluation ---
@@ -1079,6 +1701,15 @@ class PropagatorCache:
         result = np.empty((n, N))
         for a, s in enumerate(self._c_splines):
             result[:, a] = s(t1, t2, grid=False)
+        if self._c_diag_splines is not None:
+            # Tadpoles evaluate C(s, s): both legs are the SAME sampled time,
+            # so this mask is hit exactly, not approximately.
+            on_diag = self._on_diagonal(t1, t2)
+            if np.any(on_diag):
+                td = 0.5 * (np.asarray(t1, dtype=float)[on_diag]
+                            + np.asarray(t2, dtype=float)[on_diag])
+                for a, sd in enumerate(self._c_diag_splines):
+                    result[on_diag, a] = _diag_line_eval(sd, td)
         return result
 
     def R_time_batch(self, t1: np.ndarray, t2: np.ndarray) -> np.ndarray:
@@ -1091,9 +1722,24 @@ class PropagatorCache:
         Returns:
             Array of shape ``(n,)``.  R(t1, t2) = Θ(t1−t2) × R_time(t1, t2).
         """
-        # Vectorize the user-provided R_time function
-        R_vec = np.vectorize(self.model.R_time)
-        return R_vec(t1, t2)
+        # Θ is applied here: an R propagator joining two fixed external
+        # points has no integration domain to enforce it (see R_product).
+        #
+        # The user's R_time is called ONLY on the causal pairs, matching
+        # R_product and _evaluate_r_product_general, which short-circuit
+        # before calling it.  Evaluating everywhere and masking afterwards
+        # would make the three sites behave differently for a model whose
+        # R_time raises or overflows on acausal input — the same number,
+        # but a spurious exception or RuntimeWarning through this path only.
+        t1a = np.asarray(t1, dtype=float)
+        t2a = np.asarray(t2, dtype=float)
+        causal = t1a > t2a
+        out = np.zeros(np.broadcast(t1a, t2a).shape, dtype=float)
+        if causal.any():
+            R_vec = np.vectorize(self.model.R_time, otypes=[float])
+            b1, b2 = np.broadcast_arrays(t1a, t2a)
+            out[causal] = R_vec(b1[causal], b2[causal])
+        return out
 
     # ------------------------------------------------------------------ #
     # Spatial-aware extension: (t, x) coordinates via homogeneity modes
@@ -1234,7 +1880,8 @@ class PropagatorCache:
                 grids[a][i, j, k] = cvec[a]
 
         self._c_translation_splines = [
-            RegularGridInterpolator(
+            _DiagAwareGridInterp(
+                RegularGridInterpolator(
                 (ts, ts, rs), grids[a],
                 bounds_error=False, fill_value=None,
                 # Default 'linear' (set in PropagatorCache.__init__):
@@ -1244,6 +1891,10 @@ class PropagatorCache:
                 # grids can opt into cubic via interp_method='cubic'.
                 # See tests/test_evaluate_interpolation_accuracy.py.
                 method=self.interp_method,
+                ),
+                _diag_grid_interp(
+                    (ts, ts, rs), grids[a], self.interp_method,
+                ),
             )
             for a in range(N)
         ]
@@ -1371,7 +2022,8 @@ class PropagatorCache:
                 grids[a][i, j, k] = cvec[a]
 
         self._c_rotation_splines = [
-            RegularGridInterpolator(
+            _DiagAwareGridInterp(
+                RegularGridInterpolator(
                 (ts, ts, coses), grids[a],
                 bounds_error=False, fill_value=None,
                 # Default 'linear' (set in PropagatorCache.__init__):
@@ -1381,6 +2033,10 @@ class PropagatorCache:
                 # grids can opt into cubic via interp_method='cubic'.
                 # See tests/test_evaluate_interpolation_accuracy.py.
                 method=self.interp_method,
+                ),
+                _diag_grid_interp(
+                    (ts, ts, coses), grids[a], self.interp_method,
+                ),
             )
             for a in range(N)
         ]
@@ -1487,7 +2143,8 @@ class PropagatorCache:
                 grids[a][i, j, p, q] = cvec[a]
 
         self._c_general_interpolators = [
-            RegularGridInterpolator(
+            _DiagAwareGridInterp(
+                RegularGridInterpolator(
                 (ts, ts, xs, xs), grids[a],
                 bounds_error=False, fill_value=None,
                 # Default 'linear' (set in PropagatorCache.__init__):
@@ -1497,6 +2154,10 @@ class PropagatorCache:
                 # grids can opt into cubic via interp_method='cubic'.
                 # See tests/test_evaluate_interpolation_accuracy.py.
                 method=self.interp_method,
+                ),
+                _diag_grid_interp(
+                    (ts, ts, xs, xs), grids[a], self.interp_method,
+                ),
             )
             for a in range(N)
         ]
@@ -1532,6 +2193,10 @@ class PropagatorCache:
             n_gauss: Override per-dim node count for the Gauss-Legendre
                 method.  ``None`` (default) uses :attr:`n_gauss`.
         """
+        if getattr(self, "c_value_fn", None) is not None:
+            # User-supplied C replaces the whole quadrature construction.
+            return np.asarray(self.c_value_fn(n1, t1, n2, t2), dtype=float)
+
         method = self.c_method if method is None else method
         n_gauss_val = self.n_gauss if n_gauss is None else int(n_gauss)
         if method == "gauss_legendre":
@@ -1551,13 +2216,28 @@ class PropagatorCache:
         t_min = m.t_min
         C_mat = np.zeros((N, N))
 
+        # ``R`` is a full matrix whenever the linear operator is not diagonal
+        # in the chosen component basis.  Contract
+        #     C_{ab} = sum_{c,d} R_{ac}(t1,l1) kappa_{cd}(l1,l2) R_{bd}(t2,l2)
+        # i.e. row ``a`` of R(t1,·) against kappa against row ``b`` of R(t2,·).
+        # Using only R[a,a] is correct solely for diagonal R.
+        def _row(t_obs: float, lam: float, idx: int) -> np.ndarray:
+            rt = m.R_time(t_obs, lam)
+            if m.iso_R:
+                row = np.zeros(N)
+                row[idx] = float(rt)
+                return row
+            return np.asarray(rt, dtype=float)[idx, :]
+
         if m.diag_C:
             for a in range(N):
                 def integrand(lam2: float, lam1: float, _a: int = a) -> float:
-                    r1 = float(m.R_time(t1, lam1)) if m.iso_R else float(m.R_time(t1, lam1)[_a, _a])
-                    kappa_mat = m.kappa2(n1, lam1, n2, lam2)
-                    r2 = float(m.R_time(t2, lam2)) if m.iso_R else float(m.R_time(t2, lam2)[_a, _a])
-                    return r1 * float(kappa_mat[_a, _a]) * r2
+                    kappa_mat = np.asarray(
+                        m.kappa2(n1, lam1, n2, lam2), dtype=float
+                    )
+                    return float(
+                        _row(t1, lam1, _a) @ kappa_mat @ _row(t2, lam2, _a)
+                    )
                 val, _ = dblquad(
                     integrand, t_min, t1, t_min, t2, **self.quad_opts,
                 )
@@ -1566,14 +2246,12 @@ class PropagatorCache:
             for a in range(N):
                 for b in range(N):
                     def integrand(lam2: float, lam1: float, _a: int = a, _b: int = b) -> float:
-                        if m.iso_R:
-                            r1 = float(m.R_time(t1, lam1))
-                            r2 = float(m.R_time(t2, lam2))
-                        else:
-                            r1 = float(m.R_time(t1, lam1)[_a, _a])
-                            r2 = float(m.R_time(t2, lam2)[_b, _b])
-                        kappa_mat = m.kappa2(n1, lam1, n2, lam2)
-                        return r1 * float(kappa_mat[_a, _b]) * r2
+                        kappa_mat = np.asarray(
+                            m.kappa2(n1, lam1, n2, lam2), dtype=float
+                        )
+                        return float(
+                            _row(t1, lam1, _a) @ kappa_mat @ _row(t2, lam2, _b)
+                        )
                     val, _ = dblquad(
                         integrand, t_min, t1, t_min, t2, **self.quad_opts,
                     )
@@ -1586,12 +2264,12 @@ class PropagatorCache:
                 if m.diag_C:
                     for a in range(N):
                         def w_integrand(tau: float, _a: int = a) -> float:
-                            r1 = float(m.R_time(t1, tau)) if m.iso_R \
-                                else float(m.R_time(t1, tau)[_a, _a])
-                            r2 = float(m.R_time(t2, tau)) if m.iso_R \
-                                else float(m.R_time(t2, tau)[_a, _a])
-                            sig = m.sigma2(n1, tau, n2)
-                            return r1 * float(sig[_a, _a]) * r2
+                            sig = np.asarray(
+                                m.sigma2(n1, tau, n2), dtype=float
+                            )
+                            return float(
+                                _row(t1, tau, _a) @ sig @ _row(t2, tau, _a)
+                            )
                         wval, _ = _quad(
                             w_integrand, t_min, t_upper, **self.quad_opts,
                         )
@@ -1600,14 +2278,12 @@ class PropagatorCache:
                     for a in range(N):
                         for b in range(N):
                             def w_integrand(tau: float, _a: int = a, _b: int = b) -> float:
-                                if m.iso_R:
-                                    r1 = float(m.R_time(t1, tau))
-                                    r2 = float(m.R_time(t2, tau))
-                                else:
-                                    r1 = float(m.R_time(t1, tau)[_a, _a])
-                                    r2 = float(m.R_time(t2, tau)[_b, _b])
-                                sig = m.sigma2(n1, tau, n2)
-                                return r1 * float(sig[_a, _b]) * r2
+                                sig = np.asarray(
+                                    m.sigma2(n1, tau, n2), dtype=float
+                                )
+                                return float(
+                                    _row(t1, tau, _a) @ sig @ _row(t2, tau, _b)
+                                )
                             wval, _ = _quad(
                                 w_integrand, t_min, t_upper, **self.quad_opts,
                             )
@@ -2168,6 +2844,35 @@ class DiagramIntegrand:
     #: fast path is used (all coupling values were ndarrays).
     dynamic_coupling: Any = None
 
+    @property
+    def _e_psi(self) -> int:
+        """Number of external response legs of the observable (``E_psi``).
+
+        ``getattr`` with a default keeps this working for
+        :class:`~sft_wick.perturbation.DiagramTerm` objects deserialised from
+        before the field existed.
+        """
+        return getattr(self.diagram_term, "n_external_response", 0)
+
+    @property
+    def observable_phase(self) -> complex:
+        """``i**E_psi`` — rotates this integrand's raw value onto the reals.
+
+        Inverse of :attr:`expected_phase`.  Used where a *batch* of complex
+        values must be projected, so :func:`_real_or_raise` (scalar) does not
+        apply.
+        """
+        return (1j) ** self._e_psi
+
+    @property
+    def expected_phase(self) -> complex:
+        """``i**(-E_psi)`` — the phase a correctly-specified action produces.
+
+        The raw value of this integrand is this phase times a real number; see
+        :meth:`~sft_wick.perturbation.DiagramTerm.observable_phase_factor`.
+        """
+        return (-1j) ** self._e_psi
+
     def evaluate(
         self,
         times: dict[str, float],
@@ -2188,7 +2893,22 @@ class DiagramIntegrand:
 
         Returns:
             Scalar value of the integrand (complex if coupling is complex).
+
+        Raises:
+            NotImplementedError: if this integrand carries a spacetime-dependent
+                (callable) coupling.  This method reads the static
+                ``coupling_array``, which for the dynamic path is a zeros
+                placeholder, so it would otherwise return 0 silently.
         """
+        if self.dynamic_coupling is not None:
+            raise NotImplementedError(
+                "DiagramIntegrand.evaluate() cannot evaluate a "
+                "spacetime-dependent (callable) coupling: it reads the static "
+                "`coupling_array`, which is a zeros placeholder on the dynamic "
+                "path, so the result would silently be 0.  Use "
+                "integrate_moment(..., method='gauss_legendre') or "
+                "method='qmc_vectorized'."
+            )
         dt = self.diagram_term
         spatial = self.spatial
         coeff = self.coupling_array
@@ -2370,6 +3090,10 @@ class DiagramIntegrand:
         """Evaluate matrix-valued R propagators for one component assignment."""
         result: complex = 1.0
         for sl, sr in _kept_r_propagators(self.spatial):
+            # Retarded + Itô: vanishes unless t_left > t_right.  See
+            # PropagatorCache.R_product for why this is enforced here.
+            if not times[sl] > times[sr]:
+                return complex(0.0)
             R_mat = np.asarray(cache.R_time(times[sl], times[sr]))
             r_prop = self._find_r_propagator(sl, sr)
             if r_prop and r_prop.index_left and r_prop.index_right:
@@ -2451,6 +3175,7 @@ class DiagramIntegrand:
         *,
         direction: Any = 0,
         positions: dict[str, Any] | None = None,
+        external_times: dict[str, float] | None = None,
     ) -> float:
         """Evaluate an integrand with no surviving time variables.
 
@@ -2465,18 +3190,20 @@ class DiagramIntegrand:
             dir_vars = set(spatial.direction_map.values())
             directions = {d: direction for d in dir_vars}
 
-        fixed_times = {v: lambda_f for v in spatial.external_points}
+        fixed_times, _ceiling = _resolve_external_times(
+            spatial, spatial.external_points, lambda_f, external_times,
+        )
         if self.dynamic_coupling is None:
             val = self.evaluate(fixed_times, directions, cache)
-            return float(val.real if val.imag == 0 else abs(val))
+            return float(_real_or_raise(val, self._e_psi,
+                                        where=' (zero-dimensional)'))
 
         n_samples = 1
-        fixed_t = np.full(n_samples, lambda_f)
         et_alias = dict(spatial.equal_time_aliases or ())
 
         def _times(var: str) -> np.ndarray:
-            _ = et_alias.get(var, var)
-            return fixed_t
+            var = et_alias.get(var, var)
+            return np.full(n_samples, fixed_times.get(var, lambda_f))
 
         r_product = np.ones(n_samples)
         for sl, sr in _kept_r_propagators(spatial):
@@ -2526,7 +3253,9 @@ class DiagramIntegrand:
             label_x=label_x,
             n_samples=n_samples,
         )
-        values = couplings.real * r_product * c_product
+        values = _real_batch_or_raise(
+            couplings, self._e_psi, where=' (dynamic coupling, qmc)',
+        ) * r_product * c_product
         return float(values[0])
 
     def make_scipy_integrand(
@@ -2559,7 +3288,8 @@ class DiagramIntegrand:
             for var, val in zip(int_vars, time_args):
                 times[var] = val
             result = self.evaluate(times, external_directions, cache)
-            return result.real if result.imag == 0 else abs(result)
+            return _real_or_raise(result, self._e_psi,
+                                  where=' (make_scipy_integrand)')
 
         return integrand
 
@@ -2571,10 +3301,20 @@ class DiagramIntegrand:
         """Return integration bounds for ``scipy.integrate.nquad``.
 
         Time ordering constraints from R causality translate to
-        variable-dependent bounds.  For ``nquad``, bounds can be
-        callables ``f(*earlier_args) → (lo, hi)``.
+        variable-dependent bounds.  For ``nquad``, bounds can be callables.
 
-        The variables are ordered as ``spatial.time_integration_vars``.
+        The variables are ordered as ``spatial.time_integration_vars``,
+        which :func:`_topological_sort_times` emits **earliest time first** —
+        i.e. ``int_vars[0]`` is scipy's *innermost* integral.
+
+        .. important::
+           ``scipy.integrate.nquad`` invokes ``ranges[i]`` with the **outer**
+           integration variables ``int_vars[i+1:]`` (each recursion *prepends*
+           the newly bound outer variable), **not** with the inner ones.  An
+           internal upper-bound source of ``int_vars[i]`` therefore always sits
+           at an index ``> i`` and appears in the callback arguments at offset
+           ``index(src) - i - 1``.  This is the same mapping used by
+           :meth:`integrate_moment_nquad`.
 
         Returns:
             List of bounds, one per integration variable.  Each is either
@@ -2593,52 +3333,58 @@ class DiagramIntegrand:
 
         # Build bounds list
         bounds: list = []
+        default_hi = max(external_times.values()) if external_times else 1.0
+        # Lower limits imposed by external response legs (see
+        # _causal_lower_bounds): an ordering (external, internal) is a LOWER
+        # bound and cannot be expressed through ``upper_bounds``.
+        lowers = _causal_lower_bounds(spatial, int_vars, external_times, t_min)
+
         for i, var in enumerate(int_vars):
+            lo_var = lowers.get(var, t_min)
             ub_sources = upper_bounds.get(var, [])
             if not ub_sources:
-                # No causal constraint — integrate from t_min to some max
-                max_t = max(external_times.values()) if external_times else 1.0
-                bounds.append((t_min, max_t))
+                # No causal constraint — integrate up to the latest external
+                # time.  Unreachable in practice: every MSR vertex carries a ψ
+                # leg and is therefore the earlier endpoint of at least one R
+                # ordering.
+                bounds.append((lo_var, max(lo_var, default_hi)))
             else:
-                # Upper bound is min of all constraining times
-                # For nquad, bounds[i] can be a function of the *previous* args
-                # nquad calls bounds[i](*args[:i]) — but our vars may be in
-                # different positions.  We need to handle this carefully.
-                #
-                # nquad convention: f(x0, x1, ..., x_{n-1}) where x0 is innermost.
-                # bounds[i] is called with (x0, ..., x_{i-1}).
-                # Our int_vars[0] is innermost (earliest time).
-                _var = var
-                _ub = ub_sources
-                _ext = external_times
-                _int_vars = int_vars
-                _t_min = t_min
-
                 def make_bound(
                     ub: list[str],
                     ext: dict[str, float],
                     ivars: list[str],
                     lo: float,
+                    cur_i: int,
+                    fallback: float,
                 ) -> Callable:
-                    def bound_func(*prev_args: float) -> tuple[float, float]:
-                        # prev_args correspond to int_vars[:current_index]
+                    def bound_func(*later_args: float) -> tuple[float, float]:
                         hi_vals: list[float] = []
                         for src in ub:
                             if src in ext:
                                 hi_vals.append(ext[src])
+                                continue
+                            if src not in ivars:
+                                hi_vals.append(fallback)
+                                continue
+                            j = ivars.index(src) - cur_i - 1
+                            if 0 <= j < len(later_args):
+                                hi_vals.append(later_args[j])
                             else:
-                                # Find position of src in int_vars
-                                src_idx = ivars.index(src)
-                                if src_idx < len(prev_args):
-                                    hi_vals.append(prev_args[src_idx])
-                                else:
-                                    hi_vals.append(ext.get(src, 1.0))
-                        hi = min(hi_vals) if hi_vals else 1.0
-                        return (lo, hi)
+                                hi_vals.append(fallback)
+                        hi = min(hi_vals) if hi_vals else fallback
+                        # An acausal / collapsed region must integrate to zero,
+                        # not backwards: scipy happily returns a NEGATIVE
+                        # volume for hi < lo.
+                        return (lo, hi if hi > lo else lo)
 
                     return bound_func
 
-                bounds.append(make_bound(_ub, _ext, _int_vars, _t_min))
+                bounds.append(
+                    make_bound(
+                        ub_sources, external_times, int_vars, lo_var,
+                        i, default_hi,
+                    )
+                )
 
         return bounds
 
@@ -2728,6 +3474,7 @@ class DiagramIntegrand:
         seed: int | None = None,
         positions: dict[str, float] | None = None,
         integrate_over: Any = None,
+        external_times: dict[str, float] | None = None,
     ) -> tuple[float, float]:
         """Integrate over all time variables using Quasi-Monte Carlo.
 
@@ -2752,6 +3499,9 @@ class DiagramIntegrand:
         ext_int_set = _resolve_integrate_over(integrate_over, ext_vars)
         ext_integrated = [v for v in ext_vars if v in ext_int_set]
         ext_fixed = [v for v in ext_vars if v not in ext_int_set]
+        fixed_times, t_ceiling = _resolve_external_times(
+            spatial, ext_fixed, lambda_f, external_times, ext_integrated,
+        )
 
         sobol_vars = ext_integrated + int_vars_parents_first
         n_ext_int = len(ext_integrated)
@@ -2764,14 +3514,27 @@ class DiagramIntegrand:
             directions = {d: direction for d in dir_vars}
 
         if n_total == 0:
-            fixed_times = {v: lambda_f for v in ext_fixed}
             val = self.evaluate(fixed_times, directions, cache)
-            return (val.real, 0.0)
+            return (_real_or_raise(val, self._e_psi,
+                                   where=' (qmc, zero-dimensional)'), 0.0)
 
         parent_map: dict[str, list[str]] = defaultdict(list)
         for earlier, later in spatial.time_orderings:
             if earlier in int_vars_parents_first:
                 parent_map[earlier].append(later)
+
+        # Lower limits from external response legs (see
+        # _causal_lower_bound_sources).  A *fixed* external contributes a
+        # constant; a swept one contributes a per-sample value, read below
+        # from ``times`` (integrated externals are drawn first).
+        lowers, lower_srcs = _causal_lower_bound_sources(
+            spatial, int_vars_parents_first, fixed_times, t_min,
+            swept=ext_integrated,
+        )
+
+        sw_order, sw_lowers, sw_lo_c, sw_hi_c = _swept_external_order(
+            spatial, ext_integrated, fixed_times, lambda_f, t_min,
+        )
 
         # Generate Sobol samples in [0,1]^d
         sampler = qmc.Sobol(d=n_total, seed=seed)
@@ -2783,14 +3546,24 @@ class DiagramIntegrand:
 
         for s in range(n_samples):
             u = u_samples[s]
-            times: dict[str, float] = {v: lambda_f for v in ext_fixed}
+            times: dict[str, float] = dict(fixed_times)
             jacobian = 1.0
 
-            # Integrated externals: free in [t_min, lambda_f]
-            for k in range(n_ext_int):
-                t = t_min + u[k] * span
-                times[ext_integrated[k]] = t
-                jacobian *= span
+            # Integrated externals: free in [t_min, lambda_f] except where a
+            # causal ordering ties two of them together.
+            for name in sw_order:
+                k = ext_integrated.index(name)
+                srcs = sw_lowers.get(name, ())
+                lo_e = max(t_min, sw_lo_c.get(name, t_min))
+                for src in srcs:
+                    lo_e = max(lo_e, times[src])
+                w_e = sw_hi_c.get(name, lambda_f) - lo_e
+                if w_e <= 0:
+                    times[name] = lo_e
+                    jacobian = 0.0
+                    continue
+                times[name] = lo_e + u[k] * w_e
+                jacobian *= w_e
 
             # Internal vars: bounded by causal parents
             for k, var in enumerate(int_vars_parents_first):
@@ -2799,8 +3572,10 @@ class DiagramIntegrand:
                 if parents:
                     hi = min(times[p] for p in parents if p in times)
                 else:
-                    hi = lambda_f
-                lo = t_min
+                    hi = t_ceiling
+                lo = lowers.get(var, t_min)
+                for src in lower_srcs.get(var, ()):
+                    lo = max(lo, times[src])
                 width = hi - lo
                 if width <= 0:
                     jacobian = 0.0
@@ -2814,7 +3589,7 @@ class DiagramIntegrand:
                 continue
 
             result = self.evaluate(times, directions, cache)
-            val = result.real if result.imag == 0 else abs(result)
+            val = _real_or_raise(result, self._e_psi, where=' (qmc)')
             values[s] = val * jacobian
 
         estimate = float(np.mean(values))
@@ -2840,6 +3615,7 @@ class DiagramIntegrand:
         seed: int | None = None,
         positions: dict[str, float] | None = None,
         integrate_over: Any = None,
+        external_times: dict[str, float] | None = None,
     ) -> tuple[float, float]:
         """Vectorized QMC integration — no Python loop over samples.
 
@@ -2900,6 +3676,9 @@ class DiagramIntegrand:
         ext_integrated = [v for v in ext_vars if v in ext_int_set]
         ext_fixed = [v for v in ext_vars if v not in ext_int_set]
         n_ext_int = len(ext_integrated)
+        fixed_times, t_ceiling = _resolve_external_times(
+            spatial, ext_fixed, lambda_f, external_times, ext_integrated,
+        )
 
         # Sobol-dimensioned vars = integrated externals + internals.
         sobol_vars = ext_integrated + int_vars_pf
@@ -2910,6 +3689,7 @@ class DiagramIntegrand:
             # dynamic after R-absorption aliases their legs to fixed externals.
             val = self._evaluate_zero_dimensional(
                 lambda_f, cache, direction=direction, positions=positions,
+                external_times=external_times,
             )
             return (val, 0.0)
 
@@ -2925,6 +3705,14 @@ class DiagramIntegrand:
         for earlier, later in spatial.time_orderings:
             if earlier in int_vars_pf:
                 parent_map[earlier].append(later)
+        # Lower limits from external response legs (see
+        # _causal_lower_bound_sources).  A *fixed* external contributes a
+        # constant; a swept one contributes a per-sample column of
+        # ``times_arr`` (integrated externals occupy the first n_ext_int
+        # columns and are filled before this loop runs).
+        lowers, lower_srcs = _causal_lower_bound_sources(
+            spatial, int_vars_pf, fixed_times, t_min, swept=ext_integrated,
+        )
 
         # Sobol samples
         sampler = qmc.Sobol(d=n_total, seed=seed)
@@ -2936,9 +3724,29 @@ class DiagramIntegrand:
         jacobians = np.ones(n_samples)
 
         # Integrated external vars: free in [t_min, lambda_f]
-        for k in range(n_ext_int):
-            times_arr[:, k] = t_min + u[:, k] * span
-            jacobians *= span
+        # Swept externals: free in [t_min, lambda_f] EXCEPT where a causal
+        # ordering ties two of them together (see _swept_external_order).
+        # With no such edge this is bit-identical to the flat draw.
+        _sw_order, _sw_lowers, _sw_lo_c, _sw_hi_c = _swept_external_order(
+            spatial, ext_integrated, fixed_times, lambda_f, t_min,
+        )
+        for name in _sw_order:
+            k = ext_integrated.index(name)
+            srcs = _sw_lowers.get(name, ())
+            lo_c = max(float(t_min), float(_sw_lo_c.get(name, t_min)))
+            hi_c = float(_sw_hi_c.get(name, lambda_f))
+            if not srcs:
+                w_c = hi_c - lo_c
+                times_arr[:, k] = lo_c + u[:, k] * max(w_c, 0.0)
+                jacobians *= max(w_c, 0.0)
+                continue
+            lo_e = np.full(n_samples, lo_c)
+            for src in srcs:
+                lo_e = np.maximum(lo_e, times_arr[:, ext_integrated.index(src)])
+            w_e = hi_c - lo_e
+            ok_e = w_e > 0
+            times_arr[:, k] = np.where(ok_e, lo_e + u[:, k] * w_e, lo_e)
+            jacobians = np.where(ok_e, jacobians * w_e, 0.0)
 
         # Internal vars: bounded by parents.  Parents may be
         # (a) integrated externals — pull from times_arr; (b) fixed
@@ -2948,7 +3756,7 @@ class DiagramIntegrand:
             idx = n_ext_int + k
             parents = parent_map.get(var, [])
             if parents:
-                hi = np.full(n_samples, lambda_f)
+                hi = np.full(n_samples, t_ceiling)
                 for p in parents:
                     if p in int_vars_pf:
                         p_idx = n_ext_int + int_vars_pf.index(p)
@@ -2957,20 +3765,25 @@ class DiagramIntegrand:
                         p_idx = ext_integrated.index(p)
                         hi = np.minimum(hi, times_arr[:, p_idx])
                     else:
-                        # Fixed external — its time is lambda_f.
-                        hi = np.minimum(hi, lambda_f)
+                        # Fixed external — use ITS OWN pinned time.
+                        hi = np.minimum(hi, fixed_times.get(p, lambda_f))
             else:
-                hi = np.full(n_samples, lambda_f)
+                hi = np.full(n_samples, t_ceiling)
 
-            width = hi - t_min
+            lo_v = lowers.get(var, t_min)
+            for src_v in lower_srcs.get(var, ()):
+                col = ext_integrated.index(src_v)
+                lo_v = np.maximum(lo_v, times_arr[:, col])
+            width = hi - lo_v
             valid = width > 0
-            times_arr[:, idx] = np.where(valid, t_min + u[:, idx] * width, t_min)
+            times_arr[:, idx] = np.where(valid, lo_v + u[:, idx] * width, lo_v)
             jacobians = np.where(valid, jacobians * width, 0.0)
 
         # Build variable-name to column lookup.  Fixed externals are
         # NOT in times_arr; they get a special lookup that returns a
         # constant ``lambda_f`` array.
         var_to_col = {var: i for i, var in enumerate(sobol_vars)}
+        fixed_t_by = {v: np.full(n_samples, t) for v, t in fixed_times.items()}
         fixed_t = np.full(n_samples, lambda_f)
         # Equal-time alias map: see analyze_spatial / SpatialStructure.
         _et_alias = dict(spatial.equal_time_aliases or ())
@@ -2986,7 +3799,7 @@ class DiagramIntegrand:
             col = var_to_col.get(var)
             if col is not None:
                 return times_arr[:, col]
-            return fixed_t
+            return fixed_t_by.get(var, fixed_t)
 
         # --- Vectorized integrand evaluation ---
         dt = self.diagram_term
@@ -3091,7 +3904,10 @@ class DiagramIntegrand:
             # NotImplementedError for prop-indexed dynamic is raised
             # inside ``evaluate_at_batch``.
             values = (
-                couplings.real * r_product * c_product * jacobians
+                _real_batch_or_raise(
+                    couplings, self._e_psi,
+                    where=' (dynamic coupling, gauss-legendre)')
+                * r_product * c_product * jacobians
             )
 
         elif not prop_idx:
@@ -3108,7 +3924,7 @@ class DiagramIntegrand:
                 else:
                     c_product *= _select_C_batch(C_diag_batch, None, None)
 
-            values = r_product * complex(coeff).real * c_product * jacobians
+            values = r_product * _real_or_raise(coeff, self._e_psi, where=' (coupling)') * c_product * jacobians
 
         else:
             # Propagator-indexed coupling: loop over index combinations
@@ -3117,7 +3933,14 @@ class DiagramIntegrand:
             values = np.zeros(n_samples)
 
             for pidx in np.ndindex(*prop_shape):
-                c_val = complex(coeff[pidx]).real if coeff.ndim > 0 else complex(coeff).real
+                c_raw = coeff[pidx] if coeff.ndim > 0 else coeff
+                # Magnitude FIRST.  A tensor entry that is float noise around
+                # zero can carry an arbitrary complex phase, and projecting it
+                # before the negligibility test turns "skip this term" into a
+                # hard ValueError from _real_or_raise.
+                if abs(complex(c_raw)) < 1e-20:
+                    continue
+                c_val = _real_or_raise(c_raw, self._e_psi, where=' (coupling)')
                 if abs(c_val) < 1e-20:
                     continue
 
@@ -3157,6 +3980,7 @@ class DiagramIntegrand:
         n_gauss: int = 8,
         positions: dict[str, float] | None = None,
         integrate_over: Any = None,
+        external_times: dict[str, float] | None = None,
     ) -> tuple[float, float]:
         """Tensor-product Gauss-Legendre quadrature on the causal
         simplex.
@@ -3209,6 +4033,9 @@ class DiagramIntegrand:
         ext_integrated = [v for v in ext_vars if v in ext_int_set]
         ext_fixed = [v for v in ext_vars if v not in ext_int_set]
         n_ext_int = len(ext_integrated)
+        fixed_times, t_ceiling = _resolve_external_times(
+            spatial, ext_fixed, lambda_f, external_times, ext_integrated,
+        )
 
         gl_vars = ext_integrated + int_vars_pf
         n_total = len(gl_vars)
@@ -3218,6 +4045,7 @@ class DiagramIntegrand:
             # dynamic after R-absorption aliases their legs to fixed externals.
             val = self._evaluate_zero_dimensional(
                 lambda_f, cache, direction=direction, positions=positions,
+                external_times=external_times,
             )
             return (val, 0.0)
 
@@ -3249,20 +4077,48 @@ class DiagramIntegrand:
         for earlier, later in spatial.time_orderings:
             if earlier in int_vars_pf:
                 parent_map[earlier].append(later)
+        # Lower limits from external response legs (see
+        # _causal_lower_bound_sources).  A *fixed* external contributes a
+        # constant; a swept one contributes a per-sample column of
+        # ``times_arr`` (integrated externals occupy the first n_ext_int
+        # columns and are filled before this loop runs).
+        lowers, lower_srcs = _causal_lower_bound_sources(
+            spatial, int_vars_pf, fixed_times, t_min, swept=ext_integrated,
+        )
 
         span = lambda_f - t_min
         times_arr = np.empty((n_samples, n_total))
         jacobians = np.ones(n_samples)
 
-        for k in range(n_ext_int):
-            times_arr[:, k] = t_min + u[:, k] * span
-            jacobians *= span
+        # Swept externals: free in [t_min, lambda_f] EXCEPT where a causal
+        # ordering ties two of them together (see _swept_external_order).
+        # With no such edge this is bit-identical to the flat draw.
+        _sw_order, _sw_lowers, _sw_lo_c, _sw_hi_c = _swept_external_order(
+            spatial, ext_integrated, fixed_times, lambda_f, t_min,
+        )
+        for name in _sw_order:
+            k = ext_integrated.index(name)
+            srcs = _sw_lowers.get(name, ())
+            lo_c = max(float(t_min), float(_sw_lo_c.get(name, t_min)))
+            hi_c = float(_sw_hi_c.get(name, lambda_f))
+            if not srcs:
+                w_c = hi_c - lo_c
+                times_arr[:, k] = lo_c + u[:, k] * max(w_c, 0.0)
+                jacobians *= max(w_c, 0.0)
+                continue
+            lo_e = np.full(n_samples, lo_c)
+            for src in srcs:
+                lo_e = np.maximum(lo_e, times_arr[:, ext_integrated.index(src)])
+            w_e = hi_c - lo_e
+            ok_e = w_e > 0
+            times_arr[:, k] = np.where(ok_e, lo_e + u[:, k] * w_e, lo_e)
+            jacobians = np.where(ok_e, jacobians * w_e, 0.0)
 
         for k, var in enumerate(int_vars_pf):
             idx = n_ext_int + k
             parents = parent_map.get(var, [])
             if parents:
-                hi = np.full(n_samples, lambda_f)
+                hi = np.full(n_samples, t_ceiling)
                 for p in parents:
                     if p in int_vars_pf:
                         p_idx = n_ext_int + int_vars_pf.index(p)
@@ -3271,16 +4127,22 @@ class DiagramIntegrand:
                         p_idx = ext_integrated.index(p)
                         hi = np.minimum(hi, times_arr[:, p_idx])
                     else:
-                        hi = np.minimum(hi, lambda_f)
+                        # Fixed external — use ITS OWN pinned time.
+                        hi = np.minimum(hi, fixed_times.get(p, lambda_f))
             else:
-                hi = np.full(n_samples, lambda_f)
+                hi = np.full(n_samples, t_ceiling)
 
-            width = hi - t_min
+            lo_v = lowers.get(var, t_min)
+            for src_v in lower_srcs.get(var, ()):
+                col = ext_integrated.index(src_v)
+                lo_v = np.maximum(lo_v, times_arr[:, col])
+            width = hi - lo_v
             valid = width > 0
-            times_arr[:, idx] = np.where(valid, t_min + u[:, idx] * width, t_min)
+            times_arr[:, idx] = np.where(valid, lo_v + u[:, idx] * width, lo_v)
             jacobians = np.where(valid, jacobians * width, 0.0)
 
         var_to_col = {var: i for i, var in enumerate(gl_vars)}
+        fixed_t_by = {v: np.full(n_samples, t) for v, t in fixed_times.items()}
         fixed_t = np.full(n_samples, lambda_f)
         # Equal-time alias: aliased K-vertex legs share the canonical
         # representative's time variable. Resolved transparently inside
@@ -3293,7 +4155,7 @@ class DiagramIntegrand:
             col = var_to_col.get(var)
             if col is not None:
                 return times_arr[:, col]
-            return fixed_t
+            return fixed_t_by.get(var, fixed_t)
 
         # --- Vectorised integrand evaluation: identical to QMC path. ---
         dt = self.diagram_term
@@ -3353,7 +4215,9 @@ class DiagramIntegrand:
                 label_x=label_x,
                 n_samples=n_samples,
             )
-            values = couplings.real * r_product * c_product * jacobians
+            values = (_real_batch_or_raise(
+                couplings, self._e_psi, where=' (dynamic coupling, nquad)')
+                      * r_product * c_product * jacobians)
 
         elif not prop_idx:
             c_product = np.ones(n_samples)
@@ -3367,17 +4231,21 @@ class DiagramIntegrand:
                     c_product *= _select_C_batch(C_diag_batch, a, b)
                 else:
                     c_product *= _select_C_batch(C_diag_batch, None, None)
-            values = r_product * complex(coeff).real * c_product * jacobians
+            values = r_product * _real_or_raise(coeff, self._e_psi, where=' (coupling)') * c_product * jacobians
 
         else:
             idx_names = [name for name, _ in prop_idx]
             prop_shape = tuple(dim for _, dim in prop_idx)
             values = np.zeros(n_samples)
             for pidx in np.ndindex(*prop_shape):
-                c_val = (
-                    complex(coeff[pidx]).real if coeff.ndim > 0
-                    else complex(coeff).real
-                )
+                c_raw = coeff[pidx] if coeff.ndim > 0 else coeff
+                # Magnitude FIRST.  A tensor entry that is float noise around
+                # zero can carry an arbitrary complex phase, and projecting it
+                # before the negligibility test turns "skip this term" into a
+                # hard ValueError from _real_or_raise.
+                if abs(complex(c_raw)) < 1e-20:
+                    continue
+                c_val = _real_or_raise(c_raw, self._e_psi, where=' (coupling)')
                 if abs(c_val) < 1e-20:
                     continue
                 idx_map = {**fi, **dict(zip(idx_names, pidx))}
@@ -3411,6 +4279,7 @@ class DiagramIntegrand:
         direction: Any = 0,
         positions: dict[str, float] | None = None,
         integrate_over: Any = None,
+        external_times: dict[str, float] | None = None,
     ) -> tuple[float, float]:
         """Integrate over time variables using nested adaptive
         quadrature.
@@ -3428,9 +4297,26 @@ class DiagramIntegrand:
         ext_int_set = _resolve_integrate_over(integrate_over, ext_vars)
         ext_integrated = [v for v in ext_vars if v in ext_int_set]
         ext_fixed = [v for v in ext_vars if v not in ext_int_set]
+        # Resolved here rather than further down: the swept-external ordering
+        # below needs each fixed external's own time to place constant bounds.
+        fixed_times, t_ceiling = _resolve_external_times(
+            spatial, ext_fixed, lambda_f, external_times, ext_integrated,
+        )
 
         # Quadrature variables = internals + integrated externals.
-        all_vars = int_vars + ext_integrated
+        # scipy's nquad integrates index 0 innermost, and ``ranges[i]`` is
+        # called with the values of ``all_vars[i+1:]`` -- so a variable can
+        # only be bounded by one that sits at a HIGHER index.  A swept-to-swept
+        # causal ordering therefore needs the EARLIER external placed last.
+        # ``_swept_external_order`` returns earliest-first, so reverse it; with
+        # no swept-to-swept edge it returns the caller's own order and this is
+        # the identity.
+        _sw_order, _sw_lowers, _sw_lo_c, _sw_hi_c = _swept_external_order(
+            spatial, ext_integrated, fixed_times, lambda_f, t_min,
+        )
+        ext_ordered = list(reversed(_sw_order)) if _sw_lowers else list(
+            ext_integrated)
+        all_vars = int_vars + ext_ordered
         n_int = len(int_vars)
         n_total = len(all_vars)
 
@@ -3440,11 +4326,10 @@ class DiagramIntegrand:
             dir_vars = set(spatial.direction_map.values())
             directions = {d: direction for d in dir_vars}
 
-        fixed_times = {v: lambda_f for v in ext_fixed}
-
         if n_total == 0:
             val = self._evaluate_zero_dimensional(
                 lambda_f, cache, direction=direction, positions=positions,
+                external_times=external_times,
             )
             return (val, 0.0)
 
@@ -3474,7 +4359,7 @@ class DiagramIntegrand:
             for i, var in enumerate(all_vars):
                 times[var] = args[i]
             result = self.evaluate(times, directions, cache)
-            return result.real if result.imag == 0 else abs(result)
+            return _real_or_raise(result, self._e_psi, where=' (nquad)')
 
         # Causal bounds for internal vars
         upper_bounds: dict[str, list[str]] = defaultdict(list)
@@ -3482,36 +4367,69 @@ class DiagramIntegrand:
             if earlier in int_vars:
                 upper_bounds[earlier].append(later)
 
+        # Lower limits from external response legs (see
+        # _causal_lower_bound_sources).  ``all_vars`` is internals-first,
+        # so every swept external sits *outside* every internal variable
+        # and scipy has already bound it by the time an inner range
+        # callable fires -- a variable lower bound is expressible here.
+        lowers, lower_srcs = _causal_lower_bound_sources(
+            spatial, int_vars, fixed_times, t_min, swept=ext_integrated,
+        )
+
+        def make_bound(
+            ub: list, lb: tuple, avars: list, lo: float, hi: float,
+            cur_i: int,
+        ) -> Callable:
+            def bound_func(*later_args: float) -> tuple[float, float]:
+                def outer(src: str, default: float) -> float:
+                    j = avars.index(src) - cur_i - 1
+                    if 0 <= j < len(later_args):
+                        return later_args[j]
+                    return default
+
+                hi_v = min([hi] + [outer(s, hi) for s in ub])
+                lo_v = max([lo] + [outer(s, lo) for s in lb])
+                # Never integrate backwards (see integration_bounds).
+                return (lo_v, hi_v if hi_v > lo_v else lo_v)
+            return bound_func
+
         ranges: list = []
         for i, var in enumerate(all_vars):
             if i >= n_int:
-                ranges.append((t_min, lambda_f))
-            else:
-                ub_sources = upper_bounds.get(var, [])
-                if not ub_sources:
-                    ranges.append((t_min, lambda_f))
+                # Swept external: free in [t_min, lambda_f] unless another
+                # swept external causally precedes it.
+                sw_lo = _sw_lowers.get(var, ())
+                lo_c = max(float(t_min), float(_sw_lo_c.get(var, t_min)))
+                hi_c = float(_sw_hi_c.get(var, lambda_f))
+                if sw_lo:
+                    ranges.append(
+                        make_bound([], tuple(sw_lo), all_vars, lo_c, hi_c, i)
+                    )
                 else:
-                    # Fixed externals contribute a constant upper bound
-                    # ``lambda_f`` (no longer showing up in later_args).
+                    ranges.append((lo_c, max(lo_c, hi_c)))
+            else:
+                lo_var = lowers.get(var, t_min)
+                lo_dyn = lower_srcs.get(var, ())
+                ub_sources = upper_bounds.get(var, [])
+                if not ub_sources and not lo_dyn:
+                    ranges.append((lo_var, max(lo_var, t_ceiling)))
+                else:
+                    # A fixed external never shows up in ``later_args``, so
+                    # its bound must be folded into the CONSTANT part -- at
+                    # ITS OWN time, not a blanket ``lambda_f``.  With every
+                    # external pinned together the two coincide, which is why
+                    # this stayed invisible until times could differ.
                     ub_dyn = [src for src in ub_sources
                               if src not in fixed_times]
+                    hi_const = min(
+                        [t_ceiling]
+                        + [fixed_times[src] for src in ub_sources
+                           if src in fixed_times]
+                    )
 
-                    def make_bound(
-                        ub: list[str], avars: list[str],
-                        lo: float, hi: float, cur_i: int,
-                    ) -> Callable:
-                        def bound_func(*later_args: float) -> tuple[float, float]:
-                            hi_vals = [hi]
-                            for src in ub:
-                                j = avars.index(src) - cur_i - 1
-                                if 0 <= j < len(later_args):
-                                    hi_vals.append(later_args[j])
-                                else:
-                                    hi_vals.append(hi)
-                            return (lo, min(hi_vals))
-                        return bound_func
                     ranges.append(
-                        make_bound(ub_dyn, all_vars, t_min, lambda_f, i)
+                        make_bound(ub_dyn, lo_dyn, all_vars, lo_var,
+                                   hi_const, i)
                     )
 
         val, err = _nquad(f, ranges)
@@ -3570,6 +4488,7 @@ def integrate_moment(
     positions: dict[str, float] | None = None,
     integrate_over: Any = None,
     n_gauss: int = 8,
+    external_times: dict[str, float] | None = None,
 ) -> tuple[float, float]:
     """Integrate a diagram's contribution over all time variables.
 
@@ -3624,35 +4543,41 @@ def integrate_moment(
                 lambda_f, cache, t_min=t_min, direction=direction,
                 n_samples=n_samples, seed=seed, positions=positions,
                 integrate_over=integrate_over,
+                external_times=external_times,
             )
         return integrand.integrate_moment_qmc(
             lambda_f, cache, t_min=t_min, direction=direction,
             n_samples=n_samples, seed=seed, positions=positions,
             integrate_over=integrate_over,
+            external_times=external_times,
         )
     elif method == "qmc_vectorized":
         return integrand.integrate_moment_qmc_vectorized(
             lambda_f, cache, t_min=t_min, direction=direction,
             n_samples=n_samples, seed=seed, positions=positions,
             integrate_over=integrate_over,
+            external_times=external_times,
         )
     elif method == "qmc_scalar":
         return integrand.integrate_moment_qmc(
             lambda_f, cache, t_min=t_min, direction=direction,
             n_samples=n_samples, seed=seed, positions=positions,
             integrate_over=integrate_over,
+            external_times=external_times,
         )
     elif method == "nquad":
         return integrand.integrate_moment_nquad(
             lambda_f, cache, t_min=t_min, direction=direction,
             positions=positions,
             integrate_over=integrate_over,
+            external_times=external_times,
         )
     elif method == "gauss_legendre":
         return integrand.integrate_moment_gauss_legendre(
             lambda_f, cache, t_min=t_min, direction=direction,
             n_gauss=n_gauss, positions=positions,
             integrate_over=integrate_over,
+            external_times=external_times,
         )
     else:
         raise ValueError(
@@ -3777,6 +4702,7 @@ def integrate_two_point_qmc(
     t_min: float = 0.0,
     n_samples: int = 2**14,
     seed: int | None = None,
+    external_times: dict[str, float] | None = None,
 ) -> tuple[float, float]:
     """Vectorised QMC integration for two-point correlation functions.
 
@@ -3804,8 +4730,13 @@ def integrate_two_point_qmc(
     Args:
         integrands: List of :class:`DiagramIntegrand` objects (one per
             non-vanishing Feynman diagram).
-        t_f: External (observation) time — all external points are set
-            to this time.
+        t_f: External (observation) time — the DEFAULT time for every
+            external point, and the ceiling for causal upper bounds.
+        external_times: ``{point_name: time}`` overriding *t_f* per point,
+            so ``C(x, t; y, t')`` and ``R(t, t')`` are reachable here too.
+            ``None`` pins every external at *t_f*, bit-identically to
+            before.  Same validation as
+            :meth:`DiagramIntegrand.integrate_moment_qmc_vectorized`.
         positions: ``{point_name: position}`` mapping each spatial
             point name (e.g. ``"x"``, ``"y"``) to a scalar spatial
             coordinate.  Points not in the dict default to 0.
@@ -3839,15 +4770,31 @@ def integrate_two_point_qmc(
             if dvar not in directions:
                 directions[dvar] = positions.get(pt, 0.0)
 
+        # Spatial-aware dispatch, mirroring
+        # ``integrate_moment_qmc_vectorized._lookup_C``.  When the cache has a
+        # translation / rotation / general table, ``C_at_batch`` evaluates C at
+        # the true endpoint positions and the kappa2 ratio below must NOT also
+        # be applied -- that would double-count the separation.  The ratio is
+        # the fallback for a cache that can only look C up by time.
+        model = cache.model
+        spatial_aware = _cache_has_spatial_table(cache)
+        group_x = (
+            DiagramIntegrand._resolve_group_x(sp, positions, 0.0)
+            if spatial_aware else None
+        )
+
         # Pre-compute spatial factors for each C propagator
         # factor = kappa2(n1, t_ref, n2, t_ref) / kappa2(0, t_ref, 0, t_ref)
         t_ref = max(t_min + 0.1, t_f * 0.5)
-        model = cache.model
-        kappa_00 = model.kappa2(
-            np.array([0.0]), t_ref, np.array([0.0]), t_ref
+        kappa_00 = (
+            model.kappa2(np.array([0.0]), t_ref, np.array([0.0]), t_ref)
+            if not spatial_aware else None
         )  # (N, N)
         c_spatial_factors = []
         for sp_l, sp_r, _il, _ir in sp.c_propagators:
+            if spatial_aware:
+                c_spatial_factors.append(np.ones(model.n_components))
+                continue
             dir_l = sp.direction_map[sp_l]
             dir_r = sp.direction_map[sp_r]
             n_l = directions.get(dir_l, 0.0)
@@ -3865,47 +4812,104 @@ def integrate_two_point_qmc(
                 factor = np.where(safe, diag_sep / diag_00, 0.0)
                 c_spatial_factors.append(factor)
 
-        # --- Zero integration variables: direct evaluation ---
-        et = {v: t_f for v in evs}
         ni = len(ivs)
-        if ni == 0:
-            val = ig.evaluate(et, directions, cache)
-            total += val.real
-            continue
 
-        # --- Causal parent map ---
+        # --- Causal parent map (upper bounds) ---
         pm: dict[str, list[str]] = defaultdict(list)
         for earlier, later in sp.time_orderings:
             if earlier in ivs:
                 pm[earlier].append(later)
+        # --- Causal lower bounds from external response legs ---
+        ext_times, t_ceiling = _resolve_external_times(
+            sp, evs, t_f, external_times,
+        )
+        lowers = _causal_lower_bounds(sp, ivs, ext_times, t_min)
 
-        # --- Sobol samples ---
-        u = _qmc.Sobol(d=ni, seed=seed).random(n_samples)
-        t_s = np.zeros((n_samples, ni))
-        jac = np.ones(n_samples)
-        for k, var in enumerate(ivs):
-            ps = pm.get(var, [])
-            pi = [ivs.index(p) for p in ps if p in ivs]
-            ep = [t_f for p in ps if p not in ivs]
-            hi = np.min(t_s[:, pi], axis=1) if pi else np.full(n_samples, t_f)
-            if ep:
-                hi = np.minimum(hi, min(ep))
-            w = hi - t_min
-            ok = w > 0
-            t_s[:, k] = np.where(ok, t_min + u[:, k] * w, t_min)
-            jac = np.where(ok, jac * w, 0.0)
+        def _lookup_C(sp_l, sp_r, t_l, t_r, ci):
+            """C for propagator ``ci``, already carrying its separation.
+
+            Spatial-aware caches resolve the separation exactly; the legacy
+            time-only table cannot see position at all, so its lookup is
+            scaled by the pre-computed kappa2 ratio.  Folding the ratio in
+            here keeps it impossible to apply on the exact path.
+            """
+            if spatial_aware:
+                x_l = group_x[sp.direction_map[sp_l]]
+                x_r = group_x[sp.direction_map[sp_r]]
+                return cache.C_at_batch(t_l, t_r, x_l, x_r)
+            return (cache.C_diagonal_batch(t_l, t_r)
+                    * c_spatial_factors[ci][np.newaxis, :])
+
+        # --- Zero integration variables ---
+        #
+        # ``c_spatial_factors`` (the kappa2 ratio at a single ``t_ref``)
+        # exists to patch ONE blind spot: the legacy time-only spline
+        # table, which ignores position entirely.  ``ig.evaluate`` ->
+        # ``C_value`` is position-AWARE everywhere else — through the
+        # spatial fast path when a translation/rotation/general table has
+        # been built, and through the ``_C_value_direct`` (dblquad /
+        # ``c_value_fn``) fallback when no table has.  In those cases the
+        # delegated call is *exact* and the ratio is a strictly worse
+        # approximation, so applying it there would be a regression:
+        # measured 4.9% at r=0.5 rising to 34.3% at r=4 for a kernel whose
+        # correlation length grows with time, where delegation reproduces
+        # the closed form to every printed digit.  Routing a table-less
+        # cache through the batch path is worse still — ``C_diagonal_batch``
+        # raises, turning a working call into a RuntimeError.
+        #
+        # So delegate whenever ``evaluate`` can see the positions, and use
+        # the vectorised legacy-table-times-ratio path only when it cannot.
+        # That is the *only* configuration in which the order-0 correlator
+        # was ever wrong (it returned the coincident-point value at every
+        # separation — a factor e^2 at r = 2 sigma).
+        legacy_position_blind = (
+            not _cache_has_spatial_table(cache)
+            and getattr(cache, "_c_splines", None) is not None
+            and cache.model.diag_C
+        )
+        if ni == 0 and not legacy_position_blind:
+            et = dict(ext_times)
+            total += _real_or_raise(
+                ig.evaluate(et, directions, cache), ig._e_psi,
+                where=" (two-point qmc, zero-dimensional)",
+            )
+            continue
+
+        # --- Sobol samples (ni == 0 runs as a degenerate one-sample
+        # batch with a unit Jacobian, sharing the sampled path's code so
+        # the two cannot drift apart on the legacy-table convention) ---
+        n_eval = n_samples if ni else 1
+        t_s = np.zeros((n_eval, ni))
+        jac = np.ones(n_eval)
+        if ni:
+            u = _qmc.Sobol(d=ni, seed=seed).random(n_samples)
+            for k, var in enumerate(ivs):
+                ps = pm.get(var, [])
+                pi = [ivs.index(p) for p in ps if p in ivs]
+                # A fixed external parent bounds from above at ITS OWN
+                # time, not a blanket t_f.
+                ep = [ext_times.get(p, t_f) for p in ps if p not in ivs]
+                hi = (np.min(t_s[:, pi], axis=1) if pi
+                      else np.full(n_samples, t_ceiling))
+                if ep:
+                    hi = np.minimum(hi, min(ep))
+                lo_v = lowers.get(var, t_min)
+                w = hi - lo_v
+                ok = w > 0
+                t_s[:, k] = np.where(ok, lo_v + u[:, k] * w, lo_v)
+                jac = np.where(ok, jac * w, 0.0)
 
         # --- Full time array ---
         all_vars = evs + ivs
         var_col = {v: j for j, v in enumerate(all_vars)}
-        t_arr = np.empty((n_samples, len(all_vars)))
+        t_arr = np.empty((n_eval, len(all_vars)))
         for j in range(len(evs)):
-            t_arr[:, j] = t_f
+            t_arr[:, j] = ext_times.get(evs[j], t_f)
         for j in range(ni):
             t_arr[:, len(evs) + j] = t_s[:, j]
 
         # --- Vectorised R product ---
-        r_prod = np.ones(n_samples)
+        r_prod = np.ones(n_eval)
         for sl, sr in _kept_r_propagators(sp):
             r_prod *= cache.R_time_batch(
                 t_arr[:, var_col[sl]], t_arr[:, var_col[sr]]
@@ -3925,58 +4929,59 @@ def integrate_two_point_qmc(
 
         if not prop_idx:
             # Scalar coupling (iso_R + iso_C)
-            c_prod = np.ones(n_samples)
+            c_prod = np.ones(n_eval)
             for ci, (sp_l, sp_r, il, ir) in enumerate(sp.c_propagators):
                 t_l = t_arr[:, var_col[sp_l]]
                 t_r = t_arr[:, var_col[sp_r]]
-                C_diag = cache.C_diagonal_batch(t_l, t_r)
-                sf = c_spatial_factors[ci]
+                C_batch = _lookup_C(sp_l, sp_r, t_l, t_r, ci)
                 a = DiagramIntegrand._resolve_component(il, fi)
-                if a is not None:
-                    c_prod *= C_diag[:, a] * sf[a]
-                else:
-                    c_prod *= (C_diag * sf[np.newaxis, :]).sum(axis=1)
-            values = r_prod * complex(coeff).real * c_prod * jac
+                b = DiagramIntegrand._resolve_component(ir, fi)
+                c_prod *= _select_C_batch(C_batch, a, b)
+            values = r_prod * _real_or_raise(
+                coeff, getattr(dt, 'n_external_response', 0),
+                where=' (coupling)') * c_prod * jac
 
         else:
             # Propagator-indexed coupling
             idx_names = [name for name, _ in prop_idx]
             prop_shape = tuple(dim for _, dim in prop_idx)
-            values = np.zeros(n_samples)
+            values = np.zeros(n_eval)
             for pidx in np.ndindex(*prop_shape):
-                c_val = (
-                    complex(coeff[pidx]).real
-                    if coeff.ndim > 0
-                    else complex(coeff).real
-                )
+                c_raw = coeff[pidx] if coeff.ndim > 0 else coeff
+                # Magnitude FIRST.  A tensor entry that is float noise around
+                # zero can carry an arbitrary complex phase, and projecting it
+                # before the negligibility test turns "skip this term" into a
+                # hard ValueError from _real_or_raise.
+                if abs(complex(c_raw)) < 1e-20:
+                    continue
+                c_val = _real_or_raise(c_raw, getattr(dt, "n_external_response", 0), where=' (coupling)')
                 if abs(c_val) < 1e-20:
                     continue
                 idx_map = {**fi, **dict(zip(idx_names, pidx))}
-                c_prod = np.ones(n_samples)
+                c_prod = np.ones(n_eval)
                 for ci, (sp_l, sp_r, il, ir) in enumerate(
                     sp.c_propagators
                 ):
                     t_l = t_arr[:, var_col[sp_l]]
                     t_r = t_arr[:, var_col[sp_r]]
-                    C_diag = cache.C_diagonal_batch(t_l, t_r)
-                    sf = c_spatial_factors[ci]
+                    C_batch = _lookup_C(sp_l, sp_r, t_l, t_r, ci)
                     a = DiagramIntegrand._resolve_component(il, idx_map)
                     b = DiagramIntegrand._resolve_component(ir, idx_map)
-                    if a is not None and b is not None:
-                        c_prod *= C_diag[:, a] * sf[a]
-                    else:
-                        c_prod *= (C_diag * sf[np.newaxis, :]).sum(axis=1)
+                    c_prod *= _select_C_batch(C_batch, a, b)
                 values += c_val * r_prod * c_prod * jac
 
         values = np.where(jac > 0, values, 0.0)
         est = float(np.mean(values))
         total += est
 
-        # Error from 8 sub-batches
-        bs = n_samples // 8
-        bm = np.array(
-            [np.mean(values[j * bs : (j + 1) * bs]) for j in range(8)]
-        )
-        total_err_sq += (float(np.std(bm, ddof=1) / np.sqrt(8))) ** 2
+        # Error from 8 sub-batches.  A zero-dimensional diagram is a
+        # single deterministic evaluation, so it contributes no
+        # quadrature variance.
+        if ni:
+            bs = n_samples // 8
+            bm = np.array(
+                [np.mean(values[j * bs : (j + 1) * bs]) for j in range(8)]
+            )
+            total_err_sq += (float(np.std(bm, ddof=1) / np.sqrt(8))) ** 2
 
     return (total, np.sqrt(total_err_sq))

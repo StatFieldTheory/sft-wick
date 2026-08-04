@@ -139,17 +139,26 @@ class Symbol(Expr):
     Examples:
         Symbol('F', ('i', 'j', 'k'))  ->  F_{ijk}
         Symbol('K', ('i', 'j'), ('y_0', 'y_1'))  ->  K_{ij}(y_0, y_1)
+
+    ``local`` marks a coupling belonging to a *local* vertex, whose legs all
+    sit at one spacetime point.  Such a symbol still carries that single point
+    in :attr:`spatial_args` — which is what makes two copies of the same vertex
+    distinguishable, and what lets a callable (time-dependent) coupling be
+    evaluated at the right place — but the point is suppressed when rendering,
+    so ``to_latex()`` is unchanged for the overwhelmingly common case of a
+    constant local coupling.  Equality and hashing always include it.
     """
 
     name: str
     indices: tuple[str, ...] = ()
     spatial_args: tuple[str, ...] = ()
+    local: bool = False
 
     def to_latex(self) -> str:
         s = self.name
         if self.indices:
             s += "_{" + "".join(_latex_index(i) for i in self.indices) + "}"
-        if self.spatial_args:
+        if self.spatial_args and not self.local:
             s += "(" + ", ".join(_latex_index(a) for a in self.spatial_args) + ")"
         return s
 

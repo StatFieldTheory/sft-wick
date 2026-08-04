@@ -189,6 +189,19 @@ equal points :math:`R(x,x) = 0`, and causal R-loops are eliminated.
    # Disable to keep R(x,x) symbolic:
    result = compute_moment(obs, action, order=1, ito=False)
 
+.. note::
+
+   ``ito=False`` is a **symbolic** switch.  It keeps the equal-point R
+   terms in the expression tree, but it does not change any *number*:
+   the numerical layer applies :math:`\Theta(0)=0` everywhere, and
+   sft-wick does not generate the Stratonovich functional Jacobian
+   :math:`-\tfrac{1}{2}\int\mathrm{d}s\,\partial F/\partial\phi`.
+   Those two omissions cancel, and for additive noise the Itô and
+   Stratonovich answers coincide, so ``ito=False`` evaluates to the same
+   — correct — value as ``ito=True``.  Setting :math:`\Theta(0)=1/2`
+   without also emitting the Jacobian would inject an error growing
+   without bound in the final time.
+
 **Response phase** (``response_phase=True``): each term is multiplied by
 :math:`(-\mathrm{i})^n` where *n* counts response propagators,
 implementing :math:`\langle\phi\,\psi\rangle = -\mathrm{i}\,R`.

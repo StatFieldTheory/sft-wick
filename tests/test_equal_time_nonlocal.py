@@ -146,12 +146,21 @@ def test_vertex_instance_alias_for_order_2_nonlocal():
 
 def _make_diagram_with_equal_time_aliases(aliases):
     """Build a minimal DiagramTerm carrying the requested alias tuple."""
-    # 3 internal labels: s_a (rep), s_b, s_c. R-propagators pair them
-    # arbitrarily so all 3 are real internal labels in integration_vars.
+    # 3 internal labels: s_a (rep), s_b, s_c, each reached from the external
+    # point by an R propagator.
+    #
+    # Orientation matters: ``Propagator("R", ..., left, right)`` is
+    # ``<phi(left) psi(right)>``, so ``right`` is the EARLIER (psi) endpoint.
+    # Putting the external on the left makes each vertex time the earlier one,
+    # i.e. ``t_s <= t_x_ext = lambda_f`` -- the full box, which is what these
+    # measure/Jacobian tests intend to integrate.  The mirrored orientation
+    # ``("s_a", "x_ext")`` would instead demand ``t_s >= lambda_f``, an empty
+    # domain inside ``[t_min, lambda_f]``; that degenerate case is pinned
+    # separately by ``test_external_psi_leg_gives_empty_causal_domain``.
     props = (
-        Propagator("R", None, None, "s_a", "x_ext"),
-        Propagator("R", None, None, "s_b", "x_ext"),
-        Propagator("R", None, None, "s_c", "x_ext"),
+        Propagator("R", None, None, "x_ext", "s_a"),
+        Propagator("R", None, None, "x_ext", "s_b"),
+        Propagator("R", None, None, "x_ext", "s_c"),
     )
     return DiagramTerm(
         propagators=props,
@@ -223,8 +232,11 @@ def test_static_evaluate_fills_equal_time_aliases_without_keyerror():
     val = ig.evaluate({"s_a": 0.25, "x_ext": 1.0}, {}, cache)
 
     assert val == pytest.approx(1.0 + 0.0j)
-    assert ("s_b", "x_ext", 0.25, 1.0) in cache.r_calls
-    assert ("s_c", "x_ext", 0.25, 1.0) in cache.r_calls
+    # Orientation follows the fixture: R(x_ext, s_*) = <phi(x_ext) psi(s_*)>,
+    # so the external is the left/later endpoint at t=1.0 and each aliased
+    # vertex leg is the right/earlier endpoint at the representative's t=0.25.
+    assert ("x_ext", "s_b", 1.0, 0.25) in cache.r_calls
+    assert ("x_ext", "s_c", 1.0, 0.25) in cache.r_calls
 
 
 def test_dynamic_callable_receives_shared_times_for_equal_time_legs():
@@ -451,3 +463,37 @@ def test_equal_time_collapses_time_integrations_in_diagram_term():
     # Check the alias structure: 3 K legs → 2 entries (non-rep → rep).
     for dt in aliased:
         assert len(dt.equal_time_aliases) == 2, dt.equal_time_aliases
+
+
+def test_external_psi_leg_gives_empty_causal_domain():
+    """An external point on the psi side of R bounds vertex times from BELOW.
+
+    ``<phi(s) psi(x_ext)>`` is retarded, so it demands ``t_s >= t_x_ext``.
+    With every external pinned at ``lambda_f`` and the vertex times confined to
+    ``[t_min, lambda_f]``, the causal domain collapses to measure zero and the
+    integral must be exactly 0.  Before lower causal bounds were implemented,
+    the constraint was dropped and the full box was integrated instead.
+    """
+    span = 2.0
+    props = (
+        Propagator("R", None, None, "s_a", "x_ext"),
+        Propagator("R", None, None, "s_b", "x_ext"),
+        Propagator("R", None, None, "s_c", "x_ext"),
+    )
+    dt = DiagramTerm(
+        propagators=props,
+        coupling_sum=Symbol("K", indices=(), spatial_args=("s_a", "s_b", "s_c")),
+        rational_prefactor=Rational(1, 1),
+        integration_vars=("s_a", "s_b", "s_c"),
+        summation_indices=(),
+        n_response=0,
+    )
+    ig = dt.build_integrand({"K": np.array(1.0)})
+    cache = _UnitCache()
+    for method in ("integrate_moment_gauss_legendre",
+                   "integrate_moment_qmc_vectorized"):
+        kw = {"n_gauss": 2} if "gauss" in method else {"n_samples": 64, "seed": 0}
+        val, _ = getattr(ig, method)(
+            lambda_f=span, cache=cache, t_min=0.0, **kw
+        )
+        assert val == 0.0, f"{method} integrated an empty causal domain"
