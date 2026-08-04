@@ -1427,20 +1427,43 @@ def test_F19_helper_orders_and_is_a_no_op_without_swept_edges():
     class _Sp:
         time_orderings = (("y", "x"), ("y", "v0"), ("v0", "x"))
 
-    order, lowers = _swept_external_order(_Sp(), ["x", "y"])
+    order, lowers, lo_c, hi_c = _swept_external_order(_Sp(), ["x", "y"])
     assert lowers == {"x": ["y"]}
     assert order.index("y") < order.index("x"), order
 
-    # only x swept -> the (y, x) edge has a non-swept end -> no-op
-    order2, lowers2 = _swept_external_order(_Sp(), ["x"])
+    # only x swept -> the (y, x) edge has a non-swept end -> no swept source,
+    # but y is now a FIXED external, so it must become a CONSTANT lower bound.
+    order2, lowers2, lo2, hi2 = _swept_external_order(
+        _Sp(), ["x"], fixed_times={"y": 1.25}, lambda_f=5.0, t_min=0.0,
+    )
     assert (order2, lowers2) == (["x"], {})
+    assert lo2.get("x") == 1.25, lo2
+
+    # ... and the mirror case: a swept point that PRECEDES a fixed one is
+    # bounded from above by it.
+    class _Fwd:
+        time_orderings = (("x", "y"),)
+
+    _, _, lo3, hi3 = _swept_external_order(
+        _Fwd(), ["x"], fixed_times={"y": 2.5}, lambda_f=9.0, t_min=0.0,
+    )
+    assert hi3.get("x") == 2.5, hi3
+
+    # swept -> internal -> swept must close transitively; the raw edge list
+    # has no swept-to-swept edge at all.
+    class _Chain:
+        time_orderings = (("a", "v0"), ("v0", "b"))
+
+    order4, lowers4, _, _ = _swept_external_order(_Chain(), ["a", "b"])
+    assert lowers4 == {"b": ["a"]}, lowers4
+    assert order4.index("a") < order4.index("b"), order4
 
     # a cycle must fall back, never drop a variable
     class _Cyc:
         time_orderings = (("a", "b"), ("b", "a"))
 
-    order3, lowers3 = _swept_external_order(_Cyc(), ["a", "b"])
-    assert (order3, lowers3) == (["a", "b"], {})
+    order5, lowers5, _, _ = _swept_external_order(_Cyc(), ["a", "b"])
+    assert (order5, lowers5) == (["a", "b"], {})
 
 
 # --------------------------------------------------------------------- #
@@ -1891,3 +1914,76 @@ def test_F22_nquad_orders_swept_externals_outermost(method, kw, tol):
         for ig in igs
     )
     assert total == pytest.approx(_f19_reference(), rel=tol)
+
+
+# --------------------------------------------------------------------- #
+# F23: the diagonal-ridge fix must not cost picklability
+# --------------------------------------------------------------------- #
+#
+# `RectBivariateSpline` is picklable; `CubicSpline` is NOT (scipy 1.18:
+# "cannot pickle 'module' object").  So naively storing a CubicSpline for the
+# diagonal made every table-carrying PropagatorCache unserialisable -- it could
+# no longer be sent through joblib or saved.  Found by the final branch review.
+#
+# The obvious swap is worse, not better: `RegularGridInterpolator(method=
+# 'cubic')` IS picklable but DIVERGES here as the grid refines -- mid-cell
+# relative error 4.0e-04 at n_grid=41 against 8.2e-03 at n_grid=321.  That
+# trades a serialisation bug for a numerical one, which is why `_DiagLineSpline`
+# keeps the CubicSpline and serialises only its nodes and values.
+
+
+@pytest.mark.parametrize("kind", ["none", "legacy", "lazy", "full"])
+def test_F23_propagator_cache_survives_a_pickle_round_trip(kind):
+    """Every table flavour must round-trip, with identical values."""
+    import pickle
+    import tests._pickle_model as pm  # noqa: F401  (module-level = picklable)
+
+    model = PropagatorModel(
+        R_time=pm.R_time, kappa2=pm.kappa2, sigma2=pm.sigma2,
+        n_components=1, iso_R=True, diag_C=True, t_min=0.0,
+    )
+    cache = PropagatorCache(model, c_value_fn=pm.c_value_fn)
+    if kind == "legacy":
+        cache.precompute_C_table(t_max=4.0, n_grid=21)
+    elif kind == "lazy":
+        cache.precompute_C_table_translation(t_max=4.0, n_grid_t=21)
+    elif kind == "full":
+        cache.precompute_C_table_translation(
+            t_max=4.0, n_grid_t=21, r_max=2.0, n_grid_r=7,
+        )
+
+    z = np.array([0.0])
+
+    def probe(c):
+        if kind in ("lazy", "full"):
+            return float(c.C_at_batch(np.array([2.0]), np.array([2.0]),
+                                      z, z)[0, 0])
+        return float(c.C_diagonal(0, 2.0, 0, 2.0)[0])
+
+    before = probe(cache)
+    after = probe(pickle.loads(pickle.dumps(cache)))
+    assert after == before, f"{kind}: {before!r} -> {after!r} across pickle"
+    # and it is still the right number (t=2.0 is a node of this grid)
+    assert before == pytest.approx(_C0(2.0, 2.0), rel=1e-9)
+
+
+def test_F23_diag_line_spline_keeps_cubic_accuracy():
+    """Guard the trade-off: picklable must not mean less accurate.
+
+    Pins that the diagonal interpolator still converges -- the divergent
+    RegularGridInterpolator('cubic') alternative would fail this at n=161.
+    """
+    from sft_wick.evaluate import _diag_line_interp, _diag_line_eval
+
+    errs = {}
+    for n in (41, 161):
+        ts = np.linspace(0.0, 4.0, n)
+        itp = _diag_line_interp(ts, np.array([_C0(t, t) for t in ts]))
+        mids = 0.5 * (ts[:-1] + ts[1:])
+        errs[n] = max(
+            abs(float(_diag_line_eval(itp, t)[0]) - _C0(t, t))
+            / max(abs(_C0(t, t)), 1e-30)
+            for t in mids
+        )
+    assert errs[161] < errs[41], f"not converging: {errs}"
+    assert errs[161] < 1e-5, errs
