@@ -305,6 +305,15 @@ class DiagramTerm:
     # partner coordinates instead of the κ leg's own. Empty tuple ⇒
     # no R-absorption (original sft-wick contract).
     r_absorbed_pairs: tuple[tuple[str, str], ...] = ()
+    #: Number of **external** response legs carried by the observable
+    #: itself (``E_psi``).  Together with ``n_response`` this fixes the
+    #: phase of the diagram: with ``n_R = sum_v n_psi(v) + E_psi`` and the
+    #: package's ``(-i)^{n_R}`` factor, a diagram evaluates to
+    #: ``i^{-E_psi} * (a real number)`` provided each vertex coupling
+    #: carries the ``(+/-i)^{n_psi(v)}`` factor demanded by
+    #: ``<phi psi> = -i R``.  So ``i^{E_psi}`` rotates the raw value onto
+    #: the real axis; see :meth:`observable_phase_factor`.
+    n_external_response: int = 0
 
     @property
     def propagator_indices(self) -> tuple[tuple[str, int], ...]:
@@ -337,6 +346,30 @@ class DiagramTerm:
     def response_phase_factor(self) -> complex:
         """Return ``(-i)^n_response`` as a complex number."""
         return [1.0, -1j, -1.0, 1j][self.n_response % 4]
+
+    def observable_phase_factor(self) -> complex:
+        r"""Return ``i^{E_psi}`` — the factor that rotates this diagram's raw
+        value onto the real axis.
+
+        **Reality theorem.**  Let the diagram have vertices ``v`` with
+        ``n_psi(v)`` response legs, and let the observable carry ``E_psi``
+        external response legs.  Every psi must contract into an R (because
+        ``<psi psi> = 0``), so ``n_R = sum_v n_psi(v) + E_psi``.  If each
+        vertex coupling carries the ``(+/-i)^{n_psi(v)}`` factor demanded by
+        ``<phi psi> = -i R``, then::
+
+            (-i)^{n_R} * i^{n_R - E_psi} = i^{-E_psi}
+
+        so the value equals ``i^{-E_psi}`` times a real number.  Multiplying by
+        ``i^{E_psi}`` therefore lands exactly on the real axis.  A residual
+        imaginary part means the *action* is mis-specified — an error to
+        report, never a sign to guess.
+
+        In particular ``E_psi = 0`` (an observable built only from physical
+        fields) gives a strictly real value, which is why taking ``.real`` is
+        correct there and taking ``abs()`` never is.
+        """
+        return [1.0, 1j, -1.0, -1j][self.n_external_response % 4]
 
     def evaluate_coupling(
         self,
@@ -688,6 +721,7 @@ class DiagramTerm:
             n_response=self.n_response,
             equal_time_aliases=self.equal_time_aliases,
             r_absorbed_pairs=self.r_absorbed_pairs,
+            n_external_response=self.n_external_response,
         )
 
     def to_latex(self) -> str:
@@ -916,16 +950,45 @@ class DiagramTerm:
         spatial_args_by_name = _collect_symbol_spatial_args(
             self.coupling_sum
         )
+        occurrences = _collect_symbol_occurrences(self.coupling_sum)
         for name in active_dynamic:
             if name not in spatial_args_by_name:
                 raise ValueError(
                     f"coupling_values['{name}'] is callable and the "
                     f"symbol '{name}' appears in this diagram's "
-                    f"coupling_sum, but has no spatial_args — "
-                    f"cannot determine ψ-leg coordinates.  This "
-                    f"typically means '{name}' is being used as a "
-                    f"local (zero-leg) coupling; pass it as an "
-                    f"ndarray instead."
+                    f"coupling_sum, but carries no spatial argument, so the "
+                    f"coordinates at which to evaluate it are unknown.  "
+                    f"Either pass '{name}' as an ndarray (a constant "
+                    f"coupling), or rebuild the Action so the vertex records "
+                    f"its point."
+                )
+            # A callable is evaluated from a single coordinate tuple (the
+            # first occurrence).  That is fine when every occurrence names the
+            # same *set* of points -- the permutation-symmetrised coupling sum
+            # of one non-local vertex, where the tuples differ only by leg
+            # order.  (For an asymmetric kernel the leg order does matter and
+            # the result is then mis-evaluated; that is a known limitation of
+            # the first-occurrence rule, documented on
+            # ``_collect_symbol_spatial_args``.)
+            #
+            # It is NOT fine when the point sets genuinely differ -- two copies
+            # of the same vertex at order >= 2 sit at different times, and
+            # evaluating both at the first copy's coordinates was measured
+            # 4.06x wrong.  Refuse that rather than return a wrong number.
+            places = occurrences.get(name, ())
+            distinct_point_sets = {frozenset(pl) for pl in places}
+            if len(distinct_point_sets) > 1:
+                raise NotImplementedError(
+                    f"coupling '{name}' is callable and occurs at "
+                    f"{len(distinct_point_sets)} different sets of spacetime "
+                    f"points in this diagram "
+                    f"({', '.join(str(p) for p in places)}); per-occurrence "
+                    f"evaluation is not implemented, and evaluating them all "
+                    f"at {places[0]} would be silently wrong.  This happens "
+                    f"when one vertex species appears more than once (order "
+                    f">= 2).  Supported today: a callable coupling whose "
+                    f"occurrences all sit at the same point set.  Pass an "
+                    f"ndarray for the constant case."
                 )
 
         static_values = {
@@ -1052,6 +1115,47 @@ def _collect_symbol_names(expr: Expr) -> set[str]:
     return out
 
 
+def _collect_symbol_occurrences(expr: Expr) -> dict[str, tuple[tuple[str, ...], ...]]:
+    """Collect **every distinct** ``spatial_args`` tuple per Symbol name.
+
+    Companion to :func:`_collect_symbol_spatial_args`, which keeps only the
+    first.  A name mapping to more than one tuple means the coupling sits at
+    more than one spacetime point in this diagram — two copies of a vertex at
+    order >= 2, or a permutation-symmetrised non-local coupling sum.  A
+    callable coupling then cannot be evaluated from a single coordinate tuple.
+
+    Returns ``{name: (spatial_args, ...)}`` in first-seen order; symbols with
+    no spatial args are omitted.
+    """
+    out: dict[str, list[tuple[str, ...]]] = {}
+
+    def walk(e: Expr) -> None:
+        if isinstance(e, Symbol):
+            if e.spatial_args:
+                seen = out.setdefault(e.name, [])
+                args = tuple(e.spatial_args)
+                if args not in seen:
+                    seen.append(args)
+            return
+        if isinstance(e, Rational):
+            return
+        if isinstance(e, Product):
+            for f in e.factors:
+                walk(f)
+            return
+        if isinstance(e, Sum):
+            for t in e.terms:
+                walk(t)
+            return
+        for attr in ("expr", "body", "integrand"):
+            child = getattr(e, attr, None)
+            if isinstance(child, Expr):
+                walk(child)
+
+    walk(expr)
+    return {k: tuple(v) for k, v in out.items()}
+
+
 def _collect_symbol_spatial_args(expr: Expr) -> dict[str, tuple[str, ...]]:
     """Walk a coupling-sum expression tree and collect the
     ``spatial_args`` tuple for each unique :class:`~sft_wick.expressions.Symbol`
@@ -1067,11 +1171,16 @@ def _collect_symbol_spatial_args(expr: Expr) -> dict[str, tuple[str, ...]]:
     Returns ``{name: spatial_args_tuple}``.  Symbols with no
     spatial args are omitted.
 
-    If a symbol appears multiple times in the tree (e.g. across
-    different Wick pairings of the same vertex) we return the
-    spatial_args of its first occurrence — they are guaranteed to
-    agree within one :class:`DiagramTerm` because all Symbols with
-    the same name derive from the same :class:`VertexInstance`.
+    Returns the spatial_args of the symbol's **first** occurrence.
+
+    .. warning::
+       That is only valid when the name occurs at a single coordinate tuple.
+       It does **not** hold in general: a permutation-symmetrised
+       ``coupling_sum`` lists the same name at several leg orderings, and at
+       order >= 2 two copies of one vertex live at different points.  Use
+       :func:`_collect_symbol_occurrences` to detect those cases —
+       :meth:`DiagramTerm.build_integrand` refuses them rather than silently
+       evaluating every occurrence at the first one's coordinates.
     """
     out: dict[str, tuple[str, ...]] = {}
 
@@ -1134,6 +1243,26 @@ def compute_moment(
             :math:`\Theta(0)=0`: the response propagator vanishes at
             equal spatial points, :math:`R(x,x)=0`, and causal
             R-loops are eliminated.
+
+            ``ito=False`` is a **symbolic** switch.  It keeps those
+            terms in the expression tree so they can be inspected or
+            rendered, but it does not change any *number*: the
+            numerical layer applies :math:`\Theta(0)=0` at every R
+            evaluation, and this package does not generate the
+            Stratonovich functional Jacobian
+            :math:`-\tfrac{1}{2}\int\mathrm{d}s\,\partial F/\partial\phi`.
+            Those two omissions cancel exactly, and for additive noise
+            the Itô and Stratonovich answers coincide anyway, so
+            ``ito=False`` evaluates to the correct physical value — the
+            same one ``ito=True`` gives.
+
+            Do **not** "fix" this by setting
+            :math:`\Theta(0)=\tfrac{1}{2}` without also emitting the
+            Jacobian counter-term.  For the linear vertex that adds a
+            spurious :math:`-k\,C(T,T)\,T/2`, which grows without bound
+            in :math:`T` — measured at 200%/400%/800% of the exact
+            answer for :math:`T=4/8/16`.  See
+            ``test_F15_ito_false_changes_the_expression_not_the_number``.
         response_phase: If ``True``, multiply each term by
             :math:`(-\mathrm{i})^n` where *n* is the number of
             response propagators in that term, implementing the
@@ -1158,6 +1287,9 @@ def compute_moment(
         A :class:`PerturbativeResult` containing order-by-order
         expressions, a combined total, and Feynman diagram information.
     """
+    # E_psi: response legs carried by the observable itself.  Fixes the
+    # phase needed to rotate a diagram value onto the real axis.
+    _n_ext_response = sum(1 for _op in observable if _op.field.is_response)
     diag_R = diag_R or iso_R
     diag_C = diag_C or iso_C
 
@@ -1194,6 +1326,7 @@ def compute_moment(
                         integration_vars=(),
                         summation_indices=(),
                         n_response=sum(1 for pr in props if pr.kind == "R"),
+                        n_external_response=_n_ext_response,
                     ))
         else:
             # Expand S_int^n using multinomial theorem
@@ -1316,6 +1449,7 @@ def compute_moment(
                             ),
                             equal_time_aliases=merged_aliases,
                             r_absorbed_pairs=r_absorbed_pairs,
+                            n_external_response=_n_ext_response,
                         ))
                 else:
                     # --- Operator-level Wick contraction ---
@@ -1973,6 +2107,21 @@ def _eval_symbolic(
             val = arr[idx]
         else:
             val = arr
+        val = np.asarray(val)
+        if val.ndim != 0:
+            if val.size == 1:
+                # Tolerate a size-1 array in any shape, e.g. (1,1,1,1).
+                val = val.reshape(())
+            else:
+                raise ValueError(
+                    f"coupling '{expr.name}' carries "
+                    f"{len(expr.indices)} component index/indices in this "
+                    f"diagram, so indexing its value left an array of shape "
+                    f"{np.shape(val)} rather than a scalar.  For a scalar "
+                    f"field (n_components=1) the vertex indices are stripped "
+                    f"entirely, so the coupling must be a 0-d value (e.g. "
+                    f"np.array(1j)), not a rank-{np.ndim(arr)} array."
+                )
         return complex(val) if np.iscomplexobj(arr) else float(val)
     if isinstance(expr, Product):
         result: complex | float = 1.0
@@ -2218,6 +2367,9 @@ def compute_moment_numerical(
         non-zero contributions.  Use :meth:`DiagramTerm.build_integrand`
         for numerical evaluation.
     """
+    # E_psi: response legs carried by the observable itself.  Fixes the
+    # phase needed to rotate a diagram value onto the real axis.
+    _n_ext_response = sum(1 for _op in observable if _op.field.is_response)
     from collections import defaultdict
 
     from .simplify import _canonical_key_nauty
@@ -2251,6 +2403,7 @@ def compute_moment_numerical(
                             integration_vars=(),
                             summation_indices=(),
                             n_response=sum(1 for pr in props if pr.kind == "R"),
+                            n_external_response=_n_ext_response,
                         )
                         if diag_R or diag_C:
                             dt = dt.apply_diagonal(
@@ -2403,6 +2556,7 @@ def compute_moment_numerical(
                             ),
                             equal_time_aliases=merged_aliases2,
                             r_absorbed_pairs=r_absorbed_pairs2,
+                            n_external_response=_n_ext_response,
                         ))
 
         # Apply diagonal constraints
