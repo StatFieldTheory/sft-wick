@@ -995,10 +995,21 @@ class PropagatorCache:
         """Product of R_time over all R propagator pairs.
 
         Only valid when ``model.iso_R=True`` (R is scalar).
+
+        Retardation is enforced here.  ``R_time`` itself is the raw model
+        accessor and deliberately does not apply Θ ("the integration domain
+        handles causality") — but that only holds when there *is* an
+        integration domain.  An R propagator joining two **fixed external**
+        points has none: at order 0, ``<phi(t_x) psi(t_y)>`` would otherwise
+        evaluate to the unbounded acausal ``exp(+mu (t_y - t_x))`` for
+        ``t_y > t_x``.  Under the Itô prescription equal times give 0 as well.
         """
         result = 1.0
         for sl, sr in r_pairs:
-            result *= float(self.R_time(times[sl], times[sr]))
+            t_l, t_r = times[sl], times[sr]
+            if not t_l > t_r:
+                return 0.0
+            result *= float(self.R_time(t_l, t_r))
         return result
 
     def C_value(
@@ -1215,9 +1226,12 @@ class PropagatorCache:
         Returns:
             Array of shape ``(n,)``.  R(t1, t2) = Θ(t1−t2) × R_time(t1, t2).
         """
-        # Vectorize the user-provided R_time function
+        # Vectorize the user-provided R_time function.  Θ is applied here:
+        # the docstring has always promised it, and an R propagator joining
+        # two fixed external points has no integration domain to enforce it.
         R_vec = np.vectorize(self.model.R_time)
-        return R_vec(t1, t2)
+        out = np.asarray(R_vec(t1, t2), dtype=float)
+        return np.where(np.asarray(t1) > np.asarray(t2), out, 0.0)
 
     # ------------------------------------------------------------------ #
     # Spatial-aware extension: (t, x) coordinates via homogeneity modes
@@ -2543,6 +2557,10 @@ class DiagramIntegrand:
         """Evaluate matrix-valued R propagators for one component assignment."""
         result: complex = 1.0
         for sl, sr in _kept_r_propagators(self.spatial):
+            # Retarded + Itô: vanishes unless t_left > t_right.  See
+            # PropagatorCache.R_product for why this is enforced here.
+            if not times[sl] > times[sr]:
+                return complex(0.0)
             R_mat = np.asarray(cache.R_time(times[sl], times[sr]))
             r_prop = self._find_r_propagator(sl, sr)
             if r_prop and r_prop.index_left and r_prop.index_right:
