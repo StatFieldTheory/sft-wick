@@ -756,6 +756,43 @@ def _causal_lower_bounds(
     return lowers
 
 
+def _reject_integrated_external_lower_bounds(
+    spatial, int_vars, ext_integrated,
+) -> None:
+    """Refuse the one causal constraint the integrators cannot yet express.
+
+    An ordering ``(earlier, later)`` with ``earlier`` an external point and
+    ``later`` internal is a LOWER bound on the internal time (see
+    :func:`_causal_lower_bounds`).  When that external is *fixed* the bound is
+    a constant and is applied.  When it is swept via ``integrate_over`` the
+    bound is a *variable*, which the current samplers cannot carry, so the
+    constraint would simply be dropped -- measured 205%-749% wrong for the
+    integrated moment of a response function.
+
+    Raising keeps a silently wrong number from reaching the user.  The
+    constraint is expressible in principle (integrated externals are sampled
+    before every internal variable in all backends), so this is a missing
+    feature, not an impossibility.
+    """
+    if not ext_integrated:
+        return
+    int_set, ext_int_set = set(int_vars), set(ext_integrated)
+    offenders = [
+        (e, l) for e, l in spatial.time_orderings
+        if l in int_set and e in ext_int_set
+    ]
+    if offenders:
+        raise NotImplementedError(
+            f"integrate_over sweeps external point(s) "
+            f"{sorted({e for e, _ in offenders})}, which causally bound the "
+            f"internal time(s) {sorted({l for _, l in offenders})} from below "
+            f"(orderings {offenders}). Variable lower bounds are not yet "
+            f"implemented, and dropping them would be silently wrong. Fix the "
+            f"external time instead of integrating over it, or use "
+            f"make_scipy_integrand()+integration_bounds() with explicit times."
+        )
+
+
 def _rotation_cos(x1, x2) -> float:
     """Cosine similarity ``x1·x2 / (|x1| |x2|)`` as a scalar.
 
@@ -2987,6 +3024,9 @@ class DiagramIntegrand:
         # _causal_lower_bounds).  Only fixed externals can impose one; an
         # integrated external is itself swept, and its ordering with an
         # internal variable is already carried by ``parent_map``.
+        _reject_integrated_external_lower_bounds(
+            spatial, int_vars_parents_first, ext_integrated,
+        )
         lowers = _causal_lower_bounds(
             spatial, int_vars_parents_first,
             {v: lambda_f for v in ext_fixed}, t_min,
@@ -3145,6 +3185,9 @@ class DiagramIntegrand:
             if earlier in int_vars_pf:
                 parent_map[earlier].append(later)
         # Lower limits from external response legs (see _causal_lower_bounds).
+        _reject_integrated_external_lower_bounds(
+            spatial, int_vars_pf, ext_integrated,
+        )
         lowers = _causal_lower_bounds(
             spatial, int_vars_pf, {v: lambda_f for v in ext_fixed}, t_min,
         )
@@ -3474,6 +3517,9 @@ class DiagramIntegrand:
             if earlier in int_vars_pf:
                 parent_map[earlier].append(later)
         # Lower limits from external response legs (see _causal_lower_bounds).
+        _reject_integrated_external_lower_bounds(
+            spatial, int_vars_pf, ext_integrated,
+        )
         lowers = _causal_lower_bounds(
             spatial, int_vars_pf, {v: lambda_f for v in ext_fixed}, t_min,
         )
@@ -3712,6 +3758,9 @@ class DiagramIntegrand:
                 upper_bounds[earlier].append(later)
 
         # Lower limits from external response legs (see _causal_lower_bounds).
+        _reject_integrated_external_lower_bounds(
+            spatial, int_vars, ext_integrated,
+        )
         lowers = _causal_lower_bounds(spatial, int_vars, fixed_times, t_min)
 
         ranges: list = []
@@ -4105,14 +4154,19 @@ def integrate_two_point_qmc(
         ni = len(ivs)
         if ni == 0:
             val = ig.evaluate(et, directions, cache)
-            total += val.real
+            total += _real_or_raise(
+                val, ig._e_psi,
+                where=" (two-point qmc, zero-dimensional)",
+            )
             continue
 
-        # --- Causal parent map ---
+        # --- Causal parent map (upper bounds) ---
         pm: dict[str, list[str]] = defaultdict(list)
         for earlier, later in sp.time_orderings:
             if earlier in ivs:
                 pm[earlier].append(later)
+        # --- Causal lower bounds from external response legs ---
+        lowers = _causal_lower_bounds(sp, ivs, {v: t_f for v in evs}, t_min)
 
         # --- Sobol samples ---
         u = _qmc.Sobol(d=ni, seed=seed).random(n_samples)
@@ -4125,9 +4179,10 @@ def integrate_two_point_qmc(
             hi = np.min(t_s[:, pi], axis=1) if pi else np.full(n_samples, t_f)
             if ep:
                 hi = np.minimum(hi, min(ep))
-            w = hi - t_min
+            lo_v = lowers.get(var, t_min)
+            w = hi - lo_v
             ok = w > 0
-            t_s[:, k] = np.where(ok, t_min + u[:, k] * w, t_min)
+            t_s[:, k] = np.where(ok, lo_v + u[:, k] * w, lo_v)
             jac = np.where(ok, jac * w, 0.0)
 
         # --- Full time array ---
