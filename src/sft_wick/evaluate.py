@@ -805,6 +805,55 @@ def _causal_lower_bound_sources(
     return lowers, {v: tuple(sorted(s)) for v, s in sources.items()}
 
 
+def _resolve_external_times(
+    spatial, ext_fixed, lambda_f: float, external_times=None,
+    integrate_over=(),
+) -> tuple[dict, float]:
+    """``{fixed external point -> its time}`` plus the global time ceiling.
+
+    ``lambda_f`` plays two distinct roles in this module and only one of them
+    generalises:
+
+    * the **sweep limit** for an integrated external, and the default upper
+      bound for an internal variable with no causal parent -- these stay tied
+      to ``lambda_f`` (raised to the ceiling below when some external is
+      pinned later than it), and
+    * the **time of a fixed external point** -- which ``external_times`` now
+      overrides per point.  Conflating the two is why unequal external times
+      were unreachable: an observable such as ``R(t, t')`` needs its two legs
+      at different times, and every production integrator pinned them both.
+
+    ``external_times=None`` reproduces the old behaviour exactly.
+
+    Returns ``(times, ceiling)`` where ``ceiling = max(lambda_f, *times)`` --
+    an internal variable with no causal parent may still precede an external
+    pinned beyond ``lambda_f``, so the default upper bound must cover it.
+
+    Raises:
+        ValueError: for an unknown point name, or for a point that is both
+            pinned here and swept via ``integrate_over``.
+    """
+    if external_times:
+        known = set(spatial.external_points)
+        unknown = sorted(set(external_times) - known)
+        if unknown:
+            raise ValueError(
+                f"external_times names unknown external point(s) {unknown}; "
+                f"this diagram's external points are {sorted(known)}."
+            )
+        clash = sorted(set(external_times) & set(integrate_over or ()))
+        if clash:
+            raise ValueError(
+                f"external point(s) {clash} appear in BOTH external_times and "
+                f"integrate_over -- a point cannot be pinned at a fixed time "
+                f"and swept at the same time."
+            )
+    et = external_times or {}
+    times = {v: float(et.get(v, lambda_f)) for v in ext_fixed}
+    ceiling = max([float(lambda_f), *times.values()]) if times else float(lambda_f)
+    return times, ceiling
+
+
 def _swept_external_order(spatial, ext_integrated) -> tuple[list, dict]:
     """Causal ordering *among the swept externals themselves*.
 
@@ -2780,6 +2829,7 @@ class DiagramIntegrand:
         *,
         direction: Any = 0,
         positions: dict[str, Any] | None = None,
+        external_times: dict[str, float] | None = None,
     ) -> float:
         """Evaluate an integrand with no surviving time variables.
 
@@ -2794,19 +2844,20 @@ class DiagramIntegrand:
             dir_vars = set(spatial.direction_map.values())
             directions = {d: direction for d in dir_vars}
 
-        fixed_times = {v: lambda_f for v in spatial.external_points}
+        fixed_times, _ceiling = _resolve_external_times(
+            spatial, spatial.external_points, lambda_f, external_times,
+        )
         if self.dynamic_coupling is None:
             val = self.evaluate(fixed_times, directions, cache)
             return float(_real_or_raise(val, self._e_psi,
                                         where=' (zero-dimensional)'))
 
         n_samples = 1
-        fixed_t = np.full(n_samples, lambda_f)
         et_alias = dict(spatial.equal_time_aliases or ())
 
         def _times(var: str) -> np.ndarray:
-            _ = et_alias.get(var, var)
-            return fixed_t
+            var = et_alias.get(var, var)
+            return np.full(n_samples, fixed_times.get(var, lambda_f))
 
         r_product = np.ones(n_samples)
         for sl, sr in _kept_r_propagators(spatial):
@@ -3075,6 +3126,7 @@ class DiagramIntegrand:
         seed: int | None = None,
         positions: dict[str, float] | None = None,
         integrate_over: Any = None,
+        external_times: dict[str, float] | None = None,
     ) -> tuple[float, float]:
         """Integrate over all time variables using Quasi-Monte Carlo.
 
@@ -3099,6 +3151,9 @@ class DiagramIntegrand:
         ext_int_set = _resolve_integrate_over(integrate_over, ext_vars)
         ext_integrated = [v for v in ext_vars if v in ext_int_set]
         ext_fixed = [v for v in ext_vars if v not in ext_int_set]
+        fixed_times, t_ceiling = _resolve_external_times(
+            spatial, ext_fixed, lambda_f, external_times, ext_integrated,
+        )
 
         sobol_vars = ext_integrated + int_vars_parents_first
         n_ext_int = len(ext_integrated)
@@ -3111,7 +3166,6 @@ class DiagramIntegrand:
             directions = {d: direction for d in dir_vars}
 
         if n_total == 0:
-            fixed_times = {v: lambda_f for v in ext_fixed}
             val = self.evaluate(fixed_times, directions, cache)
             return (_real_or_raise(val, self._e_psi,
                                    where=' (qmc, zero-dimensional)'), 0.0)
@@ -3126,8 +3180,8 @@ class DiagramIntegrand:
         # constant; a swept one contributes a per-sample value, read below
         # from ``times`` (integrated externals are drawn first).
         lowers, lower_srcs = _causal_lower_bound_sources(
-            spatial, int_vars_parents_first,
-            {v: lambda_f for v in ext_fixed}, t_min, swept=ext_integrated,
+            spatial, int_vars_parents_first, fixed_times, t_min,
+            swept=ext_integrated,
         )
 
         sw_order, sw_lowers = _swept_external_order(spatial, ext_integrated)
@@ -3142,7 +3196,7 @@ class DiagramIntegrand:
 
         for s in range(n_samples):
             u = u_samples[s]
-            times: dict[str, float] = {v: lambda_f for v in ext_fixed}
+            times: dict[str, float] = dict(fixed_times)
             jacobian = 1.0
 
             # Integrated externals: free in [t_min, lambda_f] except where a
@@ -3168,7 +3222,7 @@ class DiagramIntegrand:
                 if parents:
                     hi = min(times[p] for p in parents if p in times)
                 else:
-                    hi = lambda_f
+                    hi = t_ceiling
                 lo = lowers.get(var, t_min)
                 for src in lower_srcs.get(var, ()):
                     lo = max(lo, times[src])
@@ -3211,6 +3265,7 @@ class DiagramIntegrand:
         seed: int | None = None,
         positions: dict[str, float] | None = None,
         integrate_over: Any = None,
+        external_times: dict[str, float] | None = None,
     ) -> tuple[float, float]:
         """Vectorized QMC integration — no Python loop over samples.
 
@@ -3271,6 +3326,9 @@ class DiagramIntegrand:
         ext_integrated = [v for v in ext_vars if v in ext_int_set]
         ext_fixed = [v for v in ext_vars if v not in ext_int_set]
         n_ext_int = len(ext_integrated)
+        fixed_times, t_ceiling = _resolve_external_times(
+            spatial, ext_fixed, lambda_f, external_times, ext_integrated,
+        )
 
         # Sobol-dimensioned vars = integrated externals + internals.
         sobol_vars = ext_integrated + int_vars_pf
@@ -3281,6 +3339,7 @@ class DiagramIntegrand:
             # dynamic after R-absorption aliases their legs to fixed externals.
             val = self._evaluate_zero_dimensional(
                 lambda_f, cache, direction=direction, positions=positions,
+                external_times=external_times,
             )
             return (val, 0.0)
 
@@ -3302,8 +3361,7 @@ class DiagramIntegrand:
         # ``times_arr`` (integrated externals occupy the first n_ext_int
         # columns and are filled before this loop runs).
         lowers, lower_srcs = _causal_lower_bound_sources(
-            spatial, int_vars_pf, {v: lambda_f for v in ext_fixed}, t_min,
-            swept=ext_integrated,
+            spatial, int_vars_pf, fixed_times, t_min, swept=ext_integrated,
         )
 
         # Sobol samples
@@ -3343,7 +3401,7 @@ class DiagramIntegrand:
             idx = n_ext_int + k
             parents = parent_map.get(var, [])
             if parents:
-                hi = np.full(n_samples, lambda_f)
+                hi = np.full(n_samples, t_ceiling)
                 for p in parents:
                     if p in int_vars_pf:
                         p_idx = n_ext_int + int_vars_pf.index(p)
@@ -3352,10 +3410,10 @@ class DiagramIntegrand:
                         p_idx = ext_integrated.index(p)
                         hi = np.minimum(hi, times_arr[:, p_idx])
                     else:
-                        # Fixed external — its time is lambda_f.
-                        hi = np.minimum(hi, lambda_f)
+                        # Fixed external — use ITS OWN pinned time.
+                        hi = np.minimum(hi, fixed_times.get(p, lambda_f))
             else:
-                hi = np.full(n_samples, lambda_f)
+                hi = np.full(n_samples, t_ceiling)
 
             lo_v = lowers.get(var, t_min)
             for src_v in lower_srcs.get(var, ()):
@@ -3370,6 +3428,7 @@ class DiagramIntegrand:
         # NOT in times_arr; they get a special lookup that returns a
         # constant ``lambda_f`` array.
         var_to_col = {var: i for i, var in enumerate(sobol_vars)}
+        fixed_t_by = {v: np.full(n_samples, t) for v, t in fixed_times.items()}
         fixed_t = np.full(n_samples, lambda_f)
         # Equal-time alias map: see analyze_spatial / SpatialStructure.
         _et_alias = dict(spatial.equal_time_aliases or ())
@@ -3385,7 +3444,7 @@ class DiagramIntegrand:
             col = var_to_col.get(var)
             if col is not None:
                 return times_arr[:, col]
-            return fixed_t
+            return fixed_t_by.get(var, fixed_t)
 
         # --- Vectorized integrand evaluation ---
         dt = self.diagram_term
@@ -3557,6 +3616,7 @@ class DiagramIntegrand:
         n_gauss: int = 8,
         positions: dict[str, float] | None = None,
         integrate_over: Any = None,
+        external_times: dict[str, float] | None = None,
     ) -> tuple[float, float]:
         """Tensor-product Gauss-Legendre quadrature on the causal
         simplex.
@@ -3609,6 +3669,9 @@ class DiagramIntegrand:
         ext_integrated = [v for v in ext_vars if v in ext_int_set]
         ext_fixed = [v for v in ext_vars if v not in ext_int_set]
         n_ext_int = len(ext_integrated)
+        fixed_times, t_ceiling = _resolve_external_times(
+            spatial, ext_fixed, lambda_f, external_times, ext_integrated,
+        )
 
         gl_vars = ext_integrated + int_vars_pf
         n_total = len(gl_vars)
@@ -3618,6 +3681,7 @@ class DiagramIntegrand:
             # dynamic after R-absorption aliases their legs to fixed externals.
             val = self._evaluate_zero_dimensional(
                 lambda_f, cache, direction=direction, positions=positions,
+                external_times=external_times,
             )
             return (val, 0.0)
 
@@ -3655,8 +3719,7 @@ class DiagramIntegrand:
         # ``times_arr`` (integrated externals occupy the first n_ext_int
         # columns and are filled before this loop runs).
         lowers, lower_srcs = _causal_lower_bound_sources(
-            spatial, int_vars_pf, {v: lambda_f for v in ext_fixed}, t_min,
-            swept=ext_integrated,
+            spatial, int_vars_pf, fixed_times, t_min, swept=ext_integrated,
         )
 
         span = lambda_f - t_min
@@ -3686,7 +3749,7 @@ class DiagramIntegrand:
             idx = n_ext_int + k
             parents = parent_map.get(var, [])
             if parents:
-                hi = np.full(n_samples, lambda_f)
+                hi = np.full(n_samples, t_ceiling)
                 for p in parents:
                     if p in int_vars_pf:
                         p_idx = n_ext_int + int_vars_pf.index(p)
@@ -3695,9 +3758,10 @@ class DiagramIntegrand:
                         p_idx = ext_integrated.index(p)
                         hi = np.minimum(hi, times_arr[:, p_idx])
                     else:
-                        hi = np.minimum(hi, lambda_f)
+                        # Fixed external — use ITS OWN pinned time.
+                        hi = np.minimum(hi, fixed_times.get(p, lambda_f))
             else:
-                hi = np.full(n_samples, lambda_f)
+                hi = np.full(n_samples, t_ceiling)
 
             lo_v = lowers.get(var, t_min)
             for src_v in lower_srcs.get(var, ()):
@@ -3709,6 +3773,7 @@ class DiagramIntegrand:
             jacobians = np.where(valid, jacobians * width, 0.0)
 
         var_to_col = {var: i for i, var in enumerate(gl_vars)}
+        fixed_t_by = {v: np.full(n_samples, t) for v, t in fixed_times.items()}
         fixed_t = np.full(n_samples, lambda_f)
         # Equal-time alias: aliased K-vertex legs share the canonical
         # representative's time variable. Resolved transparently inside
@@ -3721,7 +3786,7 @@ class DiagramIntegrand:
             col = var_to_col.get(var)
             if col is not None:
                 return times_arr[:, col]
-            return fixed_t
+            return fixed_t_by.get(var, fixed_t)
 
         # --- Vectorised integrand evaluation: identical to QMC path. ---
         dt = self.diagram_term
@@ -3840,6 +3905,7 @@ class DiagramIntegrand:
         direction: Any = 0,
         positions: dict[str, float] | None = None,
         integrate_over: Any = None,
+        external_times: dict[str, float] | None = None,
     ) -> tuple[float, float]:
         """Integrate over time variables using nested adaptive
         quadrature.
@@ -3869,11 +3935,14 @@ class DiagramIntegrand:
             dir_vars = set(spatial.direction_map.values())
             directions = {d: direction for d in dir_vars}
 
-        fixed_times = {v: lambda_f for v in ext_fixed}
+        fixed_times, t_ceiling = _resolve_external_times(
+            spatial, ext_fixed, lambda_f, external_times, ext_integrated,
+        )
 
         if n_total == 0:
             val = self._evaluate_zero_dimensional(
                 lambda_f, cache, direction=direction, positions=positions,
+                external_times=external_times,
             )
             return (val, 0.0)
 
@@ -3929,12 +3998,20 @@ class DiagramIntegrand:
                 lo_dyn = lower_srcs.get(var, ())
                 ub_sources = upper_bounds.get(var, [])
                 if not ub_sources and not lo_dyn:
-                    ranges.append((lo_var, max(lo_var, lambda_f)))
+                    ranges.append((lo_var, max(lo_var, t_ceiling)))
                 else:
-                    # Fixed externals contribute a constant upper bound
-                    # ``lambda_f`` (no longer showing up in later_args).
+                    # A fixed external never shows up in ``later_args``, so
+                    # its bound must be folded into the CONSTANT part -- at
+                    # ITS OWN time, not a blanket ``lambda_f``.  With every
+                    # external pinned together the two coincide, which is why
+                    # this stayed invisible until times could differ.
                     ub_dyn = [src for src in ub_sources
                               if src not in fixed_times]
+                    hi_const = min(
+                        [t_ceiling]
+                        + [fixed_times[src] for src in ub_sources
+                           if src in fixed_times]
+                    )
 
                     def make_bound(
                         ub: list[str], lb: tuple, avars: list[str],
@@ -3954,7 +4031,7 @@ class DiagramIntegrand:
                         return bound_func
                     ranges.append(
                         make_bound(ub_dyn, lo_dyn, all_vars, lo_var,
-                                   lambda_f, i)
+                                   hi_const, i)
                     )
 
         val, err = _nquad(f, ranges)
@@ -4013,6 +4090,7 @@ def integrate_moment(
     positions: dict[str, float] | None = None,
     integrate_over: Any = None,
     n_gauss: int = 8,
+    external_times: dict[str, float] | None = None,
 ) -> tuple[float, float]:
     """Integrate a diagram's contribution over all time variables.
 
@@ -4067,35 +4145,41 @@ def integrate_moment(
                 lambda_f, cache, t_min=t_min, direction=direction,
                 n_samples=n_samples, seed=seed, positions=positions,
                 integrate_over=integrate_over,
+                external_times=external_times,
             )
         return integrand.integrate_moment_qmc(
             lambda_f, cache, t_min=t_min, direction=direction,
             n_samples=n_samples, seed=seed, positions=positions,
             integrate_over=integrate_over,
+            external_times=external_times,
         )
     elif method == "qmc_vectorized":
         return integrand.integrate_moment_qmc_vectorized(
             lambda_f, cache, t_min=t_min, direction=direction,
             n_samples=n_samples, seed=seed, positions=positions,
             integrate_over=integrate_over,
+            external_times=external_times,
         )
     elif method == "qmc_scalar":
         return integrand.integrate_moment_qmc(
             lambda_f, cache, t_min=t_min, direction=direction,
             n_samples=n_samples, seed=seed, positions=positions,
             integrate_over=integrate_over,
+            external_times=external_times,
         )
     elif method == "nquad":
         return integrand.integrate_moment_nquad(
             lambda_f, cache, t_min=t_min, direction=direction,
             positions=positions,
             integrate_over=integrate_over,
+            external_times=external_times,
         )
     elif method == "gauss_legendre":
         return integrand.integrate_moment_gauss_legendre(
             lambda_f, cache, t_min=t_min, direction=direction,
             n_gauss=n_gauss, positions=positions,
             integrate_over=integrate_over,
+            external_times=external_times,
         )
     else:
         raise ValueError(

@@ -1444,3 +1444,152 @@ def test_F19_helper_orders_and_is_a_no_op_without_swept_edges():
 
     order3, lowers3 = _swept_external_order(_Cyc(), ["a", "b"])
     assert (order3, lowers3) == (["a", "b"], {})
+
+
+# --------------------------------------------------------------------- #
+# F20 (7a): unequal FIXED external times in the production integrators
+# --------------------------------------------------------------------- #
+#
+# Every production integrator took a single `lambda_f` and pinned ALL fixed
+# externals there, so `R(t, t')` and `C(t, t')` -- the DMFT order parameters --
+# were unreachable through any supported path.  Worse, with every external at
+# one time, Theta kills the R joining them, so every observable carrying an
+# external psi leg was identically 0 at every order through all five backends.
+# That 0 is the correct Ito value and completely useless.
+#
+# `lambda_f` played two roles and only one generalises: the sweep limit (stays)
+# and "the time of a fixed external point" (now per point, via
+# `external_times`).  Ground truth is closed form at both orders:
+#
+#     order 0:  R(tx, ty) = exp(-mu (tx - ty)) Theta(tx - ty)
+#     order 1:  _d1R_closed_form(tx, ty)  (already validated by F9)
+
+_F20_MTHDS = ["nquad", "qmc", "qmc_scalar", "qmc_vectorized", "gauss_legendre"]
+
+
+def _f20_response(order):
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    res = compute_moment(
+        [phi("x"), psi("y")],
+        Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
+        order=order, ito=True, response_phase=True, collect_topology=True,
+        diag_R=True, diag_C=True, iso_R=True, iso_C=True,
+    )
+    return [dt.build_integrand({"g": np.array(1j)})
+            for dt in res.diagram_terms(order)]
+
+
+def _f20_eval(order, tx, ty, method, **kw):
+    from sft_wick.evaluate import integrate_moment
+    cache = _ScalarBatchCache()
+    return sum(
+        integrate_moment(ig, tx, cache, method=method, t_min=0.0,
+                         external_times={"x": tx, "y": ty}, **kw)[0]
+        for ig in _f20_response(order)
+    )
+
+
+@pytest.mark.parametrize("method", _F20_MTHDS)
+@pytest.mark.parametrize("ty", [1.0, 2.0, 3.5])
+def test_F20_order0_response_at_unequal_times(method, ty):
+    """R(T, t') must come out, not the identically-zero equal-time value."""
+    T = 4.0
+    kw = {"n_gauss": 16} if method == "gauss_legendre" else {}
+    got = _f20_eval(0, T, ty, method, **kw)
+    assert got == pytest.approx(np.exp(-MU * (T - ty)), rel=1e-9)
+    assert got != 0.0
+
+
+@pytest.mark.parametrize("method", _F20_MTHDS)
+@pytest.mark.parametrize("ty", [1.0, 3.0])
+def test_F20_order1_response_matches_the_closed_form(method, ty):
+    """The O(g) response at unequal external times, vs the closed form."""
+    T = 4.0
+    kw = ({"n_samples": 2 ** 14, "seed": 2} if method.startswith("qmc")
+          else {"n_gauss": 24} if method == "gauss_legendre" else {})
+    got = _f20_eval(1, T, ty, method, **kw)
+    want = _d1R_closed_form(T, ty)
+    assert got == pytest.approx(want, rel=2e-3), (
+        f"{method} ty={ty}: {got:.8f} vs closed form {want:.8f}"
+    )
+
+
+@pytest.mark.parametrize("method", _F20_MTHDS)
+def test_F20_acausal_and_equal_times_are_exactly_zero(method):
+    """Theta must still hold: t_y >= t_x gives exactly 0, not a huge number."""
+    kw = {"n_gauss": 16} if method == "gauss_legendre" else {}
+    for tx, ty in [(2.0, 2.0), (2.0, 3.5)]:
+        assert _f20_eval(0, tx, ty, method, **kw) == pytest.approx(0.0,
+                                                                   abs=1e-14)
+
+
+@pytest.mark.parametrize("method", _F20_MTHDS)
+@pytest.mark.parametrize("order", [0, 1, 2])
+def test_F20_default_is_bit_identical(method, order):
+    """`external_times=None` must reproduce the old numbers EXACTLY.
+
+    Not approximately: this is the guarantee that adding the feature moved
+    nothing.  Equal explicit times must also match the default bit for bit.
+    """
+    from sft_wick.evaluate import integrate_moment
+    T = 3.0
+    kw = ({"n_samples": 2 ** 12, "seed": 8} if method.startswith("qmc")
+          else {"n_gauss": 8} if method == "gauss_legendre" else {})
+    igs = [dt.build_integrand({"g": np.array(1j)})
+           for dt in _quartic(order).diagram_terms(order)]
+    cache = _ScalarBatchCache()
+    for ig in igs:
+        base = integrate_moment(ig, T, cache, method=method, t_min=0.0, **kw)[0]
+        same = integrate_moment(ig, T, cache, method=method, t_min=0.0,
+                                external_times={"x": T, "y": T}, **kw)[0]
+        assert same == base, (
+            f"{method} order {order}: explicit equal times {same!r} != "
+            f"default {base!r}"
+        )
+
+
+def test_F20_validation_rejects_bad_names_and_conflicts():
+    from sft_wick.evaluate import integrate_moment
+    ig = _f20_response(1)[0]
+    cache = _ScalarBatchCache()
+    with pytest.raises(ValueError, match="unknown external point"):
+        integrate_moment(ig, 3.0, cache, method="nquad", t_min=0.0,
+                         external_times={"nope": 1.0})
+    with pytest.raises(ValueError, match="BOTH external_times and"):
+        integrate_moment(ig, 3.0, cache, method="nquad", t_min=0.0,
+                         integrate_over=["y"], external_times={"y": 1.0})
+
+
+@pytest.mark.parametrize("method", _F20_MTHDS)
+def test_F20_lambda_f_must_not_stand_in_for_an_external_time(method):
+    """Decouple `lambda_f` from every external time.
+
+    The two roles coincide in every other test (`lambda_f == t_x`), which is
+    exactly why the conflation survived: a vertex bounded above by external
+    `x` reads `lambda_f` instead of `t_x`, and with them equal nothing shows.
+    Here `lambda_f = 6` while `x` sits at 4, so a backend that still uses
+    `lambda_f` integrates the vertex over `[t_y, 6]` instead of `[t_y, 4]`.
+
+    Mutation-verified for `qmc`, `qmc_vectorized`, `gauss_legendre` and (via
+    its own `times` seed) `qmc_scalar`.  It does NOT fail for `nquad`: there
+    the over-wide bound only enlarges a region where Theta already zeroes
+    R(x, s), so the value stays right and only quadrature effort is wasted --
+    the same pattern as F13 and F19.
+    """
+    from sft_wick.evaluate import integrate_moment
+
+    tx, ty, lam = 4.0, 1.0, 6.0
+    kw = ({"n_samples": 2 ** 14, "seed": 2} if method.startswith("qmc")
+          else {"n_gauss": 24} if method == "gauss_legendre" else {})
+    cache = _ScalarBatchCache()
+    got = sum(
+        integrate_moment(ig, lam, cache, method=method, t_min=0.0,
+                         external_times={"x": tx, "y": ty}, **kw)[0]
+        for ig in _f20_response(1)
+    )
+    want = _d1R_closed_form(tx, ty)
+    assert got == pytest.approx(want, rel=2e-3), (
+        f"{method}: {got:.8f} vs closed form {want:.8f} — lambda_f={lam} "
+        f"leaked in as the time of external 'x' (t_x={tx})"
+    )
