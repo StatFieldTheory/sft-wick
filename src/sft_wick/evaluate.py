@@ -507,8 +507,6 @@ class _LazyTimeSplineCache:
             for a in range(N):
                 grids[a][i, j] = cvec[a]
 
-        from scipy.interpolate import CubicSpline
-
         # Wrap each 2-D spline with the diagonal spline harvested from the
         # SAME grid -- the lazy spatial path carried the identical kink as
         # the legacy table (measured 22.3% at n_grid_t=41, bit-for-bit the
@@ -516,10 +514,64 @@ class _LazyTimeSplineCache:
         return [
             _DiagAwareSpline(
                 RectBivariateSpline(ts, ts, grids[a]),
-                CubicSpline(ts, np.diag(grids[a])),
+                _diag_line_interp(ts, np.diag(grids[a])),
             )
             for a in range(N)
         ]
+
+
+class _DiagLineSpline:
+    """Picklable 1-D cubic spline of a C-table diagonal.
+
+    Two things are true at once and neither alone gives a usable answer:
+
+    * ``scipy.interpolate.CubicSpline`` is NOT picklable (scipy 1.18:
+      ``TypeError: cannot pickle 'module' object``), so a
+      :class:`PropagatorCache` holding one cannot be sent through joblib or
+      saved -- a regression against ``RectBivariateSpline``, which is.
+    * ``RegularGridInterpolator(method='cubic')`` IS picklable but DIVERGES on
+      this data as the grid refines: mid-cell relative error 4.0e-04 at
+      n_grid=41 but 8.2e-03 at n_grid=321.  Swapping to it trades a
+      serialisation bug for a numerical one.
+
+    So keep the CubicSpline and make the *container* picklable: only the nodes
+    and values are serialised, and the spline is rebuilt on first use.
+    """
+
+    __slots__ = ("_ts", "_v", "_cs")
+
+    def __init__(self, ts, values):
+        object.__setattr__(self, "_ts", np.asarray(ts, dtype=float))
+        object.__setattr__(self, "_v", np.asarray(values, dtype=float))
+        object.__setattr__(self, "_cs", None)
+
+    def _spline(self):
+        if self._cs is None:
+            from scipy.interpolate import CubicSpline
+            object.__setattr__(self, "_cs", CubicSpline(self._ts, self._v))
+        return self._cs
+
+    def __call__(self, t):
+        return np.asarray(self._spline()(np.asarray(t, dtype=float)),
+                          dtype=float)
+
+    def __getstate__(self):
+        return (self._ts, self._v)
+
+    def __setstate__(self, state):
+        object.__setattr__(self, "_ts", state[0])
+        object.__setattr__(self, "_v", state[1])
+        object.__setattr__(self, "_cs", None)
+
+
+def _diag_line_interp(ts, values):
+    """Picklable 1-D cubic interpolator for a C-table diagonal."""
+    return _DiagLineSpline(ts, values)
+
+
+def _diag_line_eval(itp, t):
+    """Evaluate a :func:`_diag_line_interp` interpolator at scalar or array t."""
+    return np.atleast_1d(itp(np.atleast_1d(np.asarray(t, dtype=float))))
 
 
 def _diag_grid_interp(axes, grid, method):
@@ -579,7 +631,19 @@ class _DiagAwareGridInterp:
         out[on] = np.asarray(self._diag(dpts[on]), dtype=float)
         return out
 
+
+    # Pickle: ``__slots__`` plus ``__getattr__`` delegation would otherwise
+    # recurse forever on unpickling, when the slots are not yet set.
+    def __getstate__(self):
+        return {n: getattr(self, n) for n in self.__slots__}
+
+    def __setstate__(self, state):
+        for n, v in state.items():
+            object.__setattr__(self, n, v)
+
     def __getattr__(self, name):
+        if name.startswith("__") and name.endswith("__"):
+            raise AttributeError(name)
         return getattr(self._full, name)
 
 
@@ -620,12 +684,24 @@ class _DiagAwareSpline:
         td = 0.5 * (t1a + t2a)
         out = np.asarray(out, dtype=float)
         if out.ndim == 0:
-            return np.asarray(self._sdiag(float(td)))
+            return _diag_line_eval(self._sdiag, td)[0]
         out = out.copy()
-        out[on_diag] = self._sdiag(np.atleast_1d(td)[on_diag])
+        out[on_diag] = _diag_line_eval(self._sdiag, np.atleast_1d(td)[on_diag])
         return out
 
+
+    # Pickle: ``__slots__`` plus ``__getattr__`` delegation would otherwise
+    # recurse forever on unpickling, when the slots are not yet set.
+    def __getstate__(self):
+        return {n: getattr(self, n) for n in self.__slots__}
+
+    def __setstate__(self, state):
+        for n, v in state.items():
+            object.__setattr__(self, n, v)
+
     def __getattr__(self, name):
+        if name.startswith("__") and name.endswith("__"):
+            raise AttributeError(name)
         return getattr(self._s2d, name)
 
 
@@ -981,40 +1057,84 @@ def _resolve_external_times(
     return times, ceiling
 
 
-def _swept_external_order(spatial, ext_integrated) -> tuple[list, dict]:
-    """Causal ordering *among the swept externals themselves*.
+def _causal_reachability(time_orderings) -> dict:
+    """``{node: set of nodes strictly later than it}``, transitively closed.
 
-    ``_causal_lower_bound_sources`` only emits a bound when the LATER endpoint
-    is an internal vertex, and ``parent_map`` / ``upper_bounds`` only fire when
-    the EARLIER endpoint is internal.  An ordering with swept externals on BOTH
-    ends -- e.g. ``<phi(x) psi(y)>`` at order 0 under
-    ``integrate_over=['x','y']``, where R(x,y) forces ``t_x > t_y`` -- is
-    therefore emitted by neither, and both times get drawn freely over
-    ``[t_min, lambda_f]``.
+    Closing over the WHOLE ordering graph -- not just edges whose endpoints are
+    of one kind -- is what makes the constraint table exhaustive.  Enumerating
+    edge kinds by endpoint type ({fixed-ext, swept-ext, internal}^2) and
+    handling each directly is how the branch previously missed three cells:
+    swept -> internal -> swept, fixed-ext -> swept, and swept -> fixed-ext.
+    """
+    succ: dict = {}
+    for e, l in time_orderings:
+        succ.setdefault(e, set()).add(l)
+        succ.setdefault(l, set())
+    changed = True
+    while changed:                      # the ordering graph is a small DAG
+        changed = False
+        for n in list(succ):
+            grown = set(succ[n])
+            for m in succ[n]:
+                grown |= succ.get(m, set())
+            if grown != succ[n]:
+                succ[n] = grown
+                changed = True
+    return succ
 
-    Theta keeps the *value* right (the integrand vanishes on the unconstrained
-    half), so this is a quadrature concern, not a correctness one -- but it is
-    the same jump-inside-the-domain that costs ``gauss_legendre`` its spectral
-    convergence.
 
-    Returns ``(order, lowers)``: the swept externals topologically sorted so
-    that every earlier endpoint is drawn first, and ``{later: [earlier, ...]}``
-    restricted to swept-to-swept edges.  With no such edge the order is the
-    caller's own and ``lowers`` is empty, so sampling is bit-identical.
+def _swept_external_order(
+    spatial, ext_integrated, fixed_times=None, lambda_f=None, t_min=0.0,
+) -> tuple:
+    """Causal constraints ON the swept externals themselves.
+
+    A swept external is drawn freely over ``[t_min, lambda_f]`` unless some
+    ordering constrains it.  Three kinds do, and none is carried by
+    ``_causal_lower_bound_sources`` (which needs the LATER endpoint internal)
+    or by ``parent_map`` / ``upper_bounds`` (which need the EARLIER one
+    internal):
+
+    * **swept -> swept**, directly or through internal vertices.  Both give
+      ``t_later > t_earlier``; the mediated case is why this works off the
+      transitive closure rather than the raw edge list.
+    * **fixed-ext -> swept**: a constant lower bound at the fixed point's time.
+    * **swept -> fixed-ext**: a constant upper bound at that time.
+
+    Theta keeps the VALUE right in every case -- the integrand vanishes on the
+    unconstrained part -- so these are quadrature concerns.  But they are the
+    same jump-inside-the-domain that costs ``gauss_legendre`` its spectral
+    convergence (measured 22% and 29% at the library default ``n_gauss=8``).
+
+    Returns ``(order, lowers, const_lo, const_hi)``: the swept externals
+    topologically sorted so every predecessor is drawn first, the swept
+    predecessors of each, and its constant bounds.  With no constraint at all
+    the order is the caller's own and the dicts are empty, so sampling stays
+    bit-identical.
     """
     ext_set = set(ext_integrated)
-    lowers: dict = {}
-    for earlier, later in spatial.time_orderings:
-        if earlier in ext_set and later in ext_set and earlier != later:
-            lowers.setdefault(later, [])
-            if earlier not in lowers[later]:
-                lowers[later].append(earlier)
-    if not lowers:
-        return list(ext_integrated), {}
+    succ = _causal_reachability(tuple(spatial.time_orderings))
+    fixed_times = fixed_times or {}
 
-    # Kahn topological sort, stable in the caller's order.  A cyclic ordering
-    # cannot arise from retarded R propagators, but if one somehow does, fall
-    # back to the unordered draw rather than dropping variables.
+    lowers: dict = {}
+    const_lo: dict = {}
+    const_hi: dict = {}
+    for v in ext_integrated:
+        pre = [u for u in succ if v in succ.get(u, ()) and u != v]
+        sw = [u for u in pre if u in ext_set]
+        if sw:
+            lowers[v] = sorted(sw)
+        fx = [fixed_times[u] for u in pre if u in fixed_times]
+        if fx:
+            const_lo[v] = max([float(t_min)] + [float(t) for t in fx])
+        post_fx = [fixed_times[u] for u in succ.get(v, ()) if u in fixed_times]
+        if post_fx and lambda_f is not None:
+            const_hi[v] = min([float(lambda_f)] + [float(t) for t in post_fx])
+
+    if not lowers:
+        return list(ext_integrated), {}, const_lo, const_hi
+
+    # Kahn topological sort, stable in the caller's order.  A cycle cannot
+    # arise from retarded R propagators; fall back rather than drop a variable.
     remaining = list(ext_integrated)
     placed: list = []
     placed_set: set = set()
@@ -1022,12 +1142,12 @@ def _swept_external_order(spatial, ext_integrated) -> tuple[list, dict]:
         ready = [v for v in remaining
                  if all(src in placed_set for src in lowers.get(v, ()))]
         if not ready:
-            return list(ext_integrated), {}
+            return list(ext_integrated), {}, const_lo, const_hi
         for v in ready:
             placed.append(v)
             placed_set.add(v)
             remaining.remove(v)
-    return placed, lowers
+    return placed, lowers, const_lo, const_hi
 
 
 def _rotation_cos(x1, x2) -> float:
@@ -1441,7 +1561,7 @@ class PropagatorCache:
             n_grid: Number of grid points per axis (default 100).
             direction: Direction value to use for kappa2 evaluation.
         """
-        from scipy.interpolate import CubicSpline, RectBivariateSpline
+        from scipy.interpolate import RectBivariateSpline
 
         m = self.model
         N = m.n_components
@@ -1477,7 +1597,7 @@ class PropagatorCache:
         # Along the diagonal itself ``t -> C(t,t)`` is smooth, so a 1-D cubic
         # spline restores O(h^4).
         self._c_diag_splines = [
-            CubicSpline(ts, np.diag(grids[a])) for a in range(N)
+            _diag_line_interp(ts, np.diag(grids[a])) for a in range(N)
         ]
         self._c_table_range = (t_min, t_max)
 
@@ -1501,7 +1621,7 @@ class PropagatorCache:
         """
         if self._c_diag_splines is not None and self._on_diagonal(t1, t2):
             t = 0.5 * (float(t1) + float(t2))
-            return np.array([float(np.squeeze(s(t)))
+            return np.array([float(_diag_line_eval(s, t)[0])
                              for s in self._c_diag_splines])
         # ``np.squeeze`` keeps this robust across SciPy versions: newer
         # SciPy returns a 1-element 1-D array from a scalar ``grid=False``
@@ -1557,7 +1677,7 @@ class PropagatorCache:
                 td = 0.5 * (np.asarray(t1, dtype=float)[on_diag]
                             + np.asarray(t2, dtype=float)[on_diag])
                 for a, sd in enumerate(self._c_diag_splines):
-                    result[on_diag, a] = sd(td)
+                    result[on_diag, a] = _diag_line_eval(sd, td)
         return result
 
     def R_time_batch(self, t1: np.ndarray, t2: np.ndarray) -> np.ndarray:
@@ -3378,7 +3498,9 @@ class DiagramIntegrand:
             swept=ext_integrated,
         )
 
-        sw_order, sw_lowers = _swept_external_order(spatial, ext_integrated)
+        sw_order, sw_lowers, sw_lo_c, sw_hi_c = _swept_external_order(
+            spatial, ext_integrated, fixed_times, lambda_f, t_min,
+        )
 
         # Generate Sobol samples in [0,1]^d
         sampler = qmc.Sobol(d=n_total, seed=seed)
@@ -3398,10 +3520,10 @@ class DiagramIntegrand:
             for name in sw_order:
                 k = ext_integrated.index(name)
                 srcs = sw_lowers.get(name, ())
-                lo_e = t_min
+                lo_e = max(t_min, sw_lo_c.get(name, t_min))
                 for src in srcs:
                     lo_e = max(lo_e, times[src])
-                w_e = lambda_f - lo_e
+                w_e = sw_hi_c.get(name, lambda_f) - lo_e
                 if w_e <= 0:
                     times[name] = lo_e
                     jacobian = 0.0
@@ -3571,18 +3693,23 @@ class DiagramIntegrand:
         # Swept externals: free in [t_min, lambda_f] EXCEPT where a causal
         # ordering ties two of them together (see _swept_external_order).
         # With no such edge this is bit-identical to the flat draw.
-        _sw_order, _sw_lowers = _swept_external_order(spatial, ext_integrated)
+        _sw_order, _sw_lowers, _sw_lo_c, _sw_hi_c = _swept_external_order(
+            spatial, ext_integrated, fixed_times, lambda_f, t_min,
+        )
         for name in _sw_order:
             k = ext_integrated.index(name)
             srcs = _sw_lowers.get(name, ())
+            lo_c = max(float(t_min), float(_sw_lo_c.get(name, t_min)))
+            hi_c = float(_sw_hi_c.get(name, lambda_f))
             if not srcs:
-                times_arr[:, k] = t_min + u[:, k] * span
-                jacobians *= span
+                w_c = hi_c - lo_c
+                times_arr[:, k] = lo_c + u[:, k] * max(w_c, 0.0)
+                jacobians *= max(w_c, 0.0)
                 continue
-            lo_e = np.full(n_samples, float(t_min))
+            lo_e = np.full(n_samples, lo_c)
             for src in srcs:
                 lo_e = np.maximum(lo_e, times_arr[:, ext_integrated.index(src)])
-            w_e = lambda_f - lo_e
+            w_e = hi_c - lo_e
             ok_e = w_e > 0
             times_arr[:, k] = np.where(ok_e, lo_e + u[:, k] * w_e, lo_e)
             jacobians = np.where(ok_e, jacobians * w_e, 0.0)
@@ -3770,7 +3897,14 @@ class DiagramIntegrand:
             values = np.zeros(n_samples)
 
             for pidx in np.ndindex(*prop_shape):
-                c_val = _real_or_raise(coeff[pidx], self._e_psi, where=' (coupling)') if coeff.ndim > 0 else _real_or_raise(coeff, self._e_psi, where=' (coupling)')
+                c_raw = coeff[pidx] if coeff.ndim > 0 else coeff
+                # Magnitude FIRST.  A tensor entry that is float noise around
+                # zero can carry an arbitrary complex phase, and projecting it
+                # before the negligibility test turns "skip this term" into a
+                # hard ValueError from _real_or_raise.
+                if abs(complex(c_raw)) < 1e-20:
+                    continue
+                c_val = _real_or_raise(c_raw, self._e_psi, where=' (coupling)')
                 if abs(c_val) < 1e-20:
                     continue
 
@@ -3923,18 +4057,23 @@ class DiagramIntegrand:
         # Swept externals: free in [t_min, lambda_f] EXCEPT where a causal
         # ordering ties two of them together (see _swept_external_order).
         # With no such edge this is bit-identical to the flat draw.
-        _sw_order, _sw_lowers = _swept_external_order(spatial, ext_integrated)
+        _sw_order, _sw_lowers, _sw_lo_c, _sw_hi_c = _swept_external_order(
+            spatial, ext_integrated, fixed_times, lambda_f, t_min,
+        )
         for name in _sw_order:
             k = ext_integrated.index(name)
             srcs = _sw_lowers.get(name, ())
+            lo_c = max(float(t_min), float(_sw_lo_c.get(name, t_min)))
+            hi_c = float(_sw_hi_c.get(name, lambda_f))
             if not srcs:
-                times_arr[:, k] = t_min + u[:, k] * span
-                jacobians *= span
+                w_c = hi_c - lo_c
+                times_arr[:, k] = lo_c + u[:, k] * max(w_c, 0.0)
+                jacobians *= max(w_c, 0.0)
                 continue
-            lo_e = np.full(n_samples, float(t_min))
+            lo_e = np.full(n_samples, lo_c)
             for src in srcs:
                 lo_e = np.maximum(lo_e, times_arr[:, ext_integrated.index(src)])
-            w_e = lambda_f - lo_e
+            w_e = hi_c - lo_e
             ok_e = w_e > 0
             times_arr[:, k] = np.where(ok_e, lo_e + u[:, k] * w_e, lo_e)
             jacobians = np.where(ok_e, jacobians * w_e, 0.0)
@@ -4062,10 +4201,14 @@ class DiagramIntegrand:
             prop_shape = tuple(dim for _, dim in prop_idx)
             values = np.zeros(n_samples)
             for pidx in np.ndindex(*prop_shape):
-                c_val = (
-                    _real_or_raise(coeff[pidx], self._e_psi, where=' (coupling)') if coeff.ndim > 0
-                    else _real_or_raise(coeff, self._e_psi, where=' (coupling)')
-                )
+                c_raw = coeff[pidx] if coeff.ndim > 0 else coeff
+                # Magnitude FIRST.  A tensor entry that is float noise around
+                # zero can carry an arbitrary complex phase, and projecting it
+                # before the negligibility test turns "skip this term" into a
+                # hard ValueError from _real_or_raise.
+                if abs(complex(c_raw)) < 1e-20:
+                    continue
+                c_val = _real_or_raise(c_raw, self._e_psi, where=' (coupling)')
                 if abs(c_val) < 1e-20:
                     continue
                 idx_map = {**fi, **dict(zip(idx_names, pidx))}
@@ -4117,6 +4260,11 @@ class DiagramIntegrand:
         ext_int_set = _resolve_integrate_over(integrate_over, ext_vars)
         ext_integrated = [v for v in ext_vars if v in ext_int_set]
         ext_fixed = [v for v in ext_vars if v not in ext_int_set]
+        # Resolved here rather than further down: the swept-external ordering
+        # below needs each fixed external's own time to place constant bounds.
+        fixed_times, t_ceiling = _resolve_external_times(
+            spatial, ext_fixed, lambda_f, external_times, ext_integrated,
+        )
 
         # Quadrature variables = internals + integrated externals.
         # scipy's nquad integrates index 0 innermost, and ``ranges[i]`` is
@@ -4126,7 +4274,9 @@ class DiagramIntegrand:
         # ``_swept_external_order`` returns earliest-first, so reverse it; with
         # no swept-to-swept edge it returns the caller's own order and this is
         # the identity.
-        _sw_order, _sw_lowers = _swept_external_order(spatial, ext_integrated)
+        _sw_order, _sw_lowers, _sw_lo_c, _sw_hi_c = _swept_external_order(
+            spatial, ext_integrated, fixed_times, lambda_f, t_min,
+        )
         ext_ordered = list(reversed(_sw_order)) if _sw_lowers else list(
             ext_integrated)
         all_vars = int_vars + ext_ordered
@@ -4138,10 +4288,6 @@ class DiagramIntegrand:
         else:
             dir_vars = set(spatial.direction_map.values())
             directions = {d: direction for d in dir_vars}
-
-        fixed_times, t_ceiling = _resolve_external_times(
-            spatial, ext_fixed, lambda_f, external_times, ext_integrated,
-        )
 
         if n_total == 0:
             val = self._evaluate_zero_dimensional(
@@ -4216,13 +4362,14 @@ class DiagramIntegrand:
                 # Swept external: free in [t_min, lambda_f] unless another
                 # swept external causally precedes it.
                 sw_lo = _sw_lowers.get(var, ())
+                lo_c = max(float(t_min), float(_sw_lo_c.get(var, t_min)))
+                hi_c = float(_sw_hi_c.get(var, lambda_f))
                 if sw_lo:
                     ranges.append(
-                        make_bound([], tuple(sw_lo), all_vars, t_min,
-                                   lambda_f, i)
+                        make_bound([], tuple(sw_lo), all_vars, lo_c, hi_c, i)
                     )
                 else:
-                    ranges.append((t_min, lambda_f))
+                    ranges.append((lo_c, max(lo_c, hi_c)))
             else:
                 lo_var = lowers.get(var, t_min)
                 lo_dyn = lower_srcs.get(var, ())
@@ -4763,11 +4910,14 @@ def integrate_two_point_qmc(
             prop_shape = tuple(dim for _, dim in prop_idx)
             values = np.zeros(n_eval)
             for pidx in np.ndindex(*prop_shape):
-                c_val = _real_or_raise(
-                    coeff[pidx] if coeff.ndim > 0 else coeff,
-                    getattr(dt, "n_external_response", 0),
-                    where=" (coupling)",
-                )
+                c_raw = coeff[pidx] if coeff.ndim > 0 else coeff
+                # Magnitude FIRST.  A tensor entry that is float noise around
+                # zero can carry an arbitrary complex phase, and projecting it
+                # before the negligibility test turns "skip this term" into a
+                # hard ValueError from _real_or_raise.
+                if abs(complex(c_raw)) < 1e-20:
+                    continue
+                c_val = _real_or_raise(c_raw, getattr(dt, "n_external_response", 0), where=' (coupling)')
                 if abs(c_val) < 1e-20:
                     continue
                 idx_map = {**fi, **dict(zip(idx_names, pidx))}
