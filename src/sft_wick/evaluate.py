@@ -698,6 +698,45 @@ def _C_value_direct_gl(
     return C_mat
 
 
+def _causal_lower_bounds(
+    spatial,
+    int_vars,
+    external_times: dict,
+    t_min: float,
+) -> dict:
+    """Lower limits imposed on internal times by *external* response legs.
+
+    A time ordering ``(earlier, later)`` from an R propagator can be expressed
+    as an **upper** bound only when ``earlier`` is itself an integration
+    variable — that is the form every bound-builder in this module uses::
+
+        for earlier, later in spatial.time_orderings:
+            if earlier in int_vars:
+                upper_bounds[earlier].append(later)
+
+    The mirrored case is silently dropped by that filter: when ``earlier`` is an
+    **external** point and ``later`` is internal, the constraint
+    ``t_later >= t_earlier`` is a **lower** bound and has nowhere to go.  That
+    case arises whenever the observable itself carries a response leg, since
+    ``<phi(u) psi(y)> = R(u, y)`` forces ``t_u >= t_y``.  For the order-1
+    response function of a quartic theory the orderings are
+    ``(('y','y_0'), ('y_0','x'))`` and only the second was ever applied, so the
+    vertex time was integrated over ``[t_min, t_x]`` instead of ``[t_y, t_x]``.
+
+    Returns ``{int_var: lower_limit}`` for every internal variable that has at
+    least one external lower bound; ``t_min`` is folded in, so the caller can
+    use the value directly as ``lo``.
+    """
+    lowers: dict = {}
+    for earlier, later in spatial.time_orderings:
+        if later in int_vars and earlier not in int_vars:
+            t_e = external_times.get(earlier)
+            if t_e is None:
+                continue
+            lowers[later] = max(lowers.get(later, t_min), float(t_e))
+    return lowers
+
+
 def _rotation_cos(x1, x2) -> float:
     """Cosine similarity ``x1·x2 / (|x1| |x2|)`` as a scalar.
 
@@ -2721,15 +2760,20 @@ class DiagramIntegrand:
         # Build bounds list
         bounds: list = []
         default_hi = max(external_times.values()) if external_times else 1.0
+        # Lower limits imposed by external response legs (see
+        # _causal_lower_bounds): an ordering (external, internal) is a LOWER
+        # bound and cannot be expressed through ``upper_bounds``.
+        lowers = _causal_lower_bounds(spatial, int_vars, external_times, t_min)
 
         for i, var in enumerate(int_vars):
+            lo_var = lowers.get(var, t_min)
             ub_sources = upper_bounds.get(var, [])
             if not ub_sources:
                 # No causal constraint — integrate up to the latest external
                 # time.  Unreachable in practice: every MSR vertex carries a ψ
                 # leg and is therefore the earlier endpoint of at least one R
                 # ordering.
-                bounds.append((t_min, default_hi))
+                bounds.append((lo_var, default_hi))
             else:
                 def make_bound(
                     ub: list[str],
@@ -2760,7 +2804,7 @@ class DiagramIntegrand:
 
                 bounds.append(
                     make_bound(
-                        ub_sources, external_times, int_vars, t_min,
+                        ub_sources, external_times, int_vars, lo_var,
                         i, default_hi,
                     )
                 )
@@ -2891,12 +2935,22 @@ class DiagramIntegrand:
         if n_total == 0:
             fixed_times = {v: lambda_f for v in ext_fixed}
             val = self.evaluate(fixed_times, directions, cache)
-            return (val.real, 0.0)
+            return (_real_or_raise(val, self._e_psi,
+                                   where=' (qmc, zero-dimensional)'), 0.0)
 
         parent_map: dict[str, list[str]] = defaultdict(list)
         for earlier, later in spatial.time_orderings:
             if earlier in int_vars_parents_first:
                 parent_map[earlier].append(later)
+
+        # Lower limits from external response legs (see
+        # _causal_lower_bounds).  Only fixed externals can impose one; an
+        # integrated external is itself swept, and its ordering with an
+        # internal variable is already carried by ``parent_map``.
+        lowers = _causal_lower_bounds(
+            spatial, int_vars_parents_first,
+            {v: lambda_f for v in ext_fixed}, t_min,
+        )
 
         # Generate Sobol samples in [0,1]^d
         sampler = qmc.Sobol(d=n_total, seed=seed)
@@ -2925,7 +2979,7 @@ class DiagramIntegrand:
                     hi = min(times[p] for p in parents if p in times)
                 else:
                     hi = lambda_f
-                lo = t_min
+                lo = lowers.get(var, t_min)
                 width = hi - lo
                 if width <= 0:
                     jacobian = 0.0
@@ -3050,6 +3104,10 @@ class DiagramIntegrand:
         for earlier, later in spatial.time_orderings:
             if earlier in int_vars_pf:
                 parent_map[earlier].append(later)
+        # Lower limits from external response legs (see _causal_lower_bounds).
+        lowers = _causal_lower_bounds(
+            spatial, int_vars_pf, {v: lambda_f for v in ext_fixed}, t_min,
+        )
 
         # Sobol samples
         sampler = qmc.Sobol(d=n_total, seed=seed)
@@ -3087,9 +3145,10 @@ class DiagramIntegrand:
             else:
                 hi = np.full(n_samples, lambda_f)
 
-            width = hi - t_min
+            lo_v = lowers.get(var, t_min)
+            width = hi - lo_v
             valid = width > 0
-            times_arr[:, idx] = np.where(valid, t_min + u[:, idx] * width, t_min)
+            times_arr[:, idx] = np.where(valid, lo_v + u[:, idx] * width, lo_v)
             jacobians = np.where(valid, jacobians * width, 0.0)
 
         # Build variable-name to column lookup.  Fixed externals are
@@ -3374,6 +3433,10 @@ class DiagramIntegrand:
         for earlier, later in spatial.time_orderings:
             if earlier in int_vars_pf:
                 parent_map[earlier].append(later)
+        # Lower limits from external response legs (see _causal_lower_bounds).
+        lowers = _causal_lower_bounds(
+            spatial, int_vars_pf, {v: lambda_f for v in ext_fixed}, t_min,
+        )
 
         span = lambda_f - t_min
         times_arr = np.empty((n_samples, n_total))
@@ -3400,9 +3463,10 @@ class DiagramIntegrand:
             else:
                 hi = np.full(n_samples, lambda_f)
 
-            width = hi - t_min
+            lo_v = lowers.get(var, t_min)
+            width = hi - lo_v
             valid = width > 0
-            times_arr[:, idx] = np.where(valid, t_min + u[:, idx] * width, t_min)
+            times_arr[:, idx] = np.where(valid, lo_v + u[:, idx] * width, lo_v)
             jacobians = np.where(valid, jacobians * width, 0.0)
 
         var_to_col = {var: i for i, var in enumerate(gl_vars)}
@@ -3607,14 +3671,18 @@ class DiagramIntegrand:
             if earlier in int_vars:
                 upper_bounds[earlier].append(later)
 
+        # Lower limits from external response legs (see _causal_lower_bounds).
+        lowers = _causal_lower_bounds(spatial, int_vars, fixed_times, t_min)
+
         ranges: list = []
         for i, var in enumerate(all_vars):
             if i >= n_int:
                 ranges.append((t_min, lambda_f))
             else:
+                lo_var = lowers.get(var, t_min)
                 ub_sources = upper_bounds.get(var, [])
                 if not ub_sources:
-                    ranges.append((t_min, lambda_f))
+                    ranges.append((lo_var, lambda_f))
                 else:
                     # Fixed externals contribute a constant upper bound
                     # ``lambda_f`` (no longer showing up in later_args).
@@ -3636,7 +3704,7 @@ class DiagramIntegrand:
                             return (lo, min(hi_vals))
                         return bound_func
                     ranges.append(
-                        make_bound(ub_dyn, all_vars, t_min, lambda_f, i)
+                        make_bound(ub_dyn, all_vars, lo_var, lambda_f, i)
                     )
 
         val, err = _nquad(f, ranges)
