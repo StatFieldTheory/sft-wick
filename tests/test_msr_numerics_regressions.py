@@ -489,11 +489,51 @@ def test_F10_qmc_scalar_zero_dim_uses_the_reality_projection():
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
     ig = res.diagram_terms(0)[0].build_integrand({"g": np.array(1j)})
+    # All externals pinned at lambda_f, so R(T,T) = 0 under Ito; compare the
+    # backends against each other rather than against a nonzero value, and
+    # separately check a genuinely causal, nonzero configuration below.
     scalar = ig.integrate_moment_qmc(lambda_f=T, cache=cache, t_min=0.0,
                                      n_samples=256, seed=1)[0]
     reference = ig.integrate_moment_nquad(lambda_f=T, cache=cache, t_min=0.0)[0]
-    assert scalar == pytest.approx(reference, rel=1e-12)
-    assert scalar != 0.0
+    assert scalar == pytest.approx(reference, abs=1e-15)
+
+    dirs = {d: 0 for d in set(ig.spatial.direction_map.values())}
+    causal = float(np.real(ig.evaluate({"x": T, "y": 0.6 * T}, dirs, cache)
+                           * res.diagram_terms(0)[0].observable_phase_factor()))
+    assert causal == pytest.approx(np.exp(-MU * (T - 0.6 * T)), rel=1e-12)
+    assert causal != 0.0
+
+
+@pytest.mark.parametrize("tx,ty,expected", [
+    (8.0, 6.0, np.exp(-2.0)),   # causal
+    (8.0, 8.0, 0.0),            # equal times -> 0 under Ito
+    (6.0, 8.0, 0.0),            # acausal -> 0, not exp(+mu(ty-tx))
+    (3.0, 5.0, 0.0),
+])
+def test_F11_response_propagator_is_retarded(tx, ty, expected):
+    """R must vanish for t_x <= t_y even with no integration domain.
+
+    ``PropagatorCache.R_time`` deliberately does not apply Theta ("the
+    integration domain handles causality"), but an R joining two FIXED
+    external points has no domain — an order-0 response diagram is exactly
+    that.  Without Theta it returned the unbounded acausal
+    ``exp(+mu (t_y - t_x))``, and 1 instead of 0 at equal times.
+    """
+    cache = _scalar_cache()
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    res = compute_moment(
+        [phi("x"), psi("y")],
+        Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
+        order=0, ito=True, response_phase=True, collect_topology=True,
+        diag_R=True, diag_C=True, iso_R=True, iso_C=True,
+    )
+    dt = res.diagram_terms(0)[0]
+    ig = dt.build_integrand({"g": np.array(1j)})
+    dirs = {d: 0 for d in set(ig.spatial.direction_map.values())}
+    got = float(np.real(ig.evaluate({"x": tx, "y": ty}, dirs, cache)
+                        * dt.observable_phase_factor()))
+    assert got == pytest.approx(expected, abs=1e-14)
 
 
 def test_F9_lower_bounds_are_transitively_closed():
