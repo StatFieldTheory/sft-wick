@@ -805,6 +805,55 @@ def _causal_lower_bound_sources(
     return lowers, {v: tuple(sorted(s)) for v, s in sources.items()}
 
 
+def _swept_external_order(spatial, ext_integrated) -> tuple[list, dict]:
+    """Causal ordering *among the swept externals themselves*.
+
+    ``_causal_lower_bound_sources`` only emits a bound when the LATER endpoint
+    is an internal vertex, and ``parent_map`` / ``upper_bounds`` only fire when
+    the EARLIER endpoint is internal.  An ordering with swept externals on BOTH
+    ends -- e.g. ``<phi(x) psi(y)>`` at order 0 under
+    ``integrate_over=['x','y']``, where R(x,y) forces ``t_x > t_y`` -- is
+    therefore emitted by neither, and both times get drawn freely over
+    ``[t_min, lambda_f]``.
+
+    Theta keeps the *value* right (the integrand vanishes on the unconstrained
+    half), so this is a quadrature concern, not a correctness one -- but it is
+    the same jump-inside-the-domain that costs ``gauss_legendre`` its spectral
+    convergence.
+
+    Returns ``(order, lowers)``: the swept externals topologically sorted so
+    that every earlier endpoint is drawn first, and ``{later: [earlier, ...]}``
+    restricted to swept-to-swept edges.  With no such edge the order is the
+    caller's own and ``lowers`` is empty, so sampling is bit-identical.
+    """
+    ext_set = set(ext_integrated)
+    lowers: dict = {}
+    for earlier, later in spatial.time_orderings:
+        if earlier in ext_set and later in ext_set and earlier != later:
+            lowers.setdefault(later, [])
+            if earlier not in lowers[later]:
+                lowers[later].append(earlier)
+    if not lowers:
+        return list(ext_integrated), {}
+
+    # Kahn topological sort, stable in the caller's order.  A cyclic ordering
+    # cannot arise from retarded R propagators, but if one somehow does, fall
+    # back to the unordered draw rather than dropping variables.
+    remaining = list(ext_integrated)
+    placed: list = []
+    placed_set: set = set()
+    while remaining:
+        ready = [v for v in remaining
+                 if all(src in placed_set for src in lowers.get(v, ()))]
+        if not ready:
+            return list(ext_integrated), {}
+        for v in ready:
+            placed.append(v)
+            placed_set.add(v)
+            remaining.remove(v)
+    return placed, lowers
+
+
 def _rotation_cos(x1, x2) -> float:
     """Cosine similarity ``x1·x2 / (|x1| |x2|)`` as a scalar.
 
@@ -3081,6 +3130,8 @@ class DiagramIntegrand:
             {v: lambda_f for v in ext_fixed}, t_min, swept=ext_integrated,
         )
 
+        sw_order, sw_lowers = _swept_external_order(spatial, ext_integrated)
+
         # Generate Sobol samples in [0,1]^d
         sampler = qmc.Sobol(d=n_total, seed=seed)
         u_samples = sampler.random(n_samples)  # (n_samples, n_total)
@@ -3094,11 +3145,21 @@ class DiagramIntegrand:
             times: dict[str, float] = {v: lambda_f for v in ext_fixed}
             jacobian = 1.0
 
-            # Integrated externals: free in [t_min, lambda_f]
-            for k in range(n_ext_int):
-                t = t_min + u[k] * span
-                times[ext_integrated[k]] = t
-                jacobian *= span
+            # Integrated externals: free in [t_min, lambda_f] except where a
+            # causal ordering ties two of them together.
+            for name in sw_order:
+                k = ext_integrated.index(name)
+                srcs = sw_lowers.get(name, ())
+                lo_e = t_min
+                for src in srcs:
+                    lo_e = max(lo_e, times[src])
+                w_e = lambda_f - lo_e
+                if w_e <= 0:
+                    times[name] = lo_e
+                    jacobian = 0.0
+                    continue
+                times[name] = lo_e + u[k] * w_e
+                jacobian *= w_e
 
             # Internal vars: bounded by causal parents
             for k, var in enumerate(int_vars_parents_first):
@@ -3255,9 +3316,24 @@ class DiagramIntegrand:
         jacobians = np.ones(n_samples)
 
         # Integrated external vars: free in [t_min, lambda_f]
-        for k in range(n_ext_int):
-            times_arr[:, k] = t_min + u[:, k] * span
-            jacobians *= span
+        # Swept externals: free in [t_min, lambda_f] EXCEPT where a causal
+        # ordering ties two of them together (see _swept_external_order).
+        # With no such edge this is bit-identical to the flat draw.
+        _sw_order, _sw_lowers = _swept_external_order(spatial, ext_integrated)
+        for name in _sw_order:
+            k = ext_integrated.index(name)
+            srcs = _sw_lowers.get(name, ())
+            if not srcs:
+                times_arr[:, k] = t_min + u[:, k] * span
+                jacobians *= span
+                continue
+            lo_e = np.full(n_samples, float(t_min))
+            for src in srcs:
+                lo_e = np.maximum(lo_e, times_arr[:, ext_integrated.index(src)])
+            w_e = lambda_f - lo_e
+            ok_e = w_e > 0
+            times_arr[:, k] = np.where(ok_e, lo_e + u[:, k] * w_e, lo_e)
+            jacobians = np.where(ok_e, jacobians * w_e, 0.0)
 
         # Internal vars: bounded by parents.  Parents may be
         # (a) integrated externals — pull from times_arr; (b) fixed
@@ -3587,9 +3663,24 @@ class DiagramIntegrand:
         times_arr = np.empty((n_samples, n_total))
         jacobians = np.ones(n_samples)
 
-        for k in range(n_ext_int):
-            times_arr[:, k] = t_min + u[:, k] * span
-            jacobians *= span
+        # Swept externals: free in [t_min, lambda_f] EXCEPT where a causal
+        # ordering ties two of them together (see _swept_external_order).
+        # With no such edge this is bit-identical to the flat draw.
+        _sw_order, _sw_lowers = _swept_external_order(spatial, ext_integrated)
+        for name in _sw_order:
+            k = ext_integrated.index(name)
+            srcs = _sw_lowers.get(name, ())
+            if not srcs:
+                times_arr[:, k] = t_min + u[:, k] * span
+                jacobians *= span
+                continue
+            lo_e = np.full(n_samples, float(t_min))
+            for src in srcs:
+                lo_e = np.maximum(lo_e, times_arr[:, ext_integrated.index(src)])
+            w_e = lambda_f - lo_e
+            ok_e = w_e > 0
+            times_arr[:, k] = np.where(ok_e, lo_e + u[:, k] * w_e, lo_e)
+            jacobians = np.where(ok_e, jacobians * w_e, 0.0)
 
         for k, var in enumerate(int_vars_pf):
             idx = n_ext_int + k
@@ -4191,15 +4282,31 @@ def integrate_two_point_qmc(
             if dvar not in directions:
                 directions[dvar] = positions.get(pt, 0.0)
 
+        # Spatial-aware dispatch, mirroring
+        # ``integrate_moment_qmc_vectorized._lookup_C``.  When the cache has a
+        # translation / rotation / general table, ``C_at_batch`` evaluates C at
+        # the true endpoint positions and the kappa2 ratio below must NOT also
+        # be applied -- that would double-count the separation.  The ratio is
+        # the fallback for a cache that can only look C up by time.
+        model = cache.model
+        spatial_aware = _cache_has_spatial_table(cache)
+        group_x = (
+            DiagramIntegrand._resolve_group_x(sp, positions, 0.0)
+            if spatial_aware else None
+        )
+
         # Pre-compute spatial factors for each C propagator
         # factor = kappa2(n1, t_ref, n2, t_ref) / kappa2(0, t_ref, 0, t_ref)
         t_ref = max(t_min + 0.1, t_f * 0.5)
-        model = cache.model
-        kappa_00 = model.kappa2(
-            np.array([0.0]), t_ref, np.array([0.0]), t_ref
+        kappa_00 = (
+            model.kappa2(np.array([0.0]), t_ref, np.array([0.0]), t_ref)
+            if not spatial_aware else None
         )  # (N, N)
         c_spatial_factors = []
         for sp_l, sp_r, _il, _ir in sp.c_propagators:
+            if spatial_aware:
+                c_spatial_factors.append(np.ones(model.n_components))
+                continue
             dir_l = sp.direction_map[sp_l]
             dir_r = sp.direction_map[sp_r]
             n_l = directions.get(dir_l, 0.0)
@@ -4226,6 +4333,21 @@ def integrate_two_point_qmc(
                 pm[earlier].append(later)
         # --- Causal lower bounds from external response legs ---
         lowers = _causal_lower_bounds(sp, ivs, {v: t_f for v in evs}, t_min)
+
+        def _lookup_C(sp_l, sp_r, t_l, t_r, ci):
+            """C for propagator ``ci``, already carrying its separation.
+
+            Spatial-aware caches resolve the separation exactly; the legacy
+            time-only table cannot see position at all, so its lookup is
+            scaled by the pre-computed kappa2 ratio.  Folding the ratio in
+            here keeps it impossible to apply on the exact path.
+            """
+            if spatial_aware:
+                x_l = group_x[sp.direction_map[sp_l]]
+                x_r = group_x[sp.direction_map[sp_r]]
+                return cache.C_at_batch(t_l, t_r, x_l, x_r)
+            return (cache.C_diagonal_batch(t_l, t_r)
+                    * c_spatial_factors[ci][np.newaxis, :])
 
         # --- Zero integration variables ---
         #
@@ -4318,13 +4440,10 @@ def integrate_two_point_qmc(
             for ci, (sp_l, sp_r, il, ir) in enumerate(sp.c_propagators):
                 t_l = t_arr[:, var_col[sp_l]]
                 t_r = t_arr[:, var_col[sp_r]]
-                C_diag = cache.C_diagonal_batch(t_l, t_r)
-                sf = c_spatial_factors[ci]
+                C_batch = _lookup_C(sp_l, sp_r, t_l, t_r, ci)
                 a = DiagramIntegrand._resolve_component(il, fi)
-                if a is not None:
-                    c_prod *= C_diag[:, a] * sf[a]
-                else:
-                    c_prod *= (C_diag * sf[np.newaxis, :]).sum(axis=1)
+                b = DiagramIntegrand._resolve_component(ir, fi)
+                c_prod *= _select_C_batch(C_batch, a, b)
             values = r_prod * _real_or_raise(
                 coeff, getattr(dt, 'n_external_response', 0),
                 where=' (coupling)') * c_prod * jac
@@ -4349,14 +4468,10 @@ def integrate_two_point_qmc(
                 ):
                     t_l = t_arr[:, var_col[sp_l]]
                     t_r = t_arr[:, var_col[sp_r]]
-                    C_diag = cache.C_diagonal_batch(t_l, t_r)
-                    sf = c_spatial_factors[ci]
+                    C_batch = _lookup_C(sp_l, sp_r, t_l, t_r, ci)
                     a = DiagramIntegrand._resolve_component(il, idx_map)
                     b = DiagramIntegrand._resolve_component(ir, idx_map)
-                    if a is not None and b is not None:
-                        c_prod *= C_diag[:, a] * sf[a]
-                    else:
-                        c_prod *= (C_diag * sf[np.newaxis, :]).sum(axis=1)
+                    c_prod *= _select_C_batch(C_batch, a, b)
                 values += c_val * r_prod * c_prod * jac
 
         values = np.where(jac > 0, values, 0.0)

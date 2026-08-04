@@ -1231,3 +1231,216 @@ def test_F13_two_swept_externals_pick_the_right_column():
         assert total == pytest.approx(ref, rel=tol), (
             f"{method}: {total:.8f} vs {ref:.8f}"
         )
+
+
+# --------------------------------------------------------------------- #
+# F18 (7c): integrate_two_point_qmc must use the spatial table at ni >= 1
+# --------------------------------------------------------------------- #
+#
+# F17 made the ni == 0 branch delegate, so order 0 is spatially EXACT once a
+# translation/rotation/general table exists.  Orders >= 1 still hard-coded
+# `C_diagonal_batch x c_spatial_factors` -- the single-t_ref kappa2 ratio --
+# so the expansion was exact in its leading term and approximate above it.
+# `integrate_moment_qmc_vectorized` already had the right shape (`_lookup_C`
+# dispatching on `_cache_has_spatial_table`); this mirrors it.
+#
+# The sharp test is the boundary-validation one: for a SEPARABLE kernel the
+# ratio is exact by construction, so both evaluation modes are valid and must
+# agree.  Building the spatial table must therefore not move the answer at
+# ANY order.  That catches both directions of error -- forgetting to route
+# through C_at_batch, and applying the ratio on top of it (double-counting).
+
+_F18_T = 3.0
+_F18_SX = 1.5
+
+
+def _f18_kappa_separable(n1, t1, n2, t2):
+    return np.eye(1) * np.exp(-_f17_sep(n1, n2) / _F18_SX)
+
+
+def _f18_setup(order, kappa2):
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    res = compute_moment(
+        [phi("x"), phi("y")],
+        Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
+        order=order, ito=True, response_phase=True, collect_topology=True,
+        diag_R=True, diag_C=True, iso_R=True, iso_C=True,
+    )
+    model = PropagatorModel(
+        R_time=lambda t, tp: np.exp(-MU * (t - tp)), kappa2=kappa2,
+        n_components=1, iso_R=True, diag_C=True, t_min=0.0,
+    )
+    igs = [dt.build_integrand({"g": np.array(1j)})
+           for dt in res.diagram_terms(order)]
+    return igs, model
+
+
+@pytest.mark.parametrize("order", [0, 1, 2])
+@pytest.mark.parametrize("r", [0.0, 1.0, 2.5])
+def test_F18_spatial_table_does_not_move_a_separable_result(order, r):
+    """Both C evaluation modes are valid here, so they must agree.
+
+    Boundary validation: the kappa2 ratio is exact for a separable kernel,
+    and so is `C_at_batch`.  Adding a spatial table must therefore leave the
+    value unchanged at every order and separation.
+    """
+    from sft_wick.evaluate import integrate_two_point_qmc
+
+    igs_a, model_a = _f18_setup(order, _f18_kappa_separable)
+    if not igs_a:
+        pytest.skip(f"order {order} has no diagrams")
+    legacy = PropagatorCache(model_a)
+    legacy.precompute_C_table(t_max=_F18_T, n_grid=60)
+
+    igs_b, model_b = _f18_setup(order, _f18_kappa_separable)
+    spatial = PropagatorCache(model_b)
+    spatial.precompute_C_table_translation(t_max=_F18_T, n_grid_t=60)
+    spatial.precompute_C_table(t_max=_F18_T, n_grid=60)
+
+    kw = dict(n_samples=2 ** 12, seed=5)
+    v_legacy, _ = integrate_two_point_qmc(igs_a, _F18_T, {"x": 0.0, "y": r},
+                                          legacy, **kw)
+    v_spatial, _ = integrate_two_point_qmc(igs_b, _F18_T, {"x": 0.0, "y": r},
+                                           spatial, **kw)
+    assert v_spatial == pytest.approx(v_legacy, rel=2e-3), (
+        f"order {order}, r={r}: spatial table changed a separable result "
+        f"({v_spatial:.10f} vs {v_legacy:.10f}) — the ratio was either "
+        f"dropped or double-counted"
+    )
+
+
+def test_F18_nonseparable_agrees_with_the_spatially_aware_integrator():
+    """Cross-path: `integrate_moment` already routes through `C_at_batch`.
+
+    NOT an independent ground truth — both sides are sft-wick.  It is the
+    check that the two entry points use the same C, which is exactly what
+    7c was about; the absolute order-0 value is pinned against dblquad by
+    F17.  Measured 8.17% apart before this fix.
+    """
+    from sft_wick.evaluate import integrate_two_point_qmc, integrate_moment
+
+    def kappa2(n1, t1, n2, t2):
+        ell = 1.0 + 0.25 * (t1 + t2)
+        return np.eye(1) * np.exp(-_f17_sep(n1, n2) / ell)
+
+    r, order = 2.0, 2
+    igs, model = _f18_setup(order, kappa2)
+    cache = PropagatorCache(model)
+    cache.precompute_C_table_translation(t_max=_F18_T, n_grid_t=50)
+    cache.precompute_C_table(t_max=_F18_T, n_grid=50)
+
+    tp, _ = integrate_two_point_qmc(igs, _F18_T, {"x": 0.0, "y": r}, cache,
+                                    n_samples=2 ** 13, seed=11)
+    ref = sum(
+        integrate_moment(ig, _F18_T, cache, method="qmc_vectorized",
+                         t_min=0.0, n_samples=2 ** 13, seed=11,
+                         positions={"x": 0.0, "y": r})[0]
+        for ig in igs
+    )
+    assert tp == pytest.approx(ref, rel=1e-3), (
+        f"two_point_qmc {tp:.8f} vs spatially-aware integrate_moment "
+        f"{ref:.8f} (rel {abs(tp - ref) / abs(ref):.2%})"
+    )
+
+
+# --------------------------------------------------------------------- #
+# F19 (7d): an ordering between TWO SWEPT externals
+# --------------------------------------------------------------------- #
+#
+# `_causal_lower_bound_sources` emits a bound only when the LATER endpoint is
+# an internal vertex; `parent_map` only when the EARLIER one is.  An ordering
+# with swept externals on BOTH ends was emitted by neither.
+#
+# Ground truth, independent of sft-wick: <phi(x) psi(y)> at order 0 is the
+# retarded R(x,y) = exp(-mu (x-y)) Theta(x-y), so sweeping BOTH externals over
+# [0, L] gives
+#
+#     M = int_0^L dx int_0^L dy R(x,y) = L/mu - (1 - exp(-mu L)) / mu^2.
+#
+# Theta already made the value right; what the missing bound cost was
+# quadrature accuracy, exactly as in F13 -- a jump inside the domain, which a
+# fixed-node rule cannot resolve.
+
+_F19_L = 3.0
+
+
+def _f19_reference() -> float:
+    return _F19_L / MU - (1.0 - np.exp(-MU * _F19_L)) / MU ** 2
+
+
+def _f19_integrands():
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    res = compute_moment(
+        [phi("x"), psi("y")],
+        Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
+        order=0, ito=True, response_phase=True, collect_topology=True,
+        diag_R=True, diag_C=True, iso_R=True, iso_C=True,
+    )
+    return [dt.build_integrand({"g": np.array(1j)})
+            for dt in res.diagram_terms(0)]
+
+
+@pytest.mark.parametrize("method,kw,tol", [
+    # Achieved WITH the ordering vs. what the mutation (ordering removed)
+    # produces, so every cell can actually fail:
+    #   gauss_legendre n=8    0.0     vs 2.93e-1   (29.3% at the library default)
+    #   gauss_legendre n=32   0.0     vs 8.16e-2
+    #   qmc_vectorized 2^14   7.5e-8  vs 1.07e-3
+    # On the restricted domain the integrand is a smooth exp(-(x-y)), so GL
+    # is exact; the 29% was entirely the Theta jump sitting inside the box.
+    ("gauss_legendre", {"n_gauss": 8}, 1e-12),
+    ("gauss_legendre", {"n_gauss": 32}, 1e-12),
+    ("qmc_vectorized", {"n_samples": 2 ** 14, "seed": 4}, 1e-6),
+    ("qmc_scalar", {"n_samples": 2 ** 14, "seed": 4}, 1e-6),
+    # nquad is the ONE backend that does not carry this ordering: its
+    # `all_vars` is internals-first, so an earlier swept external sits INSIDE
+    # the one it bounds and scipy has not bound it yet when the range callable
+    # fires.  Carrying it there needs `all_vars` reordered.  Adaptivity
+    # absorbs the jump (3.4e-6 here), so this cell pins the status quo rather
+    # than the fix -- and will tighten by orders of magnitude if that
+    # reordering ever lands.
+    ("nquad", {}, 1e-4),
+])
+def test_F19_swept_to_swept_ordering_is_carried(method, kw, tol):
+    """Sweeping both ends of an R propagator must respect its retardation."""
+    from sft_wick.evaluate import integrate_moment
+
+    cache = _ScalarBatchCache()
+    total = sum(
+        integrate_moment(ig, _F19_L, cache, method=method, t_min=0.0,
+                         integrate_over=["x", "y"], **kw)[0]
+        for ig in _f19_integrands()
+    )
+    ref = _f19_reference()
+    assert total == pytest.approx(ref, rel=tol), (
+        f"{method} {kw}: {total:.8f} vs closed form {ref:.8f} "
+        f"(rel {abs(total - ref) / abs(ref):.2e})"
+    )
+
+
+def test_F19_helper_orders_and_is_a_no_op_without_swept_edges():
+    """The ordering must be a strict no-op when no swept-to-swept edge exists.
+
+    That is what makes the change bit-identical for every existing call.
+    """
+    from sft_wick.evaluate import _swept_external_order
+
+    class _Sp:
+        time_orderings = (("y", "x"), ("y", "v0"), ("v0", "x"))
+
+    order, lowers = _swept_external_order(_Sp(), ["x", "y"])
+    assert lowers == {"x": ["y"]}
+    assert order.index("y") < order.index("x"), order
+
+    # only x swept -> the (y, x) edge has a non-swept end -> no-op
+    order2, lowers2 = _swept_external_order(_Sp(), ["x"])
+    assert (order2, lowers2) == (["x"], {})
+
+    # a cycle must fall back, never drop a variable
+    class _Cyc:
+        time_orderings = (("a", "b"), ("b", "a"))
+
+    order3, lowers3 = _swept_external_order(_Cyc(), ["a", "b"])
+    assert (order3, lowers3) == (["a", "b"], {})
