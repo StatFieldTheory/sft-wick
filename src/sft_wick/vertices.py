@@ -188,10 +188,17 @@ class VertexInstance:
 
         # Build coupling symbol with appropriate indices and spatial args
         if vertex.local:
+            # A local vertex has exactly ONE spacetime argument — the shared
+            # point created above.  Recording it (a) makes two copies of the
+            # same vertex distinguishable at order >= 2, and (b) is what lets a
+            # callable, time-dependent coupling c(t) be evaluated at the right
+            # place.  ``local=True`` suppresses it in LaTeX so rendering is
+            # unchanged for constant couplings.
             coupling_symbol = Symbol(
                 name=vertex.coupling,
                 indices=tuple(comp_indices),
-                spatial_args=(),
+                spatial_args=(spatial_vars[0],),
+                local=True,
             )
         else:
             coupling_symbol = Symbol(
