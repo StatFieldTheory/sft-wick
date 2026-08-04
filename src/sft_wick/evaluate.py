@@ -284,6 +284,54 @@ def analyze_spatial(dt: "DiagramTerm") -> SpatialStructure:
 # ---------------------------------------------------------------------------
 
 
+#: Relative tolerance used when projecting a diagram value onto the reals.
+_REALITY_TOL = 1e-9
+#: Values below this magnitude are treated as an exact zero (a diagram that
+#: cancelled), so a denormal-scale imaginary residue never raises.
+_REALITY_FLOOR = 1e-290
+
+
+def _real_or_raise(value, e_psi: int = 0, *, scale: float = 0.0,
+                   where: str = "") -> float:
+    """Project a diagram value onto the reals **without guessing a sign**.
+
+    By the MSR reality theorem (see
+    :meth:`~sft_wick.perturbation.DiagramTerm.observable_phase_factor`) a
+    diagram equals ``i**(-E_psi)`` times a real number, provided each vertex
+    coupling carries the ``(+/-i)**n_psi`` factor demanded by
+    ``<phi psi> = -i R``.  Rotating by ``i**E_psi`` therefore lands exactly on
+    the real axis.
+
+    Anything left over is a mis-specified action -- most often a missing MSR
+    factor on a multi-psi vertex, for which the required coefficient is
+    ``-(i**m)/m!`` (see ``NonLocalVertex.msr_factor``).  That is reported, not
+    silently turned into ``abs()`` (which flips the sign of negative
+    contributions) or into ``0`` (which reads as "no contribution").
+
+    Args:
+        value: raw complex diagram value.
+        e_psi: number of external response legs of the observable.
+        scale: magnitude of the largest summand contributing to ``value``, so
+            the test stays well posed when the diagram cancels to near zero.
+        where: short context string included in the error message.
+    """
+    z = complex(value) * (1j ** int(e_psi))
+    re_, im_ = z.real, z.imag
+    if im_ == 0.0 or abs(z) <= _REALITY_FLOOR:
+        return re_
+    if abs(im_) <= _REALITY_TOL * max(abs(re_), abs(scale)):
+        return re_
+    raise ValueError(
+        f"Diagram integrand{where} evaluated to {value!r}; after the "
+        f"i**E_psi rotation (E_psi={e_psi}) it is {z!r}, whose imaginary part "
+        f"is not negligible at {_REALITY_TOL:g} relative tolerance. Each "
+        f"vertex coupling must carry the (+/-i)**n_psi factor demanded by "
+        f"<phi psi> = -i R; for an m-leg all-psi vertex that factor is "
+        f"-(i**m)/m! (see NonLocalVertex.msr_factor). Passing a real coupling "
+        f"where an imaginary one is required is the usual cause."
+    )
+
+
 @dataclass(frozen=True)
 class PropagatorModel:
     """Physical propagator functions for numerical evaluation.
@@ -528,41 +576,40 @@ def _C_value_direct_gl(
     # 1-D GL nodes & weights on [-1, 1], reused across sub-regions.
     nodes, weights = leggauss(n_gauss)
 
-    # ---- helper: evaluate R-diagonal at a single time pair ------- #
-    def _r_diag(t_obs: float, lam: float) -> np.ndarray:
-        """Return shape ``(N,)`` -- the diagonal of ``R(t_obs, lam)``.
+    # ---- helper: evaluate the R matrix at a single time pair ------ #
+    def _r_mat(t_obs: float, lam: float) -> np.ndarray:
+        """Return the full ``(N, N)`` response matrix ``R(t_obs, lam)``.
 
-        For ``iso_R`` the same scalar fills every component.  For
-        ``diag_C=True`` only diagonal entries are needed, so we
-        always return the diagonal slice.  When ``diag_C=False`` we
-        still call this for entries ``[a, a]`` of R (R is always
-        diagonal in component indices in MSR), but the κ² off-diag
-        couples them.
+        For ``iso_R`` this is ``R_time * I``.  Otherwise ``R_time`` is
+        expected to return the full matrix; note it is **not** in general
+        diagonal in component indices — that holds only when the linear
+        operator itself is diagonal in the chosen basis.  Using only the
+        diagonal here silently corrupts C for any dense drift matrix
+        (e.g. ``A = H + lambda`` with ``H = X^T X / N``).
         """
         rt = model.R_time(t_obs, lam)
         if model.iso_R:
-            return np.full(N, float(rt))
-        rt_arr = np.asarray(rt, dtype=float)
-        return np.array([rt_arr[a, a] for a in range(N)])
+            return float(rt) * np.eye(N)
+        return np.asarray(rt, dtype=float)
 
     # ---- helper: evaluate κ² at a single time pair --------------- #
     def _kappa(lam1: float, lam2: float) -> np.ndarray:
         return np.asarray(model.kappa2(n1, lam1, n2, lam2), dtype=float)
 
-    # ---- helper: contract one (R_diag(t1,lam1), kappa, R_diag(t2,lam2))
-    # triple into the (N, N) per-point integrand value ------------- #
+    # ---- helper: contract one (R(t1,lam1), kappa, R(t2,lam2)) ----- #
+    # triple into the (N, N) per-point integrand value.
     def _integrand_block(
-        r1d: np.ndarray, kmat: np.ndarray, r2d: np.ndarray,
+        r1: np.ndarray, kmat: np.ndarray, r2: np.ndarray,
     ) -> np.ndarray:
-        # element [a, b] = r1d[a] * kmat[a, b] * r2d[b]
+        # C_{ab} = sum_{c,d} R_{ac}(t1,l1) kappa_{cd}(l1,l2) R_{bd}(t2,l2)
+        #        = [ R1 @ kappa @ R2^T ]_{ab}
+        # The transpose is essential and invisible for symmetric R --
+        # do not "simplify" it away.
+        out = r1 @ np.asarray(kmat, dtype=float) @ r2.T
         if model.diag_C:
-            # Only diagonal matters; mask kmat to its diagonal.
-            out = np.zeros((N, N))
-            diag = np.array([kmat[a, a] for a in range(N)])
-            for a in range(N):
-                out[a, a] = r1d[a] * diag[a] * r2d[a]
-            return out
-        return (r1d[:, None] * kmat) * r2d[None, :]
+            # Project onto the diagonal AFTER contracting, never before.
+            return np.diag(np.diag(out))
+        return out
 
     # ---- helper: integrate over a triangular region -------------- #
     # Region of the form  a_lo ≤ λ1 ≤ a_hi,  inner_lo(λ1) ≤ λ2 ≤ inner_hi(λ1).
@@ -592,12 +639,12 @@ def _C_value_direct_gl(
             lam2_pts = mid_inner + half_inner * nodes
             inner_w = half_inner * weights
 
-            r1d = _r_diag(t1, float(lam1))
+            r1m = _r_mat(t1, float(lam1))
             inner_acc = np.zeros((N, N))
             for j, lam2 in enumerate(lam2_pts):
                 kmat = _kappa(float(lam1), float(lam2))
-                r2d = _r_diag(t2, float(lam2))
-                inner_acc += inner_w[j] * _integrand_block(r1d, kmat, r2d)
+                r2m = _r_mat(t2, float(lam2))
+                inner_acc += inner_w[j] * _integrand_block(r1m, kmat, r2m)
             acc += outer_w[k] * inner_acc
         return acc
 
@@ -643,10 +690,10 @@ def _C_value_direct_gl(
             tau_w = half * weights
             for k, tau in enumerate(tau_pts):
                 tau_f = float(tau)
-                r1d = _r_diag(t1, tau_f)
-                r2d = _r_diag(t2, tau_f)
+                r1m = _r_mat(t1, tau_f)
+                r2m = _r_mat(t2, tau_f)
                 sig = np.asarray(model.sigma2(n1, tau_f, n2), dtype=float)
-                C_mat += tau_w[k] * _integrand_block(r1d, sig, r2d)
+                C_mat += tau_w[k] * _integrand_block(r1m, sig, r2m)
 
     return C_mat
 
@@ -725,12 +772,29 @@ class PropagatorCache:
         interp_method: str = "linear",
         c_method: str = "dblquad",
         n_gauss: int = 20,
+        c_value_fn: Callable | None = None,
     ):
         """Initialise the propagator cache.
 
         Args:
             model: Propagator model specifying R and κ².
             quad_opts: Options forwarded to ``scipy.integrate.dblquad``.
+            c_value_fn: Optional ``(n1, t1, n2, t2) -> (N, N)`` callable that
+                **replaces** the quadrature construction of C entirely.
+
+                By default C is *derived* from R and the noise cumulant as
+                ``C = ∫∫ R κ R``.  That relation does not hold for every
+                physically meaningful propagator pair — notably a
+                disorder-averaged (DMFT) solution, where
+                ``⟨R κ R⟩ ≠ ⟨R⟩ κ ⟨R⟩`` — so such a C must be supplied
+                directly.  This is the public, L0 equivalent of the L1
+                ``Propagators.build(c_closed_form=..., c_closed_form_only=True)``
+                route; previously it required subclassing and overriding
+                :meth:`_C_value_direct`.
+
+                It is consulted by :meth:`_C_value_direct`, hence by
+                :meth:`C_value`, :meth:`C_diagonal` and every
+                ``precompute_C_table_*`` builder.
             c_method: Quadrature method used by :meth:`_C_value_direct`
                 (and therefore by every ``precompute_C_table_*`` builder).
 
@@ -818,6 +882,8 @@ class PropagatorCache:
         self.interp_method = interp_method
         self.c_method = c_method
         self.n_gauss = int(n_gauss)
+        #: Optional user-supplied C, bypassing the ``∫∫ R κ R`` construction.
+        self.c_value_fn = c_value_fn
 
         # Closed-form-only path: skip every spline and route C lookups
         # directly through ``self._C_value_direct``. Set by
@@ -1532,6 +1598,10 @@ class PropagatorCache:
             n_gauss: Override per-dim node count for the Gauss-Legendre
                 method.  ``None`` (default) uses :attr:`n_gauss`.
         """
+        if getattr(self, "c_value_fn", None) is not None:
+            # User-supplied C replaces the whole quadrature construction.
+            return np.asarray(self.c_value_fn(n1, t1, n2, t2), dtype=float)
+
         method = self.c_method if method is None else method
         n_gauss_val = self.n_gauss if n_gauss is None else int(n_gauss)
         if method == "gauss_legendre":
@@ -1551,13 +1621,28 @@ class PropagatorCache:
         t_min = m.t_min
         C_mat = np.zeros((N, N))
 
+        # ``R`` is a full matrix whenever the linear operator is not diagonal
+        # in the chosen component basis.  Contract
+        #     C_{ab} = sum_{c,d} R_{ac}(t1,l1) kappa_{cd}(l1,l2) R_{bd}(t2,l2)
+        # i.e. row ``a`` of R(t1,·) against kappa against row ``b`` of R(t2,·).
+        # Using only R[a,a] is correct solely for diagonal R.
+        def _row(t_obs: float, lam: float, idx: int) -> np.ndarray:
+            rt = m.R_time(t_obs, lam)
+            if m.iso_R:
+                row = np.zeros(N)
+                row[idx] = float(rt)
+                return row
+            return np.asarray(rt, dtype=float)[idx, :]
+
         if m.diag_C:
             for a in range(N):
                 def integrand(lam2: float, lam1: float, _a: int = a) -> float:
-                    r1 = float(m.R_time(t1, lam1)) if m.iso_R else float(m.R_time(t1, lam1)[_a, _a])
-                    kappa_mat = m.kappa2(n1, lam1, n2, lam2)
-                    r2 = float(m.R_time(t2, lam2)) if m.iso_R else float(m.R_time(t2, lam2)[_a, _a])
-                    return r1 * float(kappa_mat[_a, _a]) * r2
+                    kappa_mat = np.asarray(
+                        m.kappa2(n1, lam1, n2, lam2), dtype=float
+                    )
+                    return float(
+                        _row(t1, lam1, _a) @ kappa_mat @ _row(t2, lam2, _a)
+                    )
                 val, _ = dblquad(
                     integrand, t_min, t1, t_min, t2, **self.quad_opts,
                 )
@@ -1566,14 +1651,12 @@ class PropagatorCache:
             for a in range(N):
                 for b in range(N):
                     def integrand(lam2: float, lam1: float, _a: int = a, _b: int = b) -> float:
-                        if m.iso_R:
-                            r1 = float(m.R_time(t1, lam1))
-                            r2 = float(m.R_time(t2, lam2))
-                        else:
-                            r1 = float(m.R_time(t1, lam1)[_a, _a])
-                            r2 = float(m.R_time(t2, lam2)[_b, _b])
-                        kappa_mat = m.kappa2(n1, lam1, n2, lam2)
-                        return r1 * float(kappa_mat[_a, _b]) * r2
+                        kappa_mat = np.asarray(
+                            m.kappa2(n1, lam1, n2, lam2), dtype=float
+                        )
+                        return float(
+                            _row(t1, lam1, _a) @ kappa_mat @ _row(t2, lam2, _b)
+                        )
                     val, _ = dblquad(
                         integrand, t_min, t1, t_min, t2, **self.quad_opts,
                     )
@@ -1586,12 +1669,12 @@ class PropagatorCache:
                 if m.diag_C:
                     for a in range(N):
                         def w_integrand(tau: float, _a: int = a) -> float:
-                            r1 = float(m.R_time(t1, tau)) if m.iso_R \
-                                else float(m.R_time(t1, tau)[_a, _a])
-                            r2 = float(m.R_time(t2, tau)) if m.iso_R \
-                                else float(m.R_time(t2, tau)[_a, _a])
-                            sig = m.sigma2(n1, tau, n2)
-                            return r1 * float(sig[_a, _a]) * r2
+                            sig = np.asarray(
+                                m.sigma2(n1, tau, n2), dtype=float
+                            )
+                            return float(
+                                _row(t1, tau, _a) @ sig @ _row(t2, tau, _a)
+                            )
                         wval, _ = _quad(
                             w_integrand, t_min, t_upper, **self.quad_opts,
                         )
@@ -1600,14 +1683,12 @@ class PropagatorCache:
                     for a in range(N):
                         for b in range(N):
                             def w_integrand(tau: float, _a: int = a, _b: int = b) -> float:
-                                if m.iso_R:
-                                    r1 = float(m.R_time(t1, tau))
-                                    r2 = float(m.R_time(t2, tau))
-                                else:
-                                    r1 = float(m.R_time(t1, tau)[_a, _a])
-                                    r2 = float(m.R_time(t2, tau)[_b, _b])
-                                sig = m.sigma2(n1, tau, n2)
-                                return r1 * float(sig[_a, _b]) * r2
+                                sig = np.asarray(
+                                    m.sigma2(n1, tau, n2), dtype=float
+                                )
+                                return float(
+                                    _row(t1, tau, _a) @ sig @ _row(t2, tau, _b)
+                                )
                             wval, _ = _quad(
                                 w_integrand, t_min, t_upper, **self.quad_opts,
                             )
@@ -2168,6 +2249,25 @@ class DiagramIntegrand:
     #: fast path is used (all coupling values were ndarrays).
     dynamic_coupling: Any = None
 
+    @property
+    def _e_psi(self) -> int:
+        """Number of external response legs of the observable (``E_psi``).
+
+        ``getattr`` with a default keeps this working for
+        :class:`~sft_wick.perturbation.DiagramTerm` objects deserialised from
+        before the field existed.
+        """
+        return getattr(self.diagram_term, "n_external_response", 0)
+
+    @property
+    def expected_phase(self) -> complex:
+        """``i**(-E_psi)`` — the phase a correctly-specified action produces.
+
+        The raw value of this integrand is this phase times a real number; see
+        :meth:`~sft_wick.perturbation.DiagramTerm.observable_phase_factor`.
+        """
+        return (-1j) ** self._e_psi
+
     def evaluate(
         self,
         times: dict[str, float],
@@ -2188,7 +2288,22 @@ class DiagramIntegrand:
 
         Returns:
             Scalar value of the integrand (complex if coupling is complex).
+
+        Raises:
+            NotImplementedError: if this integrand carries a spacetime-dependent
+                (callable) coupling.  This method reads the static
+                ``coupling_array``, which for the dynamic path is a zeros
+                placeholder, so it would otherwise return 0 silently.
         """
+        if self.dynamic_coupling is not None:
+            raise NotImplementedError(
+                "DiagramIntegrand.evaluate() cannot evaluate a "
+                "spacetime-dependent (callable) coupling: it reads the static "
+                "`coupling_array`, which is a zeros placeholder on the dynamic "
+                "path, so the result would silently be 0.  Use "
+                "integrate_moment(..., method='gauss_legendre') or "
+                "method='qmc_vectorized'."
+            )
         dt = self.diagram_term
         spatial = self.spatial
         coeff = self.coupling_array
@@ -2468,7 +2583,8 @@ class DiagramIntegrand:
         fixed_times = {v: lambda_f for v in spatial.external_points}
         if self.dynamic_coupling is None:
             val = self.evaluate(fixed_times, directions, cache)
-            return float(val.real if val.imag == 0 else abs(val))
+            return float(_real_or_raise(val, self._e_psi,
+                                        where=' (zero-dimensional)'))
 
         n_samples = 1
         fixed_t = np.full(n_samples, lambda_f)
@@ -2559,7 +2675,8 @@ class DiagramIntegrand:
             for var, val in zip(int_vars, time_args):
                 times[var] = val
             result = self.evaluate(times, external_directions, cache)
-            return result.real if result.imag == 0 else abs(result)
+            return _real_or_raise(result, self._e_psi,
+                                  where=' (make_scipy_integrand)')
 
         return integrand
 
@@ -2571,10 +2688,20 @@ class DiagramIntegrand:
         """Return integration bounds for ``scipy.integrate.nquad``.
 
         Time ordering constraints from R causality translate to
-        variable-dependent bounds.  For ``nquad``, bounds can be
-        callables ``f(*earlier_args) → (lo, hi)``.
+        variable-dependent bounds.  For ``nquad``, bounds can be callables.
 
-        The variables are ordered as ``spatial.time_integration_vars``.
+        The variables are ordered as ``spatial.time_integration_vars``,
+        which :func:`_topological_sort_times` emits **earliest time first** —
+        i.e. ``int_vars[0]`` is scipy's *innermost* integral.
+
+        .. important::
+           ``scipy.integrate.nquad`` invokes ``ranges[i]`` with the **outer**
+           integration variables ``int_vars[i+1:]`` (each recursion *prepends*
+           the newly bound outer variable), **not** with the inner ones.  An
+           internal upper-bound source of ``int_vars[i]`` therefore always sits
+           at an index ``> i`` and appears in the callback arguments at offset
+           ``index(src) - i - 1``.  This is the same mapping used by
+           :meth:`integrate_moment_nquad`.
 
         Returns:
             List of bounds, one per integration variable.  Each is either
@@ -2593,52 +2720,50 @@ class DiagramIntegrand:
 
         # Build bounds list
         bounds: list = []
+        default_hi = max(external_times.values()) if external_times else 1.0
+
         for i, var in enumerate(int_vars):
             ub_sources = upper_bounds.get(var, [])
             if not ub_sources:
-                # No causal constraint — integrate from t_min to some max
-                max_t = max(external_times.values()) if external_times else 1.0
-                bounds.append((t_min, max_t))
+                # No causal constraint — integrate up to the latest external
+                # time.  Unreachable in practice: every MSR vertex carries a ψ
+                # leg and is therefore the earlier endpoint of at least one R
+                # ordering.
+                bounds.append((t_min, default_hi))
             else:
-                # Upper bound is min of all constraining times
-                # For nquad, bounds[i] can be a function of the *previous* args
-                # nquad calls bounds[i](*args[:i]) — but our vars may be in
-                # different positions.  We need to handle this carefully.
-                #
-                # nquad convention: f(x0, x1, ..., x_{n-1}) where x0 is innermost.
-                # bounds[i] is called with (x0, ..., x_{i-1}).
-                # Our int_vars[0] is innermost (earliest time).
-                _var = var
-                _ub = ub_sources
-                _ext = external_times
-                _int_vars = int_vars
-                _t_min = t_min
-
                 def make_bound(
                     ub: list[str],
                     ext: dict[str, float],
                     ivars: list[str],
                     lo: float,
+                    cur_i: int,
+                    fallback: float,
                 ) -> Callable:
-                    def bound_func(*prev_args: float) -> tuple[float, float]:
-                        # prev_args correspond to int_vars[:current_index]
+                    def bound_func(*later_args: float) -> tuple[float, float]:
                         hi_vals: list[float] = []
                         for src in ub:
                             if src in ext:
                                 hi_vals.append(ext[src])
+                                continue
+                            if src not in ivars:
+                                hi_vals.append(fallback)
+                                continue
+                            j = ivars.index(src) - cur_i - 1
+                            if 0 <= j < len(later_args):
+                                hi_vals.append(later_args[j])
                             else:
-                                # Find position of src in int_vars
-                                src_idx = ivars.index(src)
-                                if src_idx < len(prev_args):
-                                    hi_vals.append(prev_args[src_idx])
-                                else:
-                                    hi_vals.append(ext.get(src, 1.0))
-                        hi = min(hi_vals) if hi_vals else 1.0
+                                hi_vals.append(fallback)
+                        hi = min(hi_vals) if hi_vals else fallback
                         return (lo, hi)
 
                     return bound_func
 
-                bounds.append(make_bound(_ub, _ext, _int_vars, _t_min))
+                bounds.append(
+                    make_bound(
+                        ub_sources, external_times, int_vars, t_min,
+                        i, default_hi,
+                    )
+                )
 
         return bounds
 
@@ -2814,7 +2939,7 @@ class DiagramIntegrand:
                 continue
 
             result = self.evaluate(times, directions, cache)
-            val = result.real if result.imag == 0 else abs(result)
+            val = _real_or_raise(result, self._e_psi, where=' (qmc)')
             values[s] = val * jacobian
 
         estimate = float(np.mean(values))
@@ -3108,7 +3233,7 @@ class DiagramIntegrand:
                 else:
                     c_product *= _select_C_batch(C_diag_batch, None, None)
 
-            values = r_product * complex(coeff).real * c_product * jacobians
+            values = r_product * _real_or_raise(coeff, self._e_psi, where=' (coupling)') * c_product * jacobians
 
         else:
             # Propagator-indexed coupling: loop over index combinations
@@ -3117,7 +3242,7 @@ class DiagramIntegrand:
             values = np.zeros(n_samples)
 
             for pidx in np.ndindex(*prop_shape):
-                c_val = complex(coeff[pidx]).real if coeff.ndim > 0 else complex(coeff).real
+                c_val = _real_or_raise(coeff[pidx], self._e_psi, where=' (coupling)') if coeff.ndim > 0 else _real_or_raise(coeff, self._e_psi, where=' (coupling)')
                 if abs(c_val) < 1e-20:
                     continue
 
@@ -3367,7 +3492,7 @@ class DiagramIntegrand:
                     c_product *= _select_C_batch(C_diag_batch, a, b)
                 else:
                     c_product *= _select_C_batch(C_diag_batch, None, None)
-            values = r_product * complex(coeff).real * c_product * jacobians
+            values = r_product * _real_or_raise(coeff, self._e_psi, where=' (coupling)') * c_product * jacobians
 
         else:
             idx_names = [name for name, _ in prop_idx]
@@ -3375,8 +3500,8 @@ class DiagramIntegrand:
             values = np.zeros(n_samples)
             for pidx in np.ndindex(*prop_shape):
                 c_val = (
-                    complex(coeff[pidx]).real if coeff.ndim > 0
-                    else complex(coeff).real
+                    _real_or_raise(coeff[pidx], self._e_psi, where=' (coupling)') if coeff.ndim > 0
+                    else _real_or_raise(coeff, self._e_psi, where=' (coupling)')
                 )
                 if abs(c_val) < 1e-20:
                     continue
@@ -3474,7 +3599,7 @@ class DiagramIntegrand:
             for i, var in enumerate(all_vars):
                 times[var] = args[i]
             result = self.evaluate(times, directions, cache)
-            return result.real if result.imag == 0 else abs(result)
+            return _real_or_raise(result, self._e_psi, where=' (nquad)')
 
         # Causal bounds for internal vars
         upper_bounds: dict[str, list[str]] = defaultdict(list)
@@ -3936,7 +4061,9 @@ def integrate_two_point_qmc(
                     c_prod *= C_diag[:, a] * sf[a]
                 else:
                     c_prod *= (C_diag * sf[np.newaxis, :]).sum(axis=1)
-            values = r_prod * complex(coeff).real * c_prod * jac
+            values = r_prod * _real_or_raise(
+                coeff, getattr(dt, 'n_external_response', 0),
+                where=' (coupling)') * c_prod * jac
 
         else:
             # Propagator-indexed coupling
@@ -3944,10 +4071,10 @@ def integrate_two_point_qmc(
             prop_shape = tuple(dim for _, dim in prop_idx)
             values = np.zeros(n_samples)
             for pidx in np.ndindex(*prop_shape):
-                c_val = (
-                    complex(coeff[pidx]).real
-                    if coeff.ndim > 0
-                    else complex(coeff).real
+                c_val = _real_or_raise(
+                    coeff[pidx] if coeff.ndim > 0 else coeff,
+                    getattr(dt, "n_external_response", 0),
+                    where=" (coupling)",
                 )
                 if abs(c_val) < 1e-20:
                     continue

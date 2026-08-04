@@ -1,5 +1,88 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **`DiagramIntegrand.integration_bounds` returned wrong integration bounds.**
+  `scipy.integrate.nquad` calls `ranges[i]` with the **outer** integration
+  variables `int_vars[i+1:]`; the code indexed them as if they were the inner
+  ones. Two silent failure modes followed: at 2 variables the bound collapsed
+  to the literal `1.0`; from 3 variables the guard could *pass* and return the
+  wrong outer variable. Every diagram containing a vertex-to-vertex response
+  chain `R(y_i, y_j)` was affected (44/44 order-3 diagrams of the quartic
+  Langevin model). The correct mapping — `later_args[index(src) - i - 1]` —
+  was already present in `integrate_moment_nquad`; the public helper had never
+  been migrated to it. **The five production integrators build their own
+  bounds and were never affected**, so no supported computation changes.
+
+- **The C-propagator builder used only the diagonal of a matrix `R_time`.**
+  Both quadrature paths (`_C_value_direct`, `_C_value_direct_gl`) contracted
+  `R[a,a] κ[a,b] R[b,b]` instead of the matrix triple product
+  `C = ∫∫ R(t1,λ1) κ(λ1,λ2) R(t2,λ2)ᵀ`. That is correct only when the linear
+  operator is diagonal in the chosen basis; for a dense drift (e.g.
+  `A = H + λ` with `H = XᵀX/N`) it gave a 57 % Frobenius error, wrong signs on
+  6 of 9 matrix elements, and exact zeros where the true value was nonzero.
+  `iso_R=True` results are bit-for-bit unchanged.
+
+- **`abs()` projections silently destroyed signs.** Four sites returned
+  `result.real if result.imag == 0 else abs(result)`, and six more took
+  `complex(coeff).real`, annihilating an imaginary coefficient. All thirteen
+  now route through `_real_or_raise`, which applies the structural `i**E_psi`
+  rotation and *raises* rather than guessing when the result is still not
+  real. See the reality theorem on `DiagramTerm.observable_phase_factor`.
+  Consequence: observables carrying external response legs (response
+  functions) are now correct where the four backends previously disagreed by
+  factors of `-1` and `0`; a mis-specified action now errors instead of
+  returning a plausible wrong number.
+
+- **`DiagramIntegrand.evaluate` silently returned 0 for a callable coupling.**
+  It reads the static `coupling_array`, a zeros placeholder on the dynamic
+  path. It now raises `NotImplementedError` naming the backends that do
+  support callables.
+
+- **A wrong-rank coupling for a scalar field raised an opaque `TypeError`.**
+  It now raises a `ValueError` naming the symbol and the expected rank, and
+  accepts a size-1 array of any shape.
+
+### Added
+
+- **Time-dependent (callable) *local* couplings.** A local vertex has exactly
+  one spacetime argument, so evaluating its coupling there is unambiguous —
+  but that point was discarded when building the coupling `Symbol`, so
+  `build_integrand` had no coordinates to pass and refused every callable.
+  The point is now recorded (`Symbol.spatial_args`, with `Symbol.local=True`
+  suppressing it in LaTeX so rendering of constant couplings is unchanged).
+  This is what expanding about a time-dependent mean-field trajectory
+  requires: the vertices then carry couplings ∝ `wbar(t)^k`. Verified against
+  a closed form to 3.7e-12, with the constant-callable path bit-identical to
+  the ndarray path.
+
+- **`PropagatorCache(..., c_value_fn=...)`** — a public L0 hook to supply `C`
+  directly, bypassing the `∫∫ R κ R` construction. Necessary for any
+  disorder-averaged (DMFT) propagator pair, where `⟨R κ R⟩ ≠ ⟨R⟩ κ ⟨R⟩` means
+  no noise cumulant can reproduce the correct `C`. Previously this required
+  subclassing and overriding `_C_value_direct`.
+
+- **`DiagramTerm.n_external_response`** (`E_psi`) and
+  **`DiagramTerm.observable_phase_factor()`** (`i**E_psi`), plus
+  `DiagramIntegrand.expected_phase`, exposing the phase structure that makes
+  the reality projection well posed.
+
+- **`_collect_symbol_occurrences`** and a guard in `build_integrand`: a
+  callable coupling occurring at genuinely different point sets (two copies of
+  one vertex at order ≥ 2) is now refused instead of being evaluated at the
+  first occurrence's coordinates, which was measured 4.06× wrong. Permutations
+  of a single point set — the symmetrised non-local coupling sum — are still
+  accepted, preserving the κ⁽ᵐ⁾ feature.
+
+### Tests
+
+- `tests/test_msr_numerics_regressions.py` — 17 tests pinning each of the
+  above against independently derived ground truth (stationary Fokker-Planck
+  series, the exactly-solvable `D/(mu+k)` model, closed-form matrix `C`).
+  15 of them fail on the previous code.
+
 ## 0.2.0 — 2026-07-25
 
 First release on PyPI (`pip install sft-wick`).
