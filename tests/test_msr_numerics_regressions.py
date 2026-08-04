@@ -1394,14 +1394,11 @@ def _f19_integrands():
     ("gauss_legendre", {"n_gauss": 32}, 1e-12),
     ("qmc_vectorized", {"n_samples": 2 ** 14, "seed": 4}, 1e-6),
     ("qmc_scalar", {"n_samples": 2 ** 14, "seed": 4}, 1e-6),
-    # nquad is the ONE backend that does not carry this ordering: its
-    # `all_vars` is internals-first, so an earlier swept external sits INSIDE
-    # the one it bounds and scipy has not bound it yet when the range callable
-    # fires.  Carrying it there needs `all_vars` reordered.  Adaptivity
-    # absorbs the jump (3.4e-6 here), so this cell pins the status quo rather
-    # than the fix -- and will tighten by orders of magnitude if that
-    # reordering ever lands.
-    ("nquad", {}, 1e-4),
+    # nquad carries it too, now that `all_vars` places a swept external's
+    # causal predecessors at HIGHER indices -- scipy calls ranges[i] with
+    # all_vars[i+1:], so only an outer variable can bound an inner one.
+    # 3.4e-6 (domain unrestricted, adaptivity absorbing the jump) -> exact.
+    ("nquad", {}, 1e-12),
 ])
 def test_F19_swept_to_swept_ordering_is_carried(method, kw, tol):
     """Sweeping both ends of an R propagator must respect its retardation."""
@@ -1577,6 +1574,7 @@ def test_F20_lambda_f_must_not_stand_in_for_an_external_time(method):
     R(x, s), so the value stays right and only quadrature effort is wasted --
     the same pattern as F13 and F19.
     """
+
     from sft_wick.evaluate import integrate_moment
 
     tx, ty, lam = 4.0, 1.0, 6.0
@@ -1757,3 +1755,139 @@ def test_F21_lazy_spatial_path_has_the_same_diagonal_fix():
             f"lazy spatial path, n_grid_t={n}: mid-cell C(t,t) rel err "
             f"{worst:.3e} (was 2.2e-01)"
         )
+
+
+# --------------------------------------------------------------------- #
+# F22: the three carve-outs left by F13/F19/F20/F21
+# --------------------------------------------------------------------- #
+
+
+def test_F22_full_spatial_grid_diagonal_is_fixed_too():
+    """The FULL (non-lazy) spatial grid had the ridge as well -- worse.
+
+    `RegularGridInterpolator` with method 'linear' blends across the ridge
+    inside any cell that straddles it, and a bilinear cut is harsher than a
+    smooth spline's: 52.4% relative error at n_grid_t=41, barely converging
+    (51.2% / 50.6% at 81 / 161).  Harvesting `grid[i, i, ...]` into an
+    interpolator over `(t, *extra)` gives 4.76e-02 / 2.44e-02 / 1.24e-02.
+    """
+    sigma_x = 1.0
+
+    def kappa2(n1, t1, n2, t2):
+        return np.eye(1) * np.exp(-_f17_sep(n1, n2) / sigma_x)
+
+    t_max = 4.0
+    prev = None
+    for n in (41, 81):
+        model = PropagatorModel(
+            R_time=lambda t, tp: np.exp(-MU * (t - tp)), kappa2=kappa2,
+            sigma2=lambda n1, t, n2: np.array([[2.0 * D]]),
+            n_components=1, iso_R=True, diag_C=True, t_min=0.0,
+        )
+        cache = PropagatorCache(
+            model,
+            c_value_fn=lambda n1, t1, n2, t2: np.array([[_C0(t1, t2)]]),
+        )
+        cache.precompute_C_table_translation(
+            t_max=t_max, n_grid_t=n, r_max=3.0, n_grid_r=13,
+        )
+        ts = np.linspace(0.0, t_max, n)
+        z = np.array([0.0])
+        worst = max(
+            abs(float(cache.C_at_batch(np.array([t]), np.array([t]), z, z)[0, 0])
+                - _C0(t, t)) / max(abs(_C0(t, t)), 1e-30)
+            for t in 0.5 * (ts[:-1] + ts[1:])
+        )
+        assert worst < 0.1, (
+            f"full spatial grid, n_grid_t={n}: diagonal rel err {worst:.3e} "
+            f"(was 5.2e-01)"
+        )
+        if prev is not None:
+            assert worst < 0.7 * prev, (
+                f"not converging on the diagonal: {prev:.3e} -> {worst:.3e}"
+            )
+        prev = worst
+
+
+def test_F22_two_point_qmc_takes_external_times():
+    """`integrate_two_point_qmc` was the last single-time entry point.
+
+    Order 0 of `<phi(x) phi(y)>` at unequal times has the closed form
+    C0(t1, t2) * exp(-r/sigma_x) for a separable kernel.
+    """
+    from sft_wick.evaluate import integrate_two_point_qmc
+
+    igs, cache = _f14_setup(order=0)
+    tx, ty, r = 4.0, 1.5, 1.0
+    got, _ = integrate_two_point_qmc(
+        igs, tx, {"x": 0.0, "y": r}, cache, n_samples=2 ** 10, seed=0,
+        external_times={"x": tx, "y": ty},
+    )
+    # Same model as F14: R = exp(-mu (t-t')), kappa separable exponential.
+    exact = (np.exp(-r / _F14_SIGMA_X)
+             * (1.0 - np.exp(-MU * tx)) * (1.0 - np.exp(-MU * ty)) / MU ** 2)
+    assert got == pytest.approx(exact, rel=1e-5), (
+        f"two-point at unequal times: {got:.10f} vs closed form {exact:.10f}"
+    )
+
+    # Default and explicit-equal must be bit-identical to the old behaviour.
+    base, _ = integrate_two_point_qmc(igs, tx, {"x": 0.0, "y": r}, cache,
+                                      n_samples=2 ** 10, seed=0)
+    same, _ = integrate_two_point_qmc(
+        igs, tx, {"x": 0.0, "y": r}, cache, n_samples=2 ** 10, seed=0,
+        external_times={"x": tx, "y": tx},
+    )
+    assert same == base
+
+    with pytest.raises(ValueError, match="unknown external point"):
+        integrate_two_point_qmc(igs, tx, {"x": 0.0, "y": r}, cache,
+                                n_samples=2 ** 8, seed=0,
+                                external_times={"zzz": 1.0})
+
+
+@pytest.mark.parametrize("method,kw,tol", [
+    ("nquad", {}, 1e-12),
+    ("gauss_legendre", {"n_gauss": 8}, 1e-12),
+    ("qmc_vectorized", {"n_samples": 2 ** 14, "seed": 4}, 1e-6),
+])
+def test_F22_nquad_orders_swept_externals_outermost(method, kw, tol):
+    """The swept-external ORDER matters, not just the bound.
+
+    scipy calls `ranges[i]` with `all_vars[i+1:]`, so a causal predecessor
+    must sit at a HIGHER index.  `external_points` is canonicalised to sorted
+    order, so whether that happens by luck depends on the propagator's
+    orientation:
+
+      * `<phi(x) psi(y)>` gives R(x,y), ordering (y -> x): the predecessor y
+        already sorts last, and the natural order works.  That is the F19
+        case, and the reordering is a no-op there -- it passes either way.
+      * `<phi(y) psi(x)>` gives R(y,x), ordering (x -> y): the predecessor x
+        sorts FIRST, i.e. innermost, and its value is not yet bound when the
+        range callable for y fires.  Without the reordering the bound is
+        silently inert -- measured 3.412e-06 with an IntegrationWarning.
+
+    So this pins the second orientation.  Reference is the same closed form:
+    int_0^L dx int_0^L dy R(y,x) = L/mu - (1 - exp(-mu L))/mu^2.
+    """
+    from sft_wick.evaluate import integrate_moment
+
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    res = compute_moment(
+        [phi("y"), psi("x")],
+        Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
+        order=0, ito=True, response_phase=True, collect_topology=True,
+        diag_R=True, diag_C=True, iso_R=True, iso_C=True,
+    )
+    igs = [dt.build_integrand({"g": np.array(1j)})
+           for dt in res.diagram_terms(0)]
+    assert ("x", "y") in tuple(igs[0].spatial.time_orderings), (
+        "expected the R(y,x) orientation, i.e. ordering (x -> y)"
+    )
+    cache = _ScalarBatchCache()
+    total = sum(
+        integrate_moment(ig, _F19_L, cache, method=method, t_min=0.0,
+                         integrate_over=["x", "y"], **kw)[0]
+        for ig in igs
+    )
+    assert total == pytest.approx(_f19_reference(), rel=tol)

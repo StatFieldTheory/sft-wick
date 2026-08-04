@@ -522,6 +522,67 @@ class _LazyTimeSplineCache:
         ]
 
 
+def _diag_grid_interp(axes, grid, method):
+    """Interpolator over ``(t, *extra)`` built from ``grid[i, i, ...]``.
+
+    The first two axes of every spatial C table are the SAME time grid, so
+    ``grid[i, i, ...]`` is the diagonal slice -- already computed, no extra
+    quadrature.  See :class:`_DiagAwareGridInterp` for why it is needed.
+    """
+    from scipy.interpolate import RegularGridInterpolator
+
+    ts = np.asarray(axes[0])
+    idx = np.arange(len(ts))
+    return RegularGridInterpolator(
+        (ts,) + tuple(axes[2:]), grid[idx, idx],
+        bounds_error=False, fill_value=None, method=method,
+    )
+
+
+class _DiagAwareGridInterp:
+    """A ``(t1, t2, *extra)`` C interpolator that knows about the ridge.
+
+    ``C`` has a derivative discontinuity of exactly ``-sigma2(t)`` on
+    ``t1 == t2`` (the integral's upper limit is ``min(t1, t2)``).  Any
+    tensor-product rule blends across it: a cell straddling the diagonal mixes
+    corners from both sides, so the ridge gets cut off.  Every tadpole
+    evaluates ``C(s, s)``, exactly on it.
+
+    This pairs the full interpolator with one built from the SAME grid's
+    diagonal slice and routes numerically-equal times to it.  ``t -> C(t,t)``
+    is smooth, so the diagonal interpolator has no ridge to resolve.
+
+    ``__call__`` matches ``RegularGridInterpolator.__call__`` -- an ``(n, ndim)``
+    array of points -- so it drops into every call site unchanged.
+    """
+
+    __slots__ = ("_full", "_diag")
+
+    def __init__(self, full, diag):
+        self._full = full
+        self._diag = diag
+
+    def __call__(self, pts):
+        pts = np.asarray(pts, dtype=float)
+        out = np.asarray(self._full(pts), dtype=float)
+        if self._diag is None or pts.ndim < 2 or pts.shape[-1] < 2:
+            return out
+        t1, t2 = pts[..., 0], pts[..., 1]
+        on = np.abs(t1 - t2) <= _DIAG_TOL * np.maximum(
+            1.0, np.maximum(np.abs(t1), np.abs(t2))
+        )
+        if not np.any(on):
+            return out
+        td = 0.5 * (t1 + t2)
+        dpts = np.concatenate([td[..., None], pts[..., 2:]], axis=-1)
+        out = out.copy()
+        out[on] = np.asarray(self._diag(dpts[on]), dtype=float)
+        return out
+
+    def __getattr__(self, name):
+        return getattr(self._full, name)
+
+
 class _DiagAwareSpline:
     """A 2-D ``(t1, t2)`` C-spline that knows about the diagonal kink.
 
@@ -1667,7 +1728,8 @@ class PropagatorCache:
                 grids[a][i, j, k] = cvec[a]
 
         self._c_translation_splines = [
-            RegularGridInterpolator(
+            _DiagAwareGridInterp(
+                RegularGridInterpolator(
                 (ts, ts, rs), grids[a],
                 bounds_error=False, fill_value=None,
                 # Default 'linear' (set in PropagatorCache.__init__):
@@ -1677,6 +1739,10 @@ class PropagatorCache:
                 # grids can opt into cubic via interp_method='cubic'.
                 # See tests/test_evaluate_interpolation_accuracy.py.
                 method=self.interp_method,
+                ),
+                _diag_grid_interp(
+                    (ts, ts, rs), grids[a], self.interp_method,
+                ),
             )
             for a in range(N)
         ]
@@ -1804,7 +1870,8 @@ class PropagatorCache:
                 grids[a][i, j, k] = cvec[a]
 
         self._c_rotation_splines = [
-            RegularGridInterpolator(
+            _DiagAwareGridInterp(
+                RegularGridInterpolator(
                 (ts, ts, coses), grids[a],
                 bounds_error=False, fill_value=None,
                 # Default 'linear' (set in PropagatorCache.__init__):
@@ -1814,6 +1881,10 @@ class PropagatorCache:
                 # grids can opt into cubic via interp_method='cubic'.
                 # See tests/test_evaluate_interpolation_accuracy.py.
                 method=self.interp_method,
+                ),
+                _diag_grid_interp(
+                    (ts, ts, coses), grids[a], self.interp_method,
+                ),
             )
             for a in range(N)
         ]
@@ -1920,7 +1991,8 @@ class PropagatorCache:
                 grids[a][i, j, p, q] = cvec[a]
 
         self._c_general_interpolators = [
-            RegularGridInterpolator(
+            _DiagAwareGridInterp(
+                RegularGridInterpolator(
                 (ts, ts, xs, xs), grids[a],
                 bounds_error=False, fill_value=None,
                 # Default 'linear' (set in PropagatorCache.__init__):
@@ -1930,6 +2002,10 @@ class PropagatorCache:
                 # grids can opt into cubic via interp_method='cubic'.
                 # See tests/test_evaluate_interpolation_accuracy.py.
                 method=self.interp_method,
+                ),
+                _diag_grid_interp(
+                    (ts, ts, xs, xs), grids[a], self.interp_method,
+                ),
             )
             for a in range(N)
         ]
@@ -4043,7 +4119,17 @@ class DiagramIntegrand:
         ext_fixed = [v for v in ext_vars if v not in ext_int_set]
 
         # Quadrature variables = internals + integrated externals.
-        all_vars = int_vars + ext_integrated
+        # scipy's nquad integrates index 0 innermost, and ``ranges[i]`` is
+        # called with the values of ``all_vars[i+1:]`` -- so a variable can
+        # only be bounded by one that sits at a HIGHER index.  A swept-to-swept
+        # causal ordering therefore needs the EARLIER external placed last.
+        # ``_swept_external_order`` returns earliest-first, so reverse it; with
+        # no swept-to-swept edge it returns the caller's own order and this is
+        # the identity.
+        _sw_order, _sw_lowers = _swept_external_order(spatial, ext_integrated)
+        ext_ordered = list(reversed(_sw_order)) if _sw_lowers else list(
+            ext_integrated)
+        all_vars = int_vars + ext_ordered
         n_int = len(int_vars)
         n_total = len(all_vars)
 
@@ -4107,10 +4193,36 @@ class DiagramIntegrand:
             spatial, int_vars, fixed_times, t_min, swept=ext_integrated,
         )
 
+        def make_bound(
+            ub: list, lb: tuple, avars: list, lo: float, hi: float,
+            cur_i: int,
+        ) -> Callable:
+            def bound_func(*later_args: float) -> tuple[float, float]:
+                def outer(src: str, default: float) -> float:
+                    j = avars.index(src) - cur_i - 1
+                    if 0 <= j < len(later_args):
+                        return later_args[j]
+                    return default
+
+                hi_v = min([hi] + [outer(s, hi) for s in ub])
+                lo_v = max([lo] + [outer(s, lo) for s in lb])
+                # Never integrate backwards (see integration_bounds).
+                return (lo_v, hi_v if hi_v > lo_v else lo_v)
+            return bound_func
+
         ranges: list = []
         for i, var in enumerate(all_vars):
             if i >= n_int:
-                ranges.append((t_min, lambda_f))
+                # Swept external: free in [t_min, lambda_f] unless another
+                # swept external causally precedes it.
+                sw_lo = _sw_lowers.get(var, ())
+                if sw_lo:
+                    ranges.append(
+                        make_bound([], tuple(sw_lo), all_vars, t_min,
+                                   lambda_f, i)
+                    )
+                else:
+                    ranges.append((t_min, lambda_f))
             else:
                 lo_var = lowers.get(var, t_min)
                 lo_dyn = lower_srcs.get(var, ())
@@ -4131,22 +4243,6 @@ class DiagramIntegrand:
                            if src in fixed_times]
                     )
 
-                    def make_bound(
-                        ub: list[str], lb: tuple, avars: list[str],
-                        lo: float, hi: float, cur_i: int,
-                    ) -> Callable:
-                        def bound_func(*later_args: float) -> tuple[float, float]:
-                            def outer(src: str, default: float) -> float:
-                                j = avars.index(src) - cur_i - 1
-                                if 0 <= j < len(later_args):
-                                    return later_args[j]
-                                return default
-
-                            hi_v = min([hi] + [outer(s, hi) for s in ub])
-                            lo_v = max([lo] + [outer(s, lo) for s in lb])
-                            # Never integrate backwards (see integration_bounds).
-                            return (lo_v, hi_v if hi_v > lo_v else lo_v)
-                        return bound_func
                     ranges.append(
                         make_bound(ub_dyn, lo_dyn, all_vars, lo_var,
                                    hi_const, i)
@@ -4422,6 +4518,7 @@ def integrate_two_point_qmc(
     t_min: float = 0.0,
     n_samples: int = 2**14,
     seed: int | None = None,
+    external_times: dict[str, float] | None = None,
 ) -> tuple[float, float]:
     """Vectorised QMC integration for two-point correlation functions.
 
@@ -4449,8 +4546,13 @@ def integrate_two_point_qmc(
     Args:
         integrands: List of :class:`DiagramIntegrand` objects (one per
             non-vanishing Feynman diagram).
-        t_f: External (observation) time — all external points are set
-            to this time.
+        t_f: External (observation) time — the DEFAULT time for every
+            external point, and the ceiling for causal upper bounds.
+        external_times: ``{point_name: time}`` overriding *t_f* per point,
+            so ``C(x, t; y, t')`` and ``R(t, t')`` are reachable here too.
+            ``None`` pins every external at *t_f*, bit-identically to
+            before.  Same validation as
+            :meth:`DiagramIntegrand.integrate_moment_qmc_vectorized`.
         positions: ``{point_name: position}`` mapping each spatial
             point name (e.g. ``"x"``, ``"y"``) to a scalar spatial
             coordinate.  Points not in the dict default to 0.
@@ -4534,7 +4636,10 @@ def integrate_two_point_qmc(
             if earlier in ivs:
                 pm[earlier].append(later)
         # --- Causal lower bounds from external response legs ---
-        lowers = _causal_lower_bounds(sp, ivs, {v: t_f for v in evs}, t_min)
+        ext_times, t_ceiling = _resolve_external_times(
+            sp, evs, t_f, external_times,
+        )
+        lowers = _causal_lower_bounds(sp, ivs, ext_times, t_min)
 
         def _lookup_C(sp_l, sp_r, t_l, t_r, ci):
             """C for propagator ``ci``, already carrying its separation.
@@ -4579,7 +4684,7 @@ def integrate_two_point_qmc(
             and cache.model.diag_C
         )
         if ni == 0 and not legacy_position_blind:
-            et = {v: t_f for v in evs}
+            et = dict(ext_times)
             total += _real_or_raise(
                 ig.evaluate(et, directions, cache), ig._e_psi,
                 where=" (two-point qmc, zero-dimensional)",
@@ -4597,9 +4702,11 @@ def integrate_two_point_qmc(
             for k, var in enumerate(ivs):
                 ps = pm.get(var, [])
                 pi = [ivs.index(p) for p in ps if p in ivs]
-                ep = [t_f for p in ps if p not in ivs]
+                # A fixed external parent bounds from above at ITS OWN
+                # time, not a blanket t_f.
+                ep = [ext_times.get(p, t_f) for p in ps if p not in ivs]
                 hi = (np.min(t_s[:, pi], axis=1) if pi
-                      else np.full(n_samples, t_f))
+                      else np.full(n_samples, t_ceiling))
                 if ep:
                     hi = np.minimum(hi, min(ep))
                 lo_v = lowers.get(var, t_min)
@@ -4613,7 +4720,7 @@ def integrate_two_point_qmc(
         var_col = {v: j for j, v in enumerate(all_vars)}
         t_arr = np.empty((n_eval, len(all_vars)))
         for j in range(len(evs)):
-            t_arr[:, j] = t_f
+            t_arr[:, j] = ext_times.get(evs[j], t_f)
         for j in range(ni):
             t_arr[:, len(evs) + j] = t_s[:, j]
 
