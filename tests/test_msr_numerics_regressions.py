@@ -255,8 +255,26 @@ def test_F2_real_or_raise_boundary():
     # macroscopically imaginary -> must raise, never guess
     with pytest.raises(ValueError, match="not negligible"):
         _real_or_raise(complex(0.0, 1.0))
-    # the E_psi rotation makes an E_psi=1 value real
-    assert _real_or_raise(complex(0.0, -1.0), 1) == pytest.approx(1.0)
+    # The E_psi rotation, over the full period.  This is the ONLY place the
+    # projection is directly observable: end to end, every zero-dimensional
+    # diagram with E_psi >= 1 is identically 0 while all externals share a
+    # time (Theta kills the R joining them), so `_real_or_raise` and a bare
+    # `.real` cannot be told apart there.  Mutation-verified: reverting a
+    # call site to `.real` does NOT fail the end-to-end tests, only this one.
+    for e_psi, raw, want in [
+        (0, complex(2.5, 0.0), 2.5),      # i^0 = 1
+        (1, complex(0.0, -1.5), 1.5),     # i^1 rotates -1.5i -> 1.5
+        (2, complex(-3.0, 0.0), 3.0),     # i^2 = -1
+        (3, complex(0.0, 4.0), 4.0),      # i^3 = -i
+    ]:
+        assert _real_or_raise(raw, e_psi) == pytest.approx(want), (
+            f"E_psi={e_psi}: {raw} should rotate onto {want}"
+        )
+        # ... and the WRONG phase must raise rather than silently truncate.
+        wrong = (e_psi + 1) % 4
+        if abs(raw) > 0:
+            with pytest.raises(ValueError, match="not negligible"):
+                _real_or_raise(raw, wrong)
 
 
 # --------------------------------------------------------------------- #
@@ -529,9 +547,12 @@ def test_F10_qmc_scalar_zero_dim_uses_the_reality_projection():
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
     ig = res.diagram_terms(0)[0].build_integrand({"g": np.array(1j)})
-    # All externals pinned at lambda_f, so R(T,T) = 0 under Ito; compare the
-    # backends against each other rather than against a nonzero value, and
-    # separately check a genuinely causal, nonzero configuration below.
+    # NOTE: both sides of the next assert are 0 by construction -- all
+    # externals are pinned at lambda_f, so Theta kills R(T,T).  It is a
+    # cross-backend consistency check, NOT coverage of the projection: it
+    # survives reverting the call site to `.real`.  The projection itself is
+    # pinned directly in test_F2_real_or_raise_boundary, and the causal,
+    # non-zero configuration below is what carries this test.
     scalar = ig.integrate_moment_qmc(lambda_f=T, cache=cache, t_min=0.0,
                                      n_samples=256, seed=1)[0]
     reference = ig.integrate_moment_nquad(lambda_f=T, cache=cache, t_min=0.0)[0]
@@ -897,3 +918,142 @@ def test_F14_cross_propagator_count_sets_the_separation_scaling(order):
                 f"order {order}, n_cross={n_cross}, r={r}: "
                 f"ratio {val / base:.12f} != exp(-{n_cross} r/sx) = {want:.12f}"
             )
+
+
+# --------------------------------------------------------------------- #
+# F15: ito=False is a SYMBOLIC switch, not a numerical one
+# --------------------------------------------------------------------- #
+#
+# It was flagged as "a documented public flag silently inert" after the
+# Theta commit collapsed its numbers onto the ito=True ones, with the
+# proposed fix "use Theta(0)=1/2 when ito=False".  That prescription is
+# WRONG, and this test exists to stop anyone acting on it.
+#
+# The MSRJD Theta(0) ambiguity is not independent of the functional
+# Jacobian.  For dx/dt = F(x) + xi the Stratonovich discretisation carries
+# -1/2 int ds dF/dphi, which is exactly what cancels the Theta(0)=1/2
+# equal-point R terms; Ito sets both to zero.  sft-wick's ito=False keeps
+# the equal-point R terms symbolically but never emits the Jacobian, so
+# Theta(0)=0 is the only self-consistent numerical choice available -- and
+# it happens to give the right answer, since for ADDITIVE noise the Ito
+# and Stratonovich results coincide.
+#
+# Measured for the linear vertex k psi phi (exact: <x^2> = D/(mu+k), whose
+# order-1 coefficient is -D/mu^2 = -0.5, independent of T):
+#
+#     T      ito=True        terms   ito=False       terms
+#     4.0   -0.498490418       2    -0.498490418       3
+#     8.0   -0.499999043       2    -0.499999043       3
+#    16.0   -0.500000000       2    -0.500000000       3
+#
+# The extra term Theta(0)=1/2 would have contributed is -C0(T,T)*T/2 =
+# -1.00 / -2.00 / -4.00 at those T -- i.e. 200% / 400% / 800% of the exact
+# answer, growing without bound.
+
+
+@pytest.mark.parametrize("T", [4.0, 8.0, 16.0])
+def test_F15_ito_false_changes_the_expression_not_the_number(T):
+    """ito=False must add diagram terms yet leave the value untouched."""
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+
+    def _order1(ito):
+        res = compute_moment(
+            [phi("x"), phi("y")],
+            Action([Vertex(fields=[psi, phi], coupling="k")]),
+            order=1, ito=ito, response_phase=True, collect_topology=True,
+            diag_R=True, diag_C=True, iso_R=True, iso_C=True,
+        )
+        cache, ext, total = _scalar_cache(), {"x": T, "y": T}, 0.0
+        terms = res.diagram_terms(1)
+        for dt in terms:
+            ig = dt.build_integrand({"k": np.array(1j)})
+            bounds = ig.integration_bounds(ext, t_min=0.0)
+            if not bounds:
+                continue
+            dirs = {d: 0 for d in set(ig.spatial.direction_map.values())}
+            val, _ = nquad(ig.make_scipy_integrand(ext, dirs, cache), bounds,
+                           opts={"epsabs": 1e-11, "epsrel": 1e-9})
+            total += val
+        return total, len(terms)
+
+    v_ito, n_ito = _order1(True)
+    v_str, n_str = _order1(False)
+
+    # (a) the switch really does change the symbolic expansion ...
+    assert n_str > n_ito, (
+        f"ito=False produced {n_str} terms, ito=True {n_ito} — the extra "
+        f"equal-point R term is missing, so this test proves nothing"
+    )
+    # (b) ... but not the number ...
+    assert v_str == pytest.approx(v_ito, rel=1e-12)
+    # (c) ... and that number is the stationary one.  The tolerance
+    # TIGHTENS with T, because the finite-time correction is
+    # O(T exp(-2 mu T)) while the error a Theta(0)=1/2 "fix" would inject
+    # GROWS with T.  A single loose tolerance would admit the latter --
+    # which is the whole failure mode this test guards.
+    stationary_tol = {4.0: 1e-2, 8.0: 1e-4, 16.0: 1e-6}[T]
+    assert v_str == pytest.approx(-D / MU ** 2, rel=stationary_tol)
+
+
+def test_F15_theta_half_would_grow_without_bound():
+    """Pin WHY Theta(0)=1/2 is not the fix: the spurious term scales with T.
+
+    Guards the reasoning, not just the outcome — if someone later adds the
+    Jacobian counter-term and legitimately enables Theta(0)=1/2, this test
+    documents the size of what must cancel.
+    """
+    spurious = {T: -_C0(T, T) * T / 2 for T in (4.0, 8.0, 16.0)}
+    exact = -D / MU ** 2
+    # Grows linearly in T, so it cannot be part of a T-independent answer.
+    assert spurious[16.0] == pytest.approx(2 * spurious[8.0], rel=1e-3)
+    assert abs(spurious[16.0] / exact) > 7.0
+
+
+def test_F16_theta_sites_never_call_R_time_on_acausal_pairs():
+    """All three Θ sites must be semantically equivalent, not just numerically.
+
+    ``R_product`` and ``_evaluate_r_product_general`` short-circuit *before*
+    calling the model's ``R_time``; ``R_time_batch`` used to evaluate every
+    pair and mask afterwards.  A model whose ``R_time`` raises or overflows
+    on acausal input therefore behaved differently depending on which
+    backend was chosen — same number through nquad, exception through
+    gauss_legendre.
+    """
+    calls: list[tuple[float, float]] = []
+
+    def picky_R(t, tp):
+        calls.append((float(t), float(tp)))
+        if t <= tp:  # a model author entitled to assume retardation
+            raise AssertionError(f"R_time called acausally: {t} <= {tp}")
+        return np.exp(-MU * (t - tp))
+
+    model = PropagatorModel(
+        R_time=picky_R, kappa2=lambda n1, t1, n2, t2: np.zeros((1, 1)),
+        sigma2=lambda n1, t, n2: np.array([[2.0 * D]]),
+        n_components=1, iso_R=True, diag_C=True, t_min=0.0,
+    )
+    cache = PropagatorCache(model)
+
+    t1 = np.array([3.0, 1.0, 2.0, 2.0])
+    t2 = np.array([1.0, 3.0, 2.0, 0.5])   # causal, acausal, equal, causal
+    out = cache.R_time_batch(t1, t2)
+
+    assert out == pytest.approx(
+        [np.exp(-2.0), 0.0, 0.0, np.exp(-1.5)], rel=1e-12, abs=1e-15
+    )
+    assert all(a > b for a, b in calls), (
+        f"R_time was called on a non-retarded pair: {calls}"
+    )
+    # R_product agrees, and also never calls acausally.
+    assert cache.R_product((("l", "r"),), {"l": 1.0, "r": 3.0}) == 0.0
+    assert cache.R_product((("l", "r"),), {"l": 2.0, "r": 2.0}) == 0.0
+    assert all(a > b for a, b in calls)
+
+
+def test_F16_R_time_batch_handles_a_fully_acausal_batch():
+    """No causal pair at all must not blow up on an empty vectorize call."""
+    cache = _scalar_cache()
+    out = cache.R_time_batch(np.array([1.0, 2.0]), np.array([3.0, 4.0]))
+    assert out.shape == (2,)
+    assert np.all(out == 0.0)
