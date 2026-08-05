@@ -564,3 +564,27 @@ def test_SP9_spectral_cache_is_usable_from_the_workflow_layer():
         want = 0.4 * _ou_R(0.5, T, tp) + 0.6 * _ou_R(2.5, T, tp)
         assert got == pytest.approx(want, rel=1e-9), f"R*({T},{tp})"
         assert got != 0.0
+
+
+def test_SP9_a_mismatched_component_count_raises_at_use():
+    """A cache built outside `System.propagators()` carries no record of which
+    system it was for.  An under-counted one silently returned a wrong number;
+    it now raises where both counts are known."""
+    import sft_wick as sw
+    from sft_wick.workflow import propagators_from_cache
+
+    system = sw.System(
+        field=sw.FieldSpec("phi", n_components=2),
+        linear=sw.DiagonalA(gamma=[1.0, 1.0]),
+        vertices=[sw.LocalVertex("F", coupling=np.zeros((2, 2, 2)))],
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.ExponentialTemporal(lam=1.0, sigma_t=1.0),
+                spatial=sw.ExponentialSpatial(sigma_x=1.0))),
+    )
+    exp = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0])
+    props = propagators_from_cache(
+        spectral_cache(SpectralDensity.delta(1.0), D_NOISE, n_components=1))
+    with pytest.raises(ValueError, match="n_components=1"):
+        exp.evaluate(props, positions={"x": 0.0, "y": 0.0}, t_final=2.0,
+                     component_pair=(0, 0), orders=[0], method="nquad")

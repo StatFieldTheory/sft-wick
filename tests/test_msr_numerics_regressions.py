@@ -2027,3 +2027,40 @@ def test_F24_c_memo_never_shares_a_key_across_positions():
     # a non-contiguous slice with the same value is the SAME position
     same = float(cache.C_value(zero, 1.0, np.array([9.0, 1.0])[1:], 1.0)[0, 0])
     assert same == a
+
+
+def test_F25_C_diagonal_and_C_value_agree_when_both_tables_exist():
+    """`C_diagonal` consulted the legacy time-only table first while
+    `C_value` consults the spatial one first, so with both built the two
+    accessors returned different numbers for the same arguments -- the legacy
+    one being position-blind.
+    """
+    sigma_x = 1.0
+
+    def kappa2(n1, t1, n2, t2):
+        def first(z):
+            return float(np.atleast_1d(np.asarray(z, dtype=float)).ravel()[0])
+        return np.eye(1) * np.exp(-abs(first(n1) - first(n2)) / sigma_x)
+
+    model = PropagatorModel(
+        R_time=lambda t, tp: np.exp(-MU * (t - tp)), kappa2=kappa2,
+        sigma2=lambda n1, t, n2: np.array([[2.0 * D]]),
+        n_components=1, iso_R=True, diag_C=True, t_min=0.0,
+    )
+    cache = PropagatorCache(model)
+    cache.precompute_C_table_translation(t_max=4.0, n_grid_t=20)   # spatial
+    cache.precompute_C_table(t_max=4.0, n_grid=20)                 # legacy
+    assert cache._c_splines is not None, "expected both tables built"
+
+    for r in (0.0, 1.0, 2.5):
+        n = np.array([r])
+        diag = float(cache.C_diagonal(np.array([0.0]), 2.0, n, 1.0)[0])
+        val = float(cache.C_value(np.array([0.0]), 2.0, n, 1.0)[0, 0])
+        assert diag == pytest.approx(val, rel=1e-12), (
+            f"separation {r}: C_diagonal {diag:.10f} vs C_value {val:.10f}"
+        )
+    # and the position dependence is actually there -- otherwise the check
+    # above would pass on two equally position-blind accessors
+    far = float(cache.C_diagonal(np.array([0.0]), 2.0, np.array([2.5]), 1.0)[0])
+    near = float(cache.C_diagonal(np.array([0.0]), 2.0, np.array([0.0]), 1.0)[0])
+    assert abs(far) < 0.9 * abs(near), (far, near)
