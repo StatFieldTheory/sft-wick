@@ -26,6 +26,7 @@ listed below are accessible directly from ``sft_wick``:
    action
    wick
    propagators
+   spectral
    perturbation
    simplify
    evaluate
