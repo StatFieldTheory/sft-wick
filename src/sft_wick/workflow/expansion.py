@@ -8,12 +8,15 @@ draw, render LaTeX, integrate point-by-point or as a sweep.
 from __future__ import annotations
 
 import itertools
+import warnings
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
+import numpy as np
 
-from sft_wick.evaluate import integrate_moment
+
+from sft_wick.evaluate import _cache_has_spatial_table, integrate_moment
 from sft_wick.expressions import Expr, Product, Symbol, Sum, Rational
 
 
@@ -23,7 +26,6 @@ def _guard_external_times(expansion, propagators, ext_times, label):
     All three were found by adversarial review of this feature, and all three
     previously produced a plausible-looking answer rather than an error.
     """
-    import warnings
 
     # 1. A response leg with every external pinned together evaluates to
     #    EXACTLY 0 (Theta kills the R joining them).  Before the response field
@@ -483,6 +485,35 @@ class Expansion:
                      for _p, _t, ext, _c in grid_tasks}):
             _guard_external_times(
                 self, propagators, dict(_et) or None, "Expansion.sweep",
+            )
+
+        # A spatially structureless cache returns the same C at every
+        # separation, so a positions sweep yields a column of identical
+        # numbers beside a varying position column.  That is correct for a
+        # disorder-averaged single-site cache such as ``spectral_cache`` and a
+        # silent mistake for anyone who expected a separation dependence.
+        #
+        # The question is "does this SWEEP cover more than one distinct
+        # configuration of external positions" -- which is knowable only here,
+        # from the grid.  Asking it per grid point instead (does this one
+        # point put its two externals at different places?) gets both halves
+        # wrong: it says nothing about a sweep over a single position key, and
+        # it fires on every ordinary single-separation ``evaluate(x != y)``.
+        _configs = {tuple(sorted(
+            (k, tuple(np.atleast_1d(v).ravel().tolist()))
+            for k, v in _p.items()
+        )) for _p, _t, _e, _c in grid_tasks}
+        if len(_configs) > 1 and not _cache_has_spatial_table(
+                getattr(propagators, "cache", None)):
+            warnings.warn(
+                f"Expansion.sweep: the propagator cache has no spatial "
+                f"structure, so C is the same at every separation -- the "
+                f"{len(_configs)} position configurations in this sweep will "
+                f"all give identical values.  That is expected for a "
+                f"disorder-averaged (single-site) cache such as "
+                f"`spectral_cache`; it is a mistake if you expected a "
+                f"separation dependence.",
+                UserWarning, stacklevel=2,
             )
 
         def _eval_grid_point(task):
