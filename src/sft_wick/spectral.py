@@ -51,6 +51,12 @@ import numpy as np
 
 from .evaluate import PropagatorCache, PropagatorModel
 
+#: Below this rate the ``D/h`` prefactor is replaced by its finite ``h -> 0``
+#: limit.  A zero mode is physical (free diffusion, ``C = 2 D (m - t_min)``);
+#: what is not physical is a NEGATIVE rate, which :class:`SpectralDensity`
+#: rejects.
+_H_FLOOR = 1e-12
+
 __all__ = ["SpectralDensity", "SpectralPropagatorCache", "spectral_cache"]
 
 
@@ -100,6 +106,12 @@ class SpectralDensity:
             raise ValueError("nodes and weights must all be finite.")
         if np.any(weights < 0):
             raise ValueError("weights must be non-negative.")
+        if np.any(nodes < 0):
+            raise ValueError(
+                f"spectral nodes are relaxation RATES and must be >= 0; got a "
+                f"minimum of {float(nodes.min()):.6g}.  A negative rate is an "
+                f"unstable mode, for which the stationary C does not exist."
+            )
         total = float(weights.sum())
         if total <= 0:
             raise ValueError("weights must not sum to zero.")
@@ -199,20 +211,48 @@ def _r_star(density: SpectralDensity, dt) -> np.ndarray:
     )
 
 
-def _c_star(density: SpectralDensity, t1, t2, noise_D: float) -> np.ndarray:
-    """``<(D/h)(exp(-h|t1-t2|) - exp(-h(t1+t2)))>_rho``.
+def _c_star(density: SpectralDensity, t1, t2, noise_D: float,
+            t_min: float = 0.0) -> np.ndarray:
+    """``<(D/h)(exp(-h|t1-t2|) - exp(-h(t1+t2-2 t_min)))>_rho``.
+
+    Derived from the definition rather than assumed::
+
+        C(t1,t2) = int_{t_min}^{m} R(t1,l) 2D R(t2,l) dl,   m = min(t1,t2)
+                 = 2D e^{-h(t1+t2)} (e^{2hm} - e^{2h t_min}) / (2h)
+                 = (D/h) (e^{-h|t1-t2|} - e^{-h(t1+t2-2 t_min)})
+
+    using ``t1 + t2 - 2 min(t1,t2) = |t1 - t2|``.  The ``t_min`` term is the
+    initial condition ``x(t_min) = 0``; hard-coding it at 0 while accepting a
+    ``t_min`` argument was wrong by 1.5% at ``t_min = 0.5`` and 7.4% at 1.0.
 
     Evaluated exactly, never tabulated: the ``|t1-t2|`` gives ``C`` a
     derivative discontinuity of ``-2D`` on the diagonal, and splining across
     that ridge is what stops a tabulated ``C`` from converging where every
     tadpole evaluates it.
+
+    Two numerical points:
+
+    * the two exponentials nearly cancel for small ``h``, so the difference
+      goes through ``expm1``;
+    * ``D/h`` diverges as ``h -> 0``, but ``C`` does not -- the limit is
+      ``2 D (m - t_min)``, free diffusion.  Nodes below ``_H_FLOOR`` take it.
     """
     a = np.asarray(t1, dtype=float)
     b = np.asarray(t2, dtype=float)
     h = density.nodes
-    diff = np.abs(a - b)[..., None] * h
-    summ = (a + b)[..., None] * h
-    kernel = (noise_D / h) * (np.exp(-diff) - np.exp(-summ))
+
+    # delta = 2 (min(t1,t2) - t_min), clamped: before t_min no noise has been
+    # integrated, so C is 0 there rather than negative.
+    delta = np.clip(2.0 * (np.minimum(a, b) - float(t_min)), 0.0, None)
+    x = np.abs(a - b)[..., None] * h                     # h |t1 - t2|
+    z = delta[..., None] * h                             # h * delta
+
+    small = np.abs(h) < _H_FLOOR
+    h_safe = np.where(small, 1.0, h)
+    # (D/h) (e^{-x} - e^{-(x+z)}) = D e^{-x} (-expm1(-z)) / h
+    kernel = noise_D * np.exp(-x) * np.where(
+        small, delta[..., None], -np.expm1(-z) / h_safe,
+    )
     return np.tensordot(kernel, density.weights, axes=([-1], [0]))
 
 
@@ -236,6 +276,7 @@ class SpectralPropagatorCache(PropagatorCache):
         self.density = density
         self.noise_D = float(noise_D)
         self._n = int(n_components)
+        self._t_min = float(t_min)
         model = PropagatorModel(
             R_time=self._r_scalar,
             kappa2=_ZeroKappa(self._n),
@@ -265,7 +306,8 @@ class SpectralPropagatorCache(PropagatorCache):
 
     def _c_matrix(self, n1, t1, n2, t2) -> np.ndarray:
         return np.eye(self._n) * float(
-            _c_star(self.density, float(t1), float(t2), self.noise_D)
+            _c_star(self.density, float(t1), float(t2), self.noise_D,
+                    self._t_min)
         )
 
     def C_value(self, n1, t1, n2, t2) -> np.ndarray:
@@ -275,11 +317,12 @@ class SpectralPropagatorCache(PropagatorCache):
         tb = t1 if t2 is None else t2
         return np.full(
             self._n,
-            float(_c_star(self.density, float(t1), float(tb), self.noise_D)),
+            float(_c_star(self.density, float(t1), float(tb), self.noise_D,
+                          self._t_min)),
         )
 
     def C_diagonal_batch(self, t1, t2) -> np.ndarray:
-        vals = _c_star(self.density, t1, t2, self.noise_D)
+        vals = _c_star(self.density, t1, t2, self.noise_D, self._t_min)
         return np.repeat(np.atleast_1d(vals)[:, None], self._n, axis=1)
 
 

@@ -284,3 +284,81 @@ def test_SP6_cache_survives_joblib_round_trip(tmp_path):
     joblib.dump(cache, path)
     after = float(joblib.load(path).C_diagonal(0, 2.0, 0, 1.0)[0])
     assert after == before
+
+
+# --------------------------------------------------------------------- #
+# SP7 — the two regimes the first draft got wrong
+# --------------------------------------------------------------------- #
+#
+# Both were found by checking the module against the DEFINING integral
+#
+#     C(t1,t2) = int_{t_min}^{min(t1,t2)} R(t1,l) 2D R(t2,l) dl
+#
+# rather than against the closed form the module itself implements.
+
+
+def _c_defining(h, t1, t2, t_min, D=D_NOISE):
+    """C from its definition, by quadrature — independent of the module."""
+    m = min(t1, t2)
+    if m <= t_min:
+        return 0.0
+    v, _ = quad(
+        lambda l: np.exp(-h * (t1 - l)) * 2 * D * np.exp(-h * (t2 - l)),
+        t_min, m, limit=200,
+    )
+    return v
+
+
+@pytest.mark.parametrize("t_min", [0.0, 0.5, 1.0])
+@pytest.mark.parametrize("t1,t2", [(3.0, 2.0), (2.5, 2.5), (4.0, 1.2)])
+def test_SP7_t_min_shifts_the_initial_condition(t_min, t1, t2):
+    """`x(t_min) = 0`, not `x(0) = 0`.
+
+    The first draft accepted `t_min` and then hard-coded the initial condition
+    at 0 -- wrong by 1.5% at t_min=0.5 and 7.4% at t_min=1.0, silently.
+    """
+    h = 1.3
+    cache = spectral_cache(SpectralDensity.delta(h), D_NOISE, t_min=t_min)
+    got = float(cache.C_diagonal(0, t1, 0, t2)[0])
+    assert got == pytest.approx(_c_defining(h, t1, t2, t_min), rel=1e-10)
+
+
+def test_SP7_before_t_min_there_is_no_accumulated_noise():
+    cache = spectral_cache(SpectralDensity.delta(1.3), D_NOISE, t_min=2.0)
+    assert float(cache.C_diagonal(0, 1.0, 0, 1.0)[0]) == 0.0
+    assert float(cache.C_diagonal(0, 2.0, 0, 0.5)[0]) == 0.0
+
+
+@pytest.mark.parametrize("h", [0.0, 1e-14, 1e-8])
+@pytest.mark.parametrize("t_min", [0.0, 1.0])
+def test_SP7_zero_rate_is_free_diffusion_not_a_division_by_zero(h, t_min):
+    """C carries a `D/h`, but C itself is finite as h -> 0.
+
+    The limit is `2 D (min(t1,t2) - t_min)` -- free diffusion.  Naively the
+    prefactor would give inf or nan.
+    """
+    t1, t2 = 3.0, 2.0
+    cache = spectral_cache(SpectralDensity.delta(h), D_NOISE, t_min=t_min)
+    got = float(cache.C_diagonal(0, t1, 0, t2)[0])
+    assert np.isfinite(got)
+    want = 2.0 * D_NOISE * (min(t1, t2) - t_min)
+    assert got == pytest.approx(want, rel=1e-6)
+    if h > 0:  # and it agrees with the defining integral too
+        assert got == pytest.approx(_c_defining(h, t1, t2, t_min), rel=1e-6)
+
+
+def test_SP7_negative_rates_are_rejected():
+    """A negative rate is an unstable mode with no stationary C."""
+    with pytest.raises(ValueError, match="must be >= 0"):
+        SpectralDensity(np.array([1.0, -0.5]), np.array([0.5, 0.5]))
+    with pytest.raises(ValueError, match="must be >= 0"):
+        spectral_cache(np.array([-1.0]), D_NOISE)
+
+
+def test_SP7_small_h_does_not_lose_precision_to_cancellation():
+    """The two exponentials nearly cancel for small h, so the difference goes
+    through `expm1`.  A naive `exp(-x) - exp(-y)` loses digits here."""
+    for h in (1e-6, 1e-4, 1e-2):
+        cache = spectral_cache(SpectralDensity.delta(h), D_NOISE)
+        got = float(cache.C_diagonal(0, 3.0, 0, 2.0)[0])
+        assert got == pytest.approx(_c_defining(h, 3.0, 2.0, 0.0), rel=1e-9)
