@@ -11,6 +11,33 @@
 
 ### Added
 
+- **`sft_wick.spectral` — disorder-averaged (spectral) propagators.**
+  `SpectralDensity` + `spectral_cache(density, D, shift=...)` build a
+  `PropagatorCache` whose `R` and `C` are superpositions of Ornstein-Uhlenbeck
+  propagators over a spectrum `rho(h)`:
+
+      R*(t,t')   = Theta(t-t') <exp(-h (t-t'))>_rho
+      C*(t1,t2)  = <(D/h) (exp(-h|t1-t2|) - exp(-h(t1+t2)))>_rho
+
+  This is the disorder-averaged limit: the effective single-site problem is
+  scalar, so the `O(N^rank)` coupling-index contraction that dominates a
+  per-instance matrix calculation disappears. `R*` is a superposition of
+  decays, i.e. genuinely non-Markovian.
+
+  Construct the density with `SpectralDensity.from_samples` (empirical spectra,
+  reduced by equal-mass binning — observed convergence rate ~2),
+  `.from_callable` (Gauss-Legendre over an analytic density), or `.delta`
+  (a single rate, which reduces every formula to the plain OU one — the
+  boundary check the tests are built on).
+
+  Both propagators are evaluated **exactly, never tabulated**. Tabulating `C`
+  on a `(t1,t2)` grid and splining it reintroduces the diagonal ridge — `C`
+  has a derivative jump of exactly `-2D` on `t1 == t2`, and every tadpole
+  evaluates `C(s,s)` there. Measured on a sampled Marchenko-Pastur spectrum:
+  a hand-rolled `RectBivariateSpline` gives 23% relative error on the diagonal
+  and does not converge (0.2306 at n_grid=30, 0.2228 at 60), against 2.4e-04
+  at 64 spectral nodes and 1.3e-05 at 256.
+
 - **Two-time observables from the declarative API.** `Expansion.sweep` takes
   `external_times_grid={point: [times]}` — the same shape as `positions_grid`,
   swept as a further Cartesian axis — and `Expansion.evaluate` /
