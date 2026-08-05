@@ -176,6 +176,8 @@ def _print_summary(cfg) -> None:
     )
     print(f"[sft-wick] sweep: positions_grid={sw.positions_grid}, "
           f"t_final_grid={sw.t_final_grid}, "
+          + (f"external_times_grid={sw.external_times_grid}, "
+             if sw.external_times_grid else "") +
           f"component_pairs={sw.component_pairs}, "
           f"integrate_over={sw.integrate_over!r}, "
           f"method={sw.method!r}, {method_detail}")

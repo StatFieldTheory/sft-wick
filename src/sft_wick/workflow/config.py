@@ -119,6 +119,12 @@ class SweepConfig:
     seed: int = 42
     n_jobs: int = 1
     n_gauss: int = 8  # used only when method='gauss_legendre'
+    #: ``{point: [times]}`` pinning externals at UNEQUAL times, swept as a
+    #: further Cartesian axis (mirrors ``positions_grid``).  Omit to pin every
+    #: external at ``t_final``, which is what every sweep did before -- and
+    #: which makes any observable with a response leg identically 0, since
+    #: Theta kills the R joining two externals at the same time.
+    external_times_grid: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -574,6 +580,10 @@ def _parse_sweep(d: dict) -> SweepConfig:
     return SweepConfig(
         positions_grid={k: list(v) for k, v in d["positions_grid"].items()},
         t_final_grid=list(d["t_final_grid"]),
+        external_times_grid=(
+            {k: list(v) for k, v in d["external_times_grid"].items()}
+            if d.get("external_times_grid") else None
+        ),
         component_pairs=cps,
         orders=d.get("orders"),
         vertex_types=d.get("vertex_types"),
@@ -861,6 +871,7 @@ def run_workflow(cfg: WorkflowConfig):
         props,
         positions_grid=cfg.sweep.positions_grid,
         t_final_grid=cfg.sweep.t_final_grid,
+        external_times_grid=cfg.sweep.external_times_grid,
         component_pairs=cfg.sweep.component_pairs,
         orders=cfg.sweep.orders,
         vertex_types=cfg.sweep.vertex_types,

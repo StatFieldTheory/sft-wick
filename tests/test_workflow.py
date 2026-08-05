@@ -286,3 +286,119 @@ def test_WF5_sweep_totals_schema(demo1_system):
     assert "vertex_type" in vt.columns
     # Purely local: all vtype labels are 'F' (order 2) or '' (order 0).
     assert set(vt["vertex_type"]).issubset({"F", ""})
+
+
+# =====================================================================
+# WF11 — two-time observables through the declarative sweep API
+# =====================================================================
+#
+# Every integrator now takes per-point `external_times`, but until this the
+# workflow layer could not reach it: `sweep()` took `t_final_grid` scalars and
+# pinned all externals there.  With every external at one time Theta kills the
+# R joining them, so *every* observable carrying an external response leg came
+# back identically 0 -- which makes R(t,t') and C(t,t'), the DMFT order
+# parameters, unreachable from the documented API.
+#
+# `external_times_grid` mirrors `positions_grid`: one list per external point,
+# swept as a further Cartesian axis.  These reuse `demo1_system` at order 0,
+# where the coupling is irrelevant, with the closed-form C so no dblquad runs.
+
+_WF11_GAMMA = 1.0
+
+
+def _wf11_props(demo1_system, t_max=6.0, n_grid_t=30):
+    return demo1_system.propagators(
+        t_max=t_max, n_grid_t=n_grid_t, c_closed_form=_C_demo1,
+    )
+
+
+def test_WF11_sweep_reaches_two_time_response(demo1_system):
+    """R(T, t') must come out of `sweep`, not the identically-zero value."""
+    exp = demo1_system.expand(("phi_a(x)", "psi_b(y)"), orders=[0])
+    props = _wf11_props(demo1_system)
+
+    T = 4.0
+    tprimes = [1.0, 2.0, 3.0]
+    sweep = exp.sweep(
+        props,
+        positions_grid={"x": [0.0], "y": [0.0]},
+        t_final_grid=[T],
+        external_times_grid={"x": [T], "y": tprimes},
+        component_pairs=[(0, 0)],
+        orders=[0],
+        method="nquad",
+    )
+    tot = sweep.totals()
+    assert "t_y" in tot.columns, tot.columns.tolist()
+
+    for tp in tprimes:
+        row = tot[(abs(tot["t_y"] - tp) < 1e-12) & (tot["order"] == 0)]
+        assert len(row) == 1, f"t'={tp}: {len(row)} rows"
+        got = float(row["value"].iloc[0])
+        assert got == pytest.approx(np.exp(-_WF11_GAMMA * (T - tp)), rel=1e-9)
+        assert got != 0.0
+
+
+def test_WF11_equal_times_still_give_zero_for_a_response(demo1_system):
+    """Theta is untouched: pinning both externals together stays exactly 0.
+
+    This is the behaviour the feature works around, not one it changes.
+    """
+    exp = demo1_system.expand(("phi_a(x)", "psi_b(y)"), orders=[0])
+    props = _wf11_props(demo1_system)
+    tot = exp.sweep(
+        props,
+        positions_grid={"x": [0.0], "y": [0.0]},
+        t_final_grid=[4.0],
+        component_pairs=[(0, 0)],
+        orders=[0],
+        method="nquad",
+    ).totals()
+    assert float(tot["value"].iloc[0]) == pytest.approx(0.0, abs=1e-14)
+
+
+def test_WF11_default_sweep_is_unchanged(demo1_system):
+    """Omitting `external_times_grid` must reproduce the old rows exactly.
+
+    Same guarantee as `external_times=None` at L0: the feature adds an axis,
+    it does not move anything that already worked.
+    """
+    exp = demo1_system.expand(("phi_a(x)", "phi_b(y)"), orders=[0])
+    props = _wf11_props(demo1_system)
+    kw = dict(
+        positions_grid={"x": [0.0], "y": [0.0, 0.5]},
+        t_final_grid=[2.0],
+        component_pairs=[(0, 0)],
+        orders=[0],
+        method="nquad",
+    )
+    base = exp.sweep(props, **kw).totals()
+    same = exp.sweep(
+        props, external_times_grid={"x": [2.0], "y": [2.0]}, **kw,
+    ).totals()
+    assert np.array_equal(
+        np.sort(base["value"].to_numpy()), np.sort(same["value"].to_numpy())
+    )
+    assert "t_x" not in base.columns and "t_x" in same.columns
+
+
+def test_WF11_two_time_correlator_matches_the_closed_form(demo1_system):
+    """C(t, t') off the equal-time diagonal, against the OU closed form."""
+    exp = demo1_system.expand(("phi_a(x)", "phi_b(y)"), orders=[0])
+    props = _wf11_props(demo1_system, t_max=6.0, n_grid_t=60)
+
+    tot = exp.sweep(
+        props,
+        positions_grid={"x": [0.0], "y": [0.0]},
+        t_final_grid=[5.0],
+        external_times_grid={"x": [4.0], "y": [1.5, 3.0]},
+        component_pairs=[(0, 0)],
+        orders=[0],
+        method="nquad",
+    ).totals()
+    for tp in (1.5, 3.0):
+        got = float(tot[abs(tot["t_y"] - tp) < 1e-12]["value"].iloc[0])
+        want = _C_t_closed_form(4.0, tp)
+        assert got == pytest.approx(want, rel=2e-3), (
+            f"C(4.0, {tp}) = {got:.8f} vs closed form {want:.8f}"
+        )
