@@ -66,6 +66,11 @@ from .evaluate import (
     integrate_moment,
     integrate_two_point_qmc,
 )
+from .spectral import (
+    SpectralDensity,
+    SpectralPropagatorCache,
+    spectral_cache,
+)
 from .perturbation import DiagramTerm, PerturbativeResult, compute_moment, compute_moment_numerical
 from .propagators import contract_pair
 from .simplify import collect_by_diagram, collect_by_topology, diagonal_propagators, simplify
@@ -103,6 +108,9 @@ from .workflow import (  # noqa: E402
 )
 
 __all__ = [
+    "SpectralDensity",
+    "SpectralPropagatorCache",
+    "spectral_cache",
     "build_R_contracted_callable",
     "Action",
     "ConstantImpulse",
