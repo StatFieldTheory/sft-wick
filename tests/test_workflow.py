@@ -346,14 +346,16 @@ def test_WF11_equal_times_still_give_zero_for_a_response(demo1_system):
     """
     exp = demo1_system.expand(("phi_a(x)", "psi_b(y)"), orders=[0])
     props = _wf11_props(demo1_system)
-    tot = exp.sweep(
-        props,
-        positions_grid={"x": [0.0], "y": [0.0]},
-        t_final_grid=[4.0],
-        component_pairs=[(0, 0)],
-        orders=[0],
-        method="nquad",
-    ).totals()
+    # ... and the user is told why, instead of getting a silent table of zeros.
+    with pytest.warns(UserWarning, match="response leg"):
+        tot = exp.sweep(
+            props,
+            positions_grid={"x": [0.0], "y": [0.0]},
+            t_final_grid=[4.0],
+            component_pairs=[(0, 0)],
+            orders=[0],
+            method="nquad",
+        ).totals()
     assert float(tot["value"].iloc[0]) == pytest.approx(0.0, abs=1e-14)
 
 
@@ -401,4 +403,90 @@ def test_WF11_two_time_correlator_matches_the_closed_form(demo1_system):
         want = _C_t_closed_form(4.0, tp)
         assert got == pytest.approx(want, rel=2e-3), (
             f"C(4.0, {tp}) = {got:.8f} vs closed form {want:.8f}"
+        )
+
+
+@pytest.mark.parametrize("method", ["nquad", "qmc_vectorized", "gauss_legendre"])
+def test_WF11_two_time_at_interacting_order_agrees_across_backends(
+    demo1_system, method,
+):
+    """The other WF11 tests are all `orders=[0]`, where every diagram has zero
+    time-integration variables and each backend short-circuits before its
+    sampler runs.  So none of them exercises an integrator through the sweep
+    path at all -- exactly the gap that would hide a backend-specific error at
+    an interacting order.
+
+    This runs order 2 with unequal external times and requires the three
+    backends to agree.  Cross-backend rather than closed-form: the O(g^2)
+    two-time response has no convenient closed form, but a defect in one
+    backend's causal mapping shows up as a disagreement, and a factor-2 error
+    of the kind a nested internal ordering could produce cannot hide.
+    """
+    exp = demo1_system.expand(("phi_a(x)", "psi_b(y)"), orders=[0, 2])
+    props = _wf11_props(demo1_system, t_max=6.0, n_grid_t=40)
+    kw = ({"n_samples": 2 ** 14, "seed": 7} if method.startswith("qmc")
+          else {"n_gauss": 24} if method == "gauss_legendre" else {})
+
+    def run(m, **extra):
+        return exp.sweep(
+            props,
+            positions_grid={"x": [0.0], "y": [0.0]},
+            t_final_grid=[4.0],
+            external_times_grid={"x": [4.0], "y": [1.5]},
+            component_pairs=[(0, 0)],
+            orders=[0, 2],
+            method=m,
+            **extra,
+        ).totals()
+
+    tot = run(method, **kw)
+    ref = run("nquad")
+
+    got2 = float(tot[tot["order"] == 2]["value"].iloc[0])
+    ref2 = float(ref[ref["order"] == 2]["value"].iloc[0])
+    # The order-2 term must actually be there -- a zero would make the
+    # comparison vacuous, which is the failure mode of the order-0 tests.
+    assert abs(ref2) > 1e-6, f"order-2 reference is ~0 ({ref2:.3e})"
+    assert got2 == pytest.approx(ref2, rel=5e-3), (
+        f"{method} order 2 = {got2:.8f} vs nquad {ref2:.8f} "
+        f"(ratio {got2 / ref2:.4f})"
+    )
+    # And order 0 is still the exact retarded propagator.
+    got0 = float(tot[tot["order"] == 0]["value"].iloc[0])
+    assert got0 == pytest.approx(np.exp(-1.0 * (4.0 - 1.5)), rel=1e-6)
+
+
+def test_WF11_guards_reject_the_three_silent_failures(demo1_system):
+    """Each of these previously produced a plausible answer, not an error.
+
+    Found by adversarial review of this feature.
+    """
+    exp = demo1_system.expand(("phi_a(x)", "phi_b(y)"), orders=[0])
+    props = _wf11_props(demo1_system, t_max=6.0, n_grid_t=30)
+    base = dict(
+        positions_grid={"x": [0.0], "y": [0.0]},
+        t_final_grid=[4.0],
+        component_pairs=[(0, 0)],
+        orders=[0],
+        method="nquad",
+    )
+
+    # 1. A time past the propagator horizon used to clamp to the table edge.
+    with pytest.raises(ValueError, match="exceed the propagator table horizon"):
+        exp.sweep(props, external_times_grid={"x": [99.0], "y": [1.0]}, **base)
+
+    # 2. An empty list gave zero rows and then an opaque pandas KeyError.
+    with pytest.raises(ValueError, match="empty list"):
+        exp.sweep(props, external_times_grid={"x": [], "y": [1.0]}, **base)
+
+    # 3. A `t_<point>` column that shadows an existing one used to overwrite
+    #    it silently.  `t_final` is the reserved name most likely to collide.
+    exp_f = demo1_system.expand(("phi_a(final)", "phi_b(y)"), orders=[0])
+    with pytest.raises(ValueError, match="collide with existing sweep"):
+        exp_f.sweep(
+            props,
+            positions_grid={"final": [0.0], "y": [0.0]},
+            t_final_grid=[4.0],
+            external_times_grid={"final": [4.0], "y": [1.0]},
+            component_pairs=[(0, 0)], orders=[0], method="nquad",
         )
