@@ -11,6 +11,23 @@
 
 ### Added
 
+- **Two-time observables from the declarative API.** `Expansion.sweep` takes
+  `external_times_grid={point: [times]}` — the same shape as `positions_grid`,
+  swept as a further Cartesian axis — and `Expansion.evaluate` /
+  `integrate_diagrams` take `external_times=`. The YAML `sweep:` block accepts
+  `external_times_grid` too. Result rows gain a `t_<point>` column per named
+  point, and `SweepResult.totals()` groups by them.
+
+  The **response field is now nameable in an observable**: `"psi_b(y)"`
+  alongside `"phi_a(x)"`. Without it there was no way to ask for `R(t,t')` at
+  all — the parser accepted only the physical field.
+
+  Together these make `R(t,t')` and `C(t,t')`, the DMFT order parameters,
+  reachable declaratively. Previously every external was pinned at a single
+  `t_final`, and since Θ kills an R joining two externals at the same time,
+  *every* observable carrying a response leg came back identically 0.
+  Omitting `external_times_grid` reproduces the old rows exactly.
+
 - **`external_times={point: time}`** on `integrate_moment_{qmc,qmc_vectorized,
   gauss_legendre,nquad}`, the `integrate_moment` dispatcher,
   `_evaluate_zero_dimensional` and `integrate_two_point_qmc`. Every integrator
