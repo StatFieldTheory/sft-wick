@@ -11,6 +11,12 @@
 
 ### Added
 
+- **`propagators_from_cache`** wraps a hand-built `PropagatorCache` as a
+  `Propagators`, so the L1 workflow API can be driven by a cache that does not
+  come from a `System` — which the spectral one does not, since its `R` and
+  `C` come from a spectrum rather than the system's `kappa2`. Without it the
+  whole workflow layer was closed to `sft_wick.spectral`.
+
 - **`sft_wick.spectral` — disorder-averaged (spectral) propagators.**
   `SpectralDensity` + `spectral_cache(density, D, shift=...)` build a
   `PropagatorCache` whose `R` and `C` are superpositions of Ornstein-Uhlenbeck
@@ -73,6 +79,24 @@
   C directly, without subclassing and overriding semi-private methods.
 
 ### Fixed
+
+- **The C cache keyed ndarray arguments on `id()`.** `id()` is unique only
+  among *live* objects, so a freed position array's address can be recycled and
+  the cache then returns one separation's `C` for another. Now keyed on
+  contents. I could not force such a collision in 200k attempts, so the
+  practical reachability is low — but the key was wrong, and a value key is
+  correct and cheap here.
+- **`PropagatorCache.C_diagonal` was position-blind when a spatial table was
+  present.** It consulted the legacy time-only table first while `C_value`
+  consults the spatial one first, so the two accessors disagreed by ~38 % with
+  both tables built. Same precedence in both now.
+- `sft_wick.spectral`: `average()` rejected a transposed layout instead of
+  contracting the wrong axis; `SpectralDensity` became comparable and hashable
+  (the generated dataclass `__eq__` raised on ndarray fields);
+  `C_diagonal_batch` appends the component axis rather than inserting it at
+  position 1 (identical for 1-D times, wrong for 2-D); `clear_cache()` keeps
+  the batch-C capability instead of demoting every backend to the scalar loop;
+  and `noise_D` / `n_components` / `t_min` / `n_nodes` are validated.
 
 - **Causal *lower* bounds from external response legs were dropped entirely.**
   Every bound-builder wrote `if earlier in int_vars: upper_bounds[...]`, which

@@ -1987,3 +1987,80 @@ def test_F23_diag_line_spline_keeps_cubic_accuracy():
         )
     assert errs[161] < errs[41], f"not converging: {errs}"
     assert errs[161] < 1e-5, errs
+
+
+def test_F24_c_memo_never_shares_a_key_across_positions():
+    """The C memo keyed ndarray positions on `id()`, which is unique only
+    among LIVE objects.  Replacing it with a value key introduced a WORSE
+    collision: the oversized-array escape hatch returned a singleton sentinel,
+    and the "is this cacheable" test only looked at the top level of the key --
+    so two different positions nested in a list produced the SAME key.
+    Measured before the fix: C at nested position 5.0 returned position 1.0's
+    value, one memo entry for two distinct positions.
+    """
+    def kappa2(n1, t1, n2, t2):
+        def first(z):
+            return float(np.atleast_1d(np.asarray(z, dtype=float)).ravel()[0])
+        return np.eye(1) * np.exp(-abs(first(n1) - first(n2)))
+
+    model = PropagatorModel(
+        R_time=lambda t, tp: np.exp(-MU * (t - tp)), kappa2=kappa2,
+        n_components=1, iso_R=True, diag_C=True, t_min=0.0,
+    )
+    zero = np.array([0.0])
+
+    # (a) oversized arrays NESTED in a list -- the case that collided
+    cache = PropagatorCache(model)
+    big = lambda v: [np.full(600, v)]          # noqa: E731
+    v1 = float(cache.C_value(zero, 1.0, big(1.0), 1.0)[0, 0])
+    v5 = float(cache.C_value(zero, 1.0, big(5.0), 1.0)[0, 0])
+    assert v5 / v1 == pytest.approx(np.exp(-4.0), rel=1e-12), (
+        f"nested oversized positions shared a memo key: {v1} vs {v5}"
+    )
+    assert len(cache._c_cache) == 0, "oversized positions must skip the memo"
+
+    # (b) small arrays: distinct positions distinct, equal contents shared
+    cache = PropagatorCache(model)
+    a = float(cache.C_value(zero, 1.0, np.array([1.0]), 1.0)[0, 0])
+    b = float(cache.C_value(zero, 1.0, np.array([5.0]), 1.0)[0, 0])
+    assert b / a == pytest.approx(np.exp(-4.0), rel=1e-12)
+    # a non-contiguous slice with the same value is the SAME position
+    same = float(cache.C_value(zero, 1.0, np.array([9.0, 1.0])[1:], 1.0)[0, 0])
+    assert same == a
+
+
+def test_F25_C_diagonal_and_C_value_agree_when_both_tables_exist():
+    """`C_diagonal` consulted the legacy time-only table first while
+    `C_value` consults the spatial one first, so with both built the two
+    accessors returned different numbers for the same arguments -- the legacy
+    one being position-blind.
+    """
+    sigma_x = 1.0
+
+    def kappa2(n1, t1, n2, t2):
+        def first(z):
+            return float(np.atleast_1d(np.asarray(z, dtype=float)).ravel()[0])
+        return np.eye(1) * np.exp(-abs(first(n1) - first(n2)) / sigma_x)
+
+    model = PropagatorModel(
+        R_time=lambda t, tp: np.exp(-MU * (t - tp)), kappa2=kappa2,
+        sigma2=lambda n1, t, n2: np.array([[2.0 * D]]),
+        n_components=1, iso_R=True, diag_C=True, t_min=0.0,
+    )
+    cache = PropagatorCache(model)
+    cache.precompute_C_table_translation(t_max=4.0, n_grid_t=20)   # spatial
+    cache.precompute_C_table(t_max=4.0, n_grid=20)                 # legacy
+    assert cache._c_splines is not None, "expected both tables built"
+
+    for r in (0.0, 1.0, 2.5):
+        n = np.array([r])
+        diag = float(cache.C_diagonal(np.array([0.0]), 2.0, n, 1.0)[0])
+        val = float(cache.C_value(np.array([0.0]), 2.0, n, 1.0)[0, 0])
+        assert diag == pytest.approx(val, rel=1e-12), (
+            f"separation {r}: C_diagonal {diag:.10f} vs C_value {val:.10f}"
+        )
+    # and the position dependence is actually there -- otherwise the check
+    # above would pass on two equally position-blind accessors
+    far = float(cache.C_diagonal(np.array([0.0]), 2.0, np.array([2.5]), 1.0)[0])
+    near = float(cache.C_diagonal(np.array([0.0]), 2.0, np.array([0.0]), 1.0)[0])
+    assert abs(far) < 0.9 * abs(near), (far, near)

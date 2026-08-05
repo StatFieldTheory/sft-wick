@@ -436,3 +436,155 @@ def test_SP8_complex_input_is_rejected_not_truncated():
         SpectralDensity(np.array([1.0 + 0.5j, 2.0]), np.array([0.5, 0.5]))
     with pytest.raises(ValueError, match="must be real"):
         SpectralDensity(np.array([1.0, 2.0]), np.array([0.5 + 1j, 0.5]))
+
+
+# --------------------------------------------------------------------- #
+# SP9 — the module-level follow-ups from the review
+# --------------------------------------------------------------------- #
+
+def test_SP9_average_rejects_a_transposed_layout():
+    """`average` contracts the LAST axis, so the node axis must be last.
+
+    The natural per-node layout `(n_nodes, k)` is the transpose of that; an
+    unchecked `tensordot` would contract along the wrong axis and return a
+    silently wrong answer of the right shape.
+    """
+    dens = SpectralDensity(np.array([1.0, 2.0, 4.0]), np.array([0.2, 0.3, 0.5]))
+    # scalar-valued f: shape (n_nodes,)
+    assert dens.average(lambda h: h) == pytest.approx(
+        0.2 * 1.0 + 0.3 * 2.0 + 0.5 * 4.0)
+    # vector-valued f with the node axis LAST: shape (2, n_nodes)
+    out = dens.average(lambda h: np.stack([h, h ** 2]))
+    assert out.shape == (2,)
+    assert out[1] == pytest.approx(0.2 * 1 + 0.3 * 4 + 0.5 * 16)
+    # transposed layout is rejected, not silently contracted
+    with pytest.raises(ValueError, match="LAST axis"):
+        dens.average(lambda h: np.stack([h, h ** 2], axis=-1))
+
+
+def test_SP9_density_is_comparable_and_hashable():
+    """The generated dataclass `__eq__` calls `bool()` on an ndarray
+    comparison and raises, so a density could not be compared at all."""
+    a = SpectralDensity(np.array([1.0, 2.0]), np.array([0.25, 0.75]))
+    b = SpectralDensity(np.array([1.0, 2.0]), np.array([1.0, 3.0]))  # same after norm
+    c = SpectralDensity(np.array([1.0, 3.0]), np.array([0.25, 0.75]))
+    assert a == b and not (a == c)
+    assert a != c
+    assert len({a, b, c}) == 2          # hashable, and a/b collapse
+    assert a != "not a density"
+
+
+def test_SP9_batch_C_appends_the_component_axis():
+    """`(..., N)`, not "N inserted at position 1".
+
+    Identical for the 1-D time arrays every backend passes, silently wrong
+    for a 2-D one.
+    """
+    cache = spectral_cache(SpectralDensity.delta(1.0), D_NOISE, n_components=3)
+    t1 = np.array([[1.0, 2.0], [3.0, 4.0]])
+    t2 = np.array([[0.5, 1.0], [1.5, 2.0]])
+    out = cache.C_diagonal_batch(t1, t2)
+    assert out.shape == (2, 2, 3), out.shape
+    for i in range(2):
+        for j in range(2):
+            assert out[i, j, 0] == pytest.approx(
+                _ou_C(1.0, t1[i, j], t2[i, j]), rel=1e-12)
+    # the 1-D contract the base class documents still holds
+    flat = cache.C_diagonal_batch(t1.ravel(), t2.ravel())
+    assert flat.shape == (4, 3)
+
+
+def test_SP9_clear_cache_keeps_the_batch_capability():
+    """The inherited `clear_cache` nulls `_c_splines`, which for a
+    table-backed cache means "the table is gone".  Here it is a capability
+    flag, so clearing it would demote every backend to the scalar loop."""
+    from sft_wick.evaluate import _cache_supports_batch_c
+
+    cache = spectral_cache(SpectralDensity.delta(1.0), D_NOISE)
+    assert _cache_supports_batch_c(cache)
+    before = float(cache.C_diagonal(0, 2.0, 0, 1.0)[0])
+    cache.clear_cache()
+    assert _cache_supports_batch_c(cache), "batch capability was retracted"
+    assert float(cache.C_diagonal(0, 2.0, 0, 1.0)[0]) == before
+
+
+def test_SP9_public_inputs_are_validated():
+    with pytest.raises(ValueError, match="noise_D"):
+        spectral_cache(SpectralDensity.delta(1.0), -1.0)
+    with pytest.raises(ValueError, match="noise_D"):
+        spectral_cache(SpectralDensity.delta(1.0), np.nan)
+    with pytest.raises(ValueError, match="n_components"):
+        spectral_cache(SpectralDensity.delta(1.0), 0.5, n_components=0)
+    with pytest.raises(ValueError, match="t_min must be finite"):
+        spectral_cache(SpectralDensity.delta(1.0), 0.5, t_min=np.inf)
+    with pytest.raises(ValueError, match="n_nodes must be >= 1"):
+        SpectralDensity.from_samples(np.array([1.0, 2.0]), n_nodes=0)
+
+
+def test_SP9_spectral_cache_is_usable_from_the_workflow_layer():
+    """`System.propagators()` builds a cache FROM the system's own model, so
+    there was no way to drive the L1 API with a cache that does not come from
+    a System -- which the spectral one does not: its R and C come from a
+    spectrum, not from the system's kappa2.  `propagators_from_cache` closes
+    that, and this checks the whole path end to end against the closed form.
+    """
+    import sft_wick as sw
+    from sft_wick.workflow import propagators_from_cache
+
+    dens = SpectralDensity(np.array([0.5, 2.5]), np.array([0.4, 0.6]))
+    cache = spectral_cache(dens, D_NOISE, n_components=1)
+
+    system = sw.System(
+        field=sw.FieldSpec("phi", n_components=1),
+        linear=sw.DiagonalA(gamma=[1.0]),
+        vertices=[sw.LocalVertex("F", coupling=np.zeros((1, 1, 1)))],
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.ExponentialTemporal(lam=1.0, sigma_t=1.0),
+                spatial=sw.ExponentialSpatial(sigma_x=1.0),
+            ),
+        ),
+    )
+    exp = system.expand(("phi(x)", "psi(y)"), orders=[0])
+    props = propagators_from_cache(cache)
+
+    T, tprimes = 4.0, [1.0, 2.5]
+    tot = exp.sweep(
+        props,
+        positions_grid={"x": [0.0], "y": [0.0]},
+        t_final_grid=[T],
+        external_times_grid={"x": [T], "y": tprimes},
+        component_pairs=[(0, 0)],
+        orders=[0],
+        method="nquad",
+    ).totals()
+
+    for tp in tprimes:
+        got = float(tot[abs(tot["t_y"] - tp) < 1e-12]["value"].iloc[0])
+        want = 0.4 * _ou_R(0.5, T, tp) + 0.6 * _ou_R(2.5, T, tp)
+        assert got == pytest.approx(want, rel=1e-9), f"R*({T},{tp})"
+        assert got != 0.0
+
+
+def test_SP9_a_mismatched_component_count_raises_at_use():
+    """A cache built outside `System.propagators()` carries no record of which
+    system it was for.  An under-counted one silently returned a wrong number;
+    it now raises where both counts are known."""
+    import sft_wick as sw
+    from sft_wick.workflow import propagators_from_cache
+
+    system = sw.System(
+        field=sw.FieldSpec("phi", n_components=2),
+        linear=sw.DiagonalA(gamma=[1.0, 1.0]),
+        vertices=[sw.LocalVertex("F", coupling=np.zeros((2, 2, 2)))],
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.ExponentialTemporal(lam=1.0, sigma_t=1.0),
+                spatial=sw.ExponentialSpatial(sigma_x=1.0))),
+    )
+    exp = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0])
+    props = propagators_from_cache(
+        spectral_cache(SpectralDensity.delta(1.0), D_NOISE, n_components=1))
+    with pytest.raises(ValueError, match="n_components=1"):
+        exp.evaluate(props, positions={"x": 0.0, "y": 0.0}, t_final=2.0,
+                     component_pair=(0, 0), orders=[0], method="nquad")

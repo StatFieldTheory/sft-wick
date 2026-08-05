@@ -684,6 +684,56 @@ def test_CF13_propagators_cache_path_round_trip(tmp_path: Path) -> None:
     # On second invocation with the same cache_path the workflow
     # should reload the saved Propagators via joblib.load instead of
     # rebuilding. Either path yields identical totals.
+    # The cache under test must actually CARRY a materialised table.  As
+    # written this dumped a Propagators whose lazy table was still COLD, so no
+    # spline had been built and the round-trip could not detect a
+    # picklability regression -- a vacuous control cell, and it stayed green
+    # through the CubicSpline breakage that a27ba00 had to fix.  Warm it, then
+    # assert the dumped artefact really holds the built table.
+    import joblib as _joblib
+
+    _cache = _sweep1  # keep the first run's result alive for the comparison
+    _props_files = sorted(cache_dir.rglob("*.joblib")) or sorted(
+        f for f in cache_dir.rglob("*") if f.is_file())
+    assert _props_files, f"cache_path wrote nothing to {cache_dir}"
+    _blob = _joblib.load(_props_files[0])
+    _props = _blob["value"] if isinstance(_blob, dict) else _blob
+    _inner = getattr(_props, "cache", _props)
+    # WARM the lazy table -- a cold one materialises no spline at all, which
+    # is why this cell used to be vacuous: it stayed green straight through
+    # the CubicSpline breakage that a27ba00 had to fix.
+    #
+    # Scope, measured: this config uses `c_closed_form`, so only the LAZY
+    # spatial builder runs and the legacy `precompute_C_table` never does.
+    # CF13 therefore catches a serialisation regression in the lazy path
+    # (verified by reverting `_diag_line_interp` -- CF13 fails) but NOT one
+    # confined to the legacy table's own diagonal container.  F23 covers all
+    # four cache flavours directly.
+    _inner.C_at_batch(
+        np.array([1.0]), np.array([1.0]), np.array([0.0]), np.array([0.0]),
+    )
+    # `_lazy_translation` is non-None even on a COLD cache, so an `or` over
+    # the two attributes cannot fail -- assert the lazy cache actually holds a
+    # BUILT spline for the position we just warmed it at.
+    _lazy = getattr(_inner, "_lazy_translation", None)
+    _built = getattr(_lazy, "_splines_by_key", None)
+    assert (_built or getattr(_inner, "_c_splines", None) is not None), (
+        "the dumped cache holds no materialised interpolator even after "
+        "warming, so this round-trip cannot detect a serialisation regression"
+    )
+    # Now round-trip the WARM cache -- the state a real `cache_path` user
+    # reloads after a completed sweep, and the one that actually exercises
+    # every interpolator the cache is holding.
+    _warm = tmp_path / "warm.joblib"
+    _joblib.dump(_props, _warm)
+    _again = _joblib.load(_warm)
+    _again_inner = getattr(_again, "cache", _again)
+    _v0 = float(_inner.C_at_batch(np.array([2.0]), np.array([1.0]),
+                                  np.array([0.0]), np.array([0.0]))[0, 0])
+    _v1 = float(_again_inner.C_at_batch(np.array([2.0]), np.array([1.0]),
+                                        np.array([0.0]), np.array([0.0]))[0, 0])
+    assert _v1 == _v0, f"warm cache changed across joblib: {_v0} -> {_v1}"
+
     cfg2 = load_workflow_config(tmp_path / "c.yaml")
     _sweep2, totals2 = run_workflow(cfg2)
 
