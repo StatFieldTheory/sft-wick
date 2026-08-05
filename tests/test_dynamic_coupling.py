@@ -168,9 +168,17 @@ def test_DC1_prop_indexed_dynamic_raises_notimplemented(
         )
 
 
-def test_DC2_scalar_qmc_rejects_dynamic_coupling_placeholder() -> None:
-    """Scalar QMC must not silently integrate the dynamic placeholder zero."""
+def _dc2_cache():
+    """A minimal REAL cache: no propagators in the term, so R_product over an
+    empty tuple is 1 and the integrand is the coupling alone."""
+    from sft_wick.evaluate import PropagatorCache, PropagatorModel
+    model = PropagatorModel(R_time=lambda a, b: 1.0,
+                            kappa2=lambda *a: np.array([[1.0]]),
+                            n_components=1, diag_C=True, iso_R=True)
+    return PropagatorCache(model, c_value_fn=lambda *a: np.array([[1.0]]))
 
+
+def _dc2_integrand(fn):
     dt = DiagramTerm(
         propagators=(),
         coupling_sum=Symbol("K", indices=(), spatial_args=("s",)),
@@ -179,12 +187,57 @@ def test_DC2_scalar_qmc_rejects_dynamic_coupling_placeholder() -> None:
         summation_indices=(),
         n_response=0,
     )
-    ig = dt.build_integrand({"K": lambda n_list, t_list: 1.0})
+    ig = dt.build_integrand({"K": fn})
     assert ig.dynamic_coupling is not None
+    return ig
 
-    cache = SimpleNamespace(model=SimpleNamespace(iso_R=True, diag_C=True))
-    with pytest.raises(NotImplementedError, match="qmc_scalar"):
-        ig.integrate_moment_qmc(lambda_f=1.0, cache=cache, n_samples=8)
+
+@pytest.mark.parametrize("fn, exact", [
+    (lambda n_list, t_list: 1.0,                        1.0),
+    (lambda n_list, t_list: float(np.exp(-t_list[0])),  1.0 - np.exp(-1.0)),
+    (lambda n_list, t_list: 3.0 * float(t_list[0]) ** 2, 1.0),
+])
+def test_DC2_scalar_qmc_integrates_the_callable_not_the_placeholder(fn, exact):
+    """Scalar QMC must not silently integrate the dynamic placeholder zero.
+
+    It used to satisfy that by REFUSING; it now satisfies it by computing the
+    real thing.  Each case is a closed-form integral over ``s`` in [0, 1], so
+    a path that fell back to the zeros placeholder would return 0.0 and a path
+    that ignored the callable's arguments would return the wrong constant --
+    neither can match all three.
+    """
+    val, _err = _dc2_integrand(fn).integrate_moment_qmc(
+        lambda_f=1.0, cache=_dc2_cache(), n_samples=2 ** 14, seed=3)
+    assert val == pytest.approx(exact, rel=1e-6)
+    assert val != 0.0
+
+
+def test_DC2_evaluate_still_refuses_a_callable_with_no_coupling_array():
+    """The underlying protection stays: ``DiagramIntegrand.evaluate`` reads a
+    zeros placeholder on the dynamic path, so calling it WITHOUT an explicit
+    per-sample array would silently return 0.  The override is opt-in, and the
+    refusal names the way out."""
+    ig = _dc2_integrand(lambda n_list, t_list: 1.0)
+    with pytest.raises(NotImplementedError, match="coupling_array"):
+        ig.evaluate({"s": 0.5}, {}, _dc2_cache())
+
+
+def test_DC2_a_coupling_leg_with_no_propagator_still_gets_a_position():
+    """The leg ``s`` has no propagator attached, so it has no ``direction_map``
+    entry.  Building the callable's position dict from that map alone raises a
+    bare ``KeyError`` from inside ``evaluate_at`` -- the callable is asked for
+    a leg nobody supplied a position for."""
+    seen = []
+
+    def fn(n_list, t_list):
+        seen.append((tuple(np.ravel(n_list)), tuple(np.ravel(t_list))))
+        return 1.0
+
+    val, _ = _dc2_integrand(fn).integrate_moment_qmc(
+        lambda_f=1.0, cache=_dc2_cache(), n_samples=64, seed=1)
+    assert val == pytest.approx(1.0, rel=1e-3)
+    assert seen, "the callable was never invoked"
+    assert all(len(n) == 1 and len(t) == 1 for n, t in seen)
 
 
 # =====================================================================
