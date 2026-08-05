@@ -17,15 +17,19 @@
   propagators over a spectrum `rho(h)`:
 
       R*(t,t')   = Theta(t-t') <exp(-h (t-t'))>_rho
-      C*(t1,t2)  = <(D/h) (exp(-h|t1-t2|) - exp(-h(t1+t2)))>_rho
+      C*(t1,t2)  = <(D/h) (exp(-h|t1-t2|) - exp(-h(t1+t2-2 t_min)))>_rho
 
   This is the disorder-averaged limit: the effective single-site problem is
   scalar, so the `O(N^rank)` coupling-index contraction that dominates a
   per-instance matrix calculation disappears. `R*` is a superposition of
   decays, i.e. genuinely non-Markovian.
 
+  with the initial condition `x(t_min) = 0`. A zero rate is admitted and takes
+  the finite free-diffusion limit `2 D (min(t1,t2) - t_min)`; a negative rate
+  is rejected, and round-off negatives from `eigvalsh` are clamped.
+
   Construct the density with `SpectralDensity.from_samples` (empirical spectra,
-  reduced by equal-mass binning — observed convergence rate ~2),
+  reduced by equal-mass binning),
   `.from_callable` (Gauss-Legendre over an analytic density), or `.delta`
   (a single rate, which reduces every formula to the plain OU one — the
   boundary check the tests are built on).

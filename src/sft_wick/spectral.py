@@ -9,7 +9,12 @@ For a linear problem whose relaxation matrix has spectrum ``rho(h)``, the
 
     R^*(t,t') &= \\Theta(t-t') \\int \\rho(h)\\, e^{-(h+\\lambda)(t-t')}\\,dh \\\\
     C^*(t_1,t_2) &= \\int \\rho(h)\\, \\frac{D}{h+\\lambda}
-        \\left[ e^{-(h+\\lambda)|t_1-t_2|} - e^{-(h+\\lambda)(t_1+t_2)} \\right] dh
+        \\left[ e^{-(h+\\lambda)|t_1-t_2|}
+                - e^{-(h+\\lambda)(t_1+t_2-2t_{\\min})} \\right] dh
+
+with the initial condition :math:`x(t_{\\min}) = 0` -- ``t_min`` is this
+package's only initial-condition control, and hard-coding it at 0 while
+accepting the argument was wrong by 7.4% at ``t_min = 1``.
 
 These are genuinely non-exponential: :math:`R^*` is a superposition of decays,
 so the effective single-site process is non-Markovian.  That is the structural
@@ -31,6 +36,23 @@ Two reasons, both learned the hard way in ``applications/ML/phase3``:
   every tadpole evaluates ``C(s,s)`` exactly there.  And Θ gets re-implemented
   by hand next to the library's own convention.  Evaluating the spectral sum
   directly avoids both: it is exact, and Θ comes from one place.
+
+Validity: this is an ANNEALED substitution above order 0
+--------------------------------------------------------
+Substituting :math:`\\langle R\\rangle` and :math:`\\langle C\\rangle` into an
+interacting diagram is *not* a controlled quenched average.  It is exactly the
+factorisation this module's own construction says fails --
+:math:`\\langle R \\kappa R\\rangle \\neq
+\\langle R\\rangle \\kappa \\langle R\\rangle` -- applied one level up, at the
+vertex instead of at the propagator.  It is the annealed / one-loop-with-
+dressed-lines step.
+
+At order 0 there is nothing to average over and the result is exact.  Above
+it, ``applications/ML/phase3`` measured the gap against the exact quenched
+answer at **35%** -- not a small correction.  A controlled treatment needs
+replicas or an explicit fluctuation expansion around the saddle, neither of
+which this module provides.  Use it for order 0, for structure, and for cost
+estimates; do not read an interacting order as a quenched result.
 
 Cost
 ----
@@ -60,8 +82,20 @@ _H_FLOOR = 1e-12
 __all__ = ["SpectralDensity", "SpectralPropagatorCache", "spectral_cache"]
 
 
-class _ZeroKappa:
-    """``kappa2`` placeholder for a cache that supplies ``C`` directly.
+class _UniformKappa:
+    """``kappa2`` for a cache that supplies ``C`` directly and is spatially
+    uniform.
+
+    Returns the IDENTITY, not zeros.  ``integrate_two_point_qmc`` forms a
+    per-propagator spatial factor ``diag k2(n_l,n_r) / diag k2(0,0)``; with a
+    zero ``kappa2`` the denominator trips that function's own
+    ``|diag| > 1e-30`` guard and the factor collapses to 0, so **every
+    two-point function at a nonzero separation silently returned exactly
+    0.0** (measured: 0.4988 at r=0, 0.0 at r=1 and r=2.5).  The identity makes
+    the ratio exactly 1, which is the honest statement here -- the
+    disorder-averaged single-site theory this module represents has no spatial
+    structure, so its ``C`` is the same at every separation.  See
+    :class:`SpectralPropagatorCache` for what that means for the caller.
 
     A module-level class rather than a lambda so the cache stays picklable --
     it has to survive ``joblib.dump`` (``propagators.cache_path``) and loky.
@@ -73,7 +107,7 @@ class _ZeroKappa:
         self.n = int(n)
 
     def __call__(self, n1, t1, n2, t2):
-        return np.zeros((self.n, self.n))
+        return np.eye(self.n)
 
 
 @dataclass(frozen=True)
@@ -93,6 +127,16 @@ class SpectralDensity:
     weights: np.ndarray
 
     def __post_init__(self) -> None:
+        # Reject complex BEFORE casting: `np.asarray(z, dtype=float)` drops the
+        # imaginary part with only a ComplexWarning, so a complex spectrum
+        # would be silently truncated to its real part.
+        for label, raw in (("nodes", self.nodes), ("weights", self.weights)):
+            if np.iscomplexobj(np.asarray(raw)):
+                raise ValueError(
+                    f"{label} must be real; got a complex array.  A complex "
+                    f"spectrum is not a relaxation-rate density -- take "
+                    f".real explicitly if that is what you mean."
+                )
         nodes = np.asarray(self.nodes, dtype=float).ravel()
         weights = np.asarray(self.weights, dtype=float).ravel()
         if nodes.shape != weights.shape:
@@ -106,12 +150,21 @@ class SpectralDensity:
             raise ValueError("nodes and weights must all be finite.")
         if np.any(weights < 0):
             raise ValueError("weights must be non-negative.")
-        if np.any(nodes < 0):
+        # `np.linalg.eigvalsh` on a rank-deficient Gram matrix returns
+        # round-off negatives around -1e-16 -- and a sample covariance
+        # spectrum is this module's advertised primary input, so a zero-
+        # tolerance rejection would reject the main use case.  Clamp what is
+        # numerically zero; reject what is genuinely negative.
+        scale = float(np.max(np.abs(nodes))) if nodes.size else 1.0
+        tol = 1e-10 * max(scale, 1.0)
+        if np.any(nodes < -tol):
             raise ValueError(
                 f"spectral nodes are relaxation RATES and must be >= 0; got a "
-                f"minimum of {float(nodes.min()):.6g}.  A negative rate is an "
-                f"unstable mode, for which the stationary C does not exist."
+                f"minimum of {float(nodes.min()):.6g} against a tolerance of "
+                f"{-tol:.3g}.  A negative rate is an unstable mode, for which "
+                f"the stationary C does not exist."
             )
+        nodes = np.clip(nodes, 0.0, None)
         total = float(weights.sum())
         if total <= 0:
             raise ValueError("weights must not sum to zero.")
@@ -135,6 +188,13 @@ class SpectralDensity:
         mean, so the reduction is exact for any function that is linear across
         a bin and needs no assumption about the density's shape -- which
         matters for Marchenko-Pastur, whose edges are sharp.
+
+        The observed convergence rate is ~2 for a smooth density at a moderate
+        time separation, but it is NOT a guarantee: the rate depends on how
+        curved the integrand is across a bin, and adversarial review measured
+        it dropping to ~0.9 on the same spectrum at a different time pair.
+        Check convergence for your own density and time range rather than
+        assuming a rate.
 
         Carrying every sampled eigenvalue instead would make each propagator
         call a reduction over the whole sample (200k in
@@ -279,7 +339,7 @@ class SpectralPropagatorCache(PropagatorCache):
         self._t_min = float(t_min)
         model = PropagatorModel(
             R_time=self._r_scalar,
-            kappa2=_ZeroKappa(self._n),
+            kappa2=_UniformKappa(self._n),
             n_components=self._n, iso_R=True, diag_C=True, t_min=float(t_min),
         )
         super().__init__(model, c_value_fn=self._c_matrix)
