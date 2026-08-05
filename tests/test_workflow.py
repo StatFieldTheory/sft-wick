@@ -286,3 +286,207 @@ def test_WF5_sweep_totals_schema(demo1_system):
     assert "vertex_type" in vt.columns
     # Purely local: all vtype labels are 'F' (order 2) or '' (order 0).
     assert set(vt["vertex_type"]).issubset({"F", ""})
+
+
+# =====================================================================
+# WF11 — two-time observables through the declarative sweep API
+# =====================================================================
+#
+# Every integrator now takes per-point `external_times`, but until this the
+# workflow layer could not reach it: `sweep()` took `t_final_grid` scalars and
+# pinned all externals there.  With every external at one time Theta kills the
+# R joining them, so *every* observable carrying an external response leg came
+# back identically 0 -- which makes R(t,t') and C(t,t'), the DMFT order
+# parameters, unreachable from the documented API.
+#
+# `external_times_grid` mirrors `positions_grid`: one list per external point,
+# swept as a further Cartesian axis.  These reuse `demo1_system` at order 0,
+# where the coupling is irrelevant, with the closed-form C so no dblquad runs.
+
+_WF11_GAMMA = 1.0
+
+
+def _wf11_props(demo1_system, t_max=6.0, n_grid_t=30):
+    return demo1_system.propagators(
+        t_max=t_max, n_grid_t=n_grid_t, c_closed_form=_C_demo1,
+    )
+
+
+def test_WF11_sweep_reaches_two_time_response(demo1_system):
+    """R(T, t') must come out of `sweep`, not the identically-zero value."""
+    exp = demo1_system.expand(("phi_a(x)", "psi_b(y)"), orders=[0])
+    props = _wf11_props(demo1_system)
+
+    T = 4.0
+    tprimes = [1.0, 2.0, 3.0]
+    sweep = exp.sweep(
+        props,
+        positions_grid={"x": [0.0], "y": [0.0]},
+        t_final_grid=[T],
+        external_times_grid={"x": [T], "y": tprimes},
+        component_pairs=[(0, 0)],
+        orders=[0],
+        method="nquad",
+    )
+    tot = sweep.totals()
+    assert "t_y" in tot.columns, tot.columns.tolist()
+
+    for tp in tprimes:
+        row = tot[(abs(tot["t_y"] - tp) < 1e-12) & (tot["order"] == 0)]
+        assert len(row) == 1, f"t'={tp}: {len(row)} rows"
+        got = float(row["value"].iloc[0])
+        assert got == pytest.approx(np.exp(-_WF11_GAMMA * (T - tp)), rel=1e-9)
+        assert got != 0.0
+
+
+def test_WF11_equal_times_still_give_zero_for_a_response(demo1_system):
+    """Theta is untouched: pinning both externals together stays exactly 0.
+
+    This is the behaviour the feature works around, not one it changes.
+    """
+    exp = demo1_system.expand(("phi_a(x)", "psi_b(y)"), orders=[0])
+    props = _wf11_props(demo1_system)
+    # ... and the user is told why, instead of getting a silent table of zeros.
+    with pytest.warns(UserWarning, match="response leg"):
+        tot = exp.sweep(
+            props,
+            positions_grid={"x": [0.0], "y": [0.0]},
+            t_final_grid=[4.0],
+            component_pairs=[(0, 0)],
+            orders=[0],
+            method="nquad",
+        ).totals()
+    assert float(tot["value"].iloc[0]) == pytest.approx(0.0, abs=1e-14)
+
+
+def test_WF11_default_sweep_is_unchanged(demo1_system):
+    """Omitting `external_times_grid` must reproduce the old rows exactly.
+
+    Same guarantee as `external_times=None` at L0: the feature adds an axis,
+    it does not move anything that already worked.
+    """
+    exp = demo1_system.expand(("phi_a(x)", "phi_b(y)"), orders=[0])
+    props = _wf11_props(demo1_system)
+    kw = dict(
+        positions_grid={"x": [0.0], "y": [0.0, 0.5]},
+        t_final_grid=[2.0],
+        component_pairs=[(0, 0)],
+        orders=[0],
+        method="nquad",
+    )
+    base = exp.sweep(props, **kw).totals()
+    same = exp.sweep(
+        props, external_times_grid={"x": [2.0], "y": [2.0]}, **kw,
+    ).totals()
+    assert np.array_equal(
+        np.sort(base["value"].to_numpy()), np.sort(same["value"].to_numpy())
+    )
+    assert "t_x" not in base.columns and "t_x" in same.columns
+
+
+def test_WF11_two_time_correlator_matches_the_closed_form(demo1_system):
+    """C(t, t') off the equal-time diagonal, against the OU closed form."""
+    exp = demo1_system.expand(("phi_a(x)", "phi_b(y)"), orders=[0])
+    props = _wf11_props(demo1_system, t_max=6.0, n_grid_t=60)
+
+    tot = exp.sweep(
+        props,
+        positions_grid={"x": [0.0], "y": [0.0]},
+        t_final_grid=[5.0],
+        external_times_grid={"x": [4.0], "y": [1.5, 3.0]},
+        component_pairs=[(0, 0)],
+        orders=[0],
+        method="nquad",
+    ).totals()
+    for tp in (1.5, 3.0):
+        got = float(tot[abs(tot["t_y"] - tp) < 1e-12]["value"].iloc[0])
+        want = _C_t_closed_form(4.0, tp)
+        assert got == pytest.approx(want, rel=2e-3), (
+            f"C(4.0, {tp}) = {got:.8f} vs closed form {want:.8f}"
+        )
+
+
+@pytest.mark.parametrize("method", ["nquad", "qmc_vectorized", "gauss_legendre"])
+def test_WF11_two_time_at_interacting_order_agrees_across_backends(
+    demo1_system, method,
+):
+    """The other WF11 tests are all `orders=[0]`, where every diagram has zero
+    time-integration variables and each backend short-circuits before its
+    sampler runs.  So none of them exercises an integrator through the sweep
+    path at all -- exactly the gap that would hide a backend-specific error at
+    an interacting order.
+
+    This runs order 2 with unequal external times and requires the three
+    backends to agree.  Cross-backend rather than closed-form: the O(g^2)
+    two-time response has no convenient closed form, but a defect in one
+    backend's causal mapping shows up as a disagreement, and a factor-2 error
+    of the kind a nested internal ordering could produce cannot hide.
+    """
+    exp = demo1_system.expand(("phi_a(x)", "psi_b(y)"), orders=[0, 2])
+    props = _wf11_props(demo1_system, t_max=6.0, n_grid_t=40)
+    kw = ({"n_samples": 2 ** 14, "seed": 7} if method.startswith("qmc")
+          else {"n_gauss": 24} if method == "gauss_legendre" else {})
+
+    def run(m, **extra):
+        return exp.sweep(
+            props,
+            positions_grid={"x": [0.0], "y": [0.0]},
+            t_final_grid=[4.0],
+            external_times_grid={"x": [4.0], "y": [1.5]},
+            component_pairs=[(0, 0)],
+            orders=[0, 2],
+            method=m,
+            **extra,
+        ).totals()
+
+    tot = run(method, **kw)
+    ref = run("nquad")
+
+    got2 = float(tot[tot["order"] == 2]["value"].iloc[0])
+    ref2 = float(ref[ref["order"] == 2]["value"].iloc[0])
+    # The order-2 term must actually be there -- a zero would make the
+    # comparison vacuous, which is the failure mode of the order-0 tests.
+    assert abs(ref2) > 1e-6, f"order-2 reference is ~0 ({ref2:.3e})"
+    assert got2 == pytest.approx(ref2, rel=5e-3), (
+        f"{method} order 2 = {got2:.8f} vs nquad {ref2:.8f} "
+        f"(ratio {got2 / ref2:.4f})"
+    )
+    # And order 0 is still the exact retarded propagator.
+    got0 = float(tot[tot["order"] == 0]["value"].iloc[0])
+    assert got0 == pytest.approx(np.exp(-1.0 * (4.0 - 1.5)), rel=1e-6)
+
+
+def test_WF11_guards_reject_the_three_silent_failures(demo1_system):
+    """Each of these previously produced a plausible answer, not an error.
+
+    Found by adversarial review of this feature.
+    """
+    exp = demo1_system.expand(("phi_a(x)", "phi_b(y)"), orders=[0])
+    props = _wf11_props(demo1_system, t_max=6.0, n_grid_t=30)
+    base = dict(
+        positions_grid={"x": [0.0], "y": [0.0]},
+        t_final_grid=[4.0],
+        component_pairs=[(0, 0)],
+        orders=[0],
+        method="nquad",
+    )
+
+    # 1. A time past the propagator horizon used to clamp to the table edge.
+    with pytest.raises(ValueError, match="exceed the propagator table horizon"):
+        exp.sweep(props, external_times_grid={"x": [99.0], "y": [1.0]}, **base)
+
+    # 2. An empty list gave zero rows and then an opaque pandas KeyError.
+    with pytest.raises(ValueError, match="empty list"):
+        exp.sweep(props, external_times_grid={"x": [], "y": [1.0]}, **base)
+
+    # 3. A `t_<point>` column that shadows an existing one used to overwrite
+    #    it silently.  `t_final` is the reserved name most likely to collide.
+    exp_f = demo1_system.expand(("phi_a(final)", "phi_b(y)"), orders=[0])
+    with pytest.raises(ValueError, match="collide with existing sweep"):
+        exp_f.sweep(
+            props,
+            positions_grid={"final": [0.0], "y": [0.0]},
+            t_final_grid=[4.0],
+            external_times_grid={"final": [4.0], "y": [1.0]},
+            component_pairs=[(0, 0)], orders=[0], method="nquad",
+        )

@@ -89,6 +89,12 @@ class SweepResult:
 
     rows: list
     position_keys: tuple
+    #: ``("t_x", "t_y", ...)`` when the sweep pinned externals at unequal
+    #: times via ``external_times_grid``; empty otherwise.  Kept separate from
+    #: ``position_keys`` because a point's spatial position and its time are
+    #: independent sweep axes, and defaulted so existing construction sites
+    #: and any pickled SweepResult keep working.
+    external_time_keys: tuple = ()
 
     def to_dataframe(self):
         """Convert to a :class:`pandas.DataFrame`.  Requires pandas.
@@ -113,7 +119,10 @@ class SweepResult:
         ``value`` column.
         """
         df = self.to_dataframe()
-        group_cols = list(self.position_keys) + ["t_final", "a", "b", "order"]
+        group_cols = (
+            list(self.position_keys) + ["t_final"]
+            + list(self.external_time_keys) + ["a", "b", "order"]
+        )
         return (
             df.groupby(group_cols, as_index=False)["value"]
             .sum()
@@ -125,7 +134,8 @@ class SweepResult:
         decomposition."""
         df = self.to_dataframe()
         group_cols = (
-            list(self.position_keys) + ["t_final", "a", "b", "vertex_type"]
+            list(self.position_keys) + ["t_final"]
+            + list(self.external_time_keys) + ["a", "b", "vertex_type"]
         )
         return (
             df.groupby(group_cols, as_index=False)["value"]
