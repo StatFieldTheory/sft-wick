@@ -17,6 +17,56 @@ from sft_wick.evaluate import integrate_moment
 from sft_wick.expressions import Expr, Product, Symbol, Sum, Rational
 
 
+def _guard_external_times(expansion, propagators, ext_times, label):
+    """Fail loudly on the three ways a two-time request goes quietly wrong.
+
+    All three were found by adversarial review of this feature, and all three
+    previously produced a plausible-looking answer rather than an error.
+    """
+    import warnings
+
+    # 1. A response leg with every external pinned together evaluates to
+    #    EXACTLY 0 (Theta kills the R joining them).  Before the response field
+    #    was nameable this config could not be written at all; now the natural
+    #    first attempt returns a full table of zeros with no hint why.
+    has_psi = any(
+        name == expansion.system.field.response_name
+        for (name, _comp, _sp) in (expansion.observable_repr or ())
+        if isinstance(name, str)
+    )
+    if has_psi:
+        times = list((ext_times or {}).values())
+        if not ext_times or (len(set(times)) <= 1
+                             and len(times) >= len(expansion.observable_repr)):
+            warnings.warn(
+                f"{label}: the observable carries a response leg "
+                f"('{expansion.system.field.response_name}') but its external "
+                f"points are all at the same time, so every value will be "
+                f"exactly 0 -- the response propagator is retarded and "
+                f"vanishes at equal times.  Pass "
+                f"`external_times_grid={{'x': [t], 'y': [t_prime]}}` (sweep) "
+                f"or `external_times=` (evaluate) to separate them.",
+                UserWarning, stacklevel=3,
+            )
+
+    # 2. A time past the propagator table's horizon silently CLAMPS to the
+    #    table edge, which is indistinguishable from a correct answer.
+    #    ``Propagators`` exposes only build/cache/homogeneity/is_lazy, so read
+    #    the horizon from the cache itself -- it is the object that clamps.
+    t_range = getattr(getattr(propagators, "cache", None),
+                      "_c_table_range", None)
+    t_max = t_range[1] if t_range else None
+    if t_max is not None and ext_times:
+        over = {k: v for k, v in ext_times.items() if float(v) > float(t_max)}
+        if over:
+            raise ValueError(
+                f"{label}: external time(s) {over} exceed the propagator "
+                f"table horizon t_max={t_max}.  The C lookup would clamp to "
+                f"the table edge and return a plausible but wrong value; "
+                f"rebuild the propagators with a larger t_max."
+            )
+
+
 @dataclass(frozen=True)
 class Expansion:
     """Result of :meth:`System.expand`.  Opaque to construct; use the
@@ -241,6 +291,10 @@ class Expansion:
 
         from sft_wick.evaluate import integrate_diagrams
 
+        _guard_external_times(
+            self, propagators, external_times, "Expansion.evaluate",
+        )
+
         _total, details = integrate_diagrams(
             diagram_terms,
             coupling_values=coupling_values,
@@ -312,7 +366,16 @@ class Expansion:
                 Each key's list is swept independently; result is the
                 full Cartesian product.  E.g.
                 ``{"x": [0.0], "y": [0.0, 0.5, 1.0]}``.
-            t_final_grid: list of upper time bounds.
+            t_final_grid: list of upper time bounds.  Also the default time
+                for any external point not named in ``external_times_grid``.
+            external_times_grid: ``{point: [times]}`` pinning external points
+                at UNEQUAL times, swept as a further Cartesian axis (same
+                shape as ``positions_grid``).  Required for two-time
+                observables: with every external at one time, Θ kills the R
+                joining them and any observable carrying a response leg is
+                identically 0.  Each named point adds a ``t_<point>`` column
+                to the result rows.  Omit to pin everything at ``t_final``,
+                which reproduces the pre-existing rows exactly.
             component_pairs: list of ``(a, b)`` component index
                 tuples.
             vertex_types: optional filter — same semantics as in
@@ -366,6 +429,28 @@ class Expansion:
         # observable carrying an external response leg is identically 0.
         et_keys = list(external_times_grid.keys()) if external_times_grid else []
         et_values = [external_times_grid[k] for k in et_keys]
+        if any(not v for v in et_values):
+            raise ValueError(
+                f"external_times_grid has an empty list for "
+                f"{[k for k, v in zip(et_keys, et_values) if not v]}; the "
+                f"Cartesian product would be empty and the sweep would return "
+                f"no rows."
+            )
+        # The row dict is flat, so a `t_<point>` column that coincides with an
+        # existing key would silently OVERWRITE it -- e.g. an external named
+        # `final` shadowing the sweep's own `t_final`, or a spatial point
+        # literally named `t_x`.
+        _reserved = set(pos_keys) | {
+            "t_final", "a", "b", "order", "diagram_idx", "vertex_type",
+            "n_cross_C", "value", "error",
+        }
+        _clash = {f"t_{k}" for k in et_keys} & _reserved
+        if _clash:
+            raise ValueError(
+                f"external_times_grid would emit column(s) {sorted(_clash)}, "
+                f"which collide with existing sweep columns and would "
+                f"silently overwrite them.  Rename the affected point(s)."
+            )
 
         # Flatten the Cartesian product to a list of grid-point tasks.
         grid_tasks: list[tuple[dict, Any, dict, tuple]] = []
@@ -377,6 +462,14 @@ class Expansion:
                     ext_times = dict(zip(et_keys, et_tuple)) or None
                     for (a, b) in component_pairs:
                         grid_tasks.append((positions, t_f, ext_times, (a, b)))
+
+        # Warn once per distinct external-times combination rather than once
+        # per grid point, which would bury the message.
+        for _et in ({tuple(sorted((ext or {}).items()))
+                     for _p, _t, ext, _c in grid_tasks}):
+            _guard_external_times(
+                self, propagators, dict(_et) or None, "Expansion.sweep",
+            )
 
         def _eval_grid_point(task):
             positions, t_f, ext_times, comp = task
