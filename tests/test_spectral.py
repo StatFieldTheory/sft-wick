@@ -445,9 +445,10 @@ def test_SP8_complex_input_is_rejected_not_truncated():
 def test_SP9_average_rejects_a_transposed_layout():
     """`average` contracts the LAST axis, so the node axis must be last.
 
-    The natural per-node layout `(n_nodes, k)` is the transpose of that; an
-    unchecked `tensordot` would contract along the wrong axis and return a
-    silently wrong answer of the right shape.
+    The natural per-node layout `(n_nodes, k)` is the transpose of that.  It
+    already raised under the bare `tensordot`, so what the check buys is a
+    diagnostic message; the genuinely silent case is `k == n_nodes`, which no
+    shape check can catch and which the docstring warns about instead.
     """
     dens = SpectralDensity(np.array([1.0, 2.0, 4.0]), np.array([0.2, 0.3, 0.5]))
     # scalar-valued f: shape (n_nodes,)
