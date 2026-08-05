@@ -1991,12 +1991,19 @@ def test_F23_diag_line_spline_keeps_cubic_accuracy():
 
 def test_F24_c_memo_never_shares_a_key_across_positions():
     """The C memo keyed ndarray positions on `id()`, which is unique only
-    among LIVE objects.  Replacing it with a value key introduced a WORSE
-    collision: the oversized-array escape hatch returned a singleton sentinel,
-    and the "is this cacheable" test only looked at the top level of the key --
-    so two different positions nested in a list produced the SAME key.
-    Measured before the fix: C at nested position 5.0 returned position 1.0's
-    value, one memo entry for two distinct positions.
+    among LIVE objects.
+
+    Replacing it with a raw-bytes value key introduced a WORSE collision: the
+    oversized-array escape hatch returned a singleton sentinel, and the "is
+    this cacheable" test only looked at the top level of the key -- so two
+    different positions nested in a list produced the SAME key.  Measured then:
+    C at nested position 5.0 returned position 1.0's value, one memo entry for
+    two distinct positions.
+
+    The key is now a fixed-size digest, so there is no size cutoff, no
+    sentinel, and no cacheability question -- which removes that whole class
+    of defect rather than patching the instance.  Large positions are now
+    memoised like any other.
     """
     def kappa2(n1, t1, n2, t2):
         def first(z):
@@ -2015,9 +2022,12 @@ def test_F24_c_memo_never_shares_a_key_across_positions():
     v1 = float(cache.C_value(zero, 1.0, big(1.0), 1.0)[0, 0])
     v5 = float(cache.C_value(zero, 1.0, big(5.0), 1.0)[0, 0])
     assert v5 / v1 == pytest.approx(np.exp(-4.0), rel=1e-12), (
-        f"nested oversized positions shared a memo key: {v1} vs {v5}"
+        f"nested large positions shared a memo key: {v1} vs {v5}"
     )
-    assert len(cache._c_cache) == 0, "oversized positions must skip the memo"
+    assert len(cache._c_cache) == 2, "two distinct positions, two entries"
+    # and a repeat of the first really is a hit, not a silent recompute
+    assert float(cache.C_value(zero, 1.0, big(1.0), 1.0)[0, 0]) == v1
+    assert len(cache._c_cache) == 2
 
     # (b) small arrays: distinct positions distinct, equal contents shared
     cache = PropagatorCache(model)
@@ -2064,3 +2074,142 @@ def test_F25_C_diagonal_and_C_value_agree_when_both_tables_exist():
     far = float(cache.C_diagonal(np.array([0.0]), 2.0, np.array([2.5]), 1.0)[0])
     near = float(cache.C_diagonal(np.array([0.0]), 2.0, np.array([0.0]), 1.0)[0])
     assert abs(far) < 0.9 * abs(near), (far, near)
+
+
+def test_F26_c_memo_is_bounded():
+    """It was an unbounded plain dict, described in comments as an LRU.
+
+    On a long sweep it grew without limit -- which matters in a project whose
+    review agents have already OOM'd once at 46.7 GB.
+    """
+    from sft_wick.evaluate import _C_CACHE_MAXSIZE
+
+    cache = _scalar_cache()
+    # distinct (t1, t2) pairs, more than the cap
+    n = _C_CACHE_MAXSIZE + 128
+    for k in range(n):
+        cache.C_value(0, 1.0 + k * 1e-6, 0, 2.0)
+    assert len(cache._c_cache) <= _C_CACHE_MAXSIZE, len(cache._c_cache)
+    # the newest entry survived; the oldest was evicted
+    assert (0, 1.0 + (n - 1) * 1e-6, 0, 2.0) in cache._c_cache
+    assert (0, 1.0, 0, 2.0) not in cache._c_cache
+
+
+# =====================================================================
+# F27-F30 — the C_value memo, after adversarial review.  Each of these
+# is a way the memo returned ONE separation's correlator for ANOTHER.
+# =====================================================================
+
+def _f27_r_time(a, b):
+    return 1.0
+
+
+def _f27_kappa2(*a):
+    return np.array([[1.0]])
+
+
+def _f27_c_fn(n1, t1, n2, t2):
+    """exp(-sum(x1)) — masked entries fill to 0, so the mask changes the
+    answer.  Module-level (not a closure) so the cache stays picklable."""
+    x = np.asarray(np.ma.filled(n1, 0.0), dtype=float).ravel()
+    return np.array([[float(np.exp(-np.sum(x)))]])
+
+
+def _f27_cache():
+    from sft_wick.evaluate import PropagatorCache, PropagatorModel
+    model = PropagatorModel(R_time=_f27_r_time, kappa2=_f27_kappa2,
+                            n_components=1, diag_C=True)
+    return PropagatorCache(model, c_value_fn=_f27_c_fn)
+
+
+def test_F27_an_ndarray_subclass_keeps_its_identity_in_the_memo_key():
+    """``np.ascontiguousarray`` DOWNCASTS a subclass to a base ndarray.
+
+    ``np.ma.MaskedArray`` overrides ``tobytes`` to fill masked entries, so
+    routing the key through ``ascontiguousarray`` first ran the base version
+    instead and the mask vanished from the key: two positions differing only
+    in their mask shared one entry and one got the other's correlator.
+
+    ``tobytes()`` already serialises in C order whatever the memory layout,
+    so the ``ascontiguousarray`` call bought nothing and cost this.
+    """
+    cache = _f27_cache()
+    d = np.array([1.0, 2.0])
+    m_all = np.ma.MaskedArray(d.copy(), mask=[False, False])   # sum 3
+    m_one = np.ma.MaskedArray(d.copy(), mask=[False, True])    # sum 1
+
+    v_all = float(np.asarray(cache.C_value(m_all, 0.4, np.array([0.0]), 0.4))[0, 0])
+    v_one = float(np.asarray(cache.C_value(m_one, 0.4, np.array([0.0]), 0.4))[0, 0])
+    assert v_all == pytest.approx(np.exp(-3.0))
+    assert v_one == pytest.approx(np.exp(-1.0))
+    assert len(cache._c_cache) == 2, "the two masks shared one entry"
+
+    # a memoised lookup must equal a cold one
+    cold = _f27_cache()
+    assert v_one == pytest.approx(
+        float(np.asarray(cold.C_value(m_one, 0.4, np.array([0.0]), 0.4))[0, 0]))
+
+
+def test_F28_object_dtype_positions_are_refused_not_keyed_on_pointers():
+    """An object array's buffer is raw ``PyObject*`` values, and an address is
+    unique only among LIVE objects -- CPython recycles a freed temporary's
+    address.  Digesting those bytes is the same defect as keying on ``id()``.
+    Refusing to memoise is the honest answer.
+    """
+    cache = _f27_cache()
+    a = float(np.asarray(cache.C_value(np.array([1.0], dtype=object), 0.4,
+                                       np.array([0.0]), 0.4))[0, 0])
+    b = float(np.asarray(cache.C_value(np.array([5.0], dtype=object), 0.4,
+                                       np.array([0.0]), 0.4))[0, 0])
+    assert len(cache._c_cache) == 0, "object-dtype positions were memoised"
+    assert a == pytest.approx(np.exp(-1.0))
+    assert b == pytest.approx(np.exp(-5.0))
+
+    # nested inside a list too -- an earlier version tested only the key's
+    # top level and let nested cases through
+    cache = _f27_cache()
+    cache.C_value([np.array([1.0], dtype=object)], 0.4, np.array([0.0]), 0.4)
+    assert len(cache._c_cache) == 0, "a nested object array was memoised"
+
+    # ordinary numeric positions are still memoised, and still distinct
+    cache = _f27_cache()
+    p1 = cache.C_value(np.array([1.0]), 0.4, np.array([0.0]), 0.4)
+    p2 = cache.C_value(np.array([5.0]), 0.4, np.array([0.0]), 0.4)
+    assert len(cache._c_cache) == 2
+    assert float(np.asarray(p1)[0, 0]) == pytest.approx(np.exp(-1.0))
+    assert float(np.asarray(p2)[0, 0]) == pytest.approx(np.exp(-5.0))
+
+
+def test_F29_the_memoised_array_is_read_only():
+    """``C_value`` hands back the memo entry itself, so ``C += x`` in a caller
+    would silently rewrite every later lookup of that separation.  Raising
+    beats corrupting the cache."""
+    cache = _f27_cache()
+    C = cache.C_value(np.array([1.0]), 0.4, np.array([0.0]), 0.4)
+    with pytest.raises(ValueError, match="read-only"):
+        C += 100.0
+    assert float(np.asarray(cache.C_value(np.array([1.0]), 0.4,
+                                          np.array([0.0]), 0.4))[0, 0]) \
+        == pytest.approx(np.exp(-1.0))
+
+
+def test_F30_the_memo_is_not_pickled_into_every_worker():
+    """All three ``precompute_C_table_*`` builders dispatch a loky closure
+    that references ``self``, so the cache is serialised into each worker
+    payload.  A full memo is tens of megabytes and grows as N^2, and a worker
+    cannot use the parent's entries anyway."""
+    import pickle
+
+    cache = _f27_cache()
+    empty = len(pickle.dumps(cache))
+    for i in range(300):
+        cache.C_value(np.array([0.01 * i]), 0.4, np.array([0.0]), 0.4)
+    assert len(cache._c_cache) == 300
+    assert len(pickle.dumps(cache)) == empty, "the memo rode along"
+    assert len(pickle.loads(pickle.dumps(cache))._c_cache) == 0
+
+    # and the restored cache still computes the same numbers
+    restored = pickle.loads(pickle.dumps(cache))
+    assert float(np.asarray(restored.C_value(np.array([1.0]), 0.4,
+                                             np.array([0.0]), 0.4))[0, 0]) \
+        == pytest.approx(np.exp(-1.0))

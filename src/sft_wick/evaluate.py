@@ -9,9 +9,11 @@ Provides the 4-step workflow:
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Callable
+
+import hashlib
 
 import numpy as np
 
@@ -291,10 +293,10 @@ def analyze_spatial(dt: "DiagramTerm") -> SpatialStructure:
 #: substitution error from using the diagonal spline is bounded by
 #: sigma2 * _DIAG_TOL -- orders below the table's own accuracy, hence never
 #: the worse choice.
-#: Position arrays above this size skip the C cache rather than build a key
-#: out of their bytes.  Positions are scalars or a few components in every
-#: shipped path, so this is a guard, not a regime anyone is in.
-_CACHE_KEY_MAX_BYTES = 4096
+#: Entries kept in ``PropagatorCache``'s ``C_value`` memo before the oldest is
+#: evicted.  It used to be unbounded -- described in comments as an LRU while
+#: being a plain dict -- so a long sweep grew it without limit.
+_C_CACHE_MAXSIZE = 65536
 
 #: Two times are treated as ON the C-table diagonal when they differ by no
 #: more than this, relatively.
@@ -1388,7 +1390,16 @@ class PropagatorCache:
         self._closed_form_only: bool = False
         self._closed_form_vectorized: bool = False
 
-        self._c_cache: dict[tuple, np.ndarray] = {}
+        #: Bounded LRU memo for ``C_value`` (``move_to_end`` on every hit,
+        #: eviction from the cold end).  It was an UNBOUNDED plain dict
+        #: described in comments as an LRU -- on a long sweep it grew without
+        #: limit, which matters in a project whose review agents have already
+        #: OOM'd once.  The bound is on entry COUNT: one entry is an
+        #: ``(N, N)`` correlator, so the memory ceiling scales as N^2 and a
+        #: large-N run should lower :data:`_C_CACHE_MAXSIZE` or call
+        #: :meth:`clear_cache`.  Excluded from pickling -- see
+        #: :meth:`__getstate__`.
+        self._c_cache: "OrderedDict[tuple, np.ndarray]" = OrderedDict()
         # Legacy 2-D (t1, t2) spline at fixed x — still populated by
         # ``precompute_C_table`` for backward compatibility.
         self._c_splines: list | None = None
@@ -1526,50 +1537,72 @@ class PropagatorCache:
             if lo <= t1 <= hi and lo <= t2 <= hi:
                 return self._C_value_from_table(t1, t2)
 
-        # Check (n1, t1, n2, t2) LRU cache
-        # Cacheability is decided DURING key construction, not by inspecting
-        # the finished key.  A membership test on the outer tuple only sees
-        # the top level, so an oversized array nested in a list/tuple left the
-        # singleton sentinel buried inside the key -- and two different
-        # positions then produced the SAME key.  Measured: C at nested
-        # position 5.0 returned position 1.0's value, one memo entry for two
-        # distinct positions.  That was a live silent wrong number, worse and
-        # far more reachable than the id() collision it replaced.
+        # Check the (n1, t1, n2, t2) memo
+        # Key on CONTENTS, not id().  `id()` is unique only among LIVE
+        # objects: CPython recycles the address of a freed temporary, so two
+        # different position arrays could collide and the memo then returned
+        # one separation's C for another.
+        #
+        # A fixed-size digest, rather than the raw bytes: the digest is 16
+        # bytes whatever the array's size, so there is no size cutoff, no
+        # escape-hatch sentinel, and no "is this key cacheable" question to
+        # get wrong -- an earlier version answered it with a membership test
+        # that saw only the key's top level, so an oversized array nested in a
+        # list left the sentinel buried inside and two different positions
+        # shared a key.  Removing the special case removes that whole class.
+        # ``tobytes()`` already serialises in C order whatever the array's
+        # memory layout, so it normalises strides on its own.  Do NOT route it
+        # through ``np.ascontiguousarray`` first: that downcasts an ndarray
+        # SUBCLASS to a base array, discarding the subclass's own ``tobytes``
+        # -- a masked array then keys on its raw buffer and two positions
+        # differing only in their mask share one entry.
         cacheable = True
 
         def _cache_key_part(obj):
             nonlocal cacheable
             if isinstance(obj, np.ndarray):
-                # Key on CONTENTS, not id().  `id()` is only unique among
-                # LIVE objects: CPython recycles the address of a freed
-                # temporary, so two different position arrays can collide and
-                # the cache then returns one separation's C for another.  I
-                # could not force such a collision in 200k attempts, so the
-                # practical reachability is low -- but the key was wrong, and
-                # a value key is both correct and cheap here, since positions
-                # are scalars or a handful of components.  Arrays above
-                # `_CACHE_KEY_MAX_BYTES` skip the cache rather than build a
-                # huge key.
-                if obj.nbytes > _CACHE_KEY_MAX_BYTES:
+                if obj.dtype.kind == "O":
+                    # An object array's buffer is raw PyObject POINTERS, and
+                    # an address is unique only among LIVE objects -- CPython
+                    # recycles a freed temporary's address, so two different
+                    # positions would collide.  Refuse rather than guess.
                     cacheable = False
                     return None
-                return ("ndarray", obj.shape, obj.dtype.str, obj.tobytes())
-            if isinstance(obj, list):
-                return tuple(_cache_key_part(v) for v in obj)
-            if isinstance(obj, tuple):
+                return (type(obj).__name__, obj.shape, obj.dtype.str,
+                        hashlib.blake2b(obj.tobytes(),
+                                        digest_size=16).digest())
+            if isinstance(obj, (list, tuple)):
                 return tuple(_cache_key_part(v) for v in obj)
             return obj
 
         cache_key = (_cache_key_part(n1), t1, _cache_key_part(n2), t2)
-        if cacheable and cache_key in self._c_cache:
-            return self._c_cache[cache_key]
+        # ``cacheable`` is set from INSIDE the recursion, so an object array
+        # nested in a list is caught too.  An earlier version tested only the
+        # key's top level and let nested cases share an entry.
+        if cacheable:
+            hit = self._c_cache.get(cache_key)
+            if hit is not None:
+                return hit
 
         # Delegate to ``_C_value_direct`` (which adds the white-noise
         # 1-D contribution when ``model.sigma2`` is set), then store
-        # in the per-arg LRU.
+        # in the per-arg memo.
         C_mat = self._C_value_direct(n1, t1, n2, t2)
         if cacheable:
+            # Handed out read-only: the array returned IS the memo entry, so a
+            # caller doing ``C += x`` would silently rewrite every later
+            # lookup.  Failing loudly beats corrupting the cache.
+            #
+            # COPY first.  ``_C_value_direct`` ends in ``np.asarray(...)``,
+            # which is the identity for a float64 array, so freezing in place
+            # would flip the flag on the USER'S object -- breaking the
+            # idiomatic ``c_value_fn`` that fills and returns one preallocated
+            # buffer, or that returns a module-level constant correlator.
+            C_mat = np.array(C_mat, copy=True)
+            C_mat.flags.writeable = False
             self._c_cache[cache_key] = C_mat
+            if len(self._c_cache) > _C_CACHE_MAXSIZE:
+                self._c_cache.popitem(last=False)
         return C_mat
 
     def C_diagonal(
@@ -1600,6 +1633,20 @@ class PropagatorCache:
                 return self._C_diagonal_from_table(t1, t2)
         C_mat = self.C_value(n, t1, n_prime, t2)
         return np.diag(C_mat)
+
+    def __getstate__(self) -> dict:
+        """Pickle without the ``C_value`` memo.
+
+        Every parallel builder (``precompute_C_table_translation`` /
+        ``_rotation`` / ``_general``) dispatches a closure that references
+        ``self``, so the whole cache object is serialised into each worker
+        payload.  A full memo is tens of megabytes at a modest number of
+        components and grows as N^2, and a worker cannot benefit from the
+        parent's entries anyway -- it recomputes what it needs.
+        """
+        state = self.__dict__.copy()
+        state["_c_cache"] = OrderedDict()
+        return state
 
     def clear_cache(self) -> None:
         """Clear the C value cache and spline table."""
@@ -2639,7 +2686,24 @@ class DynamicCouplingPromise:
             legs = self.spatial_args_by_name[name]
             t_list = np.array([times[s] for s in legs], dtype=float)
             n_list = np.array([positions[s] for s in legs], dtype=float)
-            sample_cv[name] = np.asarray(fn(n_list, t_list))
+            if getattr(fn, "vectorized", False):
+                # A callable declared under the BATCHED contract expects
+                # ``(m_legs, n_samples)`` and returns
+                # ``(n_samples,) + kappa_shape``.  Calling it with the
+                # per-sample ``(m_legs,)`` arrays instead would hand it the
+                # wrong contract silently -- some such callables broadcast and
+                # return a plausible wrong shape rather than raising.  Run it
+                # as a batch of one and unwrap.
+                stacked = np.asarray(fn(n_list[:, None], t_list[:, None]))
+                if stacked.shape[0] != 1:
+                    raise ValueError(
+                        f"vectorized callable {name!r} returned shape "
+                        f"{stacked.shape}; expected a leading axis of "
+                        f"length 1 for a single-sample evaluation."
+                    )
+                sample_cv[name] = stacked[0]
+            else:
+                sample_cv[name] = np.asarray(fn(n_list, t_list))
         return self.diagram_term.evaluate_coupling(
             sample_cv, self.fixed_indices,
         )
@@ -2910,11 +2974,55 @@ class DiagramIntegrand:
         """
         return (-1j) ** self._e_psi
 
+    def dynamic_coupling_array(
+        self,
+        times: dict[str, float],
+        directions: dict[str, Any],
+        default_position: Any = 0.0,
+    ) -> np.ndarray:
+        """Materialise this sample's coupling tensor for a callable coupling.
+
+        The batched backends carry their own vectorised materialisation, but
+        they accept only scalar isotropic R.  This is the scalar-loop
+        counterpart, and it is what lets a callable coupling be combined with
+        a MATRIX-valued response propagator -- the two constraints previously
+        had no overlap, so that combination was computable by no backend.
+
+        Args:
+            times: ``{spatial_point: time}``.  Aliased legs of an equal-time
+                non-local vertex are filled in from their representatives
+                here, exactly as :meth:`evaluate` does.
+            directions: ``{direction_var: value}``, keyed by
+                ``spatial.direction_map`` values -- mapped back to per-label
+                positions for the user callable.
+            default_position: position for a coupling leg that no propagator
+                attaches to, and which therefore has no ``direction_map``
+                entry.
+        """
+        spatial = self.spatial
+        if spatial.equal_time_aliases:
+            times = dict(times)
+            for non_rep, rep in spatial.equal_time_aliases:
+                if non_rep not in times and rep in times:
+                    times[non_rep] = times[rep]
+        positions = {
+            label: directions[dvar]
+            for label, dvar in spatial.direction_map.items()
+        }
+        # A leg that no propagator attaches to has no ``direction_map`` entry,
+        # so it carries no spatial structure and sits at the ambient position.
+        # Without this the callable's own leg raises a bare ``KeyError``.
+        for legs in self.dynamic_coupling.spatial_args_by_name.values():
+            for label in legs:
+                positions.setdefault(label, default_position)
+        return self.dynamic_coupling.evaluate_at(times, positions)
+
     def evaluate(
         self,
         times: dict[str, float],
         directions: dict[str, Any],
         cache: PropagatorCache,
+        coupling_array: np.ndarray | None = None,
     ) -> complex:
         """Evaluate the integrand at specific time + direction coordinates.
 
@@ -2927,28 +3035,34 @@ class DiagramIntegrand:
                 variables (one per R-connected component, keyed by
                 the representative name from ``spatial.direction_map``).
             cache: A :class:`PropagatorCache` for propagator evaluation.
+            coupling_array: this sample's coupling tensor, overriding the
+                static :attr:`coupling_array`.  Required when the integrand
+                carries a spacetime-dependent (callable) coupling, since the
+                static attribute is then a zeros placeholder;
+                :meth:`dynamic_coupling_array` produces it.
 
         Returns:
             Scalar value of the integrand (complex if coupling is complex).
 
         Raises:
             NotImplementedError: if this integrand carries a spacetime-dependent
-                (callable) coupling.  This method reads the static
-                ``coupling_array``, which for the dynamic path is a zeros
-                placeholder, so it would otherwise return 0 silently.
+                (callable) coupling and no ``coupling_array`` was supplied --
+                it would otherwise read the zeros placeholder and return 0.
         """
-        if self.dynamic_coupling is not None:
+        if self.dynamic_coupling is not None and coupling_array is None:
             raise NotImplementedError(
                 "DiagramIntegrand.evaluate() cannot evaluate a "
-                "spacetime-dependent (callable) coupling: it reads the static "
-                "`coupling_array`, which is a zeros placeholder on the dynamic "
-                "path, so the result would silently be 0.  Use "
-                "integrate_moment(..., method='gauss_legendre') or "
-                "method='qmc_vectorized'."
+                "spacetime-dependent (callable) coupling without an explicit "
+                "`coupling_array`: the static attribute is a zeros "
+                "placeholder on the dynamic path, so the result would "
+                "silently be 0.  Pass coupling_array="
+                "integrand.dynamic_coupling_array(times, directions), or use "
+                "method='gauss_legendre' / method='qmc_vectorized'."
             )
         dt = self.diagram_term
         spatial = self.spatial
-        coeff = self.coupling_array
+        coeff = (self.coupling_array if coupling_array is None
+                 else coupling_array)
         model = cache.model
 
         # Expand the times dict to fill in aliased legs of any
@@ -3006,11 +3120,13 @@ class DiagramIntegrand:
 
         if model.iso_R and model.diag_C:
             return self._evaluate_diag_fast(
-                r_val, times, directions, cache, idx_names, idx_name_to_axis
+                r_val, times, directions, cache, idx_names, idx_name_to_axis,
+                coupling_array=coeff,
             )
         else:
             return self._evaluate_general(
-                r_val, times, directions, cache, idx_names, idx_name_to_axis
+                r_val, times, directions, cache, idx_names, idx_name_to_axis,
+                coupling_array=coeff,
             )
 
     def _evaluate_diag_fast(
@@ -3021,6 +3137,7 @@ class DiagramIntegrand:
         cache: PropagatorCache,
         idx_names: list[str],
         idx_name_to_axis: dict[str, int],
+        coupling_array: np.ndarray | None = None,
     ) -> complex:
         """Fast path for iso_R + diag_C case.
 
@@ -3028,7 +3145,8 @@ class DiagramIntegrand:
         element-wise multiplication then summation.
         """
         spatial = self.spatial
-        coeff = self.coupling_array
+        coeff = (self.coupling_array if coupling_array is None
+                 else coupling_array)
         n_axes = coeff.ndim
 
         contracted = coeff.copy()
@@ -3071,10 +3189,12 @@ class DiagramIntegrand:
         cache: PropagatorCache,
         idx_names: list[str],
         idx_name_to_axis: dict[str, int],
+        coupling_array: np.ndarray | None = None,
     ) -> complex:
         """General path: explicit loop over propagator index combinations."""
         spatial = self.spatial
-        coeff = self.coupling_array
+        coeff = (self.coupling_array if coupling_array is None
+                 else coupling_array)
         dt = self.diagram_term
         prop_idx = dt.propagator_indices
         prop_shape = tuple(dim for _, dim in prop_idx)
@@ -3521,13 +3641,14 @@ class DiagramIntegrand:
         """
         from scipy.stats import qmc
 
-        if self.dynamic_coupling is not None:
-            raise NotImplementedError(
-                "method='qmc_scalar' does not support spacetime-dependent "
-                "(callable) couplings. The scalar loop evaluates the static "
-                "coupling_array placeholder; use method='qmc_vectorized' or "
-                "method='gauss_legendre' instead."
-            )
+        # A spacetime-dependent (callable) coupling used to be refused here,
+        # which left the combination "callable coupling + MATRIX-valued R"
+        # computable by no backend at all: this loop rejected the callable,
+        # and ``qmc_vectorized`` / ``gauss_legendre`` reject matrix R.  The
+        # scalar loop is in fact the natural home for the per-sample callable
+        # contract -- it already visits one sample at a time -- so it now
+        # materialises the coupling per sample instead.
+        dyn = self.dynamic_coupling is not None
 
         spatial = self.spatial
         int_vars_parents_first = list(reversed(spatial.time_integration_vars))
@@ -3551,7 +3672,11 @@ class DiagramIntegrand:
             directions = {d: direction for d in dir_vars}
 
         if n_total == 0:
-            val = self.evaluate(fixed_times, directions, cache)
+            ca = (self.dynamic_coupling_array(fixed_times, directions,
+                                              default_position=direction)
+                  if dyn else None)
+            val = self.evaluate(fixed_times, directions, cache,
+                                coupling_array=ca)
             return (_real_or_raise(val, self._e_psi,
                                    where=' (qmc, zero-dimensional)'), 0.0)
 
@@ -3625,7 +3750,11 @@ class DiagramIntegrand:
                 values[s] = 0.0
                 continue
 
-            result = self.evaluate(times, directions, cache)
+            ca = (self.dynamic_coupling_array(times, directions,
+                                              default_position=direction)
+                  if dyn else None)
+            result = self.evaluate(times, directions, cache,
+                                   coupling_array=ca)
             val = _real_or_raise(result, self._e_psi, where=' (qmc)')
             values[s] = val * jacobian
 
