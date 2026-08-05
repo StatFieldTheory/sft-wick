@@ -458,9 +458,36 @@ def test_SP9_average_rejects_a_transposed_layout():
     out = dens.average(lambda h: np.stack([h, h ** 2]))
     assert out.shape == (2,)
     assert out[1] == pytest.approx(0.2 * 1 + 0.3 * 4 + 0.5 * 16)
-    # transposed layout is rejected, not silently contracted
-    with pytest.raises(ValueError, match="LAST axis"):
+    # transposed layout is rejected with a diagnostic message (numpy's bare
+    # tensordot already raised on it -- the check buys the message)
+    with pytest.raises(ValueError, match="node axis"):
         dens.average(lambda h: np.stack([h, h ** 2], axis=-1))
+    # ... and `node_axis=` resolves it, including the square case that no
+    # shape check can disambiguate
+    out2 = dens.average(lambda h: np.stack([h, h ** 2], axis=-1), node_axis=0)
+    assert out2.shape == (2,)
+    assert out2[1] == pytest.approx(0.2 * 1 + 0.3 * 4 + 0.5 * 16)
+    # The square case, which is the whole reason `node_axis` exists.  Assert
+    # BOTH axes: `node_axis=1` on a (3, 3) array is the default `-1`, so
+    # asserting only that one would pass against an implementation that
+    # ignored the parameter entirely in exactly the situation it is for.
+    sq = np.stack([dens.nodes] * 3, axis=0)      # sq[i, j] = nodes[j]
+    assert dens.average(lambda h: sq, node_axis=1) == pytest.approx(
+        np.full(3, 0.2 * 1 + 0.3 * 2 + 0.5 * 4))
+    assert dens.average(lambda h: sq, node_axis=0) == pytest.approx(
+        dens.nodes)                              # each column is constant
+    # and the two really are different, so the assertion pair discriminates
+    assert not np.allclose(dens.average(lambda h: sq, node_axis=0),
+                           dens.average(lambda h: sq, node_axis=1))
+
+    # `node_axis` is validated, so a typo names the parameter at fault rather
+    # than dying inside numpy
+    for bad in (7, -5):
+        with pytest.raises(ValueError, match="node_axis"):
+            dens.average(lambda h: sq, node_axis=bad)
+    for bad in (1.0, None, True):    # bool sneaks past shape[True] == shape[1]
+        with pytest.raises(TypeError, match="node_axis"):
+            dens.average(lambda h: sq, node_axis=bad)
 
 
 def test_SP9_density_is_comparable_and_hashable():
