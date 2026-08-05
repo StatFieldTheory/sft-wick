@@ -702,12 +702,24 @@ def test_CF13_propagators_cache_path_round_trip(tmp_path: Path) -> None:
     # WARM the lazy table -- a cold one materialises no spline at all, which
     # is why this cell used to be vacuous: it stayed green straight through
     # the CubicSpline breakage that a27ba00 had to fix.
+    #
+    # Scope, measured: this config uses `c_closed_form`, so only the LAZY
+    # spatial builder runs and the legacy `precompute_C_table` never does.
+    # CF13 therefore catches a serialisation regression in the lazy path
+    # (verified by reverting `_diag_line_interp` -- CF13 fails) but NOT one
+    # confined to the legacy table's own diagonal container.  F23 covers all
+    # four cache flavours directly.
     _inner.C_at_batch(
         np.array([1.0]), np.array([1.0]), np.array([0.0]), np.array([0.0]),
     )
-    assert (getattr(_inner, "_c_splines", None) is not None
-            or getattr(_inner, "_lazy_translation", None) is not None), (
-        "the dumped cache carries no C table even after warming"
+    # `_lazy_translation` is non-None even on a COLD cache, so an `or` over
+    # the two attributes cannot fail -- assert the lazy cache actually holds a
+    # BUILT spline for the position we just warmed it at.
+    _lazy = getattr(_inner, "_lazy_translation", None)
+    _built = getattr(_lazy, "_splines_by_key", None)
+    assert (_built or getattr(_inner, "_c_splines", None) is not None), (
+        "the dumped cache holds no materialised interpolator even after "
+        "warming, so this round-trip cannot detect a serialisation regression"
     )
     # Now round-trip the WARM cache -- the state a real `cache_path` user
     # reloads after a completed sweep, and the one that actually exercises
