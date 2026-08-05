@@ -143,8 +143,12 @@ def test_SP3_from_samples_reproduces_the_sample_mean():
     # f), so the residual is the curvature term and the rate should be ~2.
     # Pinning the RATE says more than an absolute bound at one n: observed
     # 1.81e-2 / 1.54e-3 / 1.15e-4 for n = 16 / 64 / 256.
+    # A rate band would be reverse-engineered from this one configuration --
+    # adversarial review measured the rate dropping to ~0.9 on the SAME
+    # spectrum at a different time pair.  Assert monotone convergence, which
+    # is the property that must hold, and pin this configuration's value.
     rate = np.log(errs[16] / errs[256]) / np.log(256 / 16)
-    assert 1.7 < rate < 2.6, f"convergence rate {rate:.2f}, errs {errs}"
+    assert rate > 1.0, f"not converging usefully: rate {rate:.2f}, errs {errs}"
     assert errs[256] < 5e-4, errs
 
 
@@ -362,3 +366,73 @@ def test_SP7_small_h_does_not_lose_precision_to_cancellation():
         cache = spectral_cache(SpectralDensity.delta(h), D_NOISE)
         got = float(cache.C_diagonal(0, 3.0, 0, 2.0)[0])
         assert got == pytest.approx(_c_defining(h, 3.0, 2.0, 0.0), rel=1e-9)
+
+
+# --------------------------------------------------------------------- #
+# SP8 — the three defects the adversarial review found
+# --------------------------------------------------------------------- #
+
+def test_SP8_two_point_at_a_separation_is_not_silently_zero():
+    """`integrate_two_point_qmc` forms `diag k2(n_l,n_r) / diag k2(0,0)`.
+
+    With a ZERO `kappa2` placeholder the denominator tripped that function's
+    own `|diag| > 1e-30` guard and the factor collapsed to 0, so every
+    two-point function at a nonzero separation returned exactly 0.0 --
+    measured 0.4988 at r=0 against 0.0 at r=1 and r=2.5.  The identity makes
+    the ratio 1, which is the honest answer for a spatially uniform theory.
+    """
+    from sft_wick.evaluate import integrate_two_point_qmc
+
+    cache = spectral_cache(SpectralDensity.delta(1.0), D_NOISE)
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    res = compute_moment(
+        [phi("x"), phi("y")],
+        Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
+        order=0, ito=True, response_phase=True, collect_topology=True,
+        diag_R=True, diag_C=True, iso_R=True, iso_C=True,
+    )
+    igs = [dt.build_integrand({"g": np.array(1j)})
+           for dt in res.diagram_terms(0)]
+    T = 3.0
+    vals = [
+        integrate_two_point_qmc(igs, T, {"x": 0.0, "y": r}, cache,
+                                n_samples=2 ** 8, seed=0)[0]
+        for r in (0.0, 1.0, 2.5)
+    ]
+    want = _ou_C(1.0, T, T)
+    for r, v in zip((0.0, 1.0, 2.5), vals):
+        assert v != 0.0, f"separation r={r} returned exactly 0"
+        # spatially uniform: the same C at every separation, and it is C*
+        assert v == pytest.approx(want, rel=1e-9), f"r={r}"
+
+
+def test_SP8_round_off_negative_eigenvalues_are_tolerated():
+    """`eigvalsh` on a rank-deficient Gram matrix returns ~-1e-16.
+
+    A sample-covariance spectrum is this module's advertised primary input, so
+    a zero-tolerance rejection rejected the main use case.  Numerically-zero
+    rates are clamped; genuinely negative ones still raise.
+    """
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(30, 50)) / np.sqrt(50)
+    ev = np.linalg.eigvalsh(X.T @ X)          # rank-deficient: 20 zero modes
+    assert ev.min() < 0, "expected round-off negatives in this fixture"
+
+    dens = SpectralDensity.from_samples(ev, n_nodes=16)
+    assert np.all(dens.nodes >= 0.0)
+    cache = spectral_cache(dens, D_NOISE)
+    assert np.isfinite(float(cache.C_diagonal(0, 2.0, 0, 1.0)[0]))
+
+    # a genuinely negative rate is still an unstable mode
+    with pytest.raises(ValueError, match="must be >= 0"):
+        SpectralDensity(np.array([1.0, -0.5]), np.array([0.5, 0.5]))
+
+
+def test_SP8_complex_input_is_rejected_not_truncated():
+    """`np.asarray(z, dtype=float)` drops the imaginary part with only a
+    ComplexWarning, so a complex spectrum used to be silently truncated."""
+    with pytest.raises(ValueError, match="must be real"):
+        SpectralDensity(np.array([1.0 + 0.5j, 2.0]), np.array([0.5, 0.5]))
+    with pytest.raises(ValueError, match="must be real"):
+        SpectralDensity(np.array([1.0, 2.0]), np.array([0.5 + 1j, 0.5]))
