@@ -66,6 +66,11 @@ from .evaluate import (
     integrate_moment,
     integrate_two_point_qmc,
 )
+from .selfconsistency import (
+    SelfConsistencyResult,
+    max_abs_distance,
+    solve_self_consistency,
+)
 from .spectral import (
     SpectralDensity,
     SpectralPropagatorCache,
@@ -108,6 +113,9 @@ from .workflow import (  # noqa: E402
 )
 
 __all__ = [
+    "SelfConsistencyResult",
+    "max_abs_distance",
+    "solve_self_consistency",
     "SpectralDensity",
     "SpectralPropagatorCache",
     "spectral_cache",
