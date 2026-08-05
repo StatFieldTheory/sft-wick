@@ -36,7 +36,7 @@ Example::
 """
 
 from .expansion import Expansion
-from .propagators import Propagators
+from .propagators import Propagators, propagators_from_cache
 from .r_contracted import build_R_contracted_callable
 from .result import Result, SweepResult
 from .specs import (
@@ -64,6 +64,7 @@ from .specs import (
 from .system import System
 
 __all__ = [
+    "propagators_from_cache",
     "build_R_contracted_callable",
     "ConstantImpulse",
     "CustomImpulse",

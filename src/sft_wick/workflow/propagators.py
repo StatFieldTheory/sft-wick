@@ -243,6 +243,27 @@ class Propagators:
         )
 
 
+def propagators_from_cache(cache, *, homogeneity: str = "translation",
+                          is_lazy: bool = False) -> "Propagators":
+    """Wrap a hand-built :class:`~sft_wick.evaluate.PropagatorCache` as a
+    :class:`Propagators`, so it can be passed to
+    :meth:`~sft_wick.workflow.Expansion.evaluate` / ``sweep``.
+
+    ``System.propagators()`` builds a cache FROM the system's own model, which
+    is the right default -- but it leaves no way to use a cache that does not
+    come from a ``System`` at all.  The disorder-averaged
+    :func:`sft_wick.spectral.spectral_cache` is exactly that: its ``R`` and
+    ``C`` come from a spectrum, not from the system's ``kappa2``.  Without this
+    the whole L1 workflow layer was closed to it.
+
+    The caller is responsible for the cache matching the expansion's component
+    count; nothing here can check that, because a cache carries no record of
+    which system it was meant for.
+    """
+    return Propagators(cache=cache, homogeneity=str(homogeneity),
+                       is_lazy=bool(is_lazy))
+
+
 class _ClosedFormPropagatorCache(PropagatorCache):
     """PropagatorCache that delegates ``_C_value_direct`` to a user callable.
 
