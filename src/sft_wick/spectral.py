@@ -255,29 +255,50 @@ class SpectralDensity:
 
     # -- spectral averages -------------------------------------------- #
 
-    def average(self, f: Callable[[np.ndarray], np.ndarray]) -> np.ndarray:
+    def average(self, f: Callable[[np.ndarray], np.ndarray],
+                node_axis: int = -1) -> np.ndarray:
         """``sum_i w_i f(h_i)``, contracting over the node axis.
 
         ``f`` is called once with the whole node array and must return
         something whose **last** axis is the node axis -- shape ``(n_nodes,)``
         for a scalar-valued ``f``, or ``(..., n_nodes)`` for a vector-valued
         one.  The natural per-node layout ``(n_nodes, k)`` is the transpose of
-        that and is rejected with a diagnostic message -- though numpy's own
-        ``tensordot`` already raised on it, so this is a better error, not new
-        safety.  It is caught only because its last axis has the wrong
-        LENGTH.  When ``k == n_nodes`` the layouts are indistinguishable by
-        shape alone and the square case is still contracted along the last
-        axis, which may not be the one you meant.  There is no way to detect
-        that from the array; pass the node axis last.
+        that; it is caught only because its last axis has the wrong LENGTH,
+        and numpy's own ``tensordot`` already raised on it, so the check buys a
+        message rather than safety.
+
+        When ``k == n_nodes`` the two layouts are indistinguishable by shape,
+        and no check can tell them apart -- so say which axis you mean with
+        ``node_axis`` instead of relying on the default.  Note that in exactly
+        that square case the length check above is vacuous, so a wrong
+        ``node_axis`` returns a wrong NUMBER rather than raising: the
+        parameter is a declaration by the caller, not something the array can
+        confirm.
         """
         vals = np.asarray(f(self.nodes), dtype=float)
-        if vals.ndim == 0 or vals.shape[-1] != self.n_nodes:
-            raise ValueError(
-                f"f must return an array whose LAST axis is the node axis "
-                f"(length {self.n_nodes}); got shape {vals.shape}.  If your f "
-                f"produces {(self.n_nodes, '...')}-shaped output, transpose it."
+        # Validate `node_axis` itself before indexing with it: an out-of-range
+        # value would surface as a bare `IndexError: tuple index out of range`
+        # from the shape lookup, and `node_axis=True` would sail past the
+        # length check (`shape[True]` is `shape[1]`) only to die inside
+        # tensordot.  Neither names the parameter at fault.
+        if isinstance(node_axis, bool) or not isinstance(node_axis, (int,
+                                                                     np.integer)):
+            raise TypeError(
+                f"node_axis must be an integer; got {node_axis!r}."
             )
-        return np.tensordot(vals, self.weights, axes=([-1], [0]))
+        node_axis = int(node_axis)
+        if vals.ndim == 0 or not (-vals.ndim <= node_axis < vals.ndim):
+            raise ValueError(
+                f"node_axis={node_axis} is out of range for the shape "
+                f"{vals.shape} that f returned."
+            )
+        if vals.shape[node_axis] != self.n_nodes:
+            raise ValueError(
+                f"f must return an array whose axis {node_axis} is the node "
+                f"axis (length {self.n_nodes}); got shape {vals.shape}.  Pass "
+                f"`node_axis=` if the node axis is not the last one."
+            )
+        return np.tensordot(vals, self.weights, axes=([node_axis], [0]))
 
     def __eq__(self, other) -> bool:
         """Value equality.
