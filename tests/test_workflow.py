@@ -33,6 +33,8 @@ WF5        ``SweepResult.totals()`` returns a pandas DataFrame
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -490,3 +492,89 @@ def test_WF11_guards_reject_the_three_silent_failures(demo1_system):
             external_times_grid={"final": [4.0], "y": [1.0]},
             component_pairs=[(0, 0)], orders=[0], method="nquad",
         )
+
+
+# =====================================================================
+# WF12 — the spatially-structureless-cache guard, rebuilt after review
+# =====================================================================
+
+def _wf12_setup():
+    from sft_wick.workflow.propagators import propagators_from_cache
+    dens = sw.SpectralDensity.from_samples(np.array([0.8, 1.0, 1.4]))
+    props = propagators_from_cache(
+        sw.spectral_cache(dens, noise_D=1.0, n_components=2))
+    system = sw.System(
+        field=sw.FieldSpec("phi", n_components=2),
+        linear=sw.DiagonalA(gamma=[1.0, 1.0]),
+        noise=sw.GaussianNoise(kappa2=sw.SeparableTranslation(
+            temporal=sw.ExponentialTemporal(lam=0.05, sigma_t=0.3),
+            spatial=sw.ExponentialSpatial(sigma_x=1.0))),
+    )
+    return system, props
+
+
+def _spatial_warnings(fn):
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        fn()
+    return [w for w in caught if "no spatial structure" in str(w.message)]
+
+
+_WF12_KW = dict(t_final_grid=[1.0], component_pairs=[(0, 0)], orders=[0],
+                method="nquad")
+
+
+def test_WF12_a_structureless_cache_warns_once_per_multi_separation_sweep():
+    """A cache with no spatial table returns the same C at every separation,
+    so the sweep produces a column of identical numbers next to a varying
+    position column.
+
+    The question is about the SWEEP -- "does this grid cover more than one
+    position configuration" -- and is answerable only where the grid is.
+    Asked per grid point instead ("are this point's two externals at different
+    places?") it gets both halves wrong, which is what the first version did:
+    silent on a sweep over one position key, and firing on every ordinary
+    single-separation ``evaluate(x != y)``.
+    """
+    system, props = _wf12_setup()
+    exp2 = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0])
+
+    hits = _spatial_warnings(lambda: exp2.sweep(
+        props, positions_grid={"x": [0.0], "y": [0.0, 0.5, 1.0]},
+        n_jobs=1, **_WF12_KW))
+    assert len(hits) == 1, f"expected exactly one warning, got {len(hits)}"
+
+    # and it must survive n_jobs > 1: the per-grid-point path runs inside a
+    # loky subprocess, whose warnings never reach the parent
+    hits = _spatial_warnings(lambda: exp2.sweep(
+        props, positions_grid={"x": [0.0], "y": [0.0, 0.5, 1.0]},
+        n_jobs=2, **_WF12_KW))
+    assert len(hits) == 1, "the warning was lost to the worker processes"
+
+    # a sweep over a SINGLE position key still varies the separation
+    exp1 = system.expand(("phi_a(x)", "phi_b(x)"), orders=[0])
+    hits = _spatial_warnings(lambda: exp1.sweep(
+        props, positions_grid={"x": [0.0, 0.5, 1.0]}, n_jobs=1, **_WF12_KW))
+    assert len(hits) == 1, "a one-key sweep over three positions was missed"
+
+
+def test_WF12_the_guard_does_not_fire_on_the_ordinary_cases():
+    """A warning that fires on normal use is worse than none: users learn to
+    filter it, and it is then absent when it matters."""
+    system, props = _wf12_setup()
+    exp2 = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0])
+
+    # a plain single-separation evaluate, x != y -- no sweep, no column
+    assert not _spatial_warnings(lambda: exp2.evaluate(
+        props, positions={"x": 0.0, "y": 1.0}, t_final=1.0,
+        component_pair=(0, 0), orders=[0], method="nquad"))
+
+    # a sweep pinned to one position configuration
+    assert not _spatial_warnings(lambda: exp2.sweep(
+        props, positions_grid={"x": [0.0], "y": [1.0]}, n_jobs=1, **_WF12_KW))
+
+    # a cache that DOES carry spatial structure
+    spatial_props = system.propagators(t_max=2.0, n_grid_t=9)
+    assert not _spatial_warnings(lambda: exp2.sweep(
+        spatial_props, positions_grid={"x": [0.0], "y": [0.0, 0.5]},
+        t_final_grid=[1.0], component_pairs=[(0, 0)], orders=[0]))
