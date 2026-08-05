@@ -243,6 +243,29 @@ class Propagators:
         )
 
 
+def propagators_from_cache(cache) -> "Propagators":
+    """Wrap a hand-built :class:`~sft_wick.evaluate.PropagatorCache` as a
+    :class:`Propagators`, so it can be passed to
+    :meth:`~sft_wick.workflow.Expansion.evaluate` / ``sweep``.
+
+    ``System.propagators()`` builds a cache FROM the system's own model, which
+    is the right default -- but it gives no supported way to use a cache that
+    does not come from a ``System`` at all.  The disorder-averaged
+    :func:`sft_wick.spectral.spectral_cache` is exactly that: its ``R`` and
+    ``C`` come from a spectrum, not from the system's ``kappa2``.
+
+    (``Propagators`` is a plain dataclass, so a determined caller could always
+    have constructed one by hand; what this adds is a supported, named entry
+    point -- not a capability that was absent.)
+
+    The component count is NOT checked here, because a cache carries no record
+    of which system it was meant for.  It IS checked at use, in
+    :meth:`Expansion.evaluate`, where both numbers are known.
+    """
+    return Propagators(cache=cache, homogeneity="translation", is_lazy=False)
+
+
+
 class _ClosedFormPropagatorCache(PropagatorCache):
     """PropagatorCache that delegates ``_C_value_direct`` to a user callable.
 

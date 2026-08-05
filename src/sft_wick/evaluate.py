@@ -291,6 +291,13 @@ def analyze_spatial(dt: "DiagramTerm") -> SpatialStructure:
 #: substitution error from using the diagonal spline is bounded by
 #: sigma2 * _DIAG_TOL -- orders below the table's own accuracy, hence never
 #: the worse choice.
+#: Position arrays above this size skip the C cache rather than build a key
+#: out of their bytes.  Positions are scalars or a few components in every
+#: shipped path, so this is a guard, not a regime anyone is in.
+_CACHE_KEY_MAX_BYTES = 4096
+
+#: Two times are treated as ON the C-table diagonal when they differ by no
+#: more than this, relatively.
 _DIAG_TOL = 1e-9
 
 _REALITY_TOL = 1e-9
@@ -1520,9 +1527,33 @@ class PropagatorCache:
                 return self._C_value_from_table(t1, t2)
 
         # Check (n1, t1, n2, t2) LRU cache
+        # Cacheability is decided DURING key construction, not by inspecting
+        # the finished key.  A membership test on the outer tuple only sees
+        # the top level, so an oversized array nested in a list/tuple left the
+        # singleton sentinel buried inside the key -- and two different
+        # positions then produced the SAME key.  Measured: C at nested
+        # position 5.0 returned position 1.0's value, one memo entry for two
+        # distinct positions.  That was a live silent wrong number, worse and
+        # far more reachable than the id() collision it replaced.
+        cacheable = True
+
         def _cache_key_part(obj):
+            nonlocal cacheable
             if isinstance(obj, np.ndarray):
-                return ("ndarray", id(obj))
+                # Key on CONTENTS, not id().  `id()` is only unique among
+                # LIVE objects: CPython recycles the address of a freed
+                # temporary, so two different position arrays can collide and
+                # the cache then returns one separation's C for another.  I
+                # could not force such a collision in 200k attempts, so the
+                # practical reachability is low -- but the key was wrong, and
+                # a value key is both correct and cheap here, since positions
+                # are scalars or a handful of components.  Arrays above
+                # `_CACHE_KEY_MAX_BYTES` skip the cache rather than build a
+                # huge key.
+                if obj.nbytes > _CACHE_KEY_MAX_BYTES:
+                    cacheable = False
+                    return None
+                return ("ndarray", obj.shape, obj.dtype.str, obj.tobytes())
             if isinstance(obj, list):
                 return tuple(_cache_key_part(v) for v in obj)
             if isinstance(obj, tuple):
@@ -1530,14 +1561,15 @@ class PropagatorCache:
             return obj
 
         cache_key = (_cache_key_part(n1), t1, _cache_key_part(n2), t2)
-        if cache_key in self._c_cache:
+        if cacheable and cache_key in self._c_cache:
             return self._c_cache[cache_key]
 
         # Delegate to ``_C_value_direct`` (which adds the white-noise
         # 1-D contribution when ``model.sigma2`` is set), then store
         # in the per-arg LRU.
         C_mat = self._C_value_direct(n1, t1, n2, t2)
-        self._c_cache[cache_key] = C_mat
+        if cacheable:
+            self._c_cache[cache_key] = C_mat
         return C_mat
 
     def C_diagonal(
@@ -1556,8 +1588,13 @@ class PropagatorCache:
             n_prime = n
         if t2 is None:
             t2 = t1
-        # Fast path: spline table
-        if self._c_splines is not None:
+        # Fast path: legacy time-only spline table -- but ONLY when there is
+        # no spatial table.  `C_value` checks the spatial table FIRST, so
+        # taking the legacy one here regardless meant the two accessors
+        # disagreed by ~38% whenever both tables were present: this one is
+        # position-blind, that one is not.  Same precedence in both now.
+        if (self._c_splines is not None and self.model.diag_C
+                and not _cache_has_spatial_table(self)):
             lo, hi = self._c_table_range  # type: ignore[misc]
             if lo <= t1 <= hi and lo <= t2 <= hi:
                 return self._C_diagonal_from_table(t1, t2)

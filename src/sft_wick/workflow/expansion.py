@@ -291,6 +291,20 @@ class Expansion:
 
         from sft_wick.evaluate import integrate_diagrams
 
+        # A cache built outside `System.propagators()` (see
+        # `propagators_from_cache`) carries no record of which system it was
+        # meant for.  An UNDER-counted one silently returns a wrong number
+        # rather than failing, so check here, where both counts are known.
+        _cache_n = getattr(getattr(propagators, "cache", None), "model", None)
+        _cache_n = getattr(_cache_n, "n_components", None)
+        if _cache_n is not None and int(_cache_n) != int(self.system.n_components):
+            raise ValueError(
+                f"the propagator cache has n_components={_cache_n} but the "
+                f"expansion's system has {self.system.n_components}.  A "
+                f"mismatched cache does not fail on its own -- it silently "
+                f"returns a wrong number."
+            )
+
         _guard_external_times(
             self, propagators, external_times, "Expansion.evaluate",
         )

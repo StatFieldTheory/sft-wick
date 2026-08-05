@@ -168,8 +168,14 @@ class SpectralDensity:
         total = float(weights.sum())
         if total <= 0:
             raise ValueError("weights must not sum to zero.")
-        object.__setattr__(self, "nodes", nodes)
-        object.__setattr__(self, "weights", weights / total)
+        # Normalise -0.0 to 0.0.  `np.array_equal` treats them as equal but
+        # `tobytes()` does not, so without this two densities could compare
+        # equal and hash differently -- which breaks every dict and set.
+        nodes = nodes + 0.0
+        weights = weights / total + 0.0
+        object.__setattr__(self, "nodes", np.where(nodes == 0.0, 0.0, nodes))
+        object.__setattr__(
+            self, "weights", np.where(weights == 0.0, 0.0, weights))
 
     # -- constructors ------------------------------------------------- #
 
@@ -204,8 +210,14 @@ class SpectralDensity:
         s = np.asarray(samples, dtype=float).ravel() + float(shift)
         if s.size == 0:
             raise ValueError("no samples given.")
+        if int(n_nodes) < 1:
+            raise ValueError(
+                f"n_nodes must be >= 1; got {n_nodes!r}.  It used to collapse "
+                f"silently to a single node, turning the whole spectrum into "
+                f"its mean."
+            )
         s = np.sort(s)
-        n_nodes = int(min(max(1, n_nodes), s.size))
+        n_nodes = int(min(n_nodes, s.size))
         # Equal-mass bins: split the sorted samples into n_nodes contiguous
         # groups of (nearly) equal count.
         edges = np.linspace(0, s.size, n_nodes + 1).astype(int)
@@ -244,9 +256,43 @@ class SpectralDensity:
     # -- spectral averages -------------------------------------------- #
 
     def average(self, f: Callable[[np.ndarray], np.ndarray]) -> np.ndarray:
-        """``sum_i w_i f(h_i)`` with ``f`` broadcast over the nodes."""
+        """``sum_i w_i f(h_i)``, contracting over the node axis.
+
+        ``f`` is called once with the whole node array and must return
+        something whose **last** axis is the node axis -- shape ``(n_nodes,)``
+        for a scalar-valued ``f``, or ``(..., n_nodes)`` for a vector-valued
+        one.  The natural per-node layout ``(n_nodes, k)`` is the transpose of
+        that and is rejected -- but only because its last axis has the wrong
+        LENGTH.  When ``k == n_nodes`` the layouts are indistinguishable by
+        shape alone and the square case is still contracted along the last
+        axis, which may not be the one you meant.  There is no way to detect
+        that from the array; pass the node axis last.
+        """
         vals = np.asarray(f(self.nodes), dtype=float)
+        if vals.ndim == 0 or vals.shape[-1] != self.n_nodes:
+            raise ValueError(
+                f"f must return an array whose LAST axis is the node axis "
+                f"(length {self.n_nodes}); got shape {vals.shape}.  If your f "
+                f"produces {(self.n_nodes, '...')}-shaped output, transpose it."
+            )
         return np.tensordot(vals, self.weights, axes=([-1], [0]))
+
+    def __eq__(self, other) -> bool:
+        """Value equality.
+
+        The generated dataclass ``__eq__`` compares ndarrays with ``==`` and
+        then calls ``bool()`` on the result, which raises -- so a density could
+        not be compared at all.
+        """
+        if not isinstance(other, SpectralDensity):
+            return NotImplemented
+        return (np.array_equal(self.nodes, other.nodes)
+                and np.array_equal(self.weights, other.weights))
+
+    def __hash__(self) -> int:
+        """Hash on contents, so a density can key a memo or live in a set."""
+        return hash((self.nodes.tobytes(), self.weights.tobytes(),
+                     self.nodes.shape))
 
     @property
     def n_nodes(self) -> int:
@@ -333,6 +379,17 @@ class SpectralPropagatorCache(PropagatorCache):
         self, density: SpectralDensity, noise_D: float, *,
         n_components: int = 1, t_min: float = 0.0,
     ):
+        if not np.isfinite(noise_D) or noise_D < 0:
+            raise ValueError(
+                f"noise_D is the noise amplitude D in <xi xi> = 2 D delta and "
+                f"must be finite and >= 0; got {noise_D!r}."
+            )
+        if int(n_components) < 1:
+            raise ValueError(
+                f"n_components must be >= 1; got {n_components!r}."
+            )
+        if not np.isfinite(t_min):
+            raise ValueError(f"t_min must be finite; got {t_min!r}.")
         self.density = density
         self.noise_D = float(noise_D)
         self._n = int(n_components)
@@ -381,9 +438,27 @@ class SpectralPropagatorCache(PropagatorCache):
                           self._t_min)),
         )
 
+    def clear_cache(self) -> None:
+        """Drop the memo but keep the batch-C sentinel.
+
+        The inherited ``clear_cache`` sets ``_c_splines = None``, which for a
+        table-backed cache means "the table is gone".  Here it is a capability
+        flag -- ``C_diagonal_batch`` is a method, not a table -- so clearing it
+        would silently demote every backend to the scalar Python loop.
+        """
+        super().clear_cache()
+        self._c_splines = True
+
     def C_diagonal_batch(self, t1, t2) -> np.ndarray:
-        vals = _c_star(self.density, t1, t2, self.noise_D, self._t_min)
-        return np.repeat(np.atleast_1d(vals)[:, None], self._n, axis=1)
+        """``(..., N)`` -- the component axis is APPENDED.
+
+        ``np.atleast_1d(vals)[:, None]`` inserted it at position 1 instead,
+        which is the same thing for the 1-D time arrays every backend passes
+        but silently wrong for a 2-D one.
+        """
+        vals = np.atleast_1d(
+            _c_star(self.density, t1, t2, self.noise_D, self._t_min))
+        return np.repeat(vals[..., None], self._n, axis=-1)
 
 
 def spectral_cache(
