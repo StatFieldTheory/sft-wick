@@ -168,8 +168,14 @@ class SpectralDensity:
         total = float(weights.sum())
         if total <= 0:
             raise ValueError("weights must not sum to zero.")
-        object.__setattr__(self, "nodes", nodes)
-        object.__setattr__(self, "weights", weights / total)
+        # Normalise -0.0 to 0.0.  `np.array_equal` treats them as equal but
+        # `tobytes()` does not, so without this two densities could compare
+        # equal and hash differently -- which breaks every dict and set.
+        nodes = nodes + 0.0
+        weights = weights / total + 0.0
+        object.__setattr__(self, "nodes", np.where(nodes == 0.0, 0.0, nodes))
+        object.__setattr__(
+            self, "weights", np.where(weights == 0.0, 0.0, weights))
 
     # -- constructors ------------------------------------------------- #
 
@@ -256,8 +262,11 @@ class SpectralDensity:
         something whose **last** axis is the node axis -- shape ``(n_nodes,)``
         for a scalar-valued ``f``, or ``(..., n_nodes)`` for a vector-valued
         one.  The natural per-node layout ``(n_nodes, k)`` is the transpose of
-        that and is rejected rather than silently contracted along the wrong
-        axis, which is what an unchecked ``tensordot`` would do.
+        that and is rejected -- but only because its last axis has the wrong
+        LENGTH.  When ``k == n_nodes`` the layouts are indistinguishable by
+        shape alone and the square case is still contracted along the last
+        axis, which may not be the one you meant.  There is no way to detect
+        that from the array; pass the node axis last.
         """
         vals = np.asarray(f(self.nodes), dtype=float)
         if vals.ndim == 0 or vals.shape[-1] != self.n_nodes:
