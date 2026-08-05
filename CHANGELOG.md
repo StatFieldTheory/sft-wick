@@ -11,6 +11,47 @@
 
 ### Added
 
+- **`sft_wick.selfconsistency` — the fixed-point driver.**
+  `solve_self_consistency(initial, step, ...)` iterates, mixes, and is honest
+  about what happened. The package could compute a self-energy but nothing in
+  it iterated, so every DMFT-style use was one pass of a loop the caller wrote
+  by hand, usually without convergence diagnostics.
+
+  The Dyson solve is **deliberately not** attempted: it is model-specific and
+  is genuinely an integral-equation solve rather than a diagram evaluation, so
+  a wrong general one would be worse than none. You supply it as `step`.
+
+  It never returns a bare state — a non-converged iteration looks exactly like
+  a converged one if you only print the last state. The result carries
+  `converged`, the residual history, and a `reason` in
+  `converged / diverged / oscillating / max_iter`; `bool(result)` is
+  `converged`. Four failure modes it is specifically built to avoid reporting
+  as success are documented in the module docstring and in
+  `docs/api/selfconsistency.rst`, each with a regression test. Linear mixing
+  only — no Anderson acceleration, which matters near a transition.
+
+- **Callable (spacetime-dependent) couplings now work with MATRIX-valued
+  response propagators.** This combination was previously computable by *no*
+  backend at any cumulant order: `method='qmc'` refused callables, while
+  `qmc_vectorized` and `gauss_legendre` refuse matrix `R`. Worse, the scalar
+  loop's error message named the other two, which refuse for the *other*
+  reason — a loop of three `NotImplementedError`s with no exit. It is the
+  natural disorder-averaged-with-components configuration.
+
+  The scalar loop is in fact the natural home for the per-sample callable
+  contract, since it already visits one sample at a time.
+  `DiagramIntegrand.evaluate()` takes a `coupling_array=` override, and
+  `dynamic_coupling_array()` materialises it. Verified against
+  `qmc_vectorized` where both are legal, against the static-tensor path at the
+  same point (exact agreement in both), and against three closed-form
+  one-dimensional integrals.
+
+- **`SpectralDensity.average(f, node_axis=-1)`.** When the array `f` returns is
+  square, which axis indexes the spectral nodes is ambiguous by shape and no
+  check can resolve it; `node_axis=` states it at the call site. Note that in
+  exactly that square case a *wrong* `node_axis` returns a wrong number rather
+  than raising — the parameter is a declaration the array cannot confirm.
+
 - **`propagators_from_cache`** wraps a hand-built `PropagatorCache` as a
   `Propagators`, so the L1 workflow API can be driven by a cache that does not
   come from a `System` — which the spectral one does not, since its `R` and
@@ -79,6 +120,60 @@
   C directly, without subclassing and overriding semi-private methods.
 
 ### Fixed
+
+- **`_mix` coerced the state's leaf through `np.asarray`.** The container
+  branches preserve dict / list / tuple / namedtuple, but the leaf did not, so
+  a state whose leaves are array-*like* rather than `ndarray` — a JAX or torch
+  array — reached `step` as its own type on iteration 1 and as a plain host
+  `ndarray` from iteration 2 onward, silently moving a device array off the
+  device. Only `damping > 0` reached the coercion, so it was invisible in the
+  default configuration and appeared exactly when the caller took the module's
+  own advice to add damping.
+
+- **The C-value memo lost an ndarray subclass's identity.**
+  `np.ascontiguousarray` downcasts a subclass to a base array, so a masked
+  array's `tobytes` override never ran and the mask vanished from the key: two
+  positions differing only in their mask shared one entry. `tobytes()` already
+  serialises in C order whatever the memory layout, so the
+  `ascontiguousarray` call bought nothing and cost this.
+
+- **Object-dtype positions were keyed on recyclable pointers.** An object
+  array's buffer is raw `PyObject*` values, and an address is unique only among
+  *live* objects — the same defect as keying on `id()`. Those are no longer
+  memoised at all, and the refusal is decided from inside the recursion, so a
+  nested object array is caught too.
+
+- **The memo entry was frozen in place rather than copied.**
+  `_C_value_direct` ends in `np.asarray`, the identity for a float64 array, so
+  marking the result read-only flipped the flag on the *user's* object and
+  broke any `c_value_fn` returning a reused buffer or a module-level constant.
+  Copied first now; the memo is still handed out read-only, since it is the
+  cache entry itself and a caller doing `C += x` would rewrite every later
+  lookup.
+
+- **The memo rode into every parallel worker.** All three
+  `precompute_C_table_*` builders dispatch a closure referencing `self`, so a
+  full memo was serialised into each worker payload — tens of megabytes,
+  growing as `N^2`, and useless to the worker, which recomputes what it needs.
+  `__getstate__` empties it.
+
+- **`evaluate_at` ignored `coupling_vectorized=True`,** handing a callable
+  declared under the batched contract the per-sample one instead. Some batched
+  callables broadcast and return a plausible *wrong* shape rather than raising.
+
+- **A coupling leg that no propagator attaches to** has no `direction_map`
+  entry, and all backends raised a bare `KeyError` when the callable asked for
+  its position.
+
+- **`SpectralDensity.average` did not validate `node_axis`.** Out-of-range
+  values died with a bare `IndexError` from the shape lookup, and
+  `node_axis=True` sailed past the length check (`shape[True]` is `shape[1]`)
+  only to die inside `tensordot`. Neither names the parameter at fault.
+
+- **`max_abs_distance` subtracted in the input's integer dtype,** so the
+  difference wrapped modulo `2**nbits` and a state far from the fixed point
+  could report a distance small enough to satisfy `tol` — convergence declared
+  by overflow.
 
 - **The C cache keyed ndarray arguments on `id()`.** `id()` is unique only
   among *live* objects, so a freed position array's address can be recycled and
@@ -154,6 +249,16 @@
   raised instead of being skipped.
 
 ### Changed
+
+- **The spatially-uniform-cache warning moved to `Expansion.sweep`.** A cache
+  with no spatial table returns the same `C` at every separation, so a
+  positions sweep yields a column of identical numbers — correct for a
+  disorder-averaged single-site cache, a silent mistake otherwise. The
+  question is "does this *sweep* cover more than one position configuration",
+  which is answerable only where the grid is. Asked per grid point instead it
+  was silent on a sweep over a single position key and fired on every ordinary
+  single-separation `evaluate(x != y)` — and a warning that fires on normal
+  use is worse than none.
 
 - `ito=False` is documented as a **symbolic** switch. It keeps the equal-point
   R terms in the expression tree but does not change any number: Θ(0)=0 and the

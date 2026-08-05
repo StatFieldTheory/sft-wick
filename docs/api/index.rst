@@ -27,6 +27,7 @@ listed below are accessible directly from ``sft_wick``:
    wick
    propagators
    spectral
+   selfconsistency
    perturbation
    simplify
    evaluate

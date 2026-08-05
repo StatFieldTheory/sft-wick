@@ -11,7 +11,7 @@
 
 > 📖 **Documentation (API reference · user guide · theory background): <https://sft-wick.readthedocs.io>**
 
-`sft-wick` automates perturbative calculations for **stochastic (partial) differential equations** in the Martin–Siggia–Rose (MSR) response-field formalism. Starting from a Langevin-type field equation — a deterministic drift plus noise that may be non-Gaussian and spatially correlated — it builds the interaction action, applies **Wick's theorem** to expand arbitrary field moments order by order, and writes every term using just two two-point propagators: the correlation function *C* = ⟨φφ⟩ and the response (Green's) function *R* = ⟨φψ⟩. Diagrams are enumerated symbolically, rendered as Feynman graphs, and evaluated numerically — end to end, from a YAML config to theory-vs-simulation curves.
+`sft-wick` automates perturbative calculations for **stochastic (partial) differential equations** in the Martin–Siggia–Rose (MSR) response-field formalism. Starting from a Langevin-type field equation — a deterministic drift plus noise that may be non-Gaussian and spatially correlated — it builds the interaction action, applies **Wick's theorem** to expand arbitrary field moments order by order, and writes every term using just two two-point propagators: the correlation function *C* = ⟨φφ⟩ and the response (Green's) function *R* = ⟨φψ⟩. Diagrams are enumerated symbolically, rendered as Feynman graphs, and evaluated numerically — end to end, from a YAML config to theory-vs-simulation curves. For **self-consistent** (DMFT-style) problems, where the propagators define a self-energy that in turn defines the propagators, `solve_self_consistency` supplies the fixed-point iteration and its diagnostics.
 
 ## Installation
 
@@ -151,6 +151,37 @@ result = compute_moment(obs, Action(vertices=[]), order=0)
 print(result.order(0).to_latex())
 # Output: 3 R(x, x) C(x, x)
 ```
+
+## Self-consistent solutions
+
+Some problems are a **fixed point**: propagators define a self-energy, the
+self-energy defines new propagators, repeat. `solve_self_consistency` runs
+that loop, mixes, and reports what actually happened.
+
+```python
+from sft_wick import solve_self_consistency
+
+def step(state):
+    sigma = self_energy_from_diagrams(state)   # sft-wick computes this
+    return dyson_solve(sigma)                  # you supply this
+
+result = solve_self_consistency(initial, step, tol=1e-8, damping=0.3)
+if not result:                       # bool(result) is result.converged
+    raise RuntimeError(result.summary())
+R, C = result.state
+```
+
+The **Dyson solve is deliberately not provided**: it is model-specific and is
+genuinely an integral-equation solve rather than a diagram evaluation, so a
+wrong general one would be worse than none.
+
+The result is never a bare state, because a non-converged iteration looks
+exactly like a converged one if you only print the last state. It carries
+`converged`, the full residual history, and a `reason` — `converged`,
+`diverged`, `oscillating` (use damping) or `max_iter`. See
+[the API page](https://sft-wick.readthedocs.io/en/latest/api/selfconsistency.html)
+for the four specific ways a fixed-point loop can report a solution it never
+found, and what this one does about each.
 
 ## Background
 
