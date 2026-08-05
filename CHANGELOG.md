@@ -90,8 +90,10 @@
   present.** It consulted the legacy time-only table first while `C_value`
   consults the spatial one first, so the two accessors disagreed by ~38 % with
   both tables built. Same precedence in both now.
-- `sft_wick.spectral`: `average()` rejected a transposed layout instead of
-  contracting the wrong axis; `SpectralDensity` became comparable and hashable
+- `sft_wick.spectral`: `average()` gives a diagnostic error for a transposed
+  layout instead of numpy's shape error — a better message, not new safety:
+  that layout already raised. The genuinely ambiguous case, `k == n_nodes`,
+  is indistinguishable by shape and is documented rather than claimed fixed; `SpectralDensity` became comparable and hashable
   (the generated dataclass `__eq__` raised on ndarray fields);
   `C_diagonal_batch` appends the component axis rather than inserting it at
   position 1 (identical for 1-D times, wrong for 2-D); `clear_cache()` keeps

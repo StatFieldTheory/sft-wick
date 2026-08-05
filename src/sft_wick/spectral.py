@@ -262,7 +262,9 @@ class SpectralDensity:
         something whose **last** axis is the node axis -- shape ``(n_nodes,)``
         for a scalar-valued ``f``, or ``(..., n_nodes)`` for a vector-valued
         one.  The natural per-node layout ``(n_nodes, k)`` is the transpose of
-        that and is rejected -- but only because its last axis has the wrong
+        that and is rejected with a diagnostic message -- though numpy's own
+        ``tensordot`` already raised on it, so this is a better error, not new
+        safety.  It is caught only because its last axis has the wrong
         LENGTH.  When ``k == n_nodes`` the layouts are indistinguishable by
         shape alone and the square case is still contracted along the last
         axis, which may not be the one you meant.  There is no way to detect
