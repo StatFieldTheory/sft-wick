@@ -139,6 +139,7 @@ class Expansion:
         seed: int | None = 42,
         n_jobs: int = 1,
         n_gauss: int = 8,
+        external_times: dict[str, float] | None = None,
     ):
         """Integrate the expansion at a single ``(positions, t_final,
         component_pair)`` point.  Returns a :class:`Result`.
@@ -253,6 +254,7 @@ class Expansion:
             positions=positions,
             integrate_over=integrate_over,
             n_gauss=n_gauss,
+            external_times=external_times,
         )
 
         per_diagram = []
@@ -290,6 +292,7 @@ class Expansion:
         *,
         positions_grid: dict[str, list],
         t_final_grid: list,
+        external_times_grid: dict[str, list] | None = None,
         component_pairs: Iterable[tuple] = ((0, 0),),
         orders: Iterable[int] | None = None,
         vertex_types: Iterable[str] | None = None,
@@ -355,20 +358,33 @@ class Expansion:
         pos_keys = list(positions_grid.keys())
         pos_values = [positions_grid[k] for k in pos_keys]
 
+        # ``external_times_grid`` mirrors ``positions_grid``: one list per
+        # external point, swept as a further Cartesian axis.  This is what
+        # makes two-time observables -- R(t, t') and C(t, t'), the DMFT order
+        # parameters -- reachable declaratively; with every external pinned at
+        # a single ``t_final``, Theta kills the R joining them and any
+        # observable carrying an external response leg is identically 0.
+        et_keys = list(external_times_grid.keys()) if external_times_grid else []
+        et_values = [external_times_grid[k] for k in et_keys]
+
         # Flatten the Cartesian product to a list of grid-point tasks.
-        grid_tasks: list[tuple[dict, Any, tuple]] = []
+        grid_tasks: list[tuple[dict, Any, dict, tuple]] = []
         for pos_tuple in itertools.product(*pos_values):
             positions = dict(zip(pos_keys, pos_tuple))
             for t_f in t_final_grid:
-                for (a, b) in component_pairs:
-                    grid_tasks.append((positions, t_f, (a, b)))
+                for et_tuple in (itertools.product(*et_values)
+                                 if et_keys else [()]):
+                    ext_times = dict(zip(et_keys, et_tuple)) or None
+                    for (a, b) in component_pairs:
+                        grid_tasks.append((positions, t_f, ext_times, (a, b)))
 
         def _eval_grid_point(task):
-            positions, t_f, comp = task
+            positions, t_f, ext_times, comp = task
             res = self.evaluate(
                 propagators,
                 positions=positions,
                 t_final=t_f,
+                external_times=ext_times,
                 component_pair=comp,
                 orders=orders_list,
                 vertex_types=vertex_types,
@@ -379,7 +395,7 @@ class Expansion:
                 n_jobs=evaluate_n_jobs,
                 n_gauss=n_gauss,
             )
-            return positions, t_f, comp, res
+            return positions, t_f, ext_times, comp, res
 
         if int(n_jobs) == 1 or len(grid_tasks) <= 2:
             # Sequential — bit-identical to the pre-refactor nested loops.
@@ -391,7 +407,7 @@ class Expansion:
             )
 
         rows = []
-        for positions, t_f, (a, b), res in results:
+        for positions, t_f, ext_times, (a, b), res in results:
             # Hashable normalisation: d-dim vector positions arrive as
             # ``list`` or ``np.ndarray``; pandas ``groupby`` (used in
             # :meth:`SweepResult.totals`) factorises group keys via a
@@ -409,10 +425,16 @@ class Expansion:
                 rows.append({
                     **hashable_positions,
                     "t_final": t_f,
+                    # ``t_<point>`` rather than the bare name, which is
+                    # already taken by that point's spatial position.
+                    **{f"t_{k}": (ext_times or {}).get(k) for k in et_keys},
                     "a": a, "b": b,
                     **pd_row,
                 })
-        return SweepResult(rows=rows, position_keys=tuple(pos_keys))
+        return SweepResult(
+            rows=rows, position_keys=tuple(pos_keys),
+            external_time_keys=tuple(f"t_{k}" for k in et_keys),
+        )
 
     # --------------------------------------------------------------- #
     # Internal helpers

@@ -432,10 +432,18 @@ def _parse_observable(observable, system: System):
             name = m.group("name")
             comp = m.group("comp")
             spatial = m.group("spatial")
-            if name != system.field.name:
+            # The RESPONSE field is nameable too.  Without it the declarative
+            # API cannot express R(t, t') at all -- an observable needs a psi
+            # leg, and only the physical field used to be accepted.
+            if name == system.field.name:
+                field = phi
+            elif name == system.field.response_name:
+                field = _psi
+            else:
                 raise ValueError(
-                    f"Observable field '{name}' does not match the "
-                    f"system's field '{system.field.name}'."
+                    f"Observable field '{name}' matches neither the system's "
+                    f"physical field '{system.field.name}' nor its response "
+                    f"field '{system.field.response_name}'."
                 )
             if comp is None:
                 if system.n_components != 1:
@@ -445,10 +453,10 @@ def _parse_observable(observable, system: System):
                         f"{system.n_components}.  Use e.g. "
                         f"'{name}_a({spatial})'."
                     )
-                out.append(phi(spatial))
+                out.append(field(spatial))
                 repr_list.append((name, None, spatial))
             else:
-                out.append(phi(comp, spatial))
+                out.append(field(comp, spatial))
                 repr_list.append((name, comp, spatial))
         return tuple(out), tuple(repr_list)
 
