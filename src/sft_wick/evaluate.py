@@ -4589,6 +4589,7 @@ def integrate_moment(
 def _eval_single_diagram(
     dt, coupling_values, fixed_indices, lambda_f, cache, t_min, direction,
     method, n_samples, seed, positions, integrate_over, n_gauss,
+    external_times=None,
 ):
     """Evaluate one diagram term end-to-end (build integrand + integrate).
 
@@ -4600,7 +4601,7 @@ def _eval_single_diagram(
         t_min=t_min, direction=direction,
         method=method, n_samples=n_samples, seed=seed,
         positions=positions, integrate_over=integrate_over,
-        n_gauss=n_gauss,
+        n_gauss=n_gauss, external_times=external_times,
     )
 
 
@@ -4619,6 +4620,7 @@ def integrate_diagrams(
     positions: dict[str, Any] | None = None,
     integrate_over: Any = None,
     n_gauss: int = 8,
+    external_times: dict[str, float] | None = None,
 ) -> tuple[float, list[tuple[float, float]]]:
     """Integrate a batch of diagram terms, optionally in parallel.
 
@@ -4668,7 +4670,7 @@ def integrate_diagrams(
                 t_min=t_min, direction=direction,
                 method=method, n_samples=n_samples, seed=seed,
                 positions=positions, integrate_over=integrate_over,
-                n_gauss=n_gauss,
+                n_gauss=n_gauss, external_times=external_times,
             )
             details.append((val, err))
     else:
@@ -4679,7 +4681,7 @@ def integrate_diagrams(
                 dt, coupling_values, fixed_indices,
                 lambda_f, cache, t_min, direction,
                 method, n_samples, seed, positions, integrate_over,
-                n_gauss,
+                n_gauss, external_times,
             )
             for dt in diagram_terms
         )

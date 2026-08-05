@@ -646,6 +646,15 @@ fields must be present.
      t_final_grid: [1.0, 5.0, 15.0]    # required
      component_pairs: [[0, 0], [1, 1]] # required
 
+     # Optional: pin external points at UNEQUAL times, swept as a further
+     # Cartesian axis (same shape as positions_grid).  Needed for two-time
+     # observables such as R(t, t') and C(t, t') -- with every external at one
+     # time, Theta kills the R joining them and any observable carrying a
+     # response leg is identically 0.  Result rows gain a ``t_<point>`` column.
+     external_times_grid:
+       x: [4.0]
+       y: [1.0, 2.0, 3.0]
+
      orders:           null            # optional subset of expand.orders
      vertex_types:     null            # optional subset of {"F","FF","FK","K",…}
      integrate_over:   null            # null | "all" | ["x"] | ...
@@ -850,6 +859,51 @@ Section reference: ``expand``
      - ``1``
      - Parallelise over diagrams within each grid point (mutually exclusive with ``sweep.n_jobs > 1``)
 
+.. _two-time-observables:
+
+Two-time observables: ``R(t, t')`` and ``C(t, t')``
+----------------------------------------------------
+
+The response propagator is retarded, so ``<phi(u) psi(y)> = R(u, y)`` vanishes
+when its two legs sit at the same time.  A sweep pins every external at
+``t_final`` unless told otherwise, which means an observable carrying a
+response leg evaluates to **exactly zero everywhere**.  Two things are needed
+to get a non-trivial answer:
+
+1. Name the **response field** in the observable — ``psi_b(y)`` alongside
+   ``phi_a(x)``.
+2. Separate the external times with ``external_times_grid``.
+
+.. code-block:: yaml
+
+   expand:
+     observable: ["phi_a(x)", "psi_b(y)"]
+     orders: [0, 2]
+
+   sweep:
+     positions_grid: {x: [0.0], y: [0.0]}
+     t_final_grid: [4.0]
+     external_times_grid: {x: [4.0], y: [1.0, 2.0, 3.0]}
+     component_pairs: [[0, 0]]
+
+Each named point contributes a ``t_<point>`` column to the result rows, and
+``SweepResult.totals()`` groups by them.  For the free theory the order-0 term
+is the bare propagator ``exp(-gamma (t - t'))``:
+
+.. code-block:: text
+
+   |   t_x |   t_y |     value |
+   |     4 |     1 | 0.0497871 |
+   |     4 |     2 | 0.135335  |
+   |     4 |     3 | 0.367879  |
+
+Three requests are rejected rather than silently mis-answered: a time beyond
+the propagator table's ``t_max`` (which would clamp to the table edge), an
+empty list in the grid (which would produce no rows), and a point whose
+``t_<point>`` column would collide with an existing one.  A response
+observable whose externals are all at the same time warns.
+
+
 Section reference: ``propagators``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -940,7 +994,14 @@ Section reference: ``sweep``
    * - ``t_final_grid``
      - ``list[float]``
      - **required**
-     - External upper-time values to evaluate at
+     - External upper-time values to evaluate at.  Also the default time for
+       any external point not named in ``external_times_grid``
+   * - ``external_times_grid``
+     - ``dict[str, list[float]]``
+     - optional
+     - Pin external points at unequal times, swept as a further Cartesian
+       axis.  Required for two-time observables — see
+       :ref:`two-time-observables`
    * - ``component_pairs``
      - ``list[[a, b]]``
      - **required**
