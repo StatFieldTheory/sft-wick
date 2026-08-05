@@ -687,3 +687,57 @@ def test_SC7_the_window_divergence_gate_has_its_own_coverage():
                                   tol=1e-8, max_iter=8,
                                   divergence_factor=1e6)
     assert res2.reason == "max_iter", res2.summary()
+
+
+def test_SC7_a_device_array_leaf_keeps_its_type_under_damping():
+    """`_mix` must not coerce the LEAF through `np.asarray`.
+
+    The container branches preserve dict/list/tuple/namedtuple types, but the
+    leaf fell through to `np.asarray`, so a state whose leaves are array-LIKE
+    rather than ndarray -- a JAX or torch array, the natural choice for the
+    Dyson solve this driver exists to serve -- was handed to `step` as its own
+    type on iteration 1 and as a plain ndarray from iteration 2 onward.  For a
+    device array that also moves the state silently back to the host.
+
+    Only `damping > 0` reaches the coercion (at damping 0 `_mix` short-
+    circuits), so this is invisible in the default configuration and appears
+    exactly when the caller takes the module's advice to add damping.
+    """
+    class ArrayLike:
+        """Array-like but NOT an ndarray subclass -- a jax.Array's branch."""
+
+        def __init__(self, v):
+            self.v = np.asarray(v, dtype=float)
+
+        def __array__(self, dtype=None, copy=None):
+            return self.v if dtype is None else self.v.astype(dtype)
+
+        def __add__(self, o):
+            return ArrayLike(self.v + np.asarray(o))
+
+        __radd__ = __add__
+
+        def __mul__(self, o):
+            return ArrayLike(self.v * np.asarray(o))
+
+        __rmul__ = __mul__
+
+    seen = []
+
+    def step(s):
+        seen.append(type(s).__name__)
+        return ArrayLike(0.5 * (np.asarray(s) + 1.0))
+
+    for damping in (0.0, 0.3):
+        seen.clear()
+        res = solve_self_consistency(ArrayLike([0.0, 0.0]), step, tol=1e-12,
+                                     max_iter=400, damping=damping)
+        assert res.converged, f"damping={damping}: {res.summary()}"
+        assert set(seen) == {"ArrayLike"}, f"damping={damping}: step saw {set(seen)}"
+        assert isinstance(res.state, ArrayLike), f"damping={damping}"
+        assert np.asarray(res.state) == pytest.approx(np.ones(2), abs=1e-10)
+
+    # a leaf that cannot do the arithmetic still falls back rather than raising
+    assert _mix(np.ones(2), np.zeros(2), 0.3) == pytest.approx(0.7 * np.ones(2))
+    assert _mix(np.array([1 + 1j]), np.array([0j]), 0.5) \
+        == pytest.approx(np.array([0.5 + 0.5j]))

@@ -274,7 +274,19 @@ def _mix(new: Any, old: Any, damping: float) -> Any:
             new, {k: _mix(new[k], old[k], damping) for k in new})
     if isinstance(new, (list, tuple)):
         return _rebuild(new, [_mix(x, y, damping) for x, y in zip(new, old)])
-    # no dtype coercion: a complex state must stay complex
+    # Native arithmetic FIRST, so the leaf keeps its own type.  Coercing
+    # through np.asarray would hand `step` a plain ndarray from iteration 2
+    # onward -- the same "step never receives its own type" defect the
+    # container branches above avoid, and for a device array (JAX, torch) it
+    # also silently moves the state back to the host after one iteration.
+    # Falls back to numeric coercion for a type that cannot do the arithmetic.
+    try:
+        mixed = (1.0 - damping) * new + damping * old
+    except TypeError:
+        mixed = None
+    if mixed is not None:
+        return mixed
+    # no dtype coercion here either: a complex state must stay complex
     return (1.0 - damping) * _as_numeric(new, "_mix") + \
         damping * _as_numeric(old, "_mix")
 
