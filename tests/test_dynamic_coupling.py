@@ -757,4 +757,8 @@ def test_DC3_scalar_field_dynamic_coupling_matches_static(method):
         vals.append(expansion.evaluate(props, **kw).total)
 
     assert vals[0] != 0.0, "test is vacuous if the static value is zero"
-    assert vals[1] == pytest.approx(vals[0], rel=1e-12)
+    # abs=0.0: the compared value is 3.1e-04, so rel * expected is 3.1e-16
+    # and the default 1e-12 floor would have enforced 3.3e-09 relative --
+    # 3270x looser than the machine-precision agreement this test exists to
+    # lock.  DC1 above already passes abs=1e-300 for the same reason.
+    assert vals[1] == pytest.approx(vals[0], rel=1e-12, abs=0.0)

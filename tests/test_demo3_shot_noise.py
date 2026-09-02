@@ -318,7 +318,13 @@ def test_auto_dispatch_matches_extended_precision(mult, m, tvals):
     if mult == 1.0:
         # No closed form to compare against: the quadrature branch is
         # pinned separately by test_degenerate_limit_against_independent_analytic_form.
-        assert got == pytest.approx(float(sn.t_tilde_quad(arr, p)[0]), rel=1e-12)
+        # abs=0.0 is required, exactly as on the mpmath comparison below:
+        # at the (m=3, t=[40, 2, 0.05]) corner the compared value is
+        # 2.3e-37, so approx's 1e-12 default absolute floor would enforce
+        # 4.3e+24 relative -- i.e. nothing at all.  The two branches are
+        # bit-identical at every corner, so rel=1e-12 is comfortable.
+        assert got == pytest.approx(
+            float(sn.t_tilde_quad(arr, p)[0]), rel=1e-12, abs=0.0)
         return
     ref = _t_tilde_mpmath(tvals, p)
     assert got == pytest.approx(ref, rel=1e-10, abs=0.0), (
