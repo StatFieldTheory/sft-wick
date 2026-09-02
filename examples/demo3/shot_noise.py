@@ -79,9 +79,9 @@ __all__ = [
     "ShotNoise", "PARAMS", "N_COMP",
     "X_m", "T_m", "kappa_m", "J", "A_response", "t_tilde",
     "t_tilde_closed", "t_tilde_quad", "K_R",
-    "kappa2_spatial", "kappa2_lam",
+    "kappa2_spatial", "kappa2_lam", "Kappa2Spatial",
     "coupling_k3", "coupling_k3_vectorized",
-    "coupling_k4", "coupling_k4_vectorized",
+    "coupling_k4", "coupling_k4_vectorized", "coupling_k5_vectorized",
 ]
 
 #: Relative-error budget for :func:`t_tilde`'s ``'auto'`` dispatch.  The
@@ -464,6 +464,23 @@ def kappa2_lam(p: ShotNoise = PARAMS) -> float:
     return p.nu * p.h ** 2 * p.sigma_t / 2.0
 
 
+@dataclass(frozen=True)
+class Kappa2Spatial:
+    """Picklable ``X₂(r)`` callable for ``CustomKernel``.
+
+    Same reason as :class:`RContractedCoupling`: the expansion cache keys
+    on ``joblib.hash`` of the whole ``System``, and a lambda hashes
+    differently on every construction, so a closure here silently defeats
+    caching for the entire expansion.
+    """
+
+    params: ShotNoise = None
+
+    def __call__(self, r) -> float:
+        return float(kappa2_spatial(r, self.params if self.params is not None
+                                    else PARAMS))
+
+
 def kappa2_spatial(r, p: ShotNoise = PARAMS):
     """``X_2(r) = σ_x (1 + r/σ_x) e^{−r/σ_x}`` --- the spatial envelope of κ².
 
@@ -495,6 +512,40 @@ def _coupling_vectorized(n_2d, t_2d, m: int, p: ShotNoise):
     return _diagonal_tensor(K_R(n, t, p), m, p.n_components)
 
 
+@dataclass(frozen=True)
+class RContractedCoupling:
+    """Picklable, stably-hashable ``already_R_contracted`` κ^(m) callable.
+
+    A closure would work numerically but is fatal in two places: a fresh
+    ``lambda`` per call gives the expansion cache a different key every
+    time (so a 2.5-minute order-4 enumeration is repeated on every run),
+    and closures do not survive joblib's process boundary.  A frozen
+    dataclass has a deterministic ``repr``, hashes on its fields, and
+    pickles cleanly.
+    """
+
+    m: int
+    params: ShotNoise = None
+
+    def __call__(self, n_2d, t_2d):
+        return _coupling_vectorized(n_2d, t_2d, self.m,
+                                    self.params if self.params is not None else PARAMS)
+
+
+@dataclass(frozen=True)
+class RawCoupling:
+    """Picklable **raw** ``κ^(m)`` callable (legs, not partners)."""
+
+    m: int
+    params: ShotNoise = None
+
+    def __call__(self, n_2d, t_2d):
+        p = self.params if self.params is not None else PARAMS
+        return _diagonal_tensor(kappa_m(np.asarray(n_2d, dtype=float),
+                                        np.asarray(t_2d, dtype=float), p),
+                                self.m, p.n_components)
+
+
 def coupling_vectorized_for(m: int):
     """Return a batched ``already_R_contracted`` κ^(m) callable for any ``m``.
 
@@ -504,11 +555,7 @@ def coupling_vectorized_for(m: int):
     cumulant ladder (κ⁵ and beyond) *computable* here rather than merely
     boundable.
     """
-    def _fn(n_2d, t_2d, p: ShotNoise = PARAMS, _m=m):
-        return _coupling_vectorized(n_2d, t_2d, _m, p)
-    _fn.__name__ = f"coupling_k{m}_vectorized"
-    _fn.__qualname__ = _fn.__name__
-    return _fn
+    return RContractedCoupling(m=m)
 
 
 def kappa_ratio(m: int, p: ShotNoise = PARAMS) -> float:
@@ -530,6 +577,12 @@ def coupling_k3_vectorized(n_2d, t_2d, p: ShotNoise = PARAMS):
 def coupling_k4_vectorized(n_2d, t_2d, p: ShotNoise = PARAMS):
     """Batched ``already_R_contracted`` κ⁴: ``(4, n) → (n, N, N, N, N)``."""
     return _coupling_vectorized(n_2d, t_2d, 4, p)
+
+
+def coupling_k5_vectorized(n_2d, t_2d, p: ShotNoise = PARAMS):
+    """Batched ``already_R_contracted`` κ⁵ --- the ladder term of the
+    level-B error budget: ``(5, n) → (n,) + (N,)*5``."""
+    return _coupling_vectorized(n_2d, t_2d, 5, p)
 
 
 def coupling_k3(n_list, t_list, p: ShotNoise = PARAMS):

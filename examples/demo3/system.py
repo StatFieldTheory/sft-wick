@@ -25,8 +25,8 @@ from sft_wick.workflow import (DiagonalA, ExponentialTemporal, FieldSpec,
                                SeparableTranslation, System)
 from sft_wick.workflow.specs import CustomKernel
 
-from shot_noise import (PARAMS, ShotNoise, coupling_k3_raw_vectorized,
-                        coupling_vectorized_for, kappa2_lam, kappa2_spatial)
+from shot_noise import (PARAMS, Kappa2Spatial, RawCoupling,
+                        RContractedCoupling, ShotNoise, kappa2_lam)
 
 __all__ = ["F_TENSOR", "noise_for", "make_system", "spatial_kernel_for"]
 
@@ -44,8 +44,8 @@ def F_TENSOR(amplitude: float = 1.0, n_comp: int = 2) -> np.ndarray:
 
 
 def spatial_kernel_for(p: ShotNoise) -> CustomKernel:
-    """``CustomKernel`` wrapping ``X₂(r)`` bound to ``p``."""
-    return CustomKernel(fn=lambda r, _p=p: float(kappa2_spatial(r, _p)))
+    """``CustomKernel`` wrapping ``X₂(r)`` bound to ``p`` (picklable)."""
+    return CustomKernel(fn=Kappa2Spatial(params=p))
 
 
 def noise_for(p: ShotNoise) -> GaussianNoise:
@@ -83,16 +83,10 @@ def make_system(p: ShotNoise = PARAMS, *, f_amplitude: float = 0.0,
                                                                 p.n_components)))
     nonlocal_vertices = []
     for m in cumulants:
-        if not r_contracted:
-            if m != 3:
-                raise NotImplementedError(
-                    "the raw-vertex comparison is wired up for m = 3 only")
-            fn = coupling_k3_raw_vectorized
-        else:
-            fn = coupling_vectorized_for(m)
+        cls = RContractedCoupling if r_contracted else RawCoupling
         nonlocal_vertices.append(NonLocalVertex(
             name=f"K{m}", order=m,
-            coupling=lambda n, t, _f=fn, _p=p: _f(n, t, _p),
+            coupling=cls(m=m, params=p),
             coupling_vectorized=True,
             already_R_contracted=r_contracted))
     return System(
