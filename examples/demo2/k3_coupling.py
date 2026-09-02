@@ -4,11 +4,24 @@ callable.  Referenced by ``examples/demo2_config.yaml`` via
 
 Derived analytically from ``η̃ = η + α(η² − λ)`` with Gaussian η::
 
-    κ^{(3)}_{abc}(1,2,3) = 2αλ² δ_{ab}δ_{bc}
-                            · [κ(1,3)κ(2,3) + κ(1,2)κ(2,3)
-                               + κ(1,2)κ(1,3)]
+    κ^{(3)}_{abc}(1,2,3) = δ_{ab}δ_{bc}
+        · { 2αλ² [κ(1,3)κ(2,3) + κ(1,2)κ(2,3) + κ(1,2)κ(1,3)]
+            + 8α³λ³ κ(1,2)κ(2,3)κ(1,3) }
 
     κ(i, j) = exp(-|t_i-t_j|/σ_t) · exp(-|x_i-x_j|/σ_x)
+
+The ``α³`` term is the connected three-point function of ``η² − λ``
+(``<δ1 δ2 δ3> = 8 λ³ κ12 κ23 κ13`` for Gaussian η); at coincident points
+it is ``8α³λ³ / 6αλ² = (4/3) α² λ = 2.4 %`` of the leading term.  It was
+missing from this module (and from the ``6αλ²`` line of the κ³
+cross-check figure) until the CPC referee revision; the simulated third
+moment of ``η̃`` is ``9.21e-3``, which is ``6αλ² + 8α³λ³``, not
+``6αλ² = 9.00e-3``.
+
+For the FK channel prefer the R-contracted form in
+``k3_R_coupling.py`` (``already_R_contracted: true``): the raw kernel is
+narrow in the relative leg times, so a tensor-product quadrature on the
+raw 4-D integral stops converging beyond ``t ≈ 10``.
 
 This module exposes both supported contracts:
 
@@ -56,7 +69,8 @@ def coupling_fn(n_list, t_list):
         + kappa(0, 1) * kappa(1, 2)
         + kappa(0, 1) * kappa(0, 2)
     )
-    amplitude = 2.0 * ALPHA * LAM ** 2 * bracket
+    amplitude = (2.0 * ALPHA * LAM ** 2 * bracket
+                 + 8.0 * ALPHA ** 3 * LAM ** 3 * kappa(0, 1) * kappa(1, 2) * kappa(0, 2))
 
     # Component structure δ_{ab}δ_{bc} — non-zero only on the
     # diagonal (a=b=c).
@@ -89,7 +103,8 @@ def coupling_fn_vectorized(n_2d, t_2d):
         + kappa(0, 1) * kappa(1, 2)
         + kappa(0, 1) * kappa(0, 2)
     )  # (n_samples,)
-    amplitude = 2.0 * ALPHA * LAM ** 2 * bracket  # (n_samples,)
+    amplitude = (2.0 * ALPHA * LAM ** 2 * bracket
+                 + 8.0 * ALPHA ** 3 * LAM ** 3 * kappa(0, 1) * kappa(1, 2) * kappa(0, 2))
 
     # Build (n_samples, N, N, N) with the same δ_{ab}δ_{bc} sparsity.
     K = np.zeros((amplitude.shape[0], N_COMP, N_COMP, N_COMP), dtype=float)

@@ -43,11 +43,18 @@ Quick Start (L2 — config file)
 
 **The recommended entry point for any new analysis.**  Write a YAML
 config once, run it from the shell, iterate with ``--override`` or
-edits.  The CLI registers automatically on install.
+edits.  The CLI registers automatically on install; one command writes
+a small config to the current directory and runs it in a few seconds,
+with a progress bar:
+
+.. code-block:: bash
+
+   sft-wick quickstart
+
+The file it writes (``examples/quickstart.yaml`` in the repository):
 
 .. code-block:: yaml
 
-   # demo1_config.yaml
    system:
      field: {name: phi, n_components: 2}
      linear: {type: diagonal, gamma: [1.0, 1.0]}
@@ -64,27 +71,35 @@ edits.  The CLI registers automatically on install.
 
    expand:
      observable: ["phi_a(x)", "phi_b(y)"]
-     orders: [0, 2, 4]
+     orders: [0, 2]
 
-   propagators: {t_max: 15.0, n_grid_t: 60}
+   propagators:
+     t_max: 5.0
+     n_grid_t: 60
+     c_closed_form: auto      # built-in closed form for this kernel family
 
    sweep:
-     positions_grid: {x: [0.0], y: [0.0, 0.5, 1.0, 2.5]}
-     t_final_grid: [1.0, 15.0]
+     positions_grid: {x: [0.0], y: [0.0, 0.5, 1.5]}
+     t_final_grid: [1.0, 5.0]
      component_pairs: [[0, 0], [1, 1]]
-     n_samples: 8192
+     n_samples: 4096
      seed: 42
+
+   output:
+     - {type: table, format: markdown}
 
 .. code-block:: bash
 
-   sft-wick run demo1_config.yaml
-   sft-wick run demo1_config.yaml --override sweep.seed=7
-   sft-wick run demo1_config.yaml --dry-run            # validate only
+   sft-wick run quickstart.yaml
+   sft-wick run quickstart.yaml --override sweep.seed=7
+   sft-wick run quickstart.yaml --dry-run       # validate + cost estimate
+   sft-wick run quickstart.yaml --quiet         # no progress bars
 
-See :doc:`user_guide/workflow` for the complete YAML schema and
-``examples/demo1_config.yaml`` / ``examples/demo2_config.yaml``
-for non-local vertices, closed-form :math:`C` hooks, and dynamic
-couplings.
+See :doc:`user_guide/workflow` for the complete YAML schema, the
+"Choosing an integrator" decision matrix and the cost drivers, and
+``examples/demo1_config.yaml`` / ``examples/demo2_config.yaml`` for
+the fuller sweeps behind the paper's figures (orders up to 4, a
+non-local :math:`\kappa^{(3)}` vertex with a dynamic coupling).
 
 Quick Start (L1 — Python, for programmatic use)
 -----------------------------------------------
@@ -138,6 +153,7 @@ pairings, canonical forms, custom simplification), see
    user_guide/index
    examples/index
    verification/index
+   verification/catalog
    api/index
    contributing
    changelog

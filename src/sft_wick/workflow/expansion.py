@@ -192,6 +192,7 @@ class Expansion:
         n_jobs: int = 1,
         n_gauss: int = 8,
         external_times: dict[str, float] | None = None,
+        _progress_tick: Any = None,
     ):
         """Integrate the expansion at a single ``(positions, t_final,
         component_pair)`` point.  Returns a :class:`Result`.
@@ -325,6 +326,7 @@ class Expansion:
             integrate_over=integrate_over,
             n_gauss=n_gauss,
             external_times=external_times,
+            progress_tick=_progress_tick,
         )
 
         per_diagram = []
@@ -373,6 +375,7 @@ class Expansion:
         n_jobs: int = 1,
         evaluate_n_jobs: int = 1,
         n_gauss: int = 8,
+        progress: Any = None,
     ):
         """Cartesian-product sweep over positions, t_final, and
         component pairs.
@@ -416,10 +419,54 @@ class Expansion:
                 integrator".  ``'gauss_legendre'`` with ``n_gauss=8``
                 is the right default for ``d ≤ 5`` smooth integrands
                 (exponential convergence, deterministic, no seed).
+            progress: progress-bar setting (``True`` / ``False`` /
+                ``(desc, done, total)`` callable / ``None`` = inherit
+                from the environment).  One bar spans every grid
+                point × diagram; it advances per diagram on the serial
+                path and per grid point under ``n_jobs > 1``.  See
+                :mod:`sft_wick.progress`.  Never affects results.
 
         Returns:
             :class:`SweepResult` with a pandas-friendly tidy table.
         """
+        from sft_wick.progress import progress as _progress_scope
+
+        with _progress_scope(progress):
+            return self._sweep(
+                propagators,
+                positions_grid=positions_grid,
+                t_final_grid=t_final_grid,
+                external_times_grid=external_times_grid,
+                component_pairs=component_pairs,
+                orders=orders,
+                vertex_types=vertex_types,
+                integrate_over=integrate_over,
+                method=method,
+                n_samples=n_samples,
+                seed=seed,
+                n_jobs=n_jobs,
+                evaluate_n_jobs=evaluate_n_jobs,
+                n_gauss=n_gauss,
+            )
+
+    def _sweep(
+        self,
+        propagators,
+        *,
+        positions_grid,
+        t_final_grid,
+        external_times_grid,
+        component_pairs,
+        orders,
+        vertex_types,
+        integrate_over,
+        method,
+        n_samples,
+        seed,
+        n_jobs,
+        evaluate_n_jobs,
+        n_gauss,
+    ):
         from .result import SweepResult
 
         if int(n_jobs) != 1 and int(evaluate_n_jobs) != 1:
@@ -516,7 +563,14 @@ class Expansion:
                 UserWarning, stacklevel=2,
             )
 
-        def _eval_grid_point(task):
+        # Diagrams per grid point, for the progress bar's total.
+        vtype_filter = None if vertex_types is None else set(vertex_types)
+        n_diag = sum(
+            1 for o in orders_list for dt in self.dts_by_order[o]
+            if vtype_filter is None or self._vertex_type_label(dt) in vtype_filter
+        )
+
+        def _eval_grid_point(task, tick=None):
             positions, t_f, ext_times, comp = task
             res = self.evaluate(
                 propagators,
@@ -532,17 +586,27 @@ class Expansion:
                 seed=seed,
                 n_jobs=evaluate_n_jobs,
                 n_gauss=n_gauss,
+                _progress_tick=tick,
             )
             return positions, t_f, ext_times, comp, res
 
-        if int(n_jobs) == 1 or len(grid_tasks) <= 2:
-            # Sequential — bit-identical to the pre-refactor nested loops.
-            results = [_eval_grid_point(t) for t in grid_tasks]
-        else:
-            from joblib import Parallel, delayed
-            results = Parallel(n_jobs=n_jobs, backend="loky")(
-                delayed(_eval_grid_point)(t) for t in grid_tasks
-            )
+        from sft_wick.progress import progress_bar
+
+        desc = f"sweep ({len(grid_tasks)} grid points x {n_diag} diagrams)"
+        with progress_bar(len(grid_tasks) * n_diag, desc, unit="diagram") as tick:
+            if int(n_jobs) == 1 or len(grid_tasks) <= 2:
+                # Sequential — bit-identical to the pre-refactor nested loops.
+                results = [_eval_grid_point(t, tick) for t in grid_tasks]
+            else:
+                from joblib import Parallel, delayed
+                gen = Parallel(n_jobs=n_jobs, backend="loky",
+                               return_as="generator")(
+                    delayed(_eval_grid_point)(t) for t in grid_tasks
+                )
+                results = []
+                for r in gen:
+                    results.append(r)
+                    tick(n_diag)
 
         rows = []
         for positions, t_f, ext_times, (a, b), res in results:

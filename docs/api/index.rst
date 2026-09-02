@@ -15,6 +15,8 @@ listed below are accessible directly from ``sft_wick``:
    :caption: L1 + L2 — User-facing workflow API
 
    workflow
+   closed_forms
+   estimate
 
 .. toctree::
    :maxdepth: 2
@@ -38,3 +40,4 @@ listed below are accessible directly from ``sft_wick``:
    indices
    latex
    util
+   progress

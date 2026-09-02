@@ -27,7 +27,7 @@ cd sft-wick
 pip install -e ".[dev]"
 ```
 
-Dependencies: `numpy`, `scipy`, `networkx`, `matplotlib`, `pandas`, `pyyaml`, `tabulate`, `joblib`. The `parallel` extra is kept for compatibility with older install commands. For development: `pytest`, `pytest-cov`.
+Dependencies: `numpy`, `scipy`, `networkx`, `matplotlib`, `pandas`, `pyyaml`, `tabulate`, `joblib`. Optional: `pip install "sft-wick[progress]"` adds `tqdm` progress bars (plain stderr lines are printed without it). The `parallel` extra is kept for compatibility with older install commands. For development: `pytest`, `pytest-cov`.
 
 The install also registers a CLI entry point:
 
@@ -53,7 +53,14 @@ The Sphinx docs' "Workflow API" chapter (`docs/user_guide/workflow.rst`) covers 
 
 ## Quick Start — L2 (config file)
 
-Write `demo1_config.yaml`:
+One command writes a small config to the current directory and runs it
+(a few seconds on a laptop, with a progress bar):
+
+```bash
+sft-wick quickstart
+```
+
+The file it writes is `examples/quickstart.yaml`:
 
 ```yaml
 system:
@@ -72,33 +79,64 @@ system:
 
 expand:
   observable: ["phi_a(x)", "phi_b(y)"]
-  orders: [0, 2, 4]
+  orders: [0, 2]
 
-propagators: {t_max: 15.0, n_grid_t: 60}
+propagators:
+  t_max: 5.0
+  n_grid_t: 60
+  c_closed_form: auto      # built-in closed form for this kernel family
 
 sweep:
-  positions_grid: {x: [0.0], y: [0.0, 0.5, 1.0, 2.5]}
-  t_final_grid: [1.0, 15.0]
+  positions_grid: {x: [0.0], y: [0.0, 0.5, 1.5]}
+  t_final_grid: [1.0, 5.0]
   component_pairs: [[0, 0], [1, 1]]
-  n_samples: 8192
+  n_samples: 4096
   seed: 42
 
 output:
-  - {type: table, format: markdown, path: results.md}
-  - {type: npz, path: results.npz}
+  - {type: table, format: markdown}
 ```
 
-Run from the shell:
+Run any config from the shell:
 
 ```bash
-sft-wick run demo1_config.yaml                # full pipeline
-sft-wick run demo1_config.yaml --override sweep.seed=7
-sft-wick run demo1_config.yaml --dry-run      # validate + summarize
+sft-wick run quickstart.yaml                   # full pipeline, progress bars
+sft-wick run quickstart.yaml --override sweep.seed=7
+sft-wick run quickstart.yaml --dry-run         # validate + cost estimate
+sft-wick run quickstart.yaml --quiet           # no bars / banners
 ```
 
-See `examples/demo1_config.yaml` and `examples/demo2_config.yaml` for
-richer examples (non-local vertex, closed-form C hook, dynamic
-couplings).
+The next step up is `examples/demo1_config.yaml` (orders 0, 2 and 4;
+four separations; the sweep behind the paper's Gaussian-noise figures),
+then `examples/demo2_config.yaml` (non-local κ⁽³⁾ vertex with a dynamic
+coupling).
+
+### How long will this take?
+
+`sft-wick run CONFIG --dry-run` prints an estimate before you commit to a
+run.  Measured wall-clock, serial, `pip install sft-wick` with no extras:
+
+| Config | Apple M3 Ultra (one core) | Laptop proxy¹ | GitHub `ubuntu-latest` runner² | What it computes |
+|---|---|---|---|---|
+| `sft-wick quickstart` | 2 s | 10 s | 6 s | orders 0–2, 12 grid points, 4096 samples |
+| `examples/demo1_config.yaml` | 50 s | 5.2 min | 1.5 min | orders 0–4 (71 diagrams), 16 grid points, 8192 samples |
+| `examples/demo1/L2/config.yaml` (paper figures) | 4.6 min (28 workers) | — | — | 672 grid points × 71 diagrams, 32768 samples, `sweep.n_jobs: -1` |
+| `examples/demo2/L2/*.yaml` (κ⁽³⁾ figures) | 39 s (28 workers) | — | — | FF (QMC) + FK (R-contracted κ⁽³⁾, 1-D Gauss-Legendre), `sweep.n_jobs: -1` |
+
+¹ the same machine throttled with `taskpolicy -c background` and
+`OMP_NUM_THREADS=1`; a 2023 MacBook Pro should be within a factor of two.
+² the CI job `examples-time-gate` runs both on every push and fails above
+600 s / 1200 s.
+
+What drives the cost, in order: `expand.orders` (1 / 6 / 64 diagrams at
+orders 0 / 2 / 4 for the cubic vertex), the number of grid points
+(`sweep.positions_grid` × `t_final_grid` × `component_pairs`),
+`sweep.n_samples` per diagram, and — only when no closed form applies —
+`propagators.n_grid_t²` quadrature calls for the C table.  The exponential-
+temporal kernel family used in every shipped example gets a built-in closed
+form (`propagators.c_closed_form: auto`), so its C table costs nothing;
+other kernels are integrated by Gauss-Legendre with a node count checked for
+convergence at the table's extreme cells (`c_method: auto`).
 
 ## Quick Start — L1 (Python, for programmatic use)
 
@@ -509,8 +547,12 @@ At order 6, the dominant cost is **component routing** (`_enumerate_component_ro
 pytest tests/ -v
 ```
 
-**460 tests** (a few minutes on a laptop).  The suite is organised into
-eight deductive phases:
+**777 tests** (parametrised cases counted; 564 test functions in 34
+files, a few minutes on a laptop).  Every file, what it checks, the
+independent reference it is checked against and its tolerance are listed
+in the generated validation catalogue, `docs/verification/catalog.rst`
+(`python tools/gen_test_catalog.py`).  The core is organised into eight
+deductive phases:
 
 1. Phase 1 — Symbolic expansion (`test_deductive_expansion.py`)
 2. Phase 2 — Propagator numerics (`test_deductive_numerics.py::TestClosedFormC` etc.)

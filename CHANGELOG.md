@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-09-02
+
+> **This is the version the CPC paper (arXiv:2606.19480, revised) refers
+> to.**  v0.2.0 is what the referees ran; everything below is what changed
+> for the revision, plus the fixes that had accumulated on `main` since
+> July.
 
 > **Numbers move.** Several fixes below change results that were previously
 > wrong. If you have pinned values, re-pin them against the corrected output
@@ -8,6 +13,203 @@
 > measured size. The two that move the most output: the causal **lower**
 > bounds (any observable with an external response leg) and the **C-table
 > diagonal** fix (every tadpole, i.e. every interacting order).
+
+### Referee revision (CPC round 1): a fast default path, progress, a quick start
+
+The CPC referee ran the README quick start on a laptop and got no output
+within an hour.  Every number in this section is measured on the same
+machine (Apple M3 Ultra, one core unless stated); the "laptop proxy" rows
+are the same runs under `taskpolicy -c background` with
+`OMP_NUM_THREADS=1`.
+
+- **Built-in closed-form C** (`sft_wick.workflow.closed_forms`).  For a
+  diagonal constant drift driven by separable translation-invariant noise
+  with an exponential temporal kernel — demo1, demo2 and the README family —
+  `C = ∫∫ R κ² R` is now evaluated analytically, with an optional constant
+  white-noise impulse and per-component `γ`.  `System.propagators()` and the
+  YAML key `propagators.c_closed_form: auto` (the default) select it
+  automatically; `null` forces quadrature and a `c_closed_form_module` still
+  overrides it.  The formula is written with non-positive exponents only, so
+  it does not overflow at `γ t ≳ 350` where the textbook `exp(2γt)·exp(−γ(t₁+t₂))`
+  form does, and the removable singularities at `γ = 1/σ_t` and `γ = 0` are
+  evaluated through `expm1`.  `examples/demo1_config.yaml`,
+  `examples/demo2_config.yaml` and the demo L2 configs no longer need the
+  `c_closed_form_module` hook (the module files stay as references).
+
+  Validated at the dispatch boundary rather than at convenient points
+  (`tests/test_closed_form_dispatch_boundaries.py`): closed form, Gauss-Legendre
+  and dblquad are evaluated directly at the same cells — the diagonal ridge
+  `t₁ = t₂`, `t → t_min`, `t = t_max`, `γ = 1/σ_t` exactly and to within
+  1e-7/1e-9 of it, `r = 0` and `r = r_max`, per-component `γ`, `t_min ≠ 0`, a
+  white-noise impulse — and agree to **1e-10** (vs GL) and **1e-8** (vs
+  dblquad).  The boundary sweep caught two things a point check would not:
+  `DiagonalA` lowers per-component rates that agree to `np.allclose`'s 1e-5
+  into a single-rate `R` (the closed form now mirrors the model actually
+  built, so the two cannot disagree at that tolerance), and the un-split
+  dblquad path was only ~2e-6 accurate at the cusp (below).
+
+- **Separable kernels build one temporal table.**  In lazy translation mode
+  `C(r; t₁, t₂) = κ_x(r)·C(0; t₁, t₂)`, so the `n_grid_t²` quadrature grid is
+  built once and rescaled per separation instead of being redone for every
+  distinct `r` (4× fewer quadrature calls for the README sweep, 12×+ for a
+  positions sweep).  With an even temporal kernel and diagonal `C` only the
+  upper triangle of the `(t₁, t₂)` grid is evaluated (another 2×).  Both are
+  exact up to rounding: identical to the per-`r` full build to 1e-12 under
+  Gauss-Legendre (`tests/test_propagator_dispatch.py`).  Off for user
+  closed forms / `c_value_fn` (nothing is known about their structure) and
+  with a white-noise impulse (its `r`-independent term breaks the scaling).
+
+- **`c_method` default `dblquad` → `auto`.**  `auto` runs Gauss-Legendre
+  with a node count chosen by `select_gl_node_count`: starting from
+  `c_n_gauss = 20` the rule is refined (×1.5) until it agrees with its own
+  refinement to 1e-8 at the table's extreme cells (the corner `(t_max, t_max)`,
+  its mid-table neighbours, the thinnest strip), falling back to `dblquad`
+  if no count up to ~100 converges.  User callables (`GeneralKappa2`,
+  `CustomKernel`, `CustomImpulse`, `ExplicitR`, callable `γ`) go straight
+  to `dblquad`.  Why not simply "GL at 20": at fixed node count the
+  accuracy degrades with `(γ + 1/σ_t)·t_max`.  Measured on the demo1
+  kernel (`γ = 1`, `σ_t = 0.3`, cell `(t, t)`, relative to the closed form):
+
+  | t   | split dblquad | GL n=20 | GL auto (n) |
+  |-----|---------------|---------|-------------|
+  | 5   | 7 ms, 2e-16   | 5.6 ms, 1e-15 | 5.8 ms, 1e-15 (20) |
+  | 15  | 38 ms, 3e-16  | 5.9 ms, 1e-10 | 6.0 ms, 1e-10 (20) |
+  | 30  | 86 ms, 1e-15  | 5.7 ms, 4e-7  | 13 ms, 2e-12 (30) |
+  | 50  | 145 ms, 8e-13 | 5.9 ms, 2e-4  | 13 ms, 2e-9 (30) |
+  | 100 | 212 ms, 8e-10 | 5.9 ms, **1e-2** | 30 ms, 3e-9 (45) |
+
+  For a Gaussian temporal kernel (`σ_t = 0.3`) fixed n=20 is already 2e-4
+  off at `t = 15`; `auto` picks 45 there (30 ms, 2e-11) and hands `t ≥ 30`
+  to dblquad.  On the demo1 / demo2 kernels none of this runs: the closed
+  form does.  The L0 default (`PropagatorCache(c_method="auto")`) resolves
+  at the first table build; a direct `C_value` call before any build uses
+  dblquad.
+
+- **The dblquad path splits the rectangle at the `λ₁ = λ₂` cusp** (the
+  same three pieces the Gauss-Legendre path uses).  Stationary `κ²` has a
+  `|λ₁ − λ₂|` cusp there; integrating across it made scipy's adaptive rule
+  both slow — the referee's run: 74 ms per call rising to 245 ms with `t`
+  — and inaccurate, reporting roundoff and delivering 2e-6 relative error
+  at `epsrel = 1e-10` against the closed form.  Split: 7 ms per call at
+  `t = 5` (38 ms at 15, 212 ms at 100) and 1e-10 to 1e-15.  **Numbers
+  move** by up to ~2e-6 relative on the dblquad path, toward the exact
+  value.
+
+- **Progress reporting** (`sft_wick.progress`).  Three stages get bars —
+  expansion, C-table build (per cell, per `r`), sweep (grid points ×
+  diagrams) — with elapsed / ETA, through `tqdm` when installed
+  (`pip install sft-wick[progress]`) and otherwise as plain stderr lines;
+  bars stay silent for loops under one second and by default when stderr
+  is not a terminal.  CLI: stage banners with timings, `--quiet`, and
+  `SFT_WICK_PROGRESS=0` / `=1` to silence / force.  L1:
+  `progress=True|False|callable` on `System.expand`, `System.propagators`,
+  `Expansion.sweep`.  Never changes a number (tested).
+
+- **`sft-wick run --dry-run` prints a cost estimate**: diagrams per order,
+  grid points, distinct separations, the resolved C source, the number of
+  quadrature calls the chosen path will make, and a rough wall-clock from
+  a one-second micro-benchmark of one C call and one diagram evaluation
+  per order (`sft_wick.workflow.estimate`).
+
+- **`examples/quickstart.yaml` and `sft-wick quickstart`.**  Demo1 physics
+  at orders 0 and 2, three separations, two times, 4096 samples, markdown
+  table to stdout.  `sft-wick quickstart` writes the file to the current
+  directory and runs it.  The README "Quick Start — L2" is now this file.
+  A GitHub Actions job (`examples-time-gate`) runs it under `timeout 600`
+  and `examples/demo1_config.yaml` under `timeout 1200` on a stock
+  `ubuntu-latest` runner.
+
+- **Validation catalogue** `docs/verification/catalog.rst`, generated by
+  `tools/gen_test_catalog.py` from the collected suite (`pytest
+  --collect-only`) plus a curated table of what each file checks, against
+  which reference (brute-force Wick, closed form, alternative backend,
+  simulation cache, …) and at what tolerance.  `make -C docs html`
+  regenerates it and `tests/test_catalog_current.py` fails when it is
+  stale or a test file has no entry.  The README's "460 tests" and the
+  verification page's "275 tests" were both wrong; the catalogue carries
+  the measured count.
+
+- **Fixed: `DiagramTerm.to_latex()` printed a local coupling's point.**
+  The index-relabelling passes rebuilt `Symbol`s without the `local` flag,
+  so the symmetrised partner of a local `F` rendered as
+  `F_{i1 i0 i2}(y_0)` (Table 1 of the paper).  Regression test
+  `tests/test_latex_local_coupling.py`.
+
+- Docstrings in `sft_wick.spectral` referred to a directory outside the
+  repository; rewritten to state the caveat itself.
+
+- **Paper-figure regression check.**  `examples/demo1/L2/config.yaml`
+  (the sweep behind the paper's Gaussian-noise figures: 672 grid points ×
+  71 diagrams, 32768 samples) run on v0.2.0 and on this release agrees to
+  a maximum relative difference of **3.3e-14** over all 2016
+  `(y, t, a, b, order)` totals — the closed-form C path is untouched by
+  the C-table diagonal fix, as the July changelog claimed; now verified
+  rather than assumed (`examples/paper_assets/README.md`).
+
+- **Fixed: `output: {type: npz, path: results/x.npz}` failed when the
+  directory did not exist** (`np.savez` does not create it; the table
+  writer already did).  The same for `plot` outputs.
+
+- **`c_method: auto` also compares cost.** When both rules are converged
+  for the horizon, one call of each at the deep corner decides: on a
+  smooth kernel over a short horizon adaptive dblquad needs a few hundred
+  evaluations (3.8 ms) and beats the 20-node tensor rule (5.6 ms); with a
+  cusp or a long horizon the tensor rule wins by 5-30×.  (Without this,
+  a smooth-kernel regression test took 73 s instead of 28 s.)
+
+### Demo 2 (non-Gaussian noise) corrections
+
+Re-deriving and re-running the κ⁽³⁾ example for the referee turned up
+three things the paper's demo-2 figures inherit; all are fixed in
+`examples/demo2` and quantified in `examples/paper_assets/demo2_kappa4`.
+
+- **κ⁽³⁾ was missing its `α³` term.**  For `η̃ = η + α(η² − λ)` the third
+  cumulant is `κ⁽³⁾(1,2,3) = 2αλ²[k₁₃k₂₃ + k₁₂k₂₃ + k₁₂k₁₃] + 8α³λ³ k₁₂k₂₃k₁₃`;
+  the second term (the connected three-point function of `η² − λ`) is
+  2.4 % of the first at coincidence and was absent from `k3_coupling.py`
+  and from the `6αλ²` line of the κ³ cross-check figure.  The simulated
+  third moment, 9.21e-3, is `6αλ² + 8α³λ³`, not `6αλ² = 9.00e-3`.  The
+  FK channel of ξ₀₁ moves by +1.2 % (t = 1) to +0.6 % (t ≥ 3).
+
+- **The FK quadrature was not converged beyond t ≈ 10.**  The raw kernel
+  is narrow in the relative leg times, and the fixed 8-node tensor rule
+  on the 4-D integral gives, for ξ₀₁ at r = 0, 4.95e-4 at t = 15 and
+  1.85e-4 at t = 50 against the converged plateau 3.44e-4 (n = 12/16/20
+  give 4.23/3.86/3.71e-4 at t = 15; QMC is worse).  The remedy is the
+  package's own `already_R_contracted` vertex: `examples/demo2/k3_R_coupling.py`
+  integrates the three legs inside the callable (analytically in the
+  common time, composite Gauss-Legendre on the two relative times with
+  each cusp aligned to the grid), so the FK integral is one-dimensional
+  and a 32-node rule agrees with 64 to 1e-4 at every t.  `config_FK.yaml`
+  now uses it.  The R-contracted kernel is validated against adaptive
+  3-D quadrature and QMC of the raw leg integral to ~1e-4.
+
+- **ξ₀₀ / ξ₁₁ used the single-kernel `λ_eff` approximation.**  The exact
+  effective covariance of `η̃` is `λ k + 2α²λ² k²` -- the second piece
+  has HALF the correlation time and length -- so replacing it by
+  `λ(1 + 2α²λ) k` over-counts its contribution to C by 70 %: +1.8e-4 on
+  ξ₀₀ at large t (1.5 % of the signal, 2σ of the 200k-realisation
+  simulation).  The budget uses the exact form (a sum of two built-in
+  closed forms) for order 0, FF and FFFF.
+
+- **κ⁽⁴⁾ enters ξ₀₀ / ξ₁₁ but not ξ₀₁.**  `κ⁽⁴⁾ = 4α²λ³ Σ_paths k k k +
+  16α⁴λ⁴ Σ_cycles k k k k` (12 Hamiltonian paths and 3 cycles of K₄;
+  `examples/paper_assets/demo2_kappa4/k4_coupling.py`, checked against
+  Monte Carlo).  F·κ⁽⁴⁾ at order 2 vanishes by ψ/φ counting; the leading
+  term is F·F·κ⁽⁴⁾ at order 3 (three pure-R⁶ diagrams).  The Gaussian
+  theory with F has a `φ₁ → −φ₁` symmetry that only ODD cumulants break,
+  so FF, FFFF and FFK4 are identically zero for ξ₀₁ -- the κ⁽³⁾ signal
+  there is clean, and its residual can only be closed by F³κ⁽³⁾ and
+  higher odd terms.
+
+- **The error budget** (`examples/paper_assets/demo2_kappa4/budget.md`,
+  2M realisations per step size at Δt = 0.02 and 0.01, extrapolated):
+  ξ₀₁ − FK is 0 within 1σ for t ≤ 1 and +24 % of FK (9e-5, 6-7σ) for
+  t ≥ 5; the order-4 F³κ⁽³⁾ channel, estimated by collapsing κ⁽³⁾ to an
+  equal-time constant calibrated on FK, is 2 % / 12 % / 24 % of FK at
+  t = 1 / 3.5 / 15 -- the residual is truncation, not κ⁽⁴⁾ (zero there by
+  symmetry), Δt or Monte-Carlo noise.  ξ₀₀ with the exact C_eff, FFK4
+  and FFFF agrees within ±2σ except at t ≈ 5 (+3σ).
 
 ### Added
 

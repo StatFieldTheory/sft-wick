@@ -1,0 +1,52 @@
+# sft-wick quick start -- runs in well under a minute on a laptop.
+#
+#     sft-wick run examples/quickstart.yaml
+#     sft-wick quickstart            # same thing: writes this file to the
+#                                    # current directory and runs it
+#
+# Physics: demo1's two-component Ornstein-Uhlenbeck field with a cubic
+# local vertex F and separable exponential noise.  Compared to the full
+# ``examples/demo1_config.yaml`` this stops at order 2, sweeps three
+# separations and two times, and draws 4096 QMC samples per diagram.
+# The C propagator comes from the built-in closed form for this kernel
+# family, so no quadrature runs at all.
+#
+# What drives the cost (see the README "How long will this take?"):
+#   expand.orders          diagrams per order: 1 (order 0), 6 (2), 64 (4)
+#   sweep.positions_grid   x sweep.t_final_grid x component_pairs
+#                          = number of grid points (here 1 x 3 x 2 x 2 = 12)
+#   sweep.n_samples        QMC samples per diagram per grid point
+#   propagators.n_grid_t   C-table cells (only matters without a closed form)
+
+system:
+  field: {name: phi, n_components: 2}
+  linear: {type: diagonal, gamma: [1.0, 1.0]}
+  vertices:
+    - name: F
+      coupling:                        # bare F; the MSR -i is applied
+        - [[0.0, 0.0], [0.0, 1.0]]     # automatically
+        - [[0.0, 0.5], [0.5, 0.0]]
+  noise:
+    kappa2:
+      type: separable_translation
+      temporal: {type: exponential, lam: 0.05, sigma_t: 0.3}
+      spatial:  {type: exponential, sigma_x: 1.0}
+
+expand:
+  observable: ["phi_a(x)", "phi_b(y)"]
+  orders: [0, 2]
+
+propagators:
+  t_max: 5.0
+  n_grid_t: 60
+  c_closed_form: auto      # built-in closed form for this kernel family
+
+sweep:
+  positions_grid: {x: [0.0], y: [0.0, 0.5, 1.5]}
+  t_final_grid: [1.0, 5.0]
+  component_pairs: [[0, 0], [1, 1]]
+  n_samples: 4096
+  seed: 42
+
+output:
+  - {type: table, format: markdown}

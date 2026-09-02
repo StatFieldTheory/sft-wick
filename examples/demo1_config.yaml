@@ -46,11 +46,15 @@ expand:
 propagators:
   t_max: 15.0
   n_grid_t: 60
-  n_jobs: -1
-  # Closed-form C hook (optional) — point to any .py file that exports
-  # ``C_fn(n1, t1, n2, t2) -> (N, N)``.  Omit for dblquad-from-scratch.
-  c_closed_form_module: ./demo1/c_closed_form.py
-  c_closed_form_attr: C_fn
+  # C propagator: with the defaults ``c_closed_form: auto`` and
+  # ``c_method: auto`` this kernel family (diagonal constant drift +
+  # separable exponential-temporal noise) gets the BUILT-IN closed form,
+  # so no quadrature runs at all and the table builds in milliseconds.
+  # Set ``c_closed_form: null`` to force quadrature (Gauss-Legendre with
+  # a converged node count, or ``c_method: dblquad``); point
+  # ``c_closed_form_module`` / ``c_closed_form_attr`` at your own .py
+  # file for a kernel the built-in form does not cover.
+  c_closed_form: auto
 
 sweep:
   # null ⇒ externals fixed at t_final (physics observable

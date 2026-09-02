@@ -41,8 +41,14 @@ expand:
 propagators:
   t_max: 50.0
   n_grid_t: 60   # ignored under c_closed_form_only=true
+  # The EXACT effective covariance of the deformed noise is a sum of two
+  # separable-exponential kernels, lam k + 2 alpha^2 lam^2 k^2 (the second
+  # with half the correlation time and length), which the YAML kernel
+  # family cannot express; the module below adds the two built-in closed
+  # forms.  The single-kernel ``lam_eff`` declared above (the paper's
+  # first version) is +1.8e-4 high on xi_00 at large t.
   c_closed_form_module: ./c_closed_form.py
-  c_closed_form_attr: C_fn_eff
+  c_closed_form_attr: C_fn_eff_exact
   c_closed_form_only: true
   c_closed_form_vectorized: true
 

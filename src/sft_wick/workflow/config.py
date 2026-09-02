@@ -87,13 +87,19 @@ class PropagatorsConfig:
     x_max: Any = None
     n_grid_x: Any = None
     n_jobs: int = 1
+    #: ``'auto'`` (default): use the built-in closed form when the kernel
+    #: family has one; ``null`` / ``false``: always run quadrature.  A
+    #: ``c_closed_form_module`` takes precedence over both.
+    c_closed_form: Any = "auto"
     c_closed_form_module: Any = None
     c_closed_form_attr: str = "C_fn"
     c_closed_form_only: bool = False
     c_closed_form_vectorized: bool = False
     cache_path: Any = None
     interp_method: str = "linear"
-    c_method: str = "dblquad"  # 'dblquad' | 'gauss_legendre'
+    #: 'auto' (GL with a converged node count for built-in kernels,
+    #: dblquad for callable kernels) | 'gauss_legendre' | 'dblquad'
+    c_method: str = "auto"
     c_n_gauss: int = 20  # nodes per dim under c_method='gauss_legendre'
     diag_C: bool = True  # set False to preserve off-diagonal C entries
     #                       (e.g. lensing kappa-gamma_+ cross). Requires
@@ -546,6 +552,24 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
     else:
         n_grid_t = int(d.get("n_grid_t", 60))
 
+    c_closed_form = d.get("c_closed_form", "auto")
+    if c_closed_form in (False, None, "none", "null", "off"):
+        c_closed_form = None
+    elif c_closed_form is True or str(c_closed_form).lower() == "auto":
+        c_closed_form = "auto"
+    else:
+        raise ValueError(
+            f"propagators.c_closed_form must be 'auto' or null/false; got "
+            f"{c_closed_form!r}.  To supply your own closed form use "
+            f"c_closed_form_module / c_closed_form_attr."
+        )
+    c_method = str(d.get("c_method", "auto"))
+    if c_method not in ("auto", "dblquad", "gauss_legendre"):
+        raise ValueError(
+            f"propagators.c_method must be 'auto', 'dblquad' or "
+            f"'gauss_legendre'; got {c_method!r}."
+        )
+
     return PropagatorsConfig(
         t_max=t_max,
         n_grid_t=n_grid_t,
@@ -557,13 +581,14 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
         x_max=d.get("x_max"),
         n_grid_x=d.get("n_grid_x"),
         n_jobs=int(d.get("n_jobs", 1)),
+        c_closed_form=c_closed_form,
         c_closed_form_module=module_spec,
         c_closed_form_attr=str(d.get("c_closed_form_attr", "C_fn")),
         c_closed_form_only=bool(d.get("c_closed_form_only", False)),
         c_closed_form_vectorized=bool(d.get("c_closed_form_vectorized", False)),
         cache_path=d.get("cache_path"),
         interp_method=str(d.get("interp_method", "linear")),
-        c_method=str(d.get("c_method", "dblquad")),
+        c_method=c_method,
         c_n_gauss=int(d.get("c_n_gauss", 20)),
         diag_C=bool(d.get("diag_C", True)),
     )
@@ -787,12 +812,24 @@ def _build_kernel(d: dict, axis: str):
 # =========================================================================
 
 
-def run_workflow(cfg: WorkflowConfig):
+def run_workflow(cfg: WorkflowConfig, progress: Any = None):
     """Execute the full pipeline — expand, build propagators, sweep,
     emit outputs.
 
     Returns ``(sweep, totals_dataframe)`` for programmatic use.
+
+    ``progress`` is the :mod:`sft_wick.progress` setting for the three
+    reported stages (expansion, propagator table, sweep): ``True`` /
+    ``False`` / callable / ``None`` (inherit).
     """
+    from sft_wick.progress import progress as _progress_scope
+    from sft_wick.progress import stage
+
+    with _progress_scope(progress):
+        return _run_workflow(cfg, stage)
+
+
+def _run_workflow(cfg: WorkflowConfig, stage):
     system = build_system(cfg.system)
 
     # ``propagators.diag_C`` is the user-facing knob (the single
@@ -811,18 +848,23 @@ def run_workflow(cfg: WorkflowConfig):
         # forcing users to set the knob twice.
         expand_diag_C = False
 
-    expansion = system.expand(
-        observable=cfg.expand.observable,
-        orders=cfg.expand.orders,
-        response_phase=cfg.expand.response_phase,
-        ito=cfg.expand.ito,
-        collect_topology=cfg.expand.collect_topology,
-        iso_R=cfg.expand.iso_R,
-        diag_R=cfg.expand.diag_R,
-        diag_C=expand_diag_C,
-        iso_C=cfg.expand.iso_C,
-        cache_path=cfg.expand.cache_path,
+    with stage("expansion", f"orders {list(cfg.expand.orders)}"):
+        expansion = system.expand(
+            observable=cfg.expand.observable,
+            orders=cfg.expand.orders,
+            response_phase=cfg.expand.response_phase,
+            ito=cfg.expand.ito,
+            collect_topology=cfg.expand.collect_topology,
+            iso_R=cfg.expand.iso_R,
+            diag_R=cfg.expand.diag_R,
+            diag_C=expand_diag_C,
+            iso_C=cfg.expand.iso_C,
+            cache_path=cfg.expand.cache_path,
+        )
+    counts = ", ".join(
+        f"order {o}: {len(expansion.diagrams(o))}" for o in expansion.orders
     )
+    _log(f"[sft-wick] diagrams -- {counts}")
 
     c_fn = _load_c_closed_form(cfg.propagators)
     # User-supplied C_fn modules are loaded via
@@ -834,25 +876,29 @@ def run_workflow(cfg: WorkflowConfig):
     # parallel C-table builds (``propagators.n_jobs: -1``) when their
     # c_fn does heavy work per call.
     n_jobs = cfg.propagators.n_jobs
-    props = system.propagators(
-        t_max=cfg.propagators.t_max,
-        n_grid_t=cfg.propagators.n_grid_t,
-        homogeneity=cfg.propagators.homogeneity,
-        r_max=cfg.propagators.r_max,
-        n_grid_r=cfg.propagators.n_grid_r,
-        n_grid_cos=cfg.propagators.n_grid_cos,
-        x_max=cfg.propagators.x_max,
-        n_grid_x=cfg.propagators.n_grid_x,
-        n_jobs=n_jobs,
-        c_closed_form=c_fn,
-        cache_path=cfg.propagators.cache_path,
-        interp_method=cfg.propagators.interp_method,
-        c_closed_form_only=cfg.propagators.c_closed_form_only,
-        c_closed_form_vectorized=cfg.propagators.c_closed_form_vectorized,
-        c_method=cfg.propagators.c_method,
-        c_n_gauss=cfg.propagators.c_n_gauss,
-        diag_C=cfg.propagators.diag_C,
-    )
+    with stage("propagators", f"t_max={cfg.propagators.t_max}, "
+                              f"n_grid_t={cfg.propagators.n_grid_t}"):
+        props = system.propagators(
+            t_max=cfg.propagators.t_max,
+            n_grid_t=cfg.propagators.n_grid_t,
+            homogeneity=cfg.propagators.homogeneity,
+            r_max=cfg.propagators.r_max,
+            n_grid_r=cfg.propagators.n_grid_r,
+            n_grid_cos=cfg.propagators.n_grid_cos,
+            x_max=cfg.propagators.x_max,
+            n_grid_x=cfg.propagators.n_grid_x,
+            n_jobs=n_jobs,
+            c_closed_form=c_fn,
+            cache_path=cfg.propagators.cache_path,
+            interp_method=cfg.propagators.interp_method,
+            c_closed_form_only=cfg.propagators.c_closed_form_only,
+            c_closed_form_vectorized=cfg.propagators.c_closed_form_vectorized,
+            c_method=cfg.propagators.c_method,
+            c_n_gauss=cfg.propagators.c_n_gauss,
+            diag_C=cfg.propagators.diag_C,
+        )
+    _log(f"[sft-wick] C propagator: {props.c_source}"
+         + (", lazy per-separation table" if props.is_lazy else ""))
 
     # Mutual-exclusion: parallelism layers cannot nest because joblib's
     # loky backend does not support nested process pools. Higher-level
@@ -867,22 +913,23 @@ def run_workflow(cfg: WorkflowConfig):
             "nested joblib loky pools are not supported."
         )
 
-    sweep = expansion.sweep(
-        props,
-        positions_grid=cfg.sweep.positions_grid,
-        t_final_grid=cfg.sweep.t_final_grid,
-        external_times_grid=cfg.sweep.external_times_grid,
-        component_pairs=cfg.sweep.component_pairs,
-        orders=cfg.sweep.orders,
-        vertex_types=cfg.sweep.vertex_types,
-        integrate_over=cfg.sweep.integrate_over,
-        method=cfg.sweep.method,
-        n_samples=cfg.sweep.n_samples,
-        seed=cfg.sweep.seed,
-        n_jobs=cfg.sweep.n_jobs,
-        evaluate_n_jobs=cfg.expand.n_jobs,
-        n_gauss=cfg.sweep.n_gauss,
-    )
+    with stage("sweep", f"method={cfg.sweep.method}"):
+        sweep = expansion.sweep(
+            props,
+            positions_grid=cfg.sweep.positions_grid,
+            t_final_grid=cfg.sweep.t_final_grid,
+            external_times_grid=cfg.sweep.external_times_grid,
+            component_pairs=cfg.sweep.component_pairs,
+            orders=cfg.sweep.orders,
+            vertex_types=cfg.sweep.vertex_types,
+            integrate_over=cfg.sweep.integrate_over,
+            method=cfg.sweep.method,
+            n_samples=cfg.sweep.n_samples,
+            seed=cfg.sweep.seed,
+            n_jobs=cfg.sweep.n_jobs,
+            evaluate_n_jobs=cfg.expand.n_jobs,
+            n_gauss=cfg.sweep.n_gauss,
+        )
 
     totals = sweep.totals()
     for out in cfg.output:
@@ -891,14 +938,23 @@ def run_workflow(cfg: WorkflowConfig):
     return sweep, totals
 
 
-def _load_c_closed_form(cfg: PropagatorsConfig):
-    """Import a user-supplied ``C_fn(n1, t1, n2, t2)`` from the
-    ``.py`` file given by ``c_closed_form_module`` in the config.
+def _log(msg: str) -> None:
+    """Stage-level notice, printed only when progress reporting is on."""
+    from sft_wick.progress import current_setting
 
-    Returns ``None`` if the field isn't set.
+    if current_setting() is True:
+        print(msg, file=sys.stderr, flush=True)
+
+
+def _load_c_closed_form(cfg: PropagatorsConfig):
+    """The ``c_closed_form`` argument for :meth:`System.propagators`.
+
+    A user module (``c_closed_form_module`` / ``c_closed_form_attr``)
+    is imported and returned; otherwise the ``c_closed_form`` setting
+    itself (``'auto'`` or ``None``) is passed through.
     """
     if cfg.c_closed_form_module is None:
-        return None
+        return cfg.c_closed_form
     path = Path(cfg.c_closed_form_module).resolve()
 
     # Register the module under its file basename and put the parent on
@@ -940,6 +996,7 @@ def _emit_output(out: OutputConfig, sweep, totals) -> None:
     elif out.type == "npz":
         if out.path is None:
             raise ValueError("output type 'npz' requires a 'path'.")
+        Path(out.path).parent.mkdir(parents=True, exist_ok=True)
         np.savez(
             out.path,
             **{col: totals[col].to_numpy() for col in totals.columns},
@@ -952,6 +1009,7 @@ def _emit_output(out: OutputConfig, sweep, totals) -> None:
         fig = sweep.plot(
             x=out.x, y=out.y, hue=out.hue, facet_col=out.facet_col,
         )
+        Path(out.path).parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(out.path, dpi=120, bbox_inches="tight")
 
 

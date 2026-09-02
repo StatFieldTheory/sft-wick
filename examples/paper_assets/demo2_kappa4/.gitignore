@@ -1,0 +1,5 @@
+cache/
+cache2/
+*.log
+sims/*.log
+__pycache__/
