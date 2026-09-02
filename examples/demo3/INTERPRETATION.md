@@ -74,7 +74,7 @@ needs a cusp-aligned composite rule accurate only to ~1e-6.
 | `1/√n` law | closed form and simulation across `n ∈ {0.25, 1, 4}` | ratio **4.0000** vs 4.0000 predicted | exact |
 | **Level B: order-2 `Fκ³` channel** | an independent 1-D integral: because the two components are driven by *independent* event processes, one of the two first-order terms vanishes identically and `ξ₀₁^{FK}(t) = s∫_0^t R(t,u) K_R(u,u,t) du` | ≤ 7e-7 rel (limited by the quoted reference digits) | — |
 | Level B order-2, integrator independence | Gauss-Legendre `n = 16/32/64` vs QMC `2^18` | 2e-9 rel | — |
-| Level B order-4 (`F³κ³`, `F³κ⁵`) | node-count convergence `n_gauss` 12 vs 14 | 2e-5 rel | GL convergence |
+| Level B order-4 (`F³κ³`, `F³κ⁵`) | node-count convergence on **this demo's worst cell** (`t = 3`), `n_gauss` 8→22 | monotone; `n = 12` is within **1.1e-5** of `n = 22` for `F³κ³` and 4e-8 for `F³κ⁵` | GL convergence |
 | **Level B: `ξ₀₁(t)` vs simulation** | ETD simulation, 6 independent seeds (6 × 4e5) | all six times within **0.90σ**, relative deviations ≤ **0.79 %**, χ²/dof 0.29–1.54 | Monte Carlo |
 | Level B: `ξ₀₁(r)` vs simulation | same, sites placed exactly at each `r` | all pulls ≤ 1.35σ | Monte Carlo |
 | Level B: `ξ₀₀` (even sector) | same, against order 0 + FF + `F²κ⁴` | all pulls ≤ 0.9σ | Monte Carlo + order-4 truncation |
@@ -94,7 +94,7 @@ coherent offset across a curve is *one* fluctuation, not one per point.
 | spatial discretisation | the drift has no spatial derivative, so sites couple only through the noise; a finite set of sites is an *exact* realisation |
 | interpolation in `r` | sites are placed exactly at the plotted separations (this is what biases demo 2's off-grid `r` by +0.5 %) |
 | time stepping (level A) | the linear response to an exponential pulse is analytic per event |
-| `C`-propagator quadrature | `κ²` is `SeparableTranslation` × `ExponentialTemporal`, so the built-in closed form applies (`c_source == "closed_form:builtin"`); no `dblquad`, no spline table |
+| `C`-propagator quadrature | `κ²` is `SeparableTranslation` × `ExponentialTemporal`, so the built-in closed form applies (`c_source == "closed_form:builtin"`); no `dblquad`, no spline table, and the GL-vs-`dblquad` dispatch is never reached — which also means demo 3 is immune to the timing race in `_gl_is_cheaper` that can make `c_source` load-dependent for quadrature-path systems |
 | leg-integral quadrature | the `m` leg integrals are done analytically (§1) |
 | contamination of level A by other cumulants | a `κ^(m′)` vertex with `m′ ≠ m` cannot balance the legs |
 
@@ -104,7 +104,8 @@ coherent offset across a curve is *one* fluctuation, not one per point.
 |---|---|---|
 | event-window truncation | **7.6e-11** relative (m = 3) | analytic: the m-th cumulant is an m-fold product of pulse profiles, so the discarded region costs `e^{−mL/σ_x}` — *m* times faster than the field's own tail. The subtracted mean uses the **same truncated window**, so it contributes no bias at all |
 | `T̃_m` closed-form cancellation | ≤ 1e-12 by construction | the closed form reports its own conditioning (`ε·Σ|term|/|result|`, including the `exp` argument amplification) and the dispatcher recomputes any sample above tolerance by quadrature. Verified against `mpmath` to be an upper bound |
-| order-4 Gauss-Legendre (`F³κ³`, `F³κ⁵`) | 2e-5 rel at `n_gauss = 12` vs 14 | node-count convergence, on a channel that is itself 7.9 % of the total |
+| order-4 Gauss-Legendre (`F³κ³`, `F³κ⁵`) | 1.1e-5 rel at `n_gauss = 12` (vs `n = 22`), i.e. **8e-7 of the total** | measured on this demo's own worst cell (`t = 3`) rather than inherited; the sequence is monotone in `n`, so the limit is trustworthy |
+| order-2 Gauss-Legendre (`Fκ³`) | machine precision | already converged at `n_gauss = 8`; the configs use 32. The "low order needs the finer grid at large `t_f`" trap that caught demo 1 does not bite here — demo 3's largest `t_f` is 3, not 100, so the integrand never develops a narrow peak relative to the simplex |
 | **truncation of the `F` series** | `F³κ³` = 7.9 % of `Fκ³` at `t = 3` — **computed, not estimated** | computed exactly (30 diagrams, 3 time-integration variables) |
 | **neglected-cumulant ladder** | `F³κ⁵` = 0.094 % of `Fκ³` — **computed** (6 diagrams) | closed-form ladder ratio `κ_m/κ₃ = h^{m−3}(3/m)²`; `h` is free, so it can be shrunk at will |
 | uncomputed `O(F⁵)` | ≈ 0.63 % of `Fκ³` at `t = 3` | geometric estimate `(F³κ³/Fκ³)²`; falls as `s²` |

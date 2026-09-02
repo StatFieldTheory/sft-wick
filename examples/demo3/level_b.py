@@ -143,28 +143,8 @@ def theory_xi00(t_grid, s, p=sn.PARAMS):
     return out
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--quick", action="store_true")
-    ap.add_argument("--seeds", type=int, default=6,
-                    help="independent seeds for the t sweep; the error bar is "
-                         "their scatter, which is the only reliable one here")
-    ap.add_argument("--out", default="level_b_results.npz")
-    args = ap.parse_args()
-    # 2e6 puts the MC error near 1.2 % of the signal, so the computed
-    # F^3 correction (7.9 % at t = 3) shows up at better than 6 sigma.
-    n_real = 240_000 if args.quick else 2_400_000
-    n_scal = 100_000 if args.quick else 1_000_000
-    n_dt = 100_000 if args.quick else 300_000
-    n_r = 200_000 if args.quick else 1_000_000
-    p, s = sn.PARAMS, F_AMPLITUDE
-
-    print(f"demo 3 level B -- F amplitude s = {s}, n = {p.n_dimensionless:g}")
-
-    t0 = time.perf_counter()
-    th = theory_xi01(T_GRID, R_GRID, T_R, p=p)
-    tot_t, tot_r = combine(th, s)
-    print(f"\n[1] theory channels ({time.perf_counter()-t0:.0f} s)")
+def _report_theory(th, tot_t, s):
+    """[1] the three computed channels and the size of what is left over."""
     print(f"    {'t':>5} {'F.k3':>12} {'F3.k3':>12} {'F3.k5':>12} {'total':>12} "
           f"{'F3k3/Fk3':>9} {'F3k5/Fk3':>9} {'O(F^5) est':>10}")
     for j, t in enumerate(T_GRID):
@@ -172,104 +152,71 @@ def main():
         print(f"    {t:5.2f} {a: .5e} {b: .5e} {c: .5e} {tot_t[j]: .5e} "
               f"{b/a:9.4f} {c/a:9.5f} {(b/a)**2:10.5f}")
 
-    # Independent seeds, combined by inverse variance, with chi^2/dof
-    # reported so the reader can judge the error bars rather than trust
-    # them.
-    #
-    # xi_01 is a product of two heavy-tailed fields, and at small t (few
-    # accumulated events, furthest from Gaussian) a single seed can land
-    # several sigma out.  A bare seed-scatter/batch-scatter ratio is then
-    # misleading -- with 6 seeds it carries ~30 % uncertainty of its own
-    # and one outlier inflates it (here: 1.82 at t = 0.5, but 0.99 with
-    # the single most deviant seed removed, while chi^2/dof goes 3.4 ->
-    # 1.3).  So both the full and the drop-one-seed combinations are
-    # printed; if they agree, the error bars are sound.
-    t0 = time.perf_counter()
-    per = n_real // args.seeds
-    runs = [sb.simulate_xi(p, s, [0.0], T_GRID, per, dt=0.01, seed=11 + 10 * k)
-            for k in range(args.seeds)]
+
+def _report_tsweep(runs, tot_t):
+    """[2] xi_01(t): inverse-variance over seeds, with chi2/dof to judge it."""
     vals = np.array([r.xi01[0] for r in runs])
     claimed = np.array([r.xi01_err[0] for r in runs])
-    sim_mean, sim_err, chi2, rob_mean, rob_err = _combine_seeds(vals, claimed)
-    sim = runs[0]
-    print(f"\n[2] simulation, {args.seeds} x {per:,} realisations, dt = 0.01 "
-          f"({time.perf_counter()-t0:.0f} s)")
+    mean, err, chi2, rob, rob_err = _combine_seeds(vals, claimed)
     print(f"    blow-up fraction: {max(r.blowup_fraction for r in runs):.2e}   "
           f"variance reduction from the control variate: "
-          f"x{sim.variance_reduction.min():.1f}-{sim.variance_reduction.max():.1f}")
+          f"x{runs[0].variance_reduction.min():.1f}-"
+          f"{runs[0].variance_reduction.max():.1f}")
     print(f"    {'t':>5} {'theory':>13} {'simulation':>13} {'err':>10} {'dev':>7} "
           f"{'rel':>9} {'chi2/dof':>9} {'dev (drop 1)':>13}")
     for j, t in enumerate(T_GRID):
-        d = (sim_mean[j] - tot_t[j]) / sim_err[j]
-        dr = (rob_mean[j] - tot_t[j]) / rob_err[j]
-        print(f"    {t:5.2f} {tot_t[j]: .6e} {sim_mean[j]: .6e} "
-              f"{sim_err[j]:10.2e} {d:6.2f}s "
-              f"{(sim_mean[j]-tot_t[j])/tot_t[j]:+8.3%} {chi2[j]:9.2f} {dr:12.2f}s")
-    pulls = (sim_mean - tot_t) / sim_err
+        print(f"    {t:5.2f} {tot_t[j]: .6e} {mean[j]: .6e} {err[j]:10.2e} "
+              f"{(mean[j]-tot_t[j])/err[j]:6.2f}s "
+              f"{(mean[j]-tot_t[j])/tot_t[j]:+8.3%} {chi2[j]:9.2f} "
+              f"{(rob[j]-tot_t[j])/rob_err[j]:12.2f}s")
+    pulls = (mean - tot_t) / err
     print(f"    pulls: mean {pulls.mean():+.2f}, max |pull| {np.abs(pulls).max():.2f}")
-    print(f"    chi2/dof above ~2 at small t is the heavy tail of the phi_0 phi_1")
-    print(f"    product, not a bias: the 'drop 1' column removes the single most")
-    print(f"    deviant seed, and it moves the answer by well under one sigma.")
+    print(f"    chi2/dof above ~2 at small t would be the heavy tail of the")
+    print(f"    phi_0 phi_1 product, not a bias: the 'drop 1' column removes the")
+    print(f"    single most deviant seed.  Both must agree for the errors to hold.")
+    return mean, err, chi2, rob, rob_err, vals, claimed
 
-    # --- paired dt study -------------------------------------------------
-    # Same seed AND same n_real for every dt, so the SAME events are drawn
-    # (the draw happens before stepping and does not consume rng state per
-    # step).  The differences are then almost free of Monte-Carlo noise and
-    # measure the ETDRK2 discretisation error alone.
-    t0 = time.perf_counter()
-    dts = [0.02, 0.01, 0.005]
-    paired = [sb.simulate_xi(p, s, [0.0], T_GRID, n_dt, dt=h, seed=101)
-              for h in dts]
-    print(f"\n[2b] paired dt study, {n_dt:,} realisations, identical events "
-          f"({time.perf_counter()-t0:.0f} s)")
+
+def _report_dt_study(paired, dts, err_ref):
+    """[2b] the discretisation error, isolated by using identical events."""
     print(f"    {'t':>5} " + " ".join(f"{'dt=' + str(h):>13}" for h in dts)
           + f" {'|d(.02-.01)|':>13} {'|d(.01-.005)|':>13} {'ratio':>7} {'MC err':>10}")
     for j, t in enumerate(T_GRID):
         v = [pp.xi01[0, j] for pp in paired]
         d1, d2 = abs(v[0] - v[1]), abs(v[1] - v[2])
         print(f"    {t:5.2f} " + " ".join(f"{x: .6e}" for x in v)
-              + f" {d1:13.2e} {d2:13.2e} {d1/max(d2,1e-300):7.2f} "
-              f"{sim.xi01_err[0, j]:10.2e}")
+              + f" {d1:13.2e} {d2:13.2e} {d1/max(d2,1e-300):7.2f} {err_ref[j]:10.2e}")
     d_fin = np.abs(paired[1].xi01[0] - paired[2].xi01[0])
     print(f"    ETDRK2 is O(dt^2), so halving dt should shrink the difference ~4x.")
     print(f"    |dt=0.01 - dt=0.005| is at most "
-          f"{np.max(d_fin / sim.xi01_err[0]):.2f} of the production MC error, so")
+          f"{np.max(d_fin / err_ref):.3f} of the production MC error, so")
     print(f"    the discretisation error is NOT what limits the comparison.")
 
-    t0 = time.perf_counter()
-    simr = sb.simulate_xi(p, s, R_GRID, [T_R], n_r, dt=0.01, seed=13)
-    print(f"\n[3] separations at t = {T_R} ({time.perf_counter()-t0:.0f} s) -- "
-          f"sites placed exactly at the plotted r, no interpolation")
+
+def _report_separations(simr, tot_r):
+    """[3] xi_01(r), with sites placed exactly at the plotted separations."""
     print(f"    {'r':>5} {'theory':>13} {'simulation':>13} {'MC err':>10} {'dev':>7}")
     for j, r in enumerate(R_GRID):
-        d = (simr.xi01[j, 0] - tot_r[j]) / simr.xi01_err[j, 0]
         print(f"    {r:5.2f} {tot_r[j]: .6e} {simr.xi01[j, 0]: .6e} "
-              f"{simr.xi01_err[j, 0]:10.2e} {d:6.2f}s")
+              f"{simr.xi01_err[j, 0]:10.2e} "
+              f"{(simr.xi01[j, 0]-tot_r[j])/simr.xi01_err[j, 0]:6.2f}s")
     pr = (simr.xi01[:, 0] - tot_r) / simr.xi01_err[:, 0]
     print(f"    pulls: mean {pr.mean():+.2f}, max |pull| {np.abs(pr).max():.2f}")
 
-    print(f"\n[4] amplitude scaling: the residual after subtracting Fk3 must go as s^3")
-    amps = [0.1, 0.2, 0.3]
-    res = []
-    for a in amps:
-        r = sb.simulate_xi(p, a, [0.0], [T_R], n_scal, dt=0.01, seed=17)
-        lead = a * th["fk3"][list(T_GRID).index(T_R)]
-        resid = r.xi01[0, 0] - lead
-        res.append((a, r.xi01[0, 0], r.xi01_err[0, 0], lead, resid,
-                    a ** 3 * (th["f3k3"] + th["f3k5"])[list(T_GRID).index(T_R)]))
-        print(f"    s={a:4.2f}  sim={r.xi01[0,0]: .5e}+-{r.xi01_err[0,0]:.1e}  "
-              f"Fk3={lead: .5e}  residual={resid: .5e}  predicted F^3={res[-1][5]: .5e}")
-    la = np.log(np.array([r[0] for r in res]))
-    lr = np.log(np.abs(np.array([r[4] for r in res])))
-    slope = np.polyfit(la, lr, 1)[0]
+
+def _report_scaling(res, th, slope):
+    """[4] the residual after subtracting Fk3 must scale as F^3."""
+    for a, sim_v, sim_e, lead, resid, pred in res:
+        print(f"    s={a:4.2f}  sim={sim_v: .5e}+-{sim_e:.1e}  Fk3={lead: .5e}  "
+              f"residual={resid: .5e}  predicted F^3={pred: .5e}")
     print(f"    fitted exponent of the residual: {slope:.2f}  (F^3 predicts 3)")
     print(f"    NOTE: this cannot separate F3.k3 from F3.k5 -- both scale as s^3.")
     print(f"          Only computing them does; F3.k5 is "
           f"{100*th['f3k5'][-1]/th['f3k3'][-1]:.2f}% of F3.k3 at t={T_GRID[-1]}.")
 
-    t0 = time.perf_counter()
-    xi00 = theory_xi00(T_GRID, s, p=p)
-    print(f"\n[5] xi_00 -- the even-cumulant sector ({time.perf_counter()-t0:.0f} s)")
+
+def _report_xi00(xi00, sim):
+    """[5] the even-cumulant sector -- an independent, kappa^4-driven check."""
     print(f"    {'t':>5} {'order0':>12} {'FF':>12} {'F2.k4':>12} {'total':>12} "
           f"{'simulation':>12} {'MC err':>10} {'dev':>7}")
     for j, t in enumerate(T_GRID):
@@ -278,20 +225,89 @@ def main():
               f"{xi00['F2K4'][j]: .5e} {xi00['total'][j]: .5e} "
               f"{sim.xi00[0, j]: .5e} {sim.xi00_err[0, j]:10.2e} {d:6.2f}s")
 
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--quick", action="store_true")
+    ap.add_argument("--seeds", type=int, default=6,
+                    help="independent seeds for the t sweep; combined by "
+                         "inverse variance, with chi2/dof reported")
+    ap.add_argument("--out", default="level_b_results.npz")
+    args = ap.parse_args()
+    n_real = 240_000 if args.quick else 2_400_000
+    n_scal = 100_000 if args.quick else 1_000_000
+    n_dt = 100_000 if args.quick else 300_000
+    n_r = 200_000 if args.quick else 1_000_000
+    p, s = sn.PARAMS, F_AMPLITUDE
+    print(f"demo 3 level B -- F amplitude s = {s}, n = {p.n_dimensionless:g}")
+
+    t0 = time.perf_counter()
+    th = theory_xi01(T_GRID, R_GRID, T_R, p=p)
+    tot_t, tot_r = combine(th, s)
+    print(f"\n[1] theory channels ({time.perf_counter()-t0:.0f} s)")
+    _report_theory(th, tot_t, s)
+
+    # Independent seeds; xi_01 is a product of two heavy-tailed fields, so
+    # a single seed can land several sigma out at small t.  Inverse-variance
+    # weighting down-weights such a seed automatically (it carries a
+    # correspondingly large error), and chi2/dof plus a drop-one-seed column
+    # let the reader check rather than trust.
+    t0 = time.perf_counter()
+    per = n_real // args.seeds
+    runs = [sb.simulate_xi(p, s, [0.0], T_GRID, per, dt=0.01, seed=11 + 10 * k)
+            for k in range(args.seeds)]
+    print(f"\n[2] simulation, {args.seeds} x {per:,} realisations, dt = 0.01 "
+          f"({time.perf_counter()-t0:.0f} s)")
+    sim_mean, sim_err, chi2, rob, rob_err, vals, claimed = _report_tsweep(runs, tot_t)
+    sim = runs[0]
+
+    # Same seed AND same n_real for every dt, so the SAME events are drawn
+    # (the draw happens before stepping and consumes no per-step rng state).
+    # The differences are then almost free of Monte-Carlo noise and measure
+    # the ETDRK2 discretisation error alone.
+    t0 = time.perf_counter()
+    dts = [0.02, 0.01, 0.005]
+    paired = [sb.simulate_xi(p, s, [0.0], T_GRID, n_dt, dt=h, seed=101) for h in dts]
+    print(f"\n[2b] paired dt study, {n_dt:,} realisations, identical events "
+          f"({time.perf_counter()-t0:.0f} s)")
+    _report_dt_study(paired, dts, sim_err)
+
+    t0 = time.perf_counter()
+    simr = sb.simulate_xi(p, s, R_GRID, [T_R], n_r, dt=0.01, seed=13)
+    print(f"\n[3] separations at t = {T_R} ({time.perf_counter()-t0:.0f} s) -- "
+          f"sites placed exactly at the plotted r, no interpolation")
+    _report_separations(simr, tot_r)
+
+    print(f"\n[4] amplitude scaling: the residual after subtracting Fk3 must go as s^3")
+    j_r = list(T_GRID).index(T_R)
+    res = []
+    for a in (0.1, 0.2, 0.3):
+        r = sb.simulate_xi(p, a, [0.0], [T_R], n_scal, dt=0.01, seed=17)
+        lead = a * th["fk3"][j_r]
+        res.append((a, r.xi01[0, 0], r.xi01_err[0, 0], lead, r.xi01[0, 0] - lead,
+                    a ** 3 * (th["f3k3"] + th["f3k5"])[j_r]))
+    slope = np.polyfit(np.log([r[0] for r in res]),
+                       np.log(np.abs([r[4] for r in res])), 1)[0]
+    _report_scaling(res, th, slope)
+
+    t0 = time.perf_counter()
+    xi00 = theory_xi00(T_GRID, s, p=p)
+    print(f"\n[5] xi_00 -- the even-cumulant sector ({time.perf_counter()-t0:.0f} s)")
+    _report_xi00(xi00, sim)
+
     np.savez(args.out, t_grid=T_GRID, r_grid=R_GRID, t_r=T_R, s=s,
              **{f"th_{k}": v for k, v in th.items()},
              total_t=tot_t, total_r=tot_r,
              sim_t=sim_mean, sim_t_err=sim_err, sim_t_chi2=chi2,
-             sim_t_robust=rob_mean, sim_t_robust_err=rob_err,
+             sim_t_robust=rob, sim_t_robust_err=rob_err,
              sim_t_seeds=vals, sim_t_seed_errs=claimed, n_seeds=args.seeds,
              dt_values=np.array(dts),
-             dt_curves=np.array([pp.xi01[0] for pp in paired]),
-             n_real_dt=n_dt,
+             dt_curves=np.array([pp.xi01[0] for pp in paired]), n_real_dt=n_dt,
              sim_r=simr.xi01[:, 0], sim_r_err=simr.xi01_err[:, 0],
              sim_xi00=sim.xi00[0], sim_xi00_err=sim.xi00_err[0],
              **{f"xi00_{k}": v for k, v in xi00.items()},
-             scaling=np.array([[r[0], r[1], r[2], r[3], r[4], r[5]] for r in res]),
-             scaling_slope=slope, blowup=sim.blowup_fraction,
+             scaling=np.array([list(r) for r in res]),
+             scaling_slope=slope, blowup=max(r.blowup_fraction for r in runs),
              var_reduction=sim.variance_reduction[0], n_real=n_real)
     print(f"\nwrote {args.out}")
 
