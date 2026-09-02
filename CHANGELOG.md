@@ -268,6 +268,42 @@ Every item below is a number that moved, with its measured size.
   residual and inside the fitted `c₃`.  This was nowhere in the 0.3.0
   budget.
 
+### Fixed: the `auto` C-quadrature choice was decided by a wall-clock race
+
+`PropagatorCache._gl_is_cheaper` timed one Gauss-Legendre call against
+one `dblquad` call and took the winner.  Both rules are verified
+converged by `select_gl_node_count` before it ran, so the race could
+never produce a wrong value — but it made the *choice* depend on machine
+load, and with it `Propagators.c_source` and the spline table.  Two runs
+of the same config on a busy and an idle machine could resolve
+differently, which is a poor property for a package that sells
+reproducibility; it also made
+`test_direct_calls_before_any_build_use_dblquad_under_auto` fail
+intermittently (observed failing in a full-suite run made while a
+28-core sweep was running, passing in isolation and on a quiet machine).
+
+The decision is now a function of the inputs alone: prefer
+Gauss-Legendre whenever a converged node count exists, fall back to
+`dblquad` only when none does.
+
+**Size of the change:** bounded by the agreement of the two rules at the
+node count actually resolved, since that is all the race ever chose
+between — GL vs dblquad at the deep corner: **9.1e-16** at `t_max = 3`
+(n = 20), **1.2e-10** at 15 (n = 20), **2.1e-09** at 50 (n = 30),
+**3.6e-09** at 100 (n = 45).  All inside the 1e-8 selection tolerance.
+No demo can be affected at all: they set `c_closed_form_only`, which
+short-circuits before this path.  Verified by running the previously
+flaky test five times under 24-way CPU load (5/5 pass) and by the 87
+tests of `test_propagator_dispatch.py`,
+`test_closed_form_dispatch_boundaries.py`,
+`test_c_propagator_gauss_legendre.py` and `test_deductive_numerics.py`.
+
+The cost the race was buying was ~1.5× on one path (3.8 ms adaptive
+against 5.6 ms for a 20-node tensor rule on a smooth kernel over a short
+horizon; with a cusp or a long horizon the tensor rule wins by 5–30×).
+If that matters it should come back as a deterministic rule — a
+threshold on the converged `n` — not a timing measurement.
+
 ### Documented: unstable cache keys for callable spec fields
 
 `cache_path` keys the symbolic expansion and the propagator table on
@@ -317,9 +353,12 @@ enumeration does not depend on coupling values.  Noted on
 - **The sweep is now `gauss_legendre` with `n_gauss: 24`.**  The node
   count matters and the obvious choice is wrong: order 4 costs `n⁴`, so
   the temptation is to keep `n` small — but it is *order 2* that needs
-  the finer grid at large `t_f`, and `n = 14` gives it only 196 nodes
-  and an error of **−15 %** there, trading an order-4 error for an
-  order-2 one in the opposite direction.  `n = 24` beats the QMC it
+  the finer grid at large `t_f`, and `n = 14` gives it only 196 nodes.
+  Its order-2 error at `t = 100` is **cell-dependent and non-monotone**:
+  −14.8 % at `r = 2.5, (1,1)`, +11.9 % at `r = 0, (0,0)`, +3.1 % at
+  `r = 0.5, (0,0)`, −2.2 % at `r = 2.5, (0,0)` (each against GL64).  So
+  `n = 14` would have traded an order-4 error for an order-2 one of
+  either sign.  `n = 24` beats the QMC it
   replaces on both orders at every grid point; worst-case residual
   error **+1.3 % (order 2) and +2 % (order 4) at `t = 100`**, below
   0.1 % by `t = 15`.  Cost ~15 min on 28 cores against ~2 min, paid

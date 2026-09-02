@@ -69,22 +69,32 @@ large `t_f` a coarse tensor grid cannot resolve a feature of width
 `sigma_t = 0.3` inside a simplex of side `t_f`, and `n = 14` gives order
 2 only 196 nodes.
 
-Measured at `t = 100, r = 2.5, (1,1)`, where the converged value is
-**3.10410e-05** (GL64, GL96, GL128 and 2²² Sobol all agree to 5 digits):
+Order 2 at `t = 100`, against GL64 (which agrees with GL96, GL128 and
+2²² Sobol to 5 digits).  **The error is cell-dependent and
+non-monotone in `n`**, so quote the cell:
+
+| cell | GL14 | GL20 | GL24 | GL32 | GL40 | GL64 | GL14 vs GL64 |
+|---|---|---|---|---|---|---|---|
+| `r = 2.5, (1,1)` | 2.64362e-05 | 3.19792e-05 | 3.14450e-05 | 3.10646e-05 | 3.10470e-05 | 3.10421e-05 | **−14.8 %** |
+| `r = 0.0, (0,0)` | 4.46659e-04 | 4.23901e-04 | 4.11031e-04 | 4.03113e-04 | 4.00806e-04 | 3.99236e-04 | **+11.9 %** |
+| `r = 0.5, (0,0)` | 2.72446e-04 | 2.74566e-04 | 2.69228e-04 | 2.65741e-04 | 2.64875e-04 | 2.64298e-04 | +3.1 % |
+| `r = 2.5, (0,0)` | 1.42278e-04 | 1.45976e-04 | 1.45699e-04 | 1.45464e-04 | 1.45443e-04 | 1.45433e-04 | −2.2 % |
+
+and the QMC it replaces, at `r = 2.5, (1,1)`:
 
 | rule | value | error |
 |---|---|---|
-| GL14 | 2.64362e-05 | **−15 %** |
-| GL24 | 3.14450e-05 | +1.3 % |
-| GL40 | 3.10470e-05 | +0.02 % |
-| GL64 | 3.10421e-05 | +0.004 % |
 | QMC 2¹⁵, seed 42 | 3.72854e-05 | **+20 %** |
 | QMC 2¹⁵, three seeds | 3.729, 3.754, 2.899e-05 | 13 % scatter |
 | QMC 2¹⁹, three seeds | 3.101, 3.112, 3.086e-05 | 0.4 % scatter |
 
-So `n = 14` would have swapped an order-4 error for an order-2 one, in
-the opposite direction.  `n = 24` is better than the QMC it replaces on
-**both** orders at **every** point of the grid.
+So `n = 14` would have swapped an order-4 error for an order-2 one of
+**either sign**, up to 15 %.  `n = 24` is within 1.3 % on the worst of
+these cells and is better than the QMC it replaces on **both** orders
+at **every** point of the grid.
+
+*(If you re-run this, use the same cell: at `r = 0.5, (0,0)` — a natural
+choice — GL14 is only +3.1 %, which would understate the problem.)*
 
 **Quoted integration error of the sweep**, worst case (at `t = 100`,
 falling to < 0.1 % by `t = 15`): **+1.3 % on order 2, +2 % on order 4**.
