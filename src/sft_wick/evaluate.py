@@ -2062,11 +2062,8 @@ class PropagatorCache:
             positions=self._probe_positions(),
         )
         if n is not None and not self._gl_is_cheaper(t_max, int(n)):
-            # Both rules are converged here; take the cheaper one.  On a
-            # smooth kernel over a short horizon adaptive dblquad needs
-            # only a few hundred evaluations (3.8 ms measured) and beats a
-            # 20-node tensor rule (5.6 ms); with a cusp or a long horizon
-            # the tensor rule wins by 5-30x.  One call of each decides.
+            # Reserved for a deterministic cost rule; see
+            # ``_gl_is_cheaper``, which no longer races the two.
             n = None
         if n is None:
             self._c_method_resolved, self._n_gauss_resolved = "dblquad", None
@@ -2076,22 +2073,29 @@ class PropagatorCache:
         return self._c_method_resolved, self._n_gauss_resolved
 
     def _gl_is_cheaper(self, t_max: float, n: int) -> bool:
-        """Time one deep cell under each rule (the corner is the costliest
-        cell for an adaptive rule); ``True`` when Gauss-Legendre wins."""
-        import time
+        """``True`` when Gauss-Legendre is the rule to use, given that
+        ``select_gl_node_count`` has already found ``n`` converged.
 
-        n1, n2 = self._probe_positions()
-        t = float(t_max)
-        try:
-            t0 = time.perf_counter()
-            _C_value_direct_gl(self.model, n1, t, n2, t, n_gauss=n)
-            t_gl = time.perf_counter() - t0
-            t0 = time.perf_counter()
-            self._C_value_direct(n1, t, n2, t, method="dblquad")
-            t_db = time.perf_counter() - t0
-        except Exception:
-            return True
-        return t_gl <= t_db
+        This used to time one deep cell under each rule and take the
+        winner.  Both rules are verified converged before it is called,
+        so the race could never produce a wrong value -- but it made the
+        CHOICE depend on machine load, and with it ``c_source`` and the
+        spline table.  Two runs of the same config on a busy and an idle
+        machine could resolve differently, which is a bad property for a
+        package that sells reproducibility, and it made
+        ``test_direct_calls_before_any_build_use_dblquad_under_auto``
+        fail intermittently under load.  (The race was worth ~1.5x on
+        one path: on a smooth kernel over a short horizon adaptive
+        dblquad needs a few hundred evaluations, 3.8 ms measured,
+        against 5.6 ms for a 20-node tensor rule.  With a cusp or a long
+        horizon the tensor rule wins by 5-30x.)
+
+        The decision is now a function of the inputs alone: prefer
+        Gauss-Legendre whenever a converged node count exists, and fall
+        back to dblquad only when none does -- which is what the caller
+        already does with ``n is None``.
+        """
+        return True
 
     def _resolve_build_method(self, c_method, n_gauss, t_max):
         """Per-build override → instance setting → ``'auto'`` resolution."""
