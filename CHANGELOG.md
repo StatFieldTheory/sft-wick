@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.4.1 — 2026-09-02
+
+> **Test-suite hardening only — no `src/` changes, no behaviour change.**  The
+> version the CPC paper cites, because it is the first in which
+> `docs/verification/catalog.rst` states the tolerances the suite *enforces*
+> rather than the ones it was written to assert.
+
+### Fixed: two assertions that could not fail
+
+`pytest.approx(x, rel=...)` compares against `max(rel * expected, abs)` with
+`abs` defaulting to **1e-12**, so wherever the compared quantity is small the
+floor — not the written `rel` — is enforced, and below 1e-12 the assertion
+passes for any value.  This cannot be read off the source, since it depends on
+each site's runtime magnitude; `tools/approx_audit.py` measures it during a
+normal pytest run.
+
+Over 207 runtime sites: 108 have `rel` genuinely in force, 29 pass an explicit
+`abs=`, 15 compare against `0.0` (where the floor is the intent), **22 are
+weakened** (enforcing 2.0e-12 to 8.1e-07 relative), and **2 were vacuous**:
+
+- `tests/test_demo3_shot_noise.py` — the dispatch check at the removable
+  singularity `γ = 1/σ_t`, called "the boundary check in its strongest form" by
+  its own docstring.  At the `(m=3, t'=[40, 2, 0.05])` corner the compared value
+  is 2.3e-37, so the floor enforced **4.3e+24** relative.  **Shipped in v0.4.0.**
+- `tests/test_closed_form_dispatch_boundaries.py` — compared `Φ(1e4, 9.9e3)`
+  against `np.exp(-γ·100)·0.0 + Φ(1e4, 9.9e3)`; that first term is exactly
+  `0.0`, so both sides were the same expression.
+
+**In both the code was independently verified correct and only the test was
+empty**: the two dispatch branches agree to rel 0.0 at all eight corners, and
+`Φ` is T-independent to 2e-16 in the regime the second covered — a regime no
+shipped example reaches (largest `γt` across all configs is 100, against 1e4).
+No released number is affected; the suite's *coverage* was overstated, not its
+results.
+
+Replacements are checks, not relaxations: the deep-domain assertion now tests
+T-independence of `Φ(T, T−d)` (a mutant with 1e-9 drift per decade of T fails it
+and passed the old form), and the boundary check enforces `rel=1e-12, abs=0.0`,
+which the branches meet at rel 0.0.
+
+### Changed
+
+- `docs/verification/catalog.rst` carries the measured breakdown above and
+  records that the two vacuous rows were **not enforced in v0.4.0**.
+- `tools/approx_audit.py` is kept in the repository rather than treated as a
+  one-off: static review had missed this class entirely, and this makes it a
+  measurement that can be re-run in one command.
+
+The 22 weakened sites are documented but not fixed, and no lint guard yet stops
+new bare `rel=` sites appearing — tracked in issue #5.
+
 ## 0.4.0 — 2026-09-02
 
 > **This is the version the CPC paper refers to.**  v0.3.0 predates the
