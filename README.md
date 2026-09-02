@@ -116,15 +116,17 @@ coupling).
 `sft-wick run CONFIG --dry-run` prints an estimate before you commit to a
 run.  Measured wall-clock, serial, `pip install sft-wick` with no extras:
 
-| Config | Apple M3 Ultra (one core) | Laptop proxy¹ | What it computes |
-|---|---|---|---|
-| `sft-wick quickstart` | 2 s | 10 s | orders 0–2, 12 grid points, 4096 samples |
-| `examples/demo1_config.yaml` | 50 s | 5.2 min | orders 0–4 (71 diagrams), 16 grid points, 8192 samples |
-| `examples/demo1/L2/config.yaml` (paper figures) | 4.6 min (28 workers) | — | 672 grid points × 71 diagrams, 32768 samples, `sweep.n_jobs: -1` |
-| `examples/demo2/L2/*.yaml` (κ⁽³⁾ figures) | 9 s (28 workers) | — | FF (QMC) + FK (Gauss-Legendre, 4-D), `sweep.n_jobs: -1` |
+| Config | Apple M3 Ultra (one core) | Laptop proxy¹ | GitHub `ubuntu-latest` runner² | What it computes |
+|---|---|---|---|---|
+| `sft-wick quickstart` | 2 s | 10 s | 6 s | orders 0–2, 12 grid points, 4096 samples |
+| `examples/demo1_config.yaml` | 50 s | 5.2 min | 1.5 min | orders 0–4 (71 diagrams), 16 grid points, 8192 samples |
+| `examples/demo1/L2/config.yaml` (paper figures) | 4.6 min (28 workers) | — | — | 672 grid points × 71 diagrams, 32768 samples, `sweep.n_jobs: -1` |
+| `examples/demo2/L2/*.yaml` (κ⁽³⁾ figures) | 39 s (28 workers) | — | — | FF (QMC) + FK (R-contracted κ⁽³⁾, 1-D Gauss-Legendre), `sweep.n_jobs: -1` |
 
 ¹ the same machine throttled with `taskpolicy -c background` and
 `OMP_NUM_THREADS=1`; a 2023 MacBook Pro should be within a factor of two.
+² the CI job `examples-time-gate` runs both on every push and fails above
+600 s / 1200 s.
 
 What drives the cost, in order: `expand.orders` (1 / 6 / 64 diagrams at
 orders 0 / 2 / 4 for the cubic vertex), the number of grid points
