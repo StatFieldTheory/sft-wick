@@ -237,15 +237,20 @@ demonstration reproduces in well under an hour of CPU.
 
 ## 6. Timings (M3 Ultra, 28 cores)
 
-| step | wall clock | parallel? |
+| step | 28 cores | single core |
 |---|---|---|
-| `pytest tests/test_demo3_*.py` (216 tests) | 14 s | no |
-| `sft-wick run config_FK.yaml` | 0.6 s | no |
-| order-4 enumeration, `κ³ + κ⁵` (cached afterwards) | 143 s | no — single-core, dominated by pairing enumeration |
-| `level_b.py` theory, cache warm | 20 s | `n_jobs=-1` over 36 order-4 diagrams |
-| `level_a.py` (1.2e6 realisations) | ~180 s | no |
-| `level_b.py` full | ~25 min | simulation is single-core |
+| `pytest tests/test_demo3_*.py` (220 tests) | 9 s | 9 s |
+| `sft-wick run config_FK.yaml` | 0.6 s | 0.6 s |
+| `sft-wick run config_F3K.yaml` (cold; includes the order-4 enumeration) | 178 s | 178 s |
+| order-4 enumeration, `κ³ + κ⁵` (cached afterwards) | 143 s | 143 s |
+| order-4 evaluation, 36 diagrams × 3 time points | **2.9 s** | **18.0 s** |
+| `level_b.py` theory section (cache warm) | 11 s | ~35 s |
+| `level_a.py` (1.2e6 realisations) | 180 s | 180 s |
+| `level_b.py` full (2.4e6 + 0.9e6 + 1e6 + 3e6 realisations) | ~6 min | ~6.5 min |
 
-The only step that uses more than one core is the order-4 diagram
-integration (`n_jobs=-1`, 36 independent 3-D Gauss-Legendre integrals);
-everything else is single-core as quoted.
+The **only** step that uses more than one core is the order-4 diagram
+integration (`n_jobs=-1`, 36 independent 3-D Gauss-Legendre integrals),
+worth 6.2×; the enumeration, the propagators and every simulation are
+single-core as quoted.  End to end (both levels, all figures, the full
+test suite and both CLI configs) the demonstration reproduces in **about
+twelve minutes** of wall clock, or about twenty on one core.

@@ -40,7 +40,7 @@ advantages over a deformed-Gaussian field:
 conda activate sft-wick
 cd examples/demo3
 python level_a.py          # ~3 min
-python level_b.py          # ~25 min (first run also enumerates order 4, ~2.5 min)
+python level_b.py          # ~6 min (first run also enumerates order 4, ~2.5 min)
 python make_figures.py
 sft-wick run config_FK.yaml
 ```
