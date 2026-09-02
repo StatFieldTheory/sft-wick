@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased
+
+### Propagator-indexed dynamic couplings (demo2's order-4 F³κ³)
+
+- **`DynamicCouplingPromise.evaluate_at_batch` no longer refuses a
+  contraction that leaves a propagator index.**  A callable κ^(m) whose
+  contraction against the surrounding Wick structure leaves a surviving
+  component index on a C propagator used to raise
+  `NotImplementedError: Dynamic coupling with propagator-indexed
+  contraction is not yet supported`.  It now returns
+  `(n_samples,) + prop_shape`, and the integrators contract it against
+  the C-propagator product one index assignment at a time — the same
+  `np.ndindex(prop_shape)` loop the static-tensor branch has always
+  used, with the scalar coefficient promoted to a per-sample array.
+  The contraction is centralised in
+  `DiagramIntegrand._dynamic_values`, called from all three consumers
+  (QMC-vectorised, Gauss-Legendre, and the zero-dimensional path); the
+  batched C lookup is hoisted out of the index loop, since it does not
+  depend on the component assignment.
+
+  This is what blocked the exact evaluation of demo2's order-4 F³κ³
+  channel: 30 diagrams, of which those with `propagator_indices ==
+  (('i_0', 2),)` hit the guard.
+
+  **Size of the change:** zero on every path that worked before — a
+  fully contracted (scalar) callable takes the same branch and returns
+  bit-identical numbers; the 236 tests of the integrator suite are
+  unchanged.  What was previously an exception is now a number.
+
+  Locked by `DC1` in `tests/test_dynamic_coupling.py`, which replaces
+  the test that pinned the `NotImplementedError`: a callable that
+  ignores its arguments and returns a constant tensor is
+  mathematically the static tensor, so the two routes are compared
+  diagram-by-diagram on the order-4 F³κ³ set and agree to `rel=1e-12`
+  (observed: exact equality).  A companion test asserts the comparison
+  is not vacuous — at least one prop-indexed diagram integrates to a
+  non-negligible value.
+
 ## 0.3.0 — 2026-09-02
 
 > **This is the version the CPC paper (arXiv:2606.19480, revised) refers

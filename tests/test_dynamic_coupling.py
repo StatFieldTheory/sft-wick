@@ -7,11 +7,14 @@ that is triggered when any ``coupling_values[name]`` is callable
 
 Currently locked here:
 
-* **DC1** -- ``NotImplementedError`` is raised when the dynamic
-  coupling has propagator-indexed contraction (the v1 limitation
-  documented at evaluate.py:2199-2206). Locking this contract
-  prevents a future "helpful refactor" from silently dropping the
-  guard before a proper implementation lands.
+* **DC1** -- propagator-indexed dynamic coupling (a surviving
+  component index that lands on a C propagator, e.g. demo2's
+  order-4 F³κ³ diagrams) agrees with the static-tensor path to
+  machine precision.  A callable that ignores its arguments and
+  returns a constant tensor is mathematically the static tensor, so
+  the two routes must return bit-comparable numbers; this is the
+  boundary test for the feature that replaced the pre-0.3.1
+  ``NotImplementedError``.
 * **WF6** -- end-to-end FK (κ^{(3)}) integration: a constant
   callable κ^{(3)} routed through ``DynamicCouplingPromise`` must
   produce the same numerical result as the same constant tensor
@@ -103,69 +106,164 @@ def _make_dynamic_kappa3_system():
     )
 
 
-def test_DC1_prop_indexed_dynamic_raises_notimplemented(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The dynamic-coupling QMC path raises ``NotImplementedError``
-    when ``DynamicCouplingPromise.evaluate_at`` returns a non-scalar
-    array (i.e. propagator-indexed dynamic coupling).
+def _make_constant_kappa3_system(*, dynamic: bool):
+    """demo-2-shaped System whose order-4 F³κ³ diagrams carry a
+    surviving propagator index, with a *constant* κ^{(3)}.
 
-    See evaluate.py:2199-2206 for the contract. We trigger the
-    branch by patching ``evaluate_at`` to return a 1-D array; the
-    real prop-indexed path is more involved to set up and is
-    blocked by the same NotImplementedError anyway, so we do not
-    need a "real" prop-indexed diagram for the contract lock.
+    ``already_R_contracted=True`` absorbs the three ψ-leg R
+    propagators, which drops the order-4 FK time dimension from 6 to
+    3 -- small enough for a tensor-product Gauss-Legendre rule in a
+    unit test.  The R-absorption is structural (it depends on the
+    vertex spec, not on whether the coupling is a tensor or a
+    callable), so the static and dynamic systems produce the SAME
+    diagrams and the SAME integration variables.
+
+    ``dynamic=True`` wraps the identical tensor in a callable that
+    ignores its arguments -- mathematically the static tensor, so
+    the two routes must agree to machine precision.
     """
-    system = _make_dynamic_kappa3_system()
-    expansion = system.expand(
-        ("phi_a(x)", "phi_b(y)"),
-        orders=[2],
-    )
-    props = system.propagators(
-        t_max=2.0, n_grid_t=8, c_closed_form=_load_demo1_C_fn(),
+    N = 2
+    F = np.zeros((N, N, N))
+    F[0, 1, 1] = 1.0
+    F[1, 0, 1] = 0.5
+    F[1, 1, 0] = 0.5
+
+    # Fully symmetric under leg exchange (as a cumulant must be) and
+    # NOT component-diagonal, so the surviving ``i_0`` index really is
+    # summed over rather than collapsing to a single term.
+    K = np.zeros((N, N, N))
+    K[0, 0, 0] = 3.0e-3
+    K[1, 1, 1] = -1.0e-3
+    for perm in ((0, 0, 1), (0, 1, 0), (1, 0, 0)):
+        K[perm] = 7.0e-4
+    for perm in ((0, 1, 1), (1, 0, 1), (1, 1, 0)):
+        K[perm] = -4.0e-4
+
+    if dynamic:
+        def coupling(n_list, t_list):  # noqa: ARG001 -- constant on purpose
+            return K
+    else:
+        coupling = K
+
+    return sw.System(
+        field=sw.FieldSpec("phi", n_components=N),
+        linear=sw.DiagonalA(gamma=[1.0, 1.0]),
+        vertices=[sw.LocalVertex("F", coupling=F)],
+        nonlocal_vertices=[
+            sw.NonLocalVertex(
+                "K", order=3, coupling=coupling, already_R_contracted=True,
+            ),
+        ],
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.ExponentialTemporal(lam=0.05, sigma_t=0.3),
+                spatial=sw.ExponentialSpatial(sigma_x=1.0),
+            ),
+        ),
     )
 
-    # Pick the first FK diagram -- it routes through the dynamic
-    # coupling path because K is a callable vertex.
-    fk_dts = [
-        dt for dt in expansion.dts_by_order[2]
-        if expansion._vertex_type_label(dt) == "FK"
-    ]
-    assert fk_dts, "expected at least one FK diagram in the order-2 expansion"
 
+def _order4_fk_integrands(system, fixed_indices):
+    """Order-4 FK diagrams of ``system``, as built integrands, keyed by
+    the diagram's LaTeX form so the two systems can be matched up
+    diagram-by-diagram rather than by list position."""
+    expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=[4])
     coupling_values = system.build_coupling_values()
-    fixed_indices = {"a": 0, "b": 1}
-    ig = fk_dts[0].build_integrand(coupling_values, fixed_indices=fixed_indices)
-    assert ig.dynamic_coupling is not None, (
-        "FK diagram must take the dynamic-coupling path"
-    )
-
-    # Force evaluate_coupling to return a non-scalar array so the
-    # downstream ``coup0.ndim != 0`` probe inside
-    # ``DynamicCouplingPromise.evaluate_at_batch`` raises. Patching
-    # the contraction itself (rather than the dispatch helper) keeps
-    # this test pinned to the real code path the
-    # NotImplementedError exists to guard.
-    real_evaluate_coupling = ig.diagram_term.evaluate_coupling
-
-    def _fake_evaluate_coupling(self, *args, **kwargs):  # noqa: ARG001
-        return np.zeros(2)  # ndim == 1 triggers the raise
-
-    monkeypatch.setattr(
-        type(ig.diagram_term), "evaluate_coupling", _fake_evaluate_coupling,
-    )
-
-    with pytest.raises(
-        NotImplementedError,
-        match="Dynamic coupling with propagator-indexed",
-    ):
-        ig.integrate_moment_qmc_vectorized(
-            lambda_f=2.0,
-            cache=props.cache,
-            n_samples=2 ** 6,
-            seed=0,
-            positions={"x": 0.0, "y": 0.5},
+    out = {}
+    for dt in expansion.dts_by_order[4]:
+        if expansion._vertex_type_label(dt) != "FK":
+            continue
+        key = dt.to_latex()
+        out.setdefault(key, []).append(
+            dt.build_integrand(coupling_values, fixed_indices=fixed_indices)
         )
+    return out
+
+
+def test_DC1_prop_indexed_dynamic_matches_static() -> None:
+    """A dynamic coupling whose contraction leaves a propagator index
+    must agree with the same coupling supplied as a static tensor.
+
+    This is demo2's blocked case: at order 4 the F³κ³ diagrams keep a
+    single surviving index ``('i_0', 2)`` that sits on a C propagator,
+    which the pre-0.3.1 ``DynamicCouplingPromise`` refused with
+    ``NotImplementedError``.  A callable returning a constant tensor
+    is the one configuration where both routes are legal, so their
+    agreement is the boundary test for the feature.
+    """
+    fixed_indices = {"a": 0, "b": 1}
+    C_fn = _load_demo1_C_fn()
+
+    sw.reset_uid_counter()
+    static_sys = _make_constant_kappa3_system(dynamic=False)
+    static_igs = _order4_fk_integrands(static_sys, fixed_indices)
+
+    sw.reset_uid_counter()
+    dyn_sys = _make_constant_kappa3_system(dynamic=True)
+    dyn_igs = _order4_fk_integrands(dyn_sys, fixed_indices)
+
+    assert set(static_igs) == set(dyn_igs), (
+        "static and dynamic systems must produce the same diagram set"
+    )
+    n_prop_indexed = sum(
+        1
+        for igs in dyn_igs.values()
+        for ig in igs
+        if ig.diagram_term.propagator_indices
+    )
+    assert n_prop_indexed > 0, (
+        "test is vacuous unless some order-4 FK diagram is prop-indexed"
+    )
+
+    props = static_sys.propagators(
+        t_max=2.0, n_grid_t=8, c_closed_form=C_fn,
+    )
+    kw = dict(
+        lambda_f=1.5,
+        cache=props.cache,
+        n_gauss=6,
+        positions={"x": 0.0, "y": 0.5},
+    )
+
+    n_compared = 0
+    for key in sorted(static_igs):
+        for ig_s, ig_d in zip(static_igs[key], dyn_igs[key]):
+            assert ig_s.dynamic_coupling is None
+            assert ig_d.dynamic_coupling is not None
+            v_s, _ = ig_s.integrate_moment_gauss_legendre(**kw)
+            v_d, _ = ig_d.integrate_moment_gauss_legendre(**kw)
+            assert v_d == pytest.approx(v_s, rel=1e-12, abs=1e-300), (
+                f"static/dynamic mismatch on {key}: {v_s!r} vs {v_d!r}"
+            )
+            n_compared += 1
+    assert n_compared == sum(len(v) for v in static_igs.values())
+
+
+def test_DC1_prop_indexed_dynamic_is_not_silently_zero() -> None:
+    """Guard against the agreement test passing because BOTH routes
+    return zero: at least one prop-indexed order-4 FK diagram must
+    integrate to a non-negligible value."""
+    fixed_indices = {"a": 0, "b": 1}
+    sw.reset_uid_counter()
+    dyn_sys = _make_constant_kappa3_system(dynamic=True)
+    igs = [
+        ig
+        for group in _order4_fk_integrands(dyn_sys, fixed_indices).values()
+        for ig in group
+        if ig.diagram_term.propagator_indices
+    ]
+    props = dyn_sys.propagators(t_max=2.0, n_grid_t=8,
+                                c_closed_form=_load_demo1_C_fn())
+    vals = [
+        ig.integrate_moment_gauss_legendre(
+            lambda_f=1.5, cache=props.cache, n_gauss=6,
+            positions={"x": 0.0, "y": 0.5},
+        )[0]
+        for ig in igs
+    ]
+    assert max(abs(v) for v in vals) > 1e-14, (
+        f"all prop-indexed dynamic diagrams integrated to ~0: {vals}"
+    )
 
 
 def _dc2_cache():
