@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sft-wick"
-version = "0.4.0"
+version = "0.4.1"
 description = "Wick's theorem contractions for statistical field theory perturbative calculations"
 readme = "README.md"
 authors = [{ name = "Zheng Zhang", email = "zzhang0123@gmail.com" }]
