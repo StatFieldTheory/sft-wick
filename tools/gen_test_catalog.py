@@ -156,7 +156,7 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     "tests/test_dynamic_coupling.py": (
         "Integrators",
         "spacetime-dependent (callable) κ^(m) couplings, per-sample and "
-        "vectorised contracts",
+        "vectorised contracts, propagator-indexed contraction",
         "static tensor at the same point; two contracts against each other",
         "1e-12"),
     "tests/test_equal_time_nonlocal.py": (
