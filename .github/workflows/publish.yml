@@ -116,7 +116,11 @@ jobs:
           path: dist/
 
       - name: Sign the distribution with Sigstore
-        uses: sigstore/gh-action-sigstore-python@v3.0.0
+        # v3.0.0 bundles a sigstore-python whose embedded TUF root predates
+        # the public instance's root rotation and fails with
+        # 'root was signed by 0/3 keys' (seen on the v0.3.0 release, after
+        # the PyPI upload had already succeeded).
+        uses: sigstore/gh-action-sigstore-python@v3.5.0
         with:
           inputs: >-
             ./dist/*.tar.gz
