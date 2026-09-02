@@ -284,6 +284,20 @@ def render(counts: Counter) -> str:
         "``make -C docs html``); ``tests/test_catalog_current.py`` fails when",
         "this page is out of date.",
         "",
+        ".. caution::",
+        "",
+        "   The tolerances below are the ones the tests are *written* to",
+        "   assert.  For assertions using ``pytest.approx(x, rel=...)``",
+        "   without an explicit ``abs=``, the comparison is against",
+        "   ``max(rel * expected, 1e-12)`` — so wherever the compared",
+        "   quantity is small, the 1e-12 default floor is what is actually",
+        "   enforced, and the enforced tolerance is looser than the one",
+        "   quoted here.  61 such sites remain; see",
+        "   `issue #5 <https://github.com/StatFieldTheory/sft-wick/issues/5>`_",
+        "   for the audit and the per-file counts.  The agreements these",
+        "   rows claim have been measured directly; what is at issue is",
+        "   whether every run re-checks them at the stated tolerance.",
+        "",
     ]
     for subject, rows in by_subject.items():
         if not rows:
