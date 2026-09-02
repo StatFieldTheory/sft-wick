@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1019 tests** in 38 files (parametrised
+The suite has **1022 tests** in 38 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -218,7 +218,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*63 tests in 4 files.*
+*66 tests in 4 files.*
 
 .. list-table::
    :header-rows: 1
@@ -238,7 +238,7 @@ Workflow and YAML
      - demo 3 level A: the free-field m-point function through the package, and the R-contracted vertex against the raw one
      - closed form (level A is a single diagram, hence exact); QMC on the raw-vertex path
      - exact / 2e-4
-     - 15
+     - 18
    * - ``test_workflow.py``
      - System / Expansion / Propagators / SweepResult surface; end-to-end vs the raw API; two-time sweeps
      - raw L0 pipeline (validate_phase5); closed forms
