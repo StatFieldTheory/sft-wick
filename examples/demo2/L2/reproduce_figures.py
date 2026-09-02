@@ -205,7 +205,9 @@ def figure_kappa3_crosscheck(sim: dict) -> None:
     sim_mu3 = sim["mu3"]
     sim_n_real = sim["n_real"]
 
-    k3_predict = 6.0 * sim_alpha * LAM ** 2
+    # kappa3 = <eta_tilde^3> = 6 alpha lam^2 + 8 alpha^3 lam^3 (the alpha^3
+    # term is the connected 3-point function of eta^2 - lam).
+    k3_predict = 6.0 * sim_alpha * LAM ** 2 + 8.0 * sim_alpha ** 3 * LAM ** 3
     mu2_predict = LAM + 2.0 * sim_alpha ** 2 * LAM ** 2
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3.5))
@@ -221,7 +223,8 @@ def figure_kappa3_crosscheck(sim: dict) -> None:
 
     for a in range(2):
         ax2.plot(sim_t, sim_mu3[a], "o-", label=fr"$\mu_3$ sim (a={a+1})")
-    ax2.axhline(k3_predict, color="k", ls="--", label=fr"$6\alpha\lambda^2$")
+    ax2.axhline(k3_predict, color="k", ls="--",
+                label=fr"$6\alpha\lambda^2 + 8\alpha^3\lambda^3$")
     ax2.set_xscale("log")
     ax2.set_xlabel("t")
     ax2.set_ylabel(r"$\mu_3$")

@@ -1,19 +1,24 @@
-"""Closed-form C propagator for demo2.
+"""Closed-form C propagators for demo2.
 
-Two flavours, both vectorised (return ``(n, N, N)`` for batched
+Three flavours, all vectorised (return ``(n, N, N)`` for batched
 ``(t1, t2, x1, x2)`` inputs):
 
-* :func:`C_fn_eff` -- noise variance ``lambda_eff = lambda *
-  (1 + 2 * alpha^2 * lambda)``. Used by the **FF channel** to
-  absorb the leading O(alpha^2) variance shift into a renormalised
-  Gaussian kernel.
-* :func:`C_fn_bare` -- bare noise variance ``lambda``. Used by
-  the **FK channel** because the alpha factor is already carried by
-  the explicit non-local ``kappa^{(3)}`` vertex in K, so the C
-  propagators inside the diagram must use the unshifted kernel.
-
-Mirrors the notebook's ``cache_eff`` / ``cache`` split. Both
-functions use the standard demo1 OU integral.
+* :func:`C_fn_eff_exact` -- the EXACT effective covariance of the
+  deformed noise, ``kappa2_eff = lam k + 2 alpha^2 lam^2 k^2`` with
+  ``k = exp(-|dt|/sigma_t) exp(-|dx|/sigma_x)``.  Its second piece has
+  half the correlation time and length, and being separable-exponential
+  it has the package's built-in closed form too, so ``C_eff`` is the sum
+  of two :class:`~sft_wick.workflow.closed_forms.ClosedFormC` objects.
+  Used by ``config_FF.yaml`` (the **FF channel** and order 0).
+* :func:`C_fn_eff` -- the single-kernel approximation
+  ``lambda_eff = lambda (1 + 2 alpha^2 lambda)`` the FF channel used
+  until the CPC referee revision.  Exact at coincident points only; it
+  over-counts the second piece's contribution to C by 70 %, i.e.
+  +1.8e-4 on xi_00 at large t (1.5 % of the signal).  Kept for
+  comparison.
+* :func:`C_fn_bare` -- bare noise variance ``lambda``.  The **FK
+  channel** has no C propagator, so this is only used by scripts that
+  want the un-deformed C.
 """
 from __future__ import annotations
 
@@ -70,3 +75,26 @@ def C_fn_eff(n1, t1, n2, t2):
 def C_fn_bare(n1, t1, n2, t2):
     """C with bare noise variance ``LAM`` (FK channel)."""
     return _C_fn_template(n1, t1, n2, t2, LAM)
+
+
+def _exact_pieces():
+    from sft_wick.workflow.closed_forms import ClosedFormC
+    from sft_wick.workflow.specs import ExponentialSpatial
+    a = ClosedFormC(gamma=(GAMMA,) * N_COMP, lam=LAM, sigma_t=SIGMA_T,
+                    spatial=ExponentialSpatial(sigma_x=SIGMA_X))
+    b = ClosedFormC(gamma=(GAMMA,) * N_COMP, lam=2.0 * ALPHA ** 2 * LAM ** 2,
+                    sigma_t=SIGMA_T / 2.0, spatial=ExponentialSpatial(sigma_x=SIGMA_X / 2.0))
+    return a, b
+
+
+_EXACT = None
+
+
+def C_fn_eff_exact(n1, t1, n2, t2):
+    """C with the exact two-kernel effective covariance of the deformed noise."""
+    global _EXACT
+    if _EXACT is None:
+        _EXACT = _exact_pieces()
+    a, b = _EXACT
+    out = a(n1, t1, n2, t2) + b(n1, t1, n2, t2)
+    return out if np.ndim(t1) else out[None]

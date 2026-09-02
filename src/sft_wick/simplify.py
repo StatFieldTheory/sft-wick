@@ -265,7 +265,10 @@ def _apply_perm_to_symbol(sym: Symbol, perm: dict[str, str]) -> Symbol:
     new_spatial = tuple(perm.get(s, s) for s in sym.spatial_args)
     if new_indices == sym.indices and new_spatial == sym.spatial_args:
         return sym
-    return Symbol(sym.name, new_indices, new_spatial)
+    # Carry ``local`` through: it is what suppresses the (single) point of
+    # a local coupling when rendering.  Dropping it printed the symmetrised
+    # partner of a local F as ``F_{i1 i0 i2}(y_0)``.
+    return Symbol(sym.name, new_indices, new_spatial, sym.local)
 
 
 def _apply_perm_to_expr(expr: Expr, perm: dict[str, str]) -> Expr:
@@ -1037,7 +1040,7 @@ def _apply_index_sub(expr: Expr, sub: dict[str, str]) -> Expr:
         new_spatial = tuple(sub.get(s, s) for s in expr.spatial_args)
         if new_indices == expr.indices and new_spatial == expr.spatial_args:
             return expr
-        return Symbol(expr.name, new_indices, new_spatial)
+        return Symbol(expr.name, new_indices, new_spatial, expr.local)
     if isinstance(expr, Sum):
         return Sum(tuple(_apply_index_sub(t, sub) for t in expr.terms))
     if isinstance(expr, Product):

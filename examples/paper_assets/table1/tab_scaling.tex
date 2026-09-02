@@ -1,0 +1,21 @@
+\begin{table}[t]
+\centering
+\caption{Scaling of the spatial-topology engine against direct Wick enumeration,
+for the cubic vertex $F_{abc}\,\varphi_a\,\varphi_b\,\psi_c$ with $N=3$ components.
+The observable alternates with the parity of $n$ so that the operator count $3n+m$
+is even; the raw pairing count $(3n{+}m{-}1)!!$ is the number of operator pairings
+produced by Wick's theorem on $\Sint^n\,\mathcal{O}$; \sftwick{} enumerates spatial
+topologies instead, then collapses topologically equivalent ones into distinct
+\texttt{DiagramTerm} objects.  Wall-clock: best of three, single core.}
+\label{tab:scaling}
+\begin{tabular}{@{}clccccc@{}}
+\toprule
+Order $n$ & Observable & Operators & Raw pairings & Distinct diagrams & Wall-clock (s) & Reduction \\
+ & & $3n{+}m$ & $(3n{+}m{-}1)!!$ & \sftwick{} & \sftwick{} & factor \\
+\midrule
+  1 & $\langle\varphi_a(x)\varphi_b(x)\varphi_c(y)\rangle$ & 6 & $15$ & 4 & 6.39e-04 & $4$ \\
+  2 & $\langle\varphi_a(x)\varphi_b(y)\rangle$ & 8 & $105$ & 6 & 0.00162 & $18$ \\
+  3 & $\langle\varphi_a(x)\varphi_b(x)\varphi_c(y)\rangle$ & 12 & $1.0\!\times\!10^{4}$ & 75 & 0.182 & $139$ \\
+\bottomrule
+\end{tabular}
+\end{table}

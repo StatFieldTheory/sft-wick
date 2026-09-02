@@ -37,11 +37,11 @@ propagators:
   # n_grid_t is unused under c_closed_form_only=true (no spline is
   # built), but it still parameterises the unused legacy paths.
   n_grid_t: 60
-  c_closed_form_module: ../c_closed_form.py
-  # Use the vectorised C_fn_vec form -- single ufunc call per
-  # integrand instead of n_samples Python calls.
-  c_closed_form_attr: C_fn_vec
-  # No-spline path: ``cache.C_at_batch`` calls C_fn_vec directly
+  # Built-in closed form (``auto``): identical to the reference
+  # ``../c_closed_form.py::C_fn_vec`` this config used to point at,
+  # and evaluated in one vectorised call per integrand.
+  c_closed_form: auto
+  # No-spline path: ``cache.C_at_batch`` calls the closed form directly
   # for every QMC sample. This gives machine-precision agreement
   # with the analytical C (no spline truncation error), matching
   # what ``analysis.ipynb``'s ``AnalyticalCache.C_diagonal_batch``
