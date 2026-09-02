@@ -165,7 +165,20 @@ def test_DK6_k3R_enforces_leg_causality_and_t_min_zero(k3R):
     ones = np.ones_like(ts)
     vals = k3R.k3_R(ts, ts, ts, ones, ones, ones)
     assert np.all(vals > 0)
-    assert np.all(np.diff(vals) > 0), f"not monotone in t': {vals}"
+    # Non-decreasing, which is what the docstring above claims and what the
+    # physics gives.  NOT strictly increasing: K_R saturates once t' passes
+    # the kernel's own correlation time, and at the plateau consecutive
+    # values differ by about one ulp -- measured here, the last increment is
+    # 2.2e-19 against an eps-scale (eps * value) of 1.3e-19, i.e. the last
+    # two entries are equal to within 2 ulp.  Asserting `> 0` there asserts
+    # a particular rounding outcome, which is why this passed on Python 3.14
+    # and failed on 3.11.
+    diffs = np.diff(vals)
+    assert np.all(diffs >= 0), f"not monotone in t': {vals}"
+    # Where the kernel is genuinely still rising (t' <= 5, before saturation)
+    # the increase must be real rather than merely non-negative, so that a
+    # kernel which flatlined early would still fail this test.
+    assert np.all(diffs[:5] > 0), f"stops rising too early: {diffs}"
 
     # Raising ONE partner time alone is a different story, and worth
     # pinning because it is easy to get backwards: the leg window grows
