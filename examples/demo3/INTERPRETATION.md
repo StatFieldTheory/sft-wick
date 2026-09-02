@@ -78,7 +78,7 @@ needs a cusp-aligned composite rule accurate only to ~1e-6.
 | **Level B: `ξ₀₁(t)` vs simulation** | ETD simulation, 6 independent seeds (6 × 4e5) | all six times within **0.90σ**, relative deviations ≤ **0.79 %**, χ²/dof 0.29–1.54 | Monte Carlo |
 | Level B: `ξ₀₁(r)` vs simulation | same, sites placed exactly at each `r` | all pulls ≤ 1.35σ | Monte Carlo |
 | Level B: `ξ₀₀` (even sector) | same, against order 0 + FF + `F²κ⁴` | all pulls ≤ 0.9σ | Monte Carlo + order-4 truncation |
-| ETDRK2 discretisation | paired Δt study at **identical events** (same seed, same `n_real`, so the same events are drawn) | ratios 4.0–5.1 vs the 4× expected for `O(Δt²)`; residual is **0.01×** the MC error | — |
+| ETDRK2 discretisation | paired Δt study at **identical events** (same seed, same `n_real`, so the same events are drawn) | ratios 4.0–6.9 vs the 4× expected for `O(Δt²)` (the 6.9 cell has Δt differences of ~1e-8, so its ratio is noise-dominated); residual is **0.01×** the MC error | — |
 | L2 (YAML/CLI) vs L1 (Python) | `sft-wick run config_FK.yaml` / `config_F3K.yaml` against `level_b.py` | ≤ 2e-6 rel (quoted-precision limited) | — |
 
 Monte-Carlo caveat that applies throughout: within one panel every point
@@ -109,7 +109,7 @@ coherent offset across a curve is *one* fluctuation, not one per point.
 | **truncation of the `F` series** | `F³κ³` = 7.9 % of `Fκ³` at `t = 3` — **computed, not estimated** | computed exactly (30 diagrams, 3 time-integration variables) |
 | **neglected-cumulant ladder** | `F³κ⁵` = 0.094 % of `Fκ³` — **computed** (6 diagrams) | closed-form ladder ratio `κ_m/κ₃ = h^{m−3}(3/m)²`; `h` is free, so it can be shrunk at will |
 | uncomputed `O(F⁵)` | ≈ 0.63 % of `Fκ³` at `t = 3` | geometric estimate `(F³κ³/Fκ³)²`; falls as `s²` |
-| ETDRK2 discretisation (level B) | **0.01×** the MC error | paired Δt study at identical events; convergence ratio 4.0–5.1 confirms `O(Δt²)` |
+| ETDRK2 discretisation (level B) | **0.01×** the MC error | paired Δt study at identical events; convergence ratio 4.0–6.9 confirms `O(Δt²)` |
 | Monte Carlo, level A | 0.9 % (`⟨φ³⟩`), 3.9 % (connected `⟨φ⁴⟩`) | batch scatter over ≥ 20 batches |
 | Monte Carlo, level B | 0.7–1.0 % on `ξ₀₁` from 6 × 4e5 realisations | inverse-variance combination, with χ²/dof reported — see below |
 | blow-up of the quadratic drift | **0 diverged trajectories out of 7.3e6 integrated** | every trajectory the script integrates is checked — the `t` sweep, the paired Δt study, the separation sweep and the amplitude scan — and the count is aggregated, not quoted per run |

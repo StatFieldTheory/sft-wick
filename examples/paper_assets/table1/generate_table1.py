@@ -1,11 +1,11 @@
 #!/usr/bin/env python
-"""Table 1 of the paper (scaling of the topology engine) and the four
+"""Table 1 of the paper (scaling of the topology engine) and the
 order-1 diagrams of its first row.
 
 Corrects the header of the submitted table: for the cubic vertex
 ``F_abc phi_a phi_b psi_c`` the operator count is ``3n + m``, not
 ``2n + m``, and the observable alternates with the parity of ``n`` --
-``<phi_a(x) phi_b(x) phi_c(y)>`` (m = 3) for odd ``n`` and
+``<phi_a(x) phi_b(y) phi_c(z)>`` (m = 3) for odd ``n`` and
 ``<phi_a(x) phi_b(y)>`` (m = 2) for even ``n`` -- so the table now
 carries an observable column.  Wall-clock is reported to three
 significant digits (the submitted table printed ``0.000`` for order 1).
@@ -56,9 +56,21 @@ def make_setup(n_components=N_COMPONENTS):
 
 
 def observable(order, phi):
+    """The observable for a given order, with a DISTINCT spatial label per
+    external operator.
+
+    Sharing a label (the ``phi_a(x) phi_b(x)`` spelling used before 0.4.0)
+    is refused at interacting orders since 0.4.0: the spatial contraction is
+    keyed by label, so same-label externals collapse and the enumeration
+    loses the sum over assignments of externals to legs.  That collapse is
+    what produced the submitted table's 4 and 75; the correct counts are
+    6 and 80.  Coincident *points* remain fully supported -- set them
+    through ``positions`` at evaluation time, which the topology count
+    here does not reach.
+    """
     if order % 2 == 1:
-        return ([phi("a", "x"), phi("b", "x"), phi("c", "y")],
-                r"\langle\varphi_a(x)\varphi_b(x)\varphi_c(y)\rangle", 3)
+        return ([phi("a", "x"), phi("b", "y"), phi("c", "z")],
+                r"\langle\varphi_a(x)\varphi_b(y)\varphi_c(z)\rangle", 3)
     return [phi("a", "x"), phi("b", "y")], r"\langle\varphi_a(x)\varphi_b(y)\rangle", 2
 
 
@@ -149,6 +161,13 @@ def write_table(rows):
     md.append("")
     md.append(f"Machine: {platform.machine()} {platform.system()}, "
               f"Python {platform.python_version()}; best of three runs, single core.")
+    md.append("")
+    md.append("The diagram counts and reduction factors are exact and machine "
+              "independent.  The wall-clock column is not: it is sensitive to "
+              "load on the measuring machine (a factor ~2.7 has been observed "
+              "between an idle and a busy run of this same script), so treat it "
+              "as an order of magnitude unless it was measured on an idle "
+              "machine.")
     (HERE / "table1.md").write_text("\n".join(md) + "\n")
 
 
@@ -158,11 +177,25 @@ def order1_diagrams():
     obs, obs_tex, _ = observable(1, phi)
     result = compute_moment(obs, action, order=1)
     dts = result.diagram_terms(1)
-    assert len(dts) == 4, len(dts)
-    # ``diagrams_by_order`` holds one record per Wick pairing (6 here);
-    # grouping by canonical form gives the 4 distinct diagrams, in the same
-    # order as the DiagramTerms, whose prefactors already contain the
-    # pairing multiplicities [1, 2, 1, 2].
+    n_ops = 3 * 1 + len(obs)
+    raw = double_factorial(n_ops - 1)
+
+    # How many of the raw pairings the Ito prescription removes is
+    # MEASURED, not asserted: re-run with ito=False and count.  At order 1
+    # there is a single psi, so no psi-psi pairing exists and <psi psi> = 0
+    # prunes nothing -- the whole reduction is R(x, x) = 0.  Deriving it
+    # keeps the prose honest if that ever stops being true.
+    reset_uid_counter()
+    phi_n, _psi_n, action_n = make_setup()
+    obs_n, _tex_n, _m_n = observable(1, phi_n)
+    n_no_ito = len(compute_moment(obs_n, action_n, order=1,
+                                  ito=False).diagrams_by_order[1])
+    # ``diagrams_by_order`` holds one record per Wick pairing; grouping by
+    # canonical form gives the distinct diagrams, in the same order as the
+    # DiagramTerms, whose prefactors already contain the pairing
+    # multiplicities.  Counts are derived, never hardcoded -- a literal
+    # ``== 4`` here is what turned the 0.4.0 label change into a traceback
+    # instead of a visible recount.
     infos = result.diagrams_by_order[1]
     fds = [info.to_feynman_diagram() for info in infos]
     groups: "OrderedDict[tuple, list]" = OrderedDict()
@@ -170,7 +203,7 @@ def order1_diagrams():
         groups.setdefault(fd.canonical_form(), []).append(fd)
     unique = [g[0] for g in groups.values()]
     mults = [len(g) for g in groups.values()]
-    assert len(unique) == len(dts) == 4, (len(unique), len(dts))
+    assert len(unique) == len(dts), (len(unique), len(dts))
     for fd, dt in zip(unique, dts):
         kinds_fd = sorted(d.get("kind") for _u, _v, d in fd.graph.edges(data=True))
         kinds_dt = sorted(p.kind for p in dt.propagators)
@@ -191,12 +224,17 @@ def order1_diagrams():
     fig.savefig(HERE / "order1_diagrams.pdf", bbox_inches="tight")
 
     md = [f"# Order-1 diagrams of ${obs_tex}$ (cubic vertex, N = 3)", "",
-          "`compute_moment(obs, action, order=1)` returns exactly four `DiagramTerm`s. "
-          "Wick's theorem produces 6 pairings; the four distinct topologies carry "
-          f"pairing multiplicities {mults}, already folded into each term's rational "
-          "prefactor.  Each line is the term's full LaTeX: coefficient (rational "
-          "prefactor times the MSR phase), coupling sum, propagators, integrals and "
-          "index sums.", ""]
+          f"`compute_moment(obs, action, order=1)` returns {len(dts)} `DiagramTerm`s. "
+          f"Wick's theorem pairs the {n_ops} operators in {raw} ways, of which "
+          f"{n_no_ito - len(fds)} pair the vertex's psi with one of its own phi's "
+          f"and vanish under the Ito prescription (R(x, x) = 0), leaving {len(fds)}; "
+          f"the topology engine groups those into the {len(unique)} distinct "
+          f"topologies here, with pairing multiplicities {mults} summing to "
+          f"{sum(mults)}, already folded into each term's rational prefactor.  "
+          "(<psi psi> = 0 removes nothing at order 1 -- there is only one psi "
+          "in the expression; it starts pruning at order 2.)  Each line is the "
+          "term's full LaTeX: coefficient (rational prefactor times the MSR "
+          "phase), coupling sum, propagators, integrals and index sums.", ""]
     for k, (dt, mult) in enumerate(zip(dts, mults), start=1):
         props = " ".join(p.to_latex() for p in dt.propagators)
         md.append(f"{k}. multiplicity {mult}, propagators `{props}`  ")
