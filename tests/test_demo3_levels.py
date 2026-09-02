@@ -206,3 +206,87 @@ def test_single_component_with_callable_coupling_raises():
         expansion.evaluate(props1, positions={"x": 0.0, "y": 0.0, "z": 0.0},
                            t_final=1.0, component_pair=(0, 0, 0), orders=[1],
                            method="gauss_legendre", n_gauss=8)
+
+
+# =====================================================================
+# Simulation estimators
+# =====================================================================
+
+def test_control_variate_weights_batches_by_size():
+    """Unequal batches must be size-weighted, not averaged equally.
+
+    Regression test.  ``simulate_xi`` chunks realisations for memory, and
+    a realisation count that does not divide evenly leaves a small
+    remainder batch --- ``333333 = 25 x 13333 + 8``.  Averaging per-batch
+    means with equal weight gave those eight realisations the same weight
+    as thirteen thousand, which moved ``xi_01`` by 20 %.  Every earlier
+    run happened to divide evenly, which is why it stayed hidden.
+    """
+    import simulate_b as sb
+
+    rng = np.random.default_rng(0)
+    big, small = rng.normal(1.0, 1.0, 4000), rng.normal(-5.0, 1.0, 8)
+    zeros_b, zeros_s = np.zeros_like(big), np.zeros_like(small)
+    m_xy = np.array([[big.mean()], [small.mean()]])
+    m_z = np.array([[zeros_b.mean()], [zeros_s.mean()]])
+    m_xz = np.array([[(big * zeros_b).mean()], [(small * zeros_s).mean()]])
+    m_zz = np.array([[(zeros_b ** 2).mean()], [(zeros_s ** 2).mean()]])
+    sizes = [big.size, small.size]
+
+    pooled = np.concatenate([big, small]).mean()
+    est, err, _ = sb.control_variate_estimate(m_xy, m_z, m_xz, m_zz, sizes)
+    assert float(est[0]) == pytest.approx(pooled, rel=1e-12)
+
+    unweighted, _, _ = sb.control_variate_estimate(m_xy, m_z, m_xz, m_zz)
+    assert abs(float(unweighted[0]) - pooled) > 1.0, (
+        "the fixture must actually expose the difference")
+
+
+def test_control_variate_recovers_a_known_mean():
+    """With a control variate of known mean zero the estimate is unbiased,
+    and the reported variance reduction is real."""
+    import simulate_b as sb
+
+    rng = np.random.default_rng(7)
+    n_batch, n = 40, 5000
+    m_xy, m_z, m_xz, m_zz = [], [], [], []
+    for _ in range(n_batch):
+        z = rng.normal(0.0, 1.0, n)              # known mean 0
+        y = 0.05 + z + rng.normal(0.0, 0.01, n)  # true mean 0.05, tracks z
+        m_xy.append([y.mean()]), m_z.append([z.mean()])
+        m_xz.append([(y * z).mean()]), m_zz.append([(z * z).mean()])
+    est, err, vr = sb.control_variate_estimate(
+        np.array(m_xy), np.array(m_z), np.array(m_xz), np.array(m_zz))
+    assert float(est[0]) == pytest.approx(0.05, abs=5.0 * float(err[0]))
+    assert float(vr[0]) > 10.0, "the control variate must actually reduce variance"
+
+
+def test_free_field_recursion_matches_a_direct_event_sum():
+    """``_draw_free_field``'s geometric recursion is exact, not an
+    approximation: compare against summing ``h w(x-x_k) J(t, s_k)`` over
+    the same events."""
+    import simulate as sim
+    import simulate_b as sb
+
+    p = P
+    t_edges = np.linspace(0.0, 2.0, 201)
+    sites = np.array([0.0, 0.7])
+    window = sim.Window.for_times(float(t_edges[-1]), p)
+    n_real = 400
+
+    phi = sb._draw_free_field(np.random.default_rng(99), p, sites, window,
+                              t_edges, n_real)
+    rng2 = np.random.default_rng(99)
+    counts = rng2.poisson(p.nu * window.area, n_real)
+    total = int(counts.sum())
+    xk = rng2.uniform(-window.half_length, window.half_length, total)
+    sk = rng2.uniform(window.s_min, window.s_max, total)
+    rep = np.repeat(np.arange(n_real), counts)
+    for i, x in enumerate(sites):
+        for t in (0.5, 1.0, 2.0):
+            w = (p.h * np.exp(-np.abs(x - xk) / p.sigma_x)
+                 * np.asarray(sn.J(t, sk, p)))
+            direct = (np.bincount(rep, weights=w, minlength=n_real)
+                      - sim.mean_window([x], [t], window, p, "phi")[0])
+            got = phi[:, i, int(round(t / (t_edges[1] - t_edges[0])))]
+            assert np.max(np.abs(got - direct)) < 1e-12

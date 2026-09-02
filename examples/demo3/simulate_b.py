@@ -66,32 +66,60 @@ class SimResult:
     blowup_fraction: float
 
 
-def control_variate_estimate(m_xy, m_z, m_xz, m_zz):
+def _weighted(per_batch, sizes):
+    """Size-weighted mean of per-batch estimates, and its standard error.
+
+    Batches are **not** assumed equal in size.  Treating batch ``b`` as an
+    estimate of variance ``σ²/n_b``, the weighted mean has variance
+    ``σ²/N`` with ``σ̂² = Σ n_b (x_b − x̄)² / (B − 1)``; for equal batches
+    this reduces to the familiar ``s/√B``.
+
+    Equal weighting is a trap here: a run whose realisation count does not
+    divide evenly leaves a small remainder batch, and giving eight
+    realisations the same weight as thirteen thousand shifted the answer
+    by 20 %.  Every earlier run happened to divide evenly, which is
+    exactly why it stayed hidden.
+    """
+    n_b = np.asarray(sizes, dtype=float).reshape((-1,) + (1,) * (per_batch.ndim - 1))
+    total = n_b.sum()
+    est = (n_b * per_batch).sum(axis=0) / total
+    if per_batch.shape[0] < 2:
+        return est, np.zeros_like(est)
+    var = (n_b * (per_batch - est) ** 2).sum(axis=0) / (per_batch.shape[0] - 1)
+    return est, np.sqrt(var / total)
+
+
+def control_variate_estimate(m_xy, m_z, m_xz, m_zz, sizes=None):
     """Combine per-batch means into a control-variate estimate.
 
     ``Ξ = ⟨xy⟩ − c⟨z⟩`` with ``c = Cov(xy, z)/Var(z)`` and ``E[z] = 0``
-    known exactly.  ``c`` is estimated from the same sample --- an
-    ``O(1/R)`` bias, far below the statistical error --- and the error bar
-    comes from the scatter of the per-batch values of ``xy − c z``, so it
-    reflects the *combination* rather than its parts.
+    known exactly.  ``c`` comes from the *pooled* sample (via the batch
+    means of ``xy·z`` and ``z²``), not from a regression over batches, so
+    it is not the noisy part; the error bar is the size-weighted scatter
+    of the per-batch values of ``xy − c z``, so it reflects the
+    *combination* rather than its parts.
 
     Args:
         m_xy, m_z, m_xz, m_zz: per-batch means of ``xy``, ``z``, ``xy·z``
             and ``z²``, each shaped ``(n_batch, ...)``.
+        sizes: per-batch realisation counts; equal sizes assumed if
+            omitted.
 
     Returns:
         ``(estimate, standard_error, variance_reduction_factor)``.
     """
     m_xy, m_z = np.asarray(m_xy), np.asarray(m_z)
-    mean_xy, mean_z = m_xy.mean(axis=0), m_z.mean(axis=0)
-    cov = np.asarray(m_xz).mean(axis=0) - mean_xy * mean_z
-    var = np.asarray(m_zz).mean(axis=0) - mean_z ** 2
+    if sizes is None:
+        sizes = np.ones(m_xy.shape[0])
+    w = np.asarray(sizes, dtype=float).reshape((-1,) + (1,) * (m_xy.ndim - 1))
+    tot = w.sum()
+    mean_xy = (w * m_xy).sum(axis=0) / tot
+    mean_z = (w * m_z).sum(axis=0) / tot
+    cov = (w * np.asarray(m_xz)).sum(axis=0) / tot - mean_xy * mean_z
+    var = (w * np.asarray(m_zz)).sum(axis=0) / tot - mean_z ** 2
     c = np.where(var > 0, cov / np.where(var > 0, var, 1.0), 0.0)
-    per_batch = m_xy - c * m_z
-    n = m_xy.shape[0]
-    est = per_batch.mean(axis=0)
-    err = per_batch.std(axis=0, ddof=1) / np.sqrt(n)
-    raw_err = m_xy.std(axis=0, ddof=1) / np.sqrt(n)
+    est, err = _weighted(m_xy - c * m_z, sizes)
+    _, raw_err = _weighted(m_xy, sizes)
     return est, err, np.where(err > 0, raw_err / np.maximum(err, 1e-300), np.inf)
 
 
@@ -157,6 +185,46 @@ def _f_term(phi0, phi1, s):
     return s * phi1 * phi1, s * phi0 * phi1
 
 
+def _step_trajectories(free0, free1, s, gamma, dt):
+    """Integrate the interaction on top of the exact free field (ETDRK2).
+
+    ``φ = φ_free + φ_int``; only ``φ_int`` is stepped, so the linear part
+    and the noise stay exact and the discretisation error is ``O(Δt²)`` on
+    a term that is itself a small correction.  Over one step
+
+        ``∫ e^{−γ(Δ−u)} g(u) du ≈ (φ₁−φ₂) g_n + φ₂ g*``,
+        ``φ₁ = (1−e^{−γΔ})/γ``,  ``φ₂ = 1/γ − (1−e^{−γΔ})/(γ²Δ)``,
+
+    with ``g*`` from an exponential-Euler predictor.
+
+    Args:
+        free0, free1: ``(n_real, n_sites, n_steps + 1)`` exact free fields.
+        s: ``F`` amplitude.  gamma, dt: drift rate and step.
+
+    Returns:
+        the two full fields, same shape as the inputs.
+    """
+    e_dt = np.exp(-gamma * dt)
+    c1 = (1.0 - e_dt) / gamma
+    c2 = 1.0 / gamma - (1.0 - e_dt) / (gamma ** 2 * dt)
+    n_steps = free0.shape[2] - 1
+    int0 = np.zeros_like(free0[:, :, 0])
+    int1 = np.zeros_like(int0)
+    full0, full1 = np.empty_like(free0), np.empty_like(free1)
+    full0[:, :, 0], full1[:, :, 0] = free0[:, :, 0], free1[:, :, 0]
+    for n in range(n_steps):
+        g0, g1 = _f_term(full0[:, :, n], full1[:, :, n], s)
+        star0 = e_dt * int0 + c1 * g0
+        star1 = e_dt * int1 + c1 * g1
+        gs0, gs1 = _f_term(free0[:, :, n + 1] + star0,
+                           free1[:, :, n + 1] + star1, s)
+        int0 = e_dt * int0 + (c1 - c2) * g0 + c2 * gs0
+        int1 = e_dt * int1 + (c1 - c2) * g1 + c2 * gs1
+        full0[:, :, n + 1] = free0[:, :, n + 1] + int0
+        full1[:, :, n + 1] = free1[:, :, n + 1] + int1
+    return full0, full1
+
+
 def simulate_xi(p: ShotNoise, f_amplitude: float, sites, t_record,
                 n_real: int, dt: float = 0.01, seed: int = 0,
                 batch: int = 20_000, window: Window | None = None,
@@ -192,36 +260,16 @@ def simulate_xi(p: ShotNoise, f_amplitude: float, sites, t_record,
         window = Window.for_times(t_edges[-1], p)
     batch = max(1, min(batch, n_real // max(n_err_batches, 1)))
 
-    g = p.gamma
-    e_dt = np.exp(-g * dt)
-    phi1_c = (1.0 - e_dt) / g
-    phi2_c = 1.0 / g - (1.0 - e_dt) / (g ** 2 * dt)
-
     acc = {k: [] for k in ("xy", "z", "xz", "zz", "xx")}
+    sizes = []
     n_blow, n_done = 0, 0
     rng = np.random.default_rng(seed)
     while n_done < n_real:
         nb = min(batch, n_real - n_done)
         free0 = _draw_free_field(rng, p, sites, window, t_edges, nb)
         free1 = _draw_free_field(rng, p, sites, window, t_edges, nb)
-        int0 = np.zeros_like(free0[:, :, 0])
-        int1 = np.zeros_like(int0)
-        full0 = np.empty_like(free0)
-        full1 = np.empty_like(free1)
-        full0[:, :, 0], full1[:, :, 0] = free0[:, :, 0], free1[:, :, 0]
-        for n in range(n_steps):
-            p0, p1 = full0[:, :, n], full1[:, :, n]
-            g0, g1 = _f_term(p0, p1, f_amplitude)
-            # ETDRK2: predictor with phi1_c, corrector with phi2_c.
-            star0 = e_dt * int0 + phi1_c * g0
-            star1 = e_dt * int1 + phi1_c * g1
-            gs0, gs1 = _f_term(free0[:, :, n + 1] + star0,
-                               free1[:, :, n + 1] + star1, f_amplitude)
-            int0 = e_dt * int0 + (phi1_c - phi2_c) * g0 + phi2_c * gs0
-            int1 = e_dt * int1 + (phi1_c - phi2_c) * g1 + phi2_c * gs1
-            full0[:, :, n + 1] = free0[:, :, n + 1] + int0
-            full1[:, :, n + 1] = free1[:, :, n + 1] + int1
-
+        full0, full1 = _step_trajectories(free0, free1, f_amplitude,
+                                          p.gamma, dt)
         f0, f1 = full0[:, :, rec_idx], full1[:, :, rec_idx]
         z0, z1 = free0[:, :, rec_idx], free1[:, :, rec_idx]
         bad = (np.abs(f0).max(axis=(1, 2)) > blowup_threshold) | \
@@ -239,13 +287,12 @@ def simulate_xi(p: ShotNoise, f_amplitude: float, sites, t_record,
         acc["xz"].append((xy * z).mean(axis=0))
         acc["zz"].append((z * z).mean(axis=0))
         acc["xx"].append((f0[ok][:, :1, :] * f0[ok]).mean(axis=0))
+        sizes.append(int(ok.sum()))
         n_done += nb
 
     xi01, err01, vr = control_variate_estimate(
-        acc["xy"], acc["z"], acc["xz"], acc["zz"])
-    xx = np.asarray(acc["xx"])
-    xi00 = xx.mean(axis=0)
-    err00 = xx.std(axis=0, ddof=1) / np.sqrt(xx.shape[0])
+        acc["xy"], acc["z"], acc["xz"], acc["zz"], sizes)
+    xi00, err00 = _weighted(np.asarray(acc["xx"]), sizes)
     return SimResult(t_record=t_edges[rec_idx], sites=sites, xi01=xi01,
                      xi01_err=err01, xi00=xi00, xi00_err=err00,
                      variance_reduction=vr, n_real=n_real, dt=dt,
