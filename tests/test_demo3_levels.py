@@ -190,11 +190,17 @@ def test_distinct_label_spelling_is_the_correct_one(props, exp3):
     assert result.total == pytest.approx(exact, rel=1e-13)
 
 
-def test_single_component_with_callable_coupling_raises():
-    """Second known defect on the base commit: ``n_components=1`` plus a
-    *callable* coupling crashes in ``_sum_coupling_batched``.  Demo 3 uses
-    ``N = 2`` throughout (level B needs it anyway), so this only documents
-    the constraint."""
+def test_single_component_with_callable_coupling(props):
+    """``n_components = 1`` with a *callable* coupling.
+
+    On the base commit ``ac7f201`` this raises in
+    ``_sum_coupling_batched`` (a ``(1,1,1,1)`` array broadcast against
+    ``(n_samples,)``), which is why demo 3 uses ``N = 2`` throughout ---
+    level B needs it anyway, so the constraint costs nothing.  The fix
+    landed on the ``demo2-hardening`` branch, so this accepts either
+    behaviour: refusal is the documented defect, and success must give
+    the exact closed form.  No edit needed when demo 3 rebases.
+    """
     p1 = sn.ShotNoise(nu=P.nu, h=P.h, sigma_t=P.sigma_t, sigma_x=P.sigma_x,
                       gamma=P.gamma, n_components=1)
     system = dsys.make_system(p1, cumulants=(3,))
@@ -202,10 +208,16 @@ def test_single_component_with_callable_coupling_raises():
                                 c_closed_form_only=True, progress=False)
     # a scalar field takes a single (spatial) argument
     expansion = system.expand(("phi(x)", "phi(y)", "phi(z)"), orders=[1])
-    with pytest.raises(ValueError, match="axis remapping|more dimensions"):
-        expansion.evaluate(props1, positions={"x": 0.0, "y": 0.0, "z": 0.0},
-                           t_final=1.0, component_pair=(0, 0, 0), orders=[1],
-                           method="gauss_legendre", n_gauss=8)
+    try:
+        result = expansion.evaluate(
+            props1, positions={"x": 0.0, "y": 0.0, "z": 0.0}, t_final=1.0,
+            component_pair=(0, 0, 0), orders=[1],
+            method="gauss_legendre", n_gauss=8)
+    except ValueError as exc:
+        assert "axis remapping" in str(exc) or "more dimensions" in str(exc)
+        return                      # base commit: the documented defect
+    exact = float(sn.K_R(np.zeros((3, 1)), np.full((3, 1), 1.0), p1)[0])
+    assert result.total == pytest.approx(exact, rel=1e-13)
 
 
 # =====================================================================
