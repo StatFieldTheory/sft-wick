@@ -45,12 +45,18 @@ system:
   # ``coupling_vectorized`` and switch to ``coupling_attr:
   # coupling_fn``. Both produce identical numerics; pick whichever
   # fits the cost profile of your callable.
+  # kappa^(3) in its R-contracted form: the three leg integrals over the
+  # narrow kernel are done inside the callable (k3_R_coupling.py), so the
+  # FK diagrams' outer integral is one-dimensional and converges.  The
+  # raw kernel (k3_coupling.py, same physics) needs a 4-D quadrature that
+  # is not converged beyond t ~ 10 -- see examples/paper_assets/demo2_kappa4.
   nonlocal_vertices:
     - name: K
       order: 3
-      coupling_module: ./demo2/k3_coupling.py
+      coupling_module: ./demo2/k3_R_coupling.py
       coupling_attr: coupling_fn_vectorized
       coupling_vectorized: true
+      already_R_contracted: true
 
   noise:
     kappa2:

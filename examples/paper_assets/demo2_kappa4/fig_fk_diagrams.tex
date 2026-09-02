@@ -1,0 +1,33 @@
+% FK diagram 1
+\begin{tikzpicture}[scale=1.0, every node/.style={inner sep=0pt}]
+  \tikzset{ext/.style={circle, inner sep=0pt, minimum size=8.0pt, fill=black}}
+  \tikzset{vert/.style={rectangle, inner sep=0pt, minimum size=10.0pt, fill=black}}
+  \tikzset{C/.style={draw={rgb,255:red,33;green,102;blue,172}, solid, line width=2.0pt}}
+  \tikzset{R/.style={draw={rgb,255:red,214;green,96;blue,77}, dashed, line width=2.0pt, -{Latex[length=2mm]}}}
+  \node[ext, label={[label distance=4.0pt,font=\fontsize{12.0}{14.399999999999999}\selectfont]left:$\phi_{a}$}] (ext0) at (-2.8000, -0.0000) {};
+  \node[ext, label={[label distance=4.0pt,font=\fontsize{12.0}{14.399999999999999}\selectfont]right:$\phi_{b}$}] (ext1) at (2.8000, -0.0000) {};
+  \node[vert, label={[label distance=3.0pt,font=\fontsize{12.0}{14.399999999999999}\selectfont]above left:$F$}] (vert2) at (-0.8400, 0.4443) {};
+  \node[vert, label={[label distance=3.0pt,font=\fontsize{12.0}{14.399999999999999}\selectfont]below right:$K$}] (vert3) at (0.8400, -0.4443) {};
+  % propagators
+  \draw[R] (vert2) -- (ext0);
+  \draw[R] (vert3) -- (ext1);
+  \draw[R] (vert3) -- (vert2);
+  \draw[R] (vert3) -- (vert2);
+\end{tikzpicture}
+
+% FK diagram 2
+\begin{tikzpicture}[scale=1.0, every node/.style={inner sep=0pt}]
+  \tikzset{ext/.style={circle, inner sep=0pt, minimum size=8.0pt, fill=black}}
+  \tikzset{vert/.style={rectangle, inner sep=0pt, minimum size=10.0pt, fill=black}}
+  \tikzset{C/.style={draw={rgb,255:red,33;green,102;blue,172}, solid, line width=2.0pt}}
+  \tikzset{R/.style={draw={rgb,255:red,214;green,96;blue,77}, dashed, line width=2.0pt, -{Latex[length=2mm]}}}
+  \node[ext, label={[label distance=4.0pt,font=\fontsize{12.0}{14.399999999999999}\selectfont]left:$\phi_{a}$}] (ext0) at (-2.8000, 0.0000) {};
+  \node[ext, label={[label distance=4.0pt,font=\fontsize{12.0}{14.399999999999999}\selectfont]right:$\phi_{b}$}] (ext1) at (2.8000, 0.0000) {};
+  \node[vert, label={[label distance=3.0pt,font=\fontsize{12.0}{14.399999999999999}\selectfont]above right:$F$}] (vert2) at (0.8400, 0.4451) {};
+  \node[vert, label={[label distance=3.0pt,font=\fontsize{12.0}{14.399999999999999}\selectfont]below left:$K$}] (vert3) at (-0.8400, -0.4451) {};
+  % propagators
+  \draw[R] (vert3) -- (ext0);
+  \draw[R] (vert2) -- (ext1);
+  \draw[R] (vert3) -- (vert2);
+  \draw[R] (vert3) -- (vert2);
+\end{tikzpicture}

@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-09-02
+
+> **This is the version the CPC paper (arXiv:2606.19480, revised) refers
+> to.**  v0.2.0 is what the referees ran; everything below is what changed
+> for the revision, plus the fixes that had accumulated on `main` since
+> July.
 
 > **Numbers move.** Several fixes below change results that were previously
 > wrong. If you have pinned values, re-pin them against the corrected output
@@ -133,9 +138,78 @@ are the same runs under `taskpolicy -c background` with
 - Docstrings in `sft_wick.spectral` referred to a directory outside the
   repository; rewritten to state the caveat itself.
 
+- **Paper-figure regression check.**  `examples/demo1/L2/config.yaml`
+  (the sweep behind the paper's Gaussian-noise figures: 672 grid points ×
+  71 diagrams, 32768 samples) run on v0.2.0 and on this release agrees to
+  a maximum relative difference of **3.3e-14** over all 2016
+  `(y, t, a, b, order)` totals — the closed-form C path is untouched by
+  the C-table diagonal fix, as the July changelog claimed; now verified
+  rather than assumed (`examples/paper_assets/README.md`).
+
 - **Fixed: `output: {type: npz, path: results/x.npz}` failed when the
   directory did not exist** (`np.savez` does not create it; the table
   writer already did).  The same for `plot` outputs.
+
+- **`c_method: auto` also compares cost.** When both rules are converged
+  for the horizon, one call of each at the deep corner decides: on a
+  smooth kernel over a short horizon adaptive dblquad needs a few hundred
+  evaluations (3.8 ms) and beats the 20-node tensor rule (5.6 ms); with a
+  cusp or a long horizon the tensor rule wins by 5-30×.  (Without this,
+  a smooth-kernel regression test took 73 s instead of 28 s.)
+
+### Demo 2 (non-Gaussian noise) corrections
+
+Re-deriving and re-running the κ⁽³⁾ example for the referee turned up
+three things the paper's demo-2 figures inherit; all are fixed in
+`examples/demo2` and quantified in `examples/paper_assets/demo2_kappa4`.
+
+- **κ⁽³⁾ was missing its `α³` term.**  For `η̃ = η + α(η² − λ)` the third
+  cumulant is `κ⁽³⁾(1,2,3) = 2αλ²[k₁₃k₂₃ + k₁₂k₂₃ + k₁₂k₁₃] + 8α³λ³ k₁₂k₂₃k₁₃`;
+  the second term (the connected three-point function of `η² − λ`) is
+  2.4 % of the first at coincidence and was absent from `k3_coupling.py`
+  and from the `6αλ²` line of the κ³ cross-check figure.  The simulated
+  third moment, 9.21e-3, is `6αλ² + 8α³λ³`, not `6αλ² = 9.00e-3`.  The
+  FK channel of ξ₀₁ moves by +1.2 % (t = 1) to +0.6 % (t ≥ 3).
+
+- **The FK quadrature was not converged beyond t ≈ 10.**  The raw kernel
+  is narrow in the relative leg times, and the fixed 8-node tensor rule
+  on the 4-D integral gives, for ξ₀₁ at r = 0, 4.95e-4 at t = 15 and
+  1.85e-4 at t = 50 against the converged plateau 3.44e-4 (n = 12/16/20
+  give 4.23/3.86/3.71e-4 at t = 15; QMC is worse).  The remedy is the
+  package's own `already_R_contracted` vertex: `examples/demo2/k3_R_coupling.py`
+  integrates the three legs inside the callable (analytically in the
+  common time, composite Gauss-Legendre on the two relative times with
+  each cusp aligned to the grid), so the FK integral is one-dimensional
+  and a 32-node rule agrees with 64 to 1e-4 at every t.  `config_FK.yaml`
+  now uses it.  The R-contracted kernel is validated against adaptive
+  3-D quadrature and QMC of the raw leg integral to ~1e-4.
+
+- **ξ₀₀ / ξ₁₁ used the single-kernel `λ_eff` approximation.**  The exact
+  effective covariance of `η̃` is `λ k + 2α²λ² k²` -- the second piece
+  has HALF the correlation time and length -- so replacing it by
+  `λ(1 + 2α²λ) k` over-counts its contribution to C by 70 %: +1.8e-4 on
+  ξ₀₀ at large t (1.5 % of the signal, 2σ of the 200k-realisation
+  simulation).  The budget uses the exact form (a sum of two built-in
+  closed forms) for order 0, FF and FFFF.
+
+- **κ⁽⁴⁾ enters ξ₀₀ / ξ₁₁ but not ξ₀₁.**  `κ⁽⁴⁾ = 4α²λ³ Σ_paths k k k +
+  16α⁴λ⁴ Σ_cycles k k k k` (12 Hamiltonian paths and 3 cycles of K₄;
+  `examples/paper_assets/demo2_kappa4/k4_coupling.py`, checked against
+  Monte Carlo).  F·κ⁽⁴⁾ at order 2 vanishes by ψ/φ counting; the leading
+  term is F·F·κ⁽⁴⁾ at order 3 (three pure-R⁶ diagrams).  The Gaussian
+  theory with F has a `φ₁ → −φ₁` symmetry that only ODD cumulants break,
+  so FF, FFFF and FFK4 are identically zero for ξ₀₁ -- the κ⁽³⁾ signal
+  there is clean, and its residual can only be closed by F³κ⁽³⁾ and
+  higher odd terms.
+
+- **The error budget** (`examples/paper_assets/demo2_kappa4/budget.md`,
+  2M realisations per step size at Δt = 0.02 and 0.01, extrapolated):
+  ξ₀₁ − FK is 0 within 1σ for t ≤ 1 and +24 % of FK (9e-5, 6-7σ) for
+  t ≥ 5; the order-4 F³κ⁽³⁾ channel, estimated by collapsing κ⁽³⁾ to an
+  equal-time constant calibrated on FK, is 2 % / 12 % / 24 % of FK at
+  t = 1 / 3.5 / 15 -- the residual is truncation, not κ⁽⁴⁾ (zero there by
+  symmetry), Δt or Monte-Carlo noise.  ξ₀₀ with the exact C_eff, FFK4
+  and FFFF agrees within ±2σ except at t ≈ 5 (+3σ).
 
 ### Added
 

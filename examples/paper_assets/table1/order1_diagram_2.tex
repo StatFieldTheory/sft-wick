@@ -1,0 +1,14 @@
+\begin{tikzpicture}[scale=1.0, every node/.style={inner sep=0pt}]
+  \tikzset{ext/.style={circle, inner sep=0pt, minimum size=8.0pt, fill=black}}
+  \tikzset{vert/.style={rectangle, inner sep=0pt, minimum size=10.0pt, fill=black}}
+  \tikzset{C/.style={draw={rgb,255:red,33;green,102;blue,172}, solid, line width=2.0pt}}
+  \tikzset{R/.style={draw={rgb,255:red,214;green,96;blue,77}, dashed, line width=2.0pt, -{Latex[length=2mm]}}}
+  \node[ext, label={[label distance=4.0pt,font=\fontsize{12.0}{14.399999999999999}\selectfont]below:$\phi_{a}$}] (ext0) at (0.0000, -1.8000) {};
+  \node[ext, label={[label distance=4.0pt,font=\fontsize{12.0}{14.399999999999999}\selectfont]above right:$\phi_{b}$}] (ext1) at (1.5588, 0.9000) {};
+  \node[ext, label={[label distance=4.0pt,font=\fontsize{12.0}{14.399999999999999}\selectfont]above left:$\phi_{c}$}] (ext2) at (-1.5588, 0.9000) {};
+  \node[vert, label={[label distance=3.0pt,font=\fontsize{12.0}{14.399999999999999}\selectfont]above:$F$}] (vert3) at (-0.0000, -0.0000) {};
+  % propagators
+  \draw[R] (vert3) -- (ext0);
+  \draw[C] (ext1) -- (vert3);
+  \draw[C] (ext2) -- (vert3);
+\end{tikzpicture}

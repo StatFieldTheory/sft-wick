@@ -21,14 +21,20 @@ system:
         - [[0.0, 0.0], [0.0, 1.0]]
         - [[0.0, 0.5], [0.5, 0.0]]
 
-  # Non-local cubic vertex driven by the analytical kappa^{(3)}.
-  # Reuses the demo2 module shipped with the package.
+  # Non-local cubic vertex driven by the analytical kappa^{(3)}, in its
+  # R-CONTRACTED form (``k3_R_coupling.py``): the three leg integrals
+  # over the narrow kernel are done inside the callable, so the FK
+  # diagrams' outer integral is one-dimensional and converges to 1e-4
+  # with 32 Gauss-Legendre nodes at every t.  The raw kernel
+  # (``k3_coupling.py``) with the 4-D tensor rule this config used to
+  # specify (n_gauss = 8) is 44 % high at t = 15 and 46 % low at t = 50.
   nonlocal_vertices:
     - name: K
       order: 3
-      coupling_module: ../k3_coupling.py
+      coupling_module: ../k3_R_coupling.py
       coupling_attr: coupling_fn_vectorized
       coupling_vectorized: true
+      already_R_contracted: true
 
   noise:
     kappa2:
@@ -71,17 +77,11 @@ sweep:
   vertex_types: [FK]   # exclude FF -- those go in config_FF.yaml
   orders: [2]
 
-  # Gauss-Legendre tensor-product quadrature on the 4D causal
-  # simplex.  At t_f >> 1 the integrand is a narrow band of
-  # area ~ sigma_t/gamma in a simplex of area ~ t_f^2/2; Sobol
-  # QMC under-resolves the band unless n_samples is very large
-  # (see ``examples/demo2/L2/diag_problem_B.py`` for the bias
-  # analysis).  GL with n_gauss=8 (8^4 = 4096 nodes) gives
-  # exponential convergence on this smooth integrand and matches
-  # the notebook's hand-derived 4D quadrature to ~5 sig figs at
-  # all t_f.  Determinstic -- no seed.
+  # With the R-contracted vertex the FK integral is 1-D in the F time;
+  # 32 Gauss-Legendre nodes agree with 64 to 1e-4 at every t
+  # (examples/paper_assets/demo2_kappa4).  Deterministic -- no seed.
   method: gauss_legendre
-  n_gauss: 8
+  n_gauss: 32
 
   n_jobs: -1
 
