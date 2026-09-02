@@ -11,11 +11,28 @@ quadratic deformation ``eta_tilde = eta + alpha (eta^2 - lam)``) but
 * the fourth moment ``mu4_a(t) = <eta_tilde_a(0, t)^4>`` is recorded
   alongside ``mu2`` / ``mu3``, to cross-check the analytic ``kappa^(4)``;
 * the per-realisation products are accumulated in sums AND sums of squares
-  so the Monte-Carlo standard error of every ``xi_ab(r, t)`` is available.
+  so the Monte-Carlo standard error of every ``xi_ab(r, t)`` is available;
+* ``--F_scale s`` multiplies the quadratic drift, ``f = -phi + s * (...)``,
+  so the perturbative order of the residual can be read off its scaling:
+  the FK channel is linear in F, F^3.kappa^3 is cubic, F^5.kappa^3 quintic
+  (see ``INTERPRETATION.md``);
+* the number of realisations lost to finite-time blow-up is recorded
+  explicitly (``n_blown`` / ``n_attempted``), not just implied by
+  ``n_real``: the reported correlator is a CONDITIONED mean and the
+  conditioning fraction changes with ``F_scale``;
+* the correlator is also stored at the SIMULATION GRID SITES
+  (``x_grid`` / ``xi_sites`` / ``xi_err_sites``), un-interpolated.  ``xi``
+  at an off-grid ``r`` is ``np.interp`` of a convex profile and is
+  therefore biased HIGH by a few tenths of a percent -- comparable to the
+  effects the budget is trying to measure.  Analysis code should either
+  use the grid sites, or apply the SAME linear weights to the theory
+  curve (what ``run_budget.py`` does).
 
 Usage::
 
     python sim_dt_study.py --dt 0.05 --n_real 50000 --seed 7 --out sim_dt0.05.npz
+    python sim_dt_study.py --dt 0.02 --F_scale 0.5 --n_real 100000 \
+        --seed 300 --out sims/sim_F0.5_dt0.02_s300.npz
 """
 from __future__ import annotations
 
@@ -40,7 +57,7 @@ def _deform(eta, alpha):
     return eta if alpha == 0.0 else eta + alpha * (eta * eta - lam)
 
 
-def simulate(dt_sim, n_real, seed, alpha, batch_size=500):
+def simulate(dt_sim, n_real, seed, alpha, batch_size=500, F_scale=1.0):
     rng = np.random.default_rng(seed)
     dx = sigma_x / 5.0
     n_sites = int(np.ceil(max(R_VALUES) / dx)) + 1
@@ -64,6 +81,7 @@ def simulate(dt_sim, n_real, seed, alpha, batch_size=500):
     xi_sq = np.zeros((3, n_t, n_sites))
     mom = np.zeros((2, n_t, 3))          # mu2, mu3, mu4 sums at x=0
     n_good_t = np.zeros(n_t)
+    n_attempted = 0
 
     n_batches = n_real // batch_size
     t0 = time.time()
@@ -73,16 +91,22 @@ def simulate(dt_sim, n_real, seed, alpha, batch_size=500):
         eta_k = [_deform(zi.T, alpha) for zi in z]
         phi = np.zeros((2, batch_size, n_sites))
         blown = np.zeros(batch_size, dtype=bool)
+        n_attempted += batch_size
         for k in range(n_steps):
             z_next = [rho * zi + sig_innov * (L_space @ rng.standard_normal((n_sites, batch_size)))
                       for zi in z]
             eta_kn = [_deform(zi.T, alpha) for zi in z_next]
-            f1 = -phi[0] + phi[1] ** 2 + eta_k[0]
-            f2 = -phi[1] + phi[0] * phi[1] + eta_k[1]
+            # ``F_scale`` multiplies the quadratic (F-vertex) drift only;
+            # the linear damping and the noise are untouched, so every
+            # theory channel scales as a known power of it: order 0 as
+            # s^0, FK as s^1, FF and FFK4 as s^2, F^3.kappa^3 as s^3,
+            # FFFF as s^4.
+            f1 = -phi[0] + F_scale * phi[1] ** 2 + eta_k[0]
+            f2 = -phi[1] + F_scale * phi[0] * phi[1] + eta_k[1]
             p1 = phi[0] + dt_sim * f1
             p2 = phi[1] + dt_sim * f2
-            g1 = -p1 + p2 ** 2 + eta_kn[0]
-            g2 = -p2 + p1 * p2 + eta_kn[1]
+            g1 = -p1 + F_scale * p2 ** 2 + eta_kn[0]
+            g2 = -p2 + F_scale * p1 * p2 + eta_kn[1]
             phi[0] += 0.5 * dt_sim * (f1 + g1)
             phi[1] += 0.5 * dt_sim * (f2 + g2)
             blown |= np.any(np.abs(phi[0]) > 1e6, axis=1) | np.any(np.abs(phi[1]) > 1e6, axis=1)
@@ -108,13 +132,21 @@ def simulate(dt_sim, n_real, seed, alpha, batch_size=500):
     var = xi_sq / n - mean ** 2
     sem = np.sqrt(np.maximum(var, 0.0) / n)
     r = np.array(R_VALUES)
+    # ``xi`` is the historical, np.interp'd output kept for schema
+    # compatibility with the 80 shipped runs.  ``xi_sites`` is the same
+    # data BEFORE interpolation: at an off-grid r, np.interp of a convex
+    # e^{-r}-like profile overestimates by a few tenths of a percent, which
+    # is the size of the effects the budget measures.  Prefer the sites.
     xi = np.stack([[np.interp(r, x_grid, mean[ip, it]) for it in range(n_t)] for ip in range(3)])
     xi_err = np.stack([[np.interp(r, x_grid, sem[ip, it]) for it in range(n_t)] for ip in range(3)])
     mu = mom / n_good_t[None, :, None]
     return dict(
         r=r, t=np.array(T_MEASURE), t_actual=t_actual, xi=xi, xi_err=xi_err,
+        x_grid=x_grid, xi_sites=mean, xi_err_sites=sem,
         mu2=mu[:, :, 0], mu3=mu[:, :, 1], mu4=mu[:, :, 2],
-        n_real=int(n_good_t.min()), dt_sim=dt_sim, seed=seed, alpha=alpha,
+        n_real=int(n_good_t.min()), n_attempted=int(n_attempted),
+        n_blown=int(n_attempted - n_good_t.min()),
+        dt_sim=dt_sim, seed=seed, alpha=alpha, F_scale=F_scale,
         lam=lam, sigma_t=sigma_t, sigma_x=sigma_x, pairs=np.array(PAIRS),
     )
 
@@ -125,12 +157,17 @@ def main():
     ap.add_argument("--n_real", type=int, default=50_000)
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--alpha", type=float, default=0.6)
+    ap.add_argument("--F_scale", type=float, default=1.0,
+                    help="multiplier on the quadratic drift; the theory "
+                         "channels scale as known powers of it")
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
     t0 = time.time()
-    res = simulate(a.dt, a.n_real, a.seed, a.alpha)
+    res = simulate(a.dt, a.n_real, a.seed, a.alpha, F_scale=a.F_scale)
     np.savez(a.out, **res)
-    print(f"wrote {a.out} in {time.time() - t0:.0f}s (n_real={res['n_real']})")
+    print(f"wrote {a.out} in {time.time() - t0:.0f}s "
+          f"(n_real={res['n_real']}, blown={res['n_blown']}/"
+          f"{res['n_attempted']}, F_scale={a.F_scale})")
 
 
 if __name__ == "__main__":

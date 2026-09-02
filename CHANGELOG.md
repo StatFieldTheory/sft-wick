@@ -1,5 +1,384 @@
 # Changelog
 
+## Unreleased
+
+### Propagator-indexed dynamic couplings (demo2's order-4 F³κ³)
+
+- **`DynamicCouplingPromise.evaluate_at_batch` no longer refuses a
+  contraction that leaves a propagator index.**  A callable κ^(m) whose
+  contraction against the surrounding Wick structure leaves a surviving
+  component index on a C propagator used to raise
+  `NotImplementedError: Dynamic coupling with propagator-indexed
+  contraction is not yet supported`.  It now returns
+  `(n_samples,) + prop_shape`, and the integrators contract it against
+  the C-propagator product one index assignment at a time — the same
+  `np.ndindex(prop_shape)` loop the static-tensor branch has always
+  used, with the scalar coefficient promoted to a per-sample array.
+  The contraction is centralised in
+  `DiagramIntegrand._dynamic_values`, called from all three consumers
+  (QMC-vectorised, Gauss-Legendre, and the zero-dimensional path); the
+  batched C lookup is hoisted out of the index loop, since it does not
+  depend on the component assignment.
+
+  This is what blocked the exact evaluation of demo2's order-4 F³κ³
+  channel: 30 diagrams, of which those with `propagator_indices ==
+  (('i_0', 2),)` hit the guard.
+
+  **Size of the change:** zero on every path that worked before — a
+  fully contracted (scalar) callable takes the same branch and returns
+  bit-identical numbers; the 236 tests of the integrator suite are
+  unchanged.  What was previously an exception is now a number.
+
+  Locked by `DC1` in `tests/test_dynamic_coupling.py`, which replaces
+  the test that pinned the `NotImplementedError`: a callable that
+  ignores its arguments and returns a constant tensor is
+  mathematically the static tensor, so the two routes are compared
+  diagram-by-diagram on the order-4 F³κ³ set and agree to `rel=1e-12`
+  (observed: exact equality).  A companion test asserts the comparison
+  is not vacuous — at least one prop-indexed diagram integrates to a
+  non-negligible value.
+
+### Breaking: external operators may no longer share a spatial label
+
+`("phi_a(x)", "phi_b(x)")` — the natural spelling of an equal-point
+correlator — now raises `ValueError` at both `System.expand` (L1) and
+`compute_moment` (L0), **at interacting orders only**.  It previously
+returned a number, correct at order 0 and wrong once vertices are
+present.
+
+**Order 0 is exempt, and the exemption is measured rather than
+assumed.**  The free-theory contraction keeps every routing at
+coincident labels — `⟨φ_a φ_b φ_c φ_d⟩` gives
+`C_ab C_cd + C_ac C_bd + C_ad C_bc` either way, and the scalar
+`⟨ψφφφ⟩` gives `3 R(x,x) C(x,x)` against the distinct-label
+`R(x,w)C(y,z) + R(y,w)C(x,z) + R(z,w)C(x,y)`.  The loss appears only
+once vertices exist, when the downstream diagram-isomorphism pass merges
+topologies that the external collapse has made isomorphic.  The
+equal-point Itô tests depend on the exemption and are unchanged; a new
+test pins it (`CE2`).
+
+The refusal at order ≥ 1 is deliberately conservative — demo2's order-2
+`FK` channel is *right* at coincident labels while its `F` channel is
+low by 2, and distinguishing them per-channel is exactly the analysis
+this refusal exists to avoid.  One test moved: `test_latex_local_coupling`
+used a repeated label at order 1 while testing symbol flags, and now
+uses distinct ones.
+
+**Migration:** give each external a distinct label and set them to the
+same point through `positions`:
+
+```python
+system.expand(("phi_a(x)", "phi_b(y)"), orders=[0, 2])
+expansion.evaluate(props, positions={"x": 0.0, "y": 0.0}, ...)
+```
+
+Coincident external *points* are, and always were, fully supported;
+it is the shared *label* that is not.  Demo 1, demo 2 and the paper all
+use distinct labels, so nothing in this repository changes.
+
+**What was wrong.**  The spatial Wick engine enumerates topologies keyed
+by spatial label and recovers the operator-level count with a
+multiplicity that excludes observable points, assuming one operator
+each.  Measured on demo2's system at t = 3.48 with both externals at
+position 0: order 0 agreed exactly, the order-2 `F` channel was **low by
+a factor 2** (1.838e-04 against 3.677e-04), and the order-2 `FK` channel
+was exactly right.  Not even uniform between channels.
+
+**Why it is refused rather than repaired.**  What the collapse loses is
+not a factor but a *sum over the assignments of external operators to
+legs*, each with its own component-index routing:
+
+```
+("phi_a(x)", "phi_b(y)", "phi_c(z)") -> K_abc + K_acb + K_bac + K_bca + K_cab + K_cba
+("phi_a(x)", "phi_b(x)", "phi_c(x)") -> K_abc
+```
+
+`6 · K_abc` reproduces that sum only for a K symmetric under all six
+permutations.  demo2's κ³ is component-diagonal and the two-point F case
+had `a = b`, which is why the observed discrepancies were clean integers
+and why the bug survived — a multiplicity "fix" would have replaced a
+silent wrong answer with a subtler one, since the API accepts arbitrary
+bare tensors.  Supporting the spelling properly means keeping external
+operators distinguishable through the label-keyed enumeration in
+`wick.wick_contract_spatial`; that is a change to the multiplicity core
+and is left as follow-up work.  The reasoning is recorded in
+`tests/test_coincident_external_labels.py` so it is not "optimised" back
+later.
+
+### Fixed: single-component systems with a callable coupling
+
+`n_components = 1` plus a callable (dynamic) coupling raised
+`ValueError: input operand has more dimensions than allowed by the axis
+remapping` on every integrator.  With one component there is nothing to
+sum over, so the simplifier elides every component index and
+`_eval_symbolic_batched` took its `not expr.indices` branch, returning
+the coupling array whole — `(n_samples, 1, 1, 1)` where `(n_samples,)`
+was expected.  The scalar `_eval_symbolic` had always tolerated "a
+size-1 array in any shape"; the batched path now does too.  A static
+tensor at `N = 1` was unaffected, as was `N ≥ 2`.  Locked by `DC3`
+(both integrators, dynamic against static to `rel=1e-12`).
+
+**Verification that neither of the two changes above moved a published
+number.**  Both are expected to be exactly inert for demo 1: one adds a
+refusal on a spelling demo 1 does not use, the other repairs an `N = 1`
+branch demo 1 never enters.  Measured rather than assumed —
+`examples/demo1/L2/config.yaml` re-run before and after, all
+**2016 / 2016** `(y, t_final, a, b, order)` totals **bit-identical**,
+max relative change **0.0** against the v0.3.0 comparison's 3.3e-14
+floating-point baseline.
+
+### Demo 2 hardening
+
+Every item below is a number that moved, with its measured size.
+
+- **The order-4 F³κ³ channel of demo 2 is now computed, not estimated.**
+  It was the blocked case above.  With the R-contracted κ³ the effective
+  time dimension of its 30 diagrams is 3 (it is 6 with the raw kernel —
+  measured, via `analyze_spatial().time_integration_vars`), so a
+  tensor-product Gauss-Legendre rule does it in seconds per grid point.
+
+  The equal-time estimate it replaces was built by collapsing κ³ to a
+  constant `24 α λ² σ_t²` and calibrating on FK at order 2.  That
+  calibration ratio is 0.42–0.64 for the FK-type partner-time
+  configuration `(t′, s, s)` but 1.08–1.50 for three distinct partner
+  times — which is what the F³κ³ diagrams have — so it was a
+  factor-of-≈2 quantity.
+
+  **Measured effect.**  At `t = 15, r = 0`, `ξ₀₁`: the exact channel is
+  **5.47e-05** (GL10; 5.41e-05 at GL14) against the old estimate's
+  8.10e-05.  Over the 18 times at `r = 0` this takes χ² of
+  (simulation − theory) from **340.7 to 44.2**, the mean pull from
+  **+3.31 to +1.09**, and the largest residual from **9.36e-05 to
+  3.88e-05** (7.0σ → 2.9σ).
+
+  **It also contributes where the 0.3.0 budget assumed it could not.**
+  `F³κ³` was taken to vanish for `ξ₀₀` and `ξ₁₁` by `φ₁ → −φ₁` parity.
+  That parity is broken by the deformation itself (`η̃ = η + α(η² − λ)`
+  is not odd in `η` — which is the entire reason `ξ₀₁ ≠ 0`); the order-2
+  FK channel does vanish there, but for the narrower reason that its two
+  diagrams' index structure does.  Computed for all three pairs rather
+  than assumed: **4.53e-06 for `ξ₀₀`** and 4.34e-06 for `ξ₁₁` at
+  `t = 5.44` (converged to 0.1 %), i.e. 13 % of the `ξ₀₀` residual.
+
+- **The residual's perturbative order is now measured, not asserted.**
+  Scaling the quadratic drift by `s` scales each channel by a known
+  power of `s`.  At `t = 15, r = 0`, all at dt = 0.02 so the step-size
+  bias cancels out of the `s`-dependence: `s = 0.5` (20M realisations)
+  gives a residual of 9.83e-06 ± 2.74e-06 and `s = 1` (2M) gives
+  7.28e-05 ± 1.00e-05.  Those fit a **pure `s³` law with χ² = 0.06 for
+  1 dof** — `c₃ = 7.38e-05 ± 0.91e-05` — so the residual *is* an order-4
+  effect, deduced from the simulation and the order-2 channel alone.
+  The exactly-computed `F³κ³` then agrees at **2.1σ** (1.8σ against the
+  un-extrapolated dt = 0.02 residual; the spread between the two is
+  whether the step-size bias is extrapolated away, and that bias is
+  itself only a 1.1σ measurement).
+
+  `s = 1.5` is excluded from the fit and kept as a measured boundary of
+  validity: its residual *exceeds* the leading term (1.04e-03 against
+  5.16e-04) and **4.5 % of trajectories blow up** against 6e-05 at
+  `s = 1` — a 780× jump — so the reported mean is conditioned on
+  survivors with the largest excursions removed.  At `s = 0.5` the
+  blow-up fraction is **zero in 20 million realisations**, so the
+  cleaner of the two fit points carries no conditioning at all.
+
+- **`κ⁽⁵⁾` is excluded as the home of the remaining 2σ.**  The cumulant
+  ladder gives `κ⁽⁵⁾ = 7.1 %` of `κ⁽³⁾`, and the lowest `κ⁽⁵⁾` channel
+  enters at the same perturbative order with the same `s³` scaling — but
+  through **6 diagrams against 30** (both enumerated), putting it at
+  ~1e-06, an order of magnitude below the residual's uncertainty.
+  Estimated rather than computed: a 5-leg R-contracted kernel does not
+  exist, and per-diagram magnitudes and the `−iᵐ/m!` convention differ
+  between `m = 3` and `m = 5`.
+
+- **FFFF was Sobol QMC and is now Gauss-Legendre.**  At 32768 samples
+  `FFFF_00(t = 15, r = 0)` gave 7.47, 3.22, 2.80, 5.05e-05 across four
+  seeds — 46 % scatter on a mean of 4.6e-05.  Against the converged
+  GL14 the QMC column was wrong by up to **4.84e-05 absolute (121 %)**,
+  as large as the residuals it was used to interpret.  GL10 vs GL14 is
+  **2.20e-06** absolute, well below them.
+
+- **The full budget** is rewritten in
+  `examples/paper_assets/demo2_kappa4/budget.md`; the interpretation, in
+  a fixed five-part shape, is new at `examples/demo2/INTERPRETATION.md`.
+
+- **`examples/demo2/k3_R_coupling.py` claimed "Accuracy ~1e-6 relative".
+  It is 1e-4.**  1.7e-6 is what the FK-type configuration `(t′, s, s)`
+  achieves — the only one it had ever been checked at.  Measured against
+  cusp-aware 3-D adaptive quadrature of the raw leg integral: 1.4e-4 at
+  coincident and at three-distinct partner times, 5.4e-4 at very short
+  times, 2.6e-3 at `t′ = 0.1` (where the kernel is 100× below its
+  plateau, so 1.7e-8 absolute).  The README's 1e-4 was right.  The
+  docstring now carries the measured table and the
+  `already_R_contracted` contract's silent assumptions.
+
+- **`k4_R_contracted.py`'s "~1e-3"** holds over the range that matters
+  (2.6e-4 to 2.2e-3) and degrades to 9.9e-3 at `t′ = 0.2`, same cause.
+  Its `t′ = 50` row cannot be checked by QMC at all — a Sobol rule on
+  the `50⁴` box has 80 % seed scatter — so what is checked there instead
+  is that `K_R` has saturated, and it has.
+
+- **`examples/demo2/L2/reproduce_figures.py` plotted the wrong error
+  bars.**  `mc_err = sqrt(ξ²/n)` is the error on a mean of ξ, not on a
+  mean of per-realisation products; the latter has variance
+  `<φ_a²><φ_b²> + ξ²`.  Measured against the 2M-realisation runs that do
+  accumulate sums of squares, the old formula is **0.029 of the true SEM
+  for ξ₀₁ (low by 34×)** and 0.48–0.63 for ξ₀₀.  Replaced by the
+  Isserlis estimate, which is 0.87–1.00 of the measured SEM over
+  `t ∈ [0.6, 50]`.
+
+- **Off-grid separations biased the simulation high.**  The simulation
+  measures on a grid of pitch `σ_x/5 = 0.2` and reports off-grid `r` by
+  `np.interp`; on a convex profile that overestimates by +0.36 % at
+  r = 0.25, +0.50 % at r = 0.5, +0.39 % at r = 0.75.  The "+3.7σ" rows of
+  the ξ₀₀ r = 0.5 tables were this, not physics.  The budget now
+  evaluates the theory at the simulation's own grid sites and combines
+  them with the same weights, so an off-grid row is compared like for
+  like, and reports a genuine grid site (r = 0.4) alongside.
+  `sim_dt_study.py` additionally stores the un-interpolated grid profile
+  (`x_grid`, `xi_sites`, `xi_err_sites`) so future runs need no
+  correction.
+
+- **`sim_dt_study.py` gained `--F_scale`** (multiplies the quadratic
+  drift only) and explicit blow-up accounting (`n_attempted`,
+  `n_blown`).  This is the discriminating experiment for the residual's
+  perturbative order: each channel scales as a known power of the
+  coupling amplitude, so `residual(s) = c₃s³ + c₅s⁵` and `c₃` is
+  directly comparable with the computed F³κ³ without assuming the
+  order-4 calculation is right.  See
+  `examples/paper_assets/demo2_kappa4/fscale_fit.py`.
+
+- **`tests/test_demo2_kernels.py` is new** — nothing in `tests/` pinned
+  a demo-2 number before.  `k3_R` and `k4_R` against quadrature of the
+  raw leg integral at coincident / FK-type / split / short / long
+  partner times, with tolerances taken from the measurements above; the
+  raw-κ³-vs-`already_R_contracted` boundary test the feature never had
+  on a NON-constant kernel (`test_R_contracted_vertex.py` only ever
+  compared them on a constant κ³, where the leg integral factorises and
+  any time-structure-dependent aliasing bug cancels); the
+  `already_R_contracted` contract's silent assumptions; one pinned FK
+  value and one pinned order-0 value; and the single-site cumulant
+  ladder against its generating function.
+
+- **The cumulant ladder is a truncation, and now says so.**
+  `κ_n = n! [u^n/(2n) + (λ/2)u^{n-2}]` with `u = 2αλ` reproduces demo2's
+  hand-derived κ², κ³ and κ⁴ exactly and continues: κ⁵ is **7.1 %** of
+  κ³ and κ⁶ is 2.6 %.  demo2's action stops at κ⁴, so the lowest κ⁵
+  channel (F³κ⁵) sits at the same perturbative order as F³κ³ and scales
+  the same way in the coupling amplitude.  It is therefore inside the
+  residual and inside the fitted `c₃`.  This was nowhere in the 0.3.0
+  budget.
+
+### Fixed: the `auto` C-quadrature choice was decided by a wall-clock race
+
+`PropagatorCache._gl_is_cheaper` timed one Gauss-Legendre call against
+one `dblquad` call and took the winner.  Both rules are verified
+converged by `select_gl_node_count` before it ran, so the race could
+never produce a wrong value — but it made the *choice* depend on machine
+load, and with it `Propagators.c_source` and the spline table.  Two runs
+of the same config on a busy and an idle machine could resolve
+differently, which is a poor property for a package that sells
+reproducibility; it also made
+`test_direct_calls_before_any_build_use_dblquad_under_auto` fail
+intermittently (observed failing in a full-suite run made while a
+28-core sweep was running, passing in isolation and on a quiet machine).
+
+The decision is now a function of the inputs alone: prefer
+Gauss-Legendre whenever a converged node count exists, fall back to
+`dblquad` only when none does.
+
+**Size of the change:** bounded by the agreement of the two rules at the
+node count actually resolved, since that is all the race ever chose
+between — GL vs dblquad at the deep corner: **9.1e-16** at `t_max = 3`
+(n = 20), **1.2e-10** at 15 (n = 20), **2.1e-09** at 50 (n = 30),
+**3.6e-09** at 100 (n = 45).  All inside the 1e-8 selection tolerance.
+No demo can be affected at all: they set `c_closed_form_only`, which
+short-circuits before this path.  Verified by running the previously
+flaky test five times under 24-way CPU load (5/5 pass) and by the 87
+tests of `test_propagator_dispatch.py`,
+`test_closed_form_dispatch_boundaries.py`,
+`test_c_propagator_gauss_legendre.py` and `test_deductive_numerics.py`.
+
+**And it is faster, not slower.**  Per `_C_value_direct` call at the
+deep corner on the demo1 kernel, comparing the two rules *at the node
+count `auto` resolves to* (best of 5, one core): 5.7 vs 7.1 ms at
+`t_max = 5` (n = 20), 5.7 vs 39.5 at 15, 12.5 vs 88.0 at 30 (n = 30),
+12.5 vs 144.4 at 50, 27.9 vs 209.2 at 100 (n = 45) — Gauss-Legendre
+wins by **1.3× to 11.6×**, because adaptive cost grows with the interval
+while a fixed-`n` tensor rule is flat and the required `n` grows only
+slowly.  The one regime the race ever chose `dblquad` for is a smooth
+kernel over a short horizon, where unconditional GL costs ~1.3×.  If
+that ever matters it should return as a *threshold on the converged n*,
+not a timing measurement.
+
+### Documented: unstable cache keys for callable spec fields
+
+`cache_path` keys the symbolic expansion and the propagator table on
+`repr()` of the spec, and `repr()` of a plain function embeds its memory
+address — so a callable passed to `CustomKernel`, `GeneralKappa2`,
+`CustomImpulse`, `ExplicitR` or `DiagonalA.gamma` changes the key every
+process and the cache never hits.  A module-level `def` is affected
+exactly as much as a `lambda`; what fixes it is a small frozen dataclass
+with `__call__`, whose `repr` is its field values (and which pickles
+cleanly for joblib besides).
+
+No behaviour change: an unstable `repr` can only cause a cache **miss**,
+never a wrong hit, so the current hashing is fail-safe and is left
+alone.  Keying on `(module, qualname)` would make it stable at the cost
+of introducing the one failure mode that does not exist today — two
+functions sharing a qualname colliding onto a *wrong* cached expansion —
+so it is documented rather than "fixed".  **Vertex couplings are
+unaffected**: they never enter the key, correctly, since the symbolic
+enumeration does not depend on coupling values.  Noted on
+`CustomKernel`.
+
+### Demo 1: the order-4 channel was resting on one QMC seed
+
+- At `(0,0), r = 0.5, t = 15`, order 4 across six Sobol seeds gives
+  3.93, 4.17, 1.93, 1.56, 4.07, 2.45e-5 — **39 % scatter**.  The
+  published value is the `seed = 42` draw, 3.93e-5; the converged
+  Gauss-Legendre value is **2.330e-5** (GL14 vs GL18 agree to 0.15 %),
+  so the figure's order-4 curve was **69 % high** there, and 74 % high
+  at `r = 0`.  Order 4 is 10.0 % of order 2 at t = 15, not the 17.3 %
+  the published draw implies.  The fixed-seed regression check could not
+  see any of this.
+
+- At `t = 100` **neither** method is converged: QMC scatters 134 % and
+  the tensor-product rule still moves 12 % between GL14 and GL18,
+  because the integrand lives within `~1/γ` and `~σ_t` of the upper
+  corner of a simplex of size `t_f`.  Both channels have saturated well
+  before then, which is what makes the late-time points usable at all.
+
+- **Order 2 was not converged either, at the largest times** — this was
+  not in the brief and is easy to miss, because order 2 is a 2-D
+  integrand and "2-D integrals are fine" is the natural assumption.  At
+  `t = 100, r = 2.5, (1,1)` the converged value is **3.10410e-05**
+  (GL64, GL96, GL128 and 2²² Sobol agree to 5 digits); the published
+  QMC 2¹⁵ seed-42 draw gives 3.72854e-05, **+20 %**, and scatters 13 %
+  across seeds.
+
+- **The sweep is now `gauss_legendre` with `n_gauss: 24`.**  The node
+  count matters and the obvious choice is wrong: order 4 costs `n⁴`, so
+  the temptation is to keep `n` small — but it is *order 2* that needs
+  the finer grid at large `t_f`, and `n = 14` gives it only 196 nodes.
+  Its order-2 error at `t = 100` is **cell-dependent and non-monotone**:
+  −14.8 % at `r = 2.5, (1,1)`, +11.9 % at `r = 0, (0,0)`, +3.1 % at
+  `r = 0.5, (0,0)`, −2.2 % at `r = 2.5, (0,0)` (each against GL64).  So
+  `n = 14` would have traded an order-4 error for an order-2 one of
+  either sign.  `n = 24` beats the QMC it
+  replaces on both orders at every grid point; worst-case residual
+  error **+1.3 % (order 2) and +2 % (order 4) at `t = 100`**, below
+  0.1 % by `t = 15`.  Cost ~15 min on 28 cores against ~2 min, paid
+  once, for a deterministic answer with a measurable error.
+
+- **Effect on the published curve**, measured over all 2016
+  `(y, t_final, a, b, order)` totals: summed over orders, the plotted
+  `xi_ab(r, t)` moves by at most **1.67 %** (median 7.8e-06).  Per
+  order: order 0 unchanged to machine precision (max rel 0.00 %),
+  order 2 up to 15.7 % (7.9e-05 absolute, at `t = 100`), order 4 up to
+  5.0e-05 absolute — the largest order-4 point,
+  `t = 23.7, r = 0, (0,0)`, goes from **8.996e-05 to 3.972e-05**.  Full
+  convergence tables in `examples/demo1/L2/INTEGRATION_ERROR.md`.
+
 ## 0.3.0 — 2026-09-02
 
 > **This is the version the CPC paper (arXiv:2606.19480, revised) refers

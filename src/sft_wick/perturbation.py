@@ -1209,6 +1209,93 @@ def _collect_symbol_spatial_args(expr: Expr) -> dict[str, tuple[str, ...]]:
     return out
 
 
+def check_distinct_external_labels(observable, order: int = 1) -> None:
+    """Refuse an observable whose external operators share a spatial
+    label, at interacting orders.
+
+    The spatial Wick engine (:func:`sft_wick.wick.wick_contract_spatial`)
+    enumerates topologies keyed by spatial LABEL and recovers the
+    operator-level count with a multiplicity
+    (:func:`sft_wick.wick._compute_multiplicity`), which excludes
+    observable points on the assumption that each carries exactly one
+    operator.  Two externals sharing a label break that assumption, and
+    the result is silently wrong -- by a factor 2 in the order-2 F
+    channel of demo2's system, and not at all in its FK channel, so the
+    error is not even uniform.
+
+    **Why this is a refusal and not a multiplicity fix.**  What the
+    collapse loses is not a factor but a SUM over the assignments of
+    external operators to legs, each carrying its own component-index
+    routing::
+
+        ("phi_a(x)", "phi_b(y)", "phi_c(z)")
+            -> K_abc + K_acb + K_bac + K_bca + K_cab + K_cba
+        ("phi_a(x)", "phi_b(x)", "phi_c(x)")
+            -> K_abc
+
+    Multiplying the survivor by ``3!`` reproduces the sum only for a
+    coupling symmetric under all six permutations.  Supporting the
+    spelling properly means keeping external operators distinguishable
+    through the label-keyed enumeration, so every routing is enumerated
+    rather than reconstructed from a count.
+
+    **Order 0 is exempt, and is checked rather than assumed.**  The
+    free-theory contraction keeps every routing even at coincident
+    labels -- ``<phi_a phi_b phi_c phi_d>`` gives
+    ``C_ab C_cd + C_ac C_bd + C_ad C_bc`` either way, and the scalar
+    ``<psi phi phi phi>`` gives ``3 R(x,x) C(x,x)`` against the
+    distinct-label ``R(x,w)C(y,z) + R(y,w)C(x,z) + R(z,w)C(x,y)``.  The
+    loss appears only once vertices are present, when the downstream
+    diagram-isomorphism pass merges topologies that the external
+    collapse has made isomorphic.  So order 0 -- which is what the
+    equal-point Itô tests use -- is left alone.
+
+    The refusal at ``order >= 1`` is deliberately conservative: some
+    channels there are unaffected (demo2's order-2 ``FK`` is exactly
+    right at coincident labels while its ``F`` channel is low by 2).
+    Refusing a case that happens to be correct costs a user one
+    rewrite; returning a silently wrong number costs a paper.
+
+    Coincident external POINTS are fully supported -- give them distinct
+    labels and equal positions, which is what every demo does.
+
+    Args:
+        observable: the external operators.
+        order: the highest perturbative order being computed.  Order 0
+            is exempt (see above).
+
+    Raises:
+        ValueError: if two or more external operators share a spatial
+            label and ``order >= 1``.
+    """
+    if order < 1:
+        return
+    seen: dict[str, int] = {}
+    for op in observable:
+        arg = getattr(op, "spatial_arg", None)
+        if arg is None:
+            continue
+        seen[arg] = seen.get(arg, 0) + 1
+    repeated = sorted(lab for lab, n in seen.items() if n > 1)
+    if not repeated:
+        return
+    lab = repeated[0]
+    raise ValueError(
+        f"{seen[lab]} external operators share the same spatial label "
+        f"{lab!r}"
+        + (f" (also: {', '.join(repr(x) for x in repeated[1:])})"
+           if len(repeated) > 1 else "")
+        + ".  This is not supported: the spatial contraction is keyed by "
+        "label, so operators sharing one are collapsed without their "
+        "distinct component-index routings, giving a silently wrong "
+        "answer.  Give each external operator a DISTINCT label and set "
+        "them to the same point through the `positions` argument of "
+        "Expansion.evaluate / sweep -- e.g. "
+        '("phi_a(x)", "phi_b(y)") with positions={"x": 0.0, "y": 0.0} '
+        'instead of ("phi_a(x)", "phi_b(x)").'
+    )
+
+
 def compute_moment(
     observable: list[FieldOperator],
     action: Action,
@@ -1287,6 +1374,7 @@ def compute_moment(
         A :class:`PerturbativeResult` containing order-by-order
         expressions, a combined total, and Feynman diagram information.
     """
+    check_distinct_external_labels(observable, order)
     # E_psi: response legs carried by the observable itself.  Fixes the
     # phase needed to rotate a diagram value onto the real axis.
     _n_ext_response = sum(1 for _op in observable if _op.field.is_response)
@@ -2201,8 +2289,36 @@ def _eval_symbolic_batched(
     if isinstance(expr, Symbol):
         arr = symbol_values_batched[expr.name]
         if not expr.indices:
-            # Scalar symbol -- just return as-is.
-            return arr
+            # No component index to address the array by.  Two cases
+            # produce this, and they need different handling:
+            #
+            # * a genuinely scalar symbol -- ``arr`` is already
+            #   ``(n_samples,)`` or a bare scalar;
+            # * a rank-m coupling in a SINGLE-COMPONENT system.  With
+            #   ``n_components = 1`` there is nothing to sum over, so
+            #   the simplifier elides the indices, but the coupling
+            #   array keeps its rank-m shape -- ``(1,) * m``, or
+            #   ``(n_samples,) + (1,) * m`` from a callable.  Those
+            #   trailing axes are length 1 by construction, so
+            #   reshaping away is exact.  :func:`_eval_symbolic` has
+            #   always tolerated this ("size-1 array in any shape");
+            #   the batched path used to return the array whole and
+            #   blow up in the caller's ``broadcast_to``.
+            a = np.asarray(arr)
+            if a.ndim == 0 or a.shape == (n_samples,):
+                return arr
+            if a.size == n_samples:
+                return a.reshape(n_samples)
+            if a.size == 1:
+                return a.reshape(())
+            raise ValueError(
+                f"coupling {expr.name!r} carries no component index in "
+                f"this term, so it must be a scalar per sample, but the "
+                f"supplied array has shape {a.shape} (n_samples="
+                f"{n_samples}).  A rank-m coupling reaches this branch "
+                f"only in a single-component system, where every "
+                f"component axis has length 1."
+            )
         # Resolve component indices to integers (literal '1' → 0 etc.)
         def _resolve(i: str) -> int:
             if i in index_map:

@@ -88,9 +88,46 @@ sweep:
 
   component_pairs: [[0, 0], [1, 1]]
   orders: [0, 2, 4]
-  method: qmc_vectorized
-  n_samples: 32768  # 2^15 — matches the notebook's ns=2**15
-  seed: 42
+
+  # Deterministic tensor-product Gauss-Legendre, NOT Sobol QMC.
+  #
+  # The order-4 channel (64 diagrams, a 4-D integrand on the causal
+  # simplex) is not converged by 32768 Sobol samples: across six
+  # scramblings it scatters 39-42 % at t = 15 and 135 % at t = 100, and
+  # the seed = 42 draw this config used to specify is 69-74 % ABOVE the
+  # converged value.  The estimator is biased, not merely noisy -- the
+  # integrand lives within ~1/gamma and ~sigma_t of the upper corner of
+  # a simplex of side t_f, so the fraction of samples carrying it falls
+  # as t_f grows -- so averaging seeds would not have fixed it, and a
+  # fixed-seed regression check could not see it.
+  #
+  # n_gauss = 24, not smaller.  ONE node count has to serve a 2-D
+  # (order 2) and a 4-D (order 4) integrand, and the two want opposite
+  # things: n^2 makes order 2 cheap and n^4 makes order 4 expensive, but
+  # it is order 2 that needs the finer grid at large t_f, because 196
+  # nodes (n = 14) over a simplex of side 100 cannot resolve a feature
+  # of width sigma_t = 0.3.  Measured at t = 100, r = 2.5, (1,1), where
+  # the converged value is 3.1041e-05 (GL64 and 2^22 Sobol agree):
+  #
+  #     n_gauss = 14   2.6436e-05   -15 %
+  #     n_gauss = 24   3.1445e-05   +1.3 %
+  #     n_gauss = 40   3.1047e-05   +0.02 %
+  #     QMC 2^15 s=42  3.7285e-05   +20 %   (what this config used to be)
+  #
+  # The order-2 error at n = 14 is cell-dependent and non-monotone
+  # (-14.8 % here, +11.9 % at r = 0 (0,0), +3.1 % at r = 0.5 (0,0)), so
+  # n = 14 would have traded an order-4 error for an order-2 one of
+  # either sign.  See INTEGRATION_ERROR.md for the full table.
+  # n = 24 is better than the QMC it replaces on BOTH orders everywhere
+  # on the grid; the residual errors are +1.3 % (order 2) and +2 %
+  # (order 4) at t = 100, falling to <0.1 % by t = 15, and both channels
+  # have saturated long before then.  Cost: ~15 min on 28 cores, against
+  # ~2 min for the QMC sweep -- the price of a deterministic answer with
+  # a measurable error instead of a 39 %-scatter lottery.
+  #
+  # See INTEGRATION_ERROR.md for the full convergence tables.
+  method: gauss_legendre
+  n_gauss: 24
 
   # Parallelism: this sweep has ~12 r × ~28 t × 2 component pairs
   # = 672 grid points, each with 1 + 4 + 43 = 48 diagrams. The

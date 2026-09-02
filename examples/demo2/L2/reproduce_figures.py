@@ -95,6 +95,45 @@ PAIRS = [(0, 0), (0, 1), (1, 1)]
 SIM_PAIR_IDX = {(0, 0): 0, (0, 1): 1, (1, 1): 2}
 
 
+def mc_error(sim: dict, pair: tuple[int, int], series: np.ndarray,
+             t_index: int | None = None) -> np.ndarray:
+    """Monte-Carlo standard error of a measured ``xi_ab`` series.
+
+    The error on a mean of per-realisation PRODUCTS
+    ``phi_a(0) phi_b(r)`` is ``sqrt(Var[phi_a phi_b] / n)``, NOT
+    ``sqrt(xi^2 / n)``.  The latter is what this module plotted until
+    2026-09; it understates the ``xi_01`` error by a factor of ~30,
+    because the product's variance is set by ``<phi_0^2><phi_1^2>``
+    (O(1e-2)^2 at late times) while ``xi_01`` itself is only O(4e-4).
+
+    ``sim_cache_a0.6.npz`` stores no sum of squares, so the variance is
+    reconstructed from the field's own second moments.  For a zero-mean
+    jointly Gaussian pair, Isserlis gives ``Var[XY] = <X^2><Y^2> +
+    <XY>^2``, and ``<phi_a(0)^2> = xi_aa(r=0)``, which the cache does
+    have.  The field is not exactly Gaussian, so this is an estimate.
+    Measured against the 2M-realisation runs of
+    ``paper_assets/demo2_kappa4/sim_dt_study.py``, which DO accumulate
+    sums of squares: this estimator is 0.87-1.00 of the measured SEM
+    over t in [0.6, 50] and r in {0, 0.5}, i.e. low by at most 13 %.
+    The ``sqrt(xi^2 / n)`` it replaces is 0.029 of the measured SEM for
+    ``xi_01`` (low by 34x) and 0.48-0.63 for ``xi_00`` (low by 1.6-2x).
+
+    Args:
+        series: the plotted ``xi_ab`` values.
+        t_index: ``None`` when ``series`` runs over time at one
+            separation; a time index when it runs over separation at
+            one time.
+    """
+    a, b = pair
+    xi = sim["xi"]
+    v_a = xi[SIM_PAIR_IDX[(a, a)], :, 0]        # <phi_a(0)^2>(t)
+    v_b = xi[SIM_PAIR_IDX[(b, b)], :, 0]        # <phi_b(0)^2>(t)
+    if t_index is not None:
+        v_a, v_b = v_a[t_index], v_b[t_index]
+    var_prod = v_a * v_b + np.asarray(series) ** 2
+    return np.sqrt(np.maximum(var_prod, 0.0) / sim["n_real"])
+
+
 # =====================================================================
 # Step 1: run the two L2 sweeps and unpack into pert[(a, b)] dicts.
 # =====================================================================
@@ -263,7 +302,7 @@ def figure_xi_vs_time(pert: dict, sim: dict, pert_t: np.ndarray,
         ax_bot = axes[1, col]
 
         sim_series = sim_xi[SIM_PAIR_IDX[(a, b)], :, sim_ir]
-        mc_err = np.sqrt(np.maximum(sim_series ** 2, 1e-30) / sim_n_real)
+        mc_err = mc_error(sim, (a, b), sim_series)
 
         curve0 = p["0"][:, ir]
         curve0FF = curve0 + p["FF"][:, ir]
@@ -335,7 +374,7 @@ def figure_xi_vs_r(pert: dict, sim: dict, pert_t: np.ndarray,
         for col, (it, pti) in enumerate(zip(t_idx, pert_t_idx)):
             ax = axes[row, col]
             sim_series = sim_xi[SIM_PAIR_IDX[(a, b)], it, :]
-            mc_err = np.sqrt(np.maximum(sim_series ** 2, 1e-30) / sim_n_real)
+            mc_err = mc_error(sim, (a, b), sim_series, t_index=it)
             curve0 = p["0"][pti, :]
             curve0FF = curve0 + p["FF"][pti, :]
             curve0FFFK = curve0FF + p["FK"][pti, :]

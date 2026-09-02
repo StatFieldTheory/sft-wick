@@ -2062,11 +2062,8 @@ class PropagatorCache:
             positions=self._probe_positions(),
         )
         if n is not None and not self._gl_is_cheaper(t_max, int(n)):
-            # Both rules are converged here; take the cheaper one.  On a
-            # smooth kernel over a short horizon adaptive dblquad needs
-            # only a few hundred evaluations (3.8 ms measured) and beats a
-            # 20-node tensor rule (5.6 ms); with a cusp or a long horizon
-            # the tensor rule wins by 5-30x.  One call of each decides.
+            # Reserved for a deterministic cost rule; see
+            # ``_gl_is_cheaper``, which no longer races the two.
             n = None
         if n is None:
             self._c_method_resolved, self._n_gauss_resolved = "dblquad", None
@@ -2076,22 +2073,54 @@ class PropagatorCache:
         return self._c_method_resolved, self._n_gauss_resolved
 
     def _gl_is_cheaper(self, t_max: float, n: int) -> bool:
-        """Time one deep cell under each rule (the corner is the costliest
-        cell for an adaptive rule); ``True`` when Gauss-Legendre wins."""
-        import time
+        """``True`` when Gauss-Legendre is the rule to use, given that
+        ``select_gl_node_count`` has already found ``n`` converged.
 
-        n1, n2 = self._probe_positions()
-        t = float(t_max)
-        try:
-            t0 = time.perf_counter()
-            _C_value_direct_gl(self.model, n1, t, n2, t, n_gauss=n)
-            t_gl = time.perf_counter() - t0
-            t0 = time.perf_counter()
-            self._C_value_direct(n1, t, n2, t, method="dblquad")
-            t_db = time.perf_counter() - t0
-        except Exception:
-            return True
-        return t_gl <= t_db
+        This used to time one deep cell under each rule and take the
+        winner.  Both rules are verified converged before it is called,
+        so the race could never produce a wrong value -- but it made the
+        CHOICE depend on machine load, and with it ``c_source`` and the
+        spline table.  Two runs of the same config on a busy and an idle
+        machine could resolve differently, which is a bad property for a
+        package that sells reproducibility, and it made
+        ``test_direct_calls_before_any_build_use_dblquad_under_auto``
+        fail intermittently under load.
+
+        Removing it costs nothing measurable.  Per ``_C_value_direct``
+        call at the deep corner, on the demo1 kernel, comparing the two
+        rules AT THE NODE COUNT ``auto`` RESOLVES TO (best of 5, M3
+        Ultra, one core):
+
+        ====== ========== ======== ========= ==========
+        t_max  resolved n  GL       dblquad   GL wins by
+        ====== ========== ======== ========= ==========
+             5         20   5.7 ms    7.1 ms      1.3x
+            15         20   5.7 ms   39.5 ms      6.9x
+            30         30  12.5 ms   88.0 ms      7.0x
+            50         30  12.5 ms  144.4 ms     11.6x
+           100         45  27.9 ms  209.2 ms      7.5x
+        ====== ========== ======== ========= ==========
+
+        Gauss-Legendre wins everywhere here, because adaptive cost grows
+        with the interval while a fixed-``n`` tensor rule is flat and the
+        required ``n`` grows only slowly.  The one regime the race ever
+        chose dblquad for is a smooth kernel over a short horizon, where
+        unconditional GL costs ~1.3x.
+
+        The decision is now a function of the inputs alone: prefer
+        Gauss-Legendre whenever a converged node count exists, and fall
+        back to dblquad only when none does -- which is what the caller
+        already does with ``n is None``.  If the short-horizon case ever
+        matters, bring it back as a THRESHOLD on the converged ``n``, not
+        as a timing measurement.
+
+        One trap if you re-derive the accuracy bound: compare the two
+        rules at the RESOLVED ``n``, not at a fixed ``n = 20``.  At
+        ``t_max = 50`` a fixed 20-node rule differs from dblquad by
+        1.7e-04, which looks alarming -- but ``auto`` resolves to
+        ``n = 30`` there, and at 30 the two agree to 2.1e-09.
+        """
+        return True
 
     def _resolve_build_method(self, c_method, n_gauss, t_max):
         """Per-build override → instance setting → ``'auto'`` resolution."""
@@ -3087,8 +3116,11 @@ class DynamicCouplingPromise:
         label_x: dict,
         n_samples: int,
     ) -> np.ndarray:
-        """Vectorised batch evaluator -- returns a ``(n_samples,)``
-        complex array of the contracted scalar coupling per sample.
+        """Vectorised batch evaluator -- returns the per-sample
+        coupling as a complex array of shape ``(n_samples,) +
+        prop_shape``, where ``prop_shape`` is the shape of the
+        diagram's surviving :attr:`DiagramTerm.propagator_indices`
+        (so ``(n_samples,)`` when the contraction is fully scalar).
 
         ``label_t`` and ``label_x`` map every spatial label appearing
         in any dynamic symbol's legs to a ``(n_samples,)`` time
@@ -3116,15 +3148,23 @@ class DynamicCouplingPromise:
         ``(n_samples,) + (N,)*order``. Otherwise we fall back to the
         ``n_samples`` per-sample calls of :meth:`evaluate_at`.
 
-        Either way, we still loop in Python over ``n_samples`` to
-        contract each sample's tensor down to a scalar via
-        :meth:`DiagramTerm.evaluate_coupling`. Vectorising the
-        contraction itself across a sample axis is the deferred
-        prop-indexed-dynamic refactor and is not done here.
+        Either way, the symbolic contraction itself runs once over
+        the whole sample axis via
+        :meth:`DiagramTerm.evaluate_coupling_batched`, falling back
+        to a per-sample :meth:`DiagramTerm.evaluate_coupling` loop
+        when the batched evaluator meets a node type it cannot
+        handle.
 
-        Raises ``NotImplementedError`` if any sample's contracted
-        coupling is not scalar (the prop-indexed case locked by
-        ``DC1`` in ``tests/test_dynamic_coupling.py``).
+        **Propagator-indexed output.**  When the contraction does not
+        collapse to a scalar -- a κ leg index survives onto a C
+        propagator, as in demo2's order-4 F³κ³ diagrams -- the
+        returned array keeps those axes.  Callers must then contract
+        it against the C-propagator product one index assignment at a
+        time, exactly as the static branch does; see
+        :meth:`DiagramIntegrand._dynamic_values`.  Before 0.3.1 this
+        case raised ``NotImplementedError``; the static-vs-dynamic
+        agreement that replaced it is locked by ``DC1`` in
+        ``tests/test_dynamic_coupling.py``.
         """
         # Pre-build (m, n_samples) leg arrays once per symbol, so the
         # per-sample loop only does scalar slicing.
@@ -3185,10 +3225,10 @@ class DynamicCouplingPromise:
                     )
                 per_sample_tensors[name] = stacked
 
-        # Probe shape on sample 0 for an early NotImplementedError on
-        # prop-indexed dynamic. Mirrors the per-sample loop in
-        # ``integrate_moment_qmc_vectorized`` -- callers rely on this
-        # raise to signal "use a static coupling tensor instead".
+        # Probe sample 0 to learn the contracted coupling's shape --
+        # ``()`` for a fully scalar contraction, or the diagram's
+        # surviving propagator-index shape.  It also seeds the
+        # per-sample fallback loop below.
         sample_cv0 = dict(self.static_values)
         for name, fn in self.dynamic_values.items():
             if name in per_sample_tensors:
@@ -3196,16 +3236,12 @@ class DynamicCouplingPromise:
             else:
                 n_arr, t_2d = per_symbol_legs[name]
                 sample_cv0[name] = np.asarray(fn(n_arr[:, 0], t_2d[:, 0]))
-        coup0 = self.diagram_term.evaluate_coupling(
-            sample_cv0, self.fixed_indices,
-        )
-        if coup0.ndim != 0:
-            raise NotImplementedError(
-                "Dynamic coupling with propagator-indexed "
-                "contraction is not yet supported.  Either "
-                "use a spacetime-constant coupling tensor, or "
-                "provide a fully contracted scalar callable."
+        coup0 = np.asarray(
+            self.diagram_term.evaluate_coupling(
+                sample_cv0, self.fixed_indices,
             )
+        )
+        out_shape = (n_samples,) + coup0.shape
 
         # ------------------------------------------------------------
         # Vectorised fast path (default).
@@ -3253,20 +3289,22 @@ class DynamicCouplingPromise:
                 fixed_indices=self.fixed_indices,
             )
             # ``evaluate_coupling_batched`` returns shape
-            # ``(n_samples,) + prop_shape``; for the dynamic path we
-            # already verified ``coup0.ndim == 0`` above so the
-            # output is ``(n_samples,)``.
-            if couplings.ndim != 1 or couplings.shape[0] != n_samples:
+            # ``(n_samples,) + prop_shape``.  Cross-check it against
+            # the shape the sample-0 probe produced: a mismatch means
+            # the batched evaluator disagreed with the scalar one, and
+            # the scalar loop below is the trustworthy route.
+            if couplings.shape != out_shape:
                 raise NotImplementedError(
-                    "evaluate_coupling_batched returned non-scalar "
-                    "per-sample output; falling back to scalar loop."
+                    "evaluate_coupling_batched returned shape "
+                    f"{couplings.shape}, expected {out_shape}; "
+                    "falling back to the per-sample loop."
                 )
             return np.ascontiguousarray(couplings).astype(complex, copy=False)
         except NotImplementedError:
             pass  # fall through to scalar per-sample loop below
 
-        couplings = np.empty(n_samples, dtype=complex)
-        couplings[0] = complex(coup0)
+        couplings = np.empty(out_shape, dtype=complex)
+        couplings[0] = coup0
         for s in range(1, n_samples):
             sample_cv = dict(self.static_values)
             for name, fn in self.dynamic_values.items():
@@ -3275,7 +3313,7 @@ class DynamicCouplingPromise:
                 else:
                     n_arr, t_2d = per_symbol_legs[name]
                     sample_cv[name] = np.asarray(fn(n_arr[:, s], t_2d[:, s]))
-            couplings[s] = complex(
+            couplings[s] = np.asarray(
                 self.diagram_term.evaluate_coupling(
                     sample_cv, self.fixed_indices,
                 )
@@ -3644,6 +3682,88 @@ class DiagramIntegrand:
                 return p
         return None
 
+    def _dynamic_values(
+        self,
+        couplings: np.ndarray,
+        c_batches: "list[tuple[np.ndarray, str | None, str | None]]",
+        r_product: np.ndarray,
+        jacobians: np.ndarray | None = None,
+        *,
+        where: str = "",
+    ) -> np.ndarray:
+        """Combine a per-sample dynamic coupling with the C-propagator
+        product -- the dynamic counterpart of the static branches in
+        the QMC / Gauss-Legendre integrators.
+
+        ``couplings`` comes from
+        :meth:`DynamicCouplingPromise.evaluate_at_batch` and is either
+
+        * ``(n_samples,)`` -- the contraction collapsed to a scalar, so
+          the C-propagator components are fixed by
+          :attr:`fixed_indices` alone and one C-product suffices; or
+        * ``(n_samples,) + prop_shape`` -- a κ leg index survived onto
+          a C propagator (demo2's order-4 F³κ³).  Then the C-product
+          depends on the index assignment, so we sum over
+          ``np.ndindex(prop_shape)`` and rebuild it per assignment,
+          mirroring the static prop-indexed branch exactly.
+
+        ``c_batches`` holds ``(C_batch, index_left, index_right)`` per
+        C propagator with the batched propagator lookup already done:
+        the lookup does not depend on the component assignment, so
+        hoisting it keeps the per-index loop to component selection.
+
+        Returns the ``(n_samples,)`` real integrand, multiplied by
+        ``jacobians`` when given.
+        """
+        n_samples = int(r_product.shape[0])
+        fi = self.fixed_indices
+
+        def _c_product(idx_map: dict[str, int]) -> np.ndarray:
+            cp = np.ones(n_samples)
+            for C_batch, il, ir in c_batches:
+                a = DiagramIntegrand._resolve_component(il, idx_map)
+                b = DiagramIntegrand._resolve_component(ir, idx_map)
+                cp = cp * _select_C_batch(C_batch, a, b)
+            return cp
+
+        couplings = np.asarray(couplings)
+        if couplings.ndim <= 1:
+            values = (
+                _real_batch_or_raise(couplings, self._e_psi, where=where)
+                * r_product
+                * _c_product(fi)
+            )
+        else:
+            prop_idx = self.diagram_term.propagator_indices
+            idx_names = [name for name, _ in prop_idx]
+            prop_shape = tuple(dim for _, dim in prop_idx)
+            if couplings.shape[1:] != prop_shape:
+                raise ValueError(
+                    f"dynamic coupling returned per-sample shape "
+                    f"{couplings.shape[1:]}, but this diagram's "
+                    f"propagator indices are {prop_idx} (shape "
+                    f"{prop_shape}).  A callable κ must return the "
+                    f"bare tensor over its OWN legs; the contraction "
+                    f"onto propagator indices is done here."
+                )
+            values = np.zeros(n_samples)
+            for pidx in np.ndindex(*prop_shape):
+                c_raw = couplings[(slice(None),) + pidx]
+                # Magnitude FIRST, as in the static branch: a slice
+                # that is float noise around zero carries an arbitrary
+                # complex phase, and projecting it before the
+                # negligibility test turns "skip this term" into a
+                # hard ValueError from _real_batch_or_raise.
+                if not np.any(np.abs(c_raw) >= 1e-20):
+                    continue
+                c_val = _real_batch_or_raise(c_raw, self._e_psi, where=where)
+                idx_map = {**fi, **dict(zip(idx_names, pidx))}
+                values = values + c_val * r_product * _c_product(idx_map)
+
+        if jacobians is not None:
+            values = values * jacobians
+        return values
+
     @staticmethod
     def _resolve_component(
         idx_name: str | None, idx_map: dict[str, int]
@@ -3751,19 +3871,10 @@ class DiagramIntegrand:
             x_r = group_x[spatial.direction_map[sp_r]]  # type: ignore[index]
             return cache.C_at_batch(t_l, t_r, x_l, x_r)
 
-        fi = self.fixed_indices
-        c_product = np.ones(n_samples)
-        for sp_l, sp_r, il, ir in spatial.c_propagators:
-            C_batch = _lookup_C(sp_l, sp_r, _times(sp_l), _times(sp_r))
-            a_i = (
-                DiagramIntegrand._resolve_component(il, fi)
-                if il is not None else None
-            )
-            b_i = (
-                DiagramIntegrand._resolve_component(ir, fi)
-                if ir is not None else None
-            )
-            c_product *= _select_C_batch(C_batch, a_i, b_i)
+        c_batches = [
+            (_lookup_C(sp_l, sp_r, _times(sp_l), _times(sp_r)), il, ir)
+            for sp_l, sp_r, il, ir in spatial.c_propagators
+        ]
 
         all_spatial_labels = set(spatial.direction_map.keys())
         label_t = {lab: _times(lab) for lab in all_spatial_labels}
@@ -3783,9 +3894,10 @@ class DiagramIntegrand:
             label_x=label_x,
             n_samples=n_samples,
         )
-        values = _real_batch_or_raise(
-            couplings, self._e_psi, where=' (dynamic coupling, qmc)',
-        ) * r_product * c_product
+        values = self._dynamic_values(
+            couplings, c_batches, r_product,
+            where=' (dynamic coupling, zero-dimensional)',
+        )
         return float(values[0])
 
     def make_scipy_integrand(
@@ -4403,20 +4515,14 @@ class DiagramIntegrand:
             _promise = self.dynamic_coupling
 
             # --- A: hoist C-propagator lookup out of per-sample loop. ---
-            c_product = np.ones(n_samples)
-            for sp_l, sp_r, il, ir in spatial.c_propagators:
-                t_l = _times(sp_l)
-                t_r = _times(sp_r)
-                C_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
-                a_i = (
-                    DiagramIntegrand._resolve_component(il, fi)
-                    if il is not None else None
-                )
-                b_i = (
-                    DiagramIntegrand._resolve_component(ir, fi)
-                    if ir is not None else None
-                )
-                c_product *= _select_C_batch(C_batch, a_i, b_i)
+            # The lookup does not depend on the component assignment,
+            # so it is done once here even when the coupling is
+            # prop-indexed and ``_dynamic_values`` must select
+            # components per index assignment.
+            c_batches = [
+                (_lookup_C(sp_l, sp_r, _times(sp_l), _times(sp_r)), il, ir)
+                for sp_l, sp_r, il, ir in spatial.c_propagators
+            ]
 
             # --- B: pre-build per-symbol-leg time / position arrays. ---
             label_t = {lab: _times(lab) for lab in all_spatial_labels}
@@ -4438,15 +4544,13 @@ class DiagramIntegrand:
                 label_x=label_x,
                 n_samples=n_samples,
             )
-            # ``couplings`` is a (n_samples,) complex/float array of
-            # the contracted scalar coupling at each sample. The
-            # NotImplementedError for prop-indexed dynamic is raised
-            # inside ``evaluate_at_batch``.
-            values = (
-                _real_batch_or_raise(
-                    couplings, self._e_psi,
-                    where=' (dynamic coupling, gauss-legendre)')
-                * r_product * c_product * jacobians
+            # ``couplings`` is (n_samples,) when the contraction is
+            # scalar, or (n_samples,) + prop_shape when a κ leg index
+            # survives onto a C propagator; ``_dynamic_values`` handles
+            # both and does the C-component selection.
+            values = self._dynamic_values(
+                couplings, c_batches, r_product, jacobians,
+                where=' (dynamic coupling, qmc)',
             )
 
         elif not prop_idx:
@@ -4722,20 +4826,10 @@ class DiagramIntegrand:
             all_spatial_labels = set(spatial.direction_map.keys())
             _promise = self.dynamic_coupling
 
-            c_product = np.ones(n_samples)
-            for sp_l, sp_r, il, ir in spatial.c_propagators:
-                t_l = _times(sp_l)
-                t_r = _times(sp_r)
-                C_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
-                a_i = (
-                    DiagramIntegrand._resolve_component(il, fi)
-                    if il is not None else None
-                )
-                b_i = (
-                    DiagramIntegrand._resolve_component(ir, fi)
-                    if ir is not None else None
-                )
-                c_product *= _select_C_batch(C_batch, a_i, b_i)
+            c_batches = [
+                (_lookup_C(sp_l, sp_r, _times(sp_l), _times(sp_r)), il, ir)
+                for sp_l, sp_r, il, ir in spatial.c_propagators
+            ]
 
             label_t = {lab: _times(lab) for lab in all_spatial_labels}
             if spatial_aware:
@@ -4754,9 +4848,10 @@ class DiagramIntegrand:
                 label_x=label_x,
                 n_samples=n_samples,
             )
-            values = (_real_batch_or_raise(
-                couplings, self._e_psi, where=' (dynamic coupling, nquad)')
-                      * r_product * c_product * jacobians)
+            values = self._dynamic_values(
+                couplings, c_batches, r_product, jacobians,
+                where=' (dynamic coupling, gauss-legendre)',
+            )
 
         elif not prop_idx:
             c_product = np.ones(n_samples)
