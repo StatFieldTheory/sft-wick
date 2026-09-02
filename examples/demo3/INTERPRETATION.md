@@ -94,7 +94,7 @@ coherent offset across a curve is *one* fluctuation, not one per point.
 | spatial discretisation | the drift has no spatial derivative, so sites couple only through the noise; a finite set of sites is an *exact* realisation |
 | interpolation in `r` | sites are placed exactly at the plotted separations (this is what biases demo 2's off-grid `r` by +0.5 %) |
 | time stepping (level A) | the linear response to an exponential pulse is analytic per event |
-| `C`-propagator quadrature | `κ²` is `SeparableTranslation` × `ExponentialTemporal`, so the built-in closed form applies (`c_source == "closed_form:builtin"`); no `dblquad`, no spline table, and the GL-vs-`dblquad` dispatch is never reached — which also means demo 3 is immune to the timing race in `_gl_is_cheaper` that can make `c_source` load-dependent for quadrature-path systems |
+| `C`-propagator quadrature | `κ²` is `SeparableTranslation` × `ExponentialTemporal`, so the built-in closed form applies (`c_source == "closed_form:builtin"`); no `dblquad`, no spline table, and the GL-vs-`dblquad` dispatch is never reached — so demo 3 was never exposed to the timing race in `_gl_is_cheaper` that could make `c_source` load-dependent, and that race is in any case removed on the merged branch (`889be5e`) |
 | leg-integral quadrature | the `m` leg integrals are done analytically (§1) |
 | contamination of level A by other cumulants | a `κ^(m′)` vertex with `m′ ≠ m` cannot balance the legs |
 
@@ -175,6 +175,11 @@ the fitted `s³` exponent as evidence that `κ³` alone is responsible.
 
 ### Known package defects and limitations (all pre-existing on `ac7f201`)
 
+Items 1 and 2 were found while building demo 3 and reported upstream; both
+are fixed on the `demo2-hardening` branch (`b737bf3`), so they will be
+resolved by the time demo 3 merges.  Demo 3's tests accept **either**
+behaviour, so nothing needs editing at the rebase.
+
 1. **Coincident external spatial labels.**  Repeating a label across
    external operators loses pairing multiplicity.  For the level-A
    3-point diagram, distinct labels give the coupling sum
@@ -182,10 +187,14 @@ the fitted `s³` exponent as evidence that `κ³` alone is responsible.
    `("phi_a(x)","phi_b(x)","phi_c(x)")` gives `K_abc` alone — exactly
    `1/6` here.  A blanket factor 6 would be *wrong* for a coupling that is
    not symmetric under all six index permutations, so the hardened branch
-   **refuses** the spelling rather than repairing it.  Demo 3 uses
-   distinct labels with equal positions throughout; no number is affected.
+   **refuses** the spelling rather than repairing it (`b737bf3`).  Demo 3
+   uses distinct labels with equal positions throughout; no number is
+   affected, and an audit confirms the only repeated-label observable in
+   the whole demo is the test that documents this.
 2. **`n_components = 1` with a callable coupling raises** in
-   `_sum_coupling_batched`.  Demo 3 uses `N = 2` throughout.
+   `_sum_coupling_batched`.  Demo 3 uses `N = 2` throughout (level B needs
+   it anyway).  Fixed in `b737bf3`; verified against the merged tree, where
+   the `N = 1` level-A 3-point function reproduces the closed form exactly.
 3. **`Expansion.sweep` is 2-point only** (`for (a, b) in
    component_pairs`), so level A cannot be driven from the L2 CLI even
    though `Expansion.evaluate` accepts a triple.  Both YAML configs are
