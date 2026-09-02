@@ -32,9 +32,50 @@ with cusps on ``v1 = 0``, ``v2 = 0`` and ``v1 = v2``.  Each of the four
 terms is integrated in coordinates that put ITS cusps on the axes
 (``(v1, v2)``, ``(v1 − v2, v2)``, ``(v1 − v2, v1)``; the small ``α³`` term
 keeps one unaligned cusp) with a composite Gauss-Legendre rule whose
-panels are graded towards the peak.  Accuracy ~1e-6 relative; validated
-against 3-D adaptive quadrature of the raw integral in
-``validate_k3_R.py``.
+panels are graded towards the peak.
+
+Accuracy.  Measured against cusp-aware 3-D adaptive quadrature of the
+raw leg integral (``tests/test_demo2_kernels.py``, which feeds each
+nested ``quad`` explicit break points at the outer legs' times, so the
+reference resolves the ``|u_i - u_j|`` kinks; its own error estimate is
+<= 1e-9 relative everywhere except the extreme-split corner below):
+
+===========================  ==========  =========================
+partner times (t1', t2', t3')  rel. error  note
+===========================  ==========  =========================
+(3, 1.5, 1.5), (1.5, 3, 1.5)    1.7e-06   the FK-type configuration
+(3, 1.5, 1.5) with spatial      5.1e-05
+(10, 4, 4)                      8.6e-05
+(5, 3, 1)                       1.4e-04   three distinct times
+(1, 1, 1)                       1.4e-04
+(15, 15, 15), (50, 50, 50)      1.4e-04
+(0.05, 0.03, 0.04)              5.4e-04
+(0.1, 0.1, 0.1)                 2.6e-03   worst; see below
+(20, 2, 0.2)                    1.3e-03   at the reference's own noise
+===========================  ==========  =========================
+
+So the honest figure is **1e-4 relative** over the range that carries
+the FK and F^3.kappa^3 integrands, NOT the ~1e-6 this docstring used to
+claim -- 1.7e-6 is what the FK-type configuration ``(t', s, s)`` gets,
+which is the only one the kernel was originally checked at.
+
+The 2.6e-3 at ``t' = 0.1`` is the composite grid's fixed panel edges
+(multiples of ``sigma_t``, independent of ``t'``) failing to align with
+the kink that ``_G_factor`` develops at ``|v| = t'`` when ``t'`` is
+smaller than the innermost panel.  It is harmless in use: there the
+kernel is ~100x below its plateau, so 2.6e-3 of it is 1.7e-08 absolute
+against an order-4 F^3.kappa^3 channel of 5.6e-05.
+
+Silent contract of ``already_R_contracted=True`` (this callable must
+enforce it; the runtime does not):
+
+* leg causality ``u_i <= t_i'`` -- here via ``u_hi = min(t3', t1' - v1,
+  t2' - v2)``;
+* ``t_min = 0`` -- here via ``u_lo = max(0, -v1, -v2)``.  A system with
+  ``t_min != 0`` needs this callable changed, not just the System spec;
+* all m legs are absorbed uniformly (no mixed raw/contracted legs);
+* the partner time of an EXTERNAL leg is ``t_f`` only because the
+  observable is evaluated with ``integrate_over=None``.
 """
 from __future__ import annotations
 

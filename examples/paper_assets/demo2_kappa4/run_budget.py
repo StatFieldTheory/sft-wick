@@ -25,12 +25,28 @@ of the simulations (the demo2 grid snapped to multiples of 0.02):
             R-contracted ``k4_R_contracted.py``; three pure-R^6 diagrams,
             2-D outer integral.  Identically zero for xi_01 (kappa^(4) is
             even under phi_1 -> -phi_1);
-* ``FFFF``  order 4 (64 diagrams), exact C_eff;
-* ``FFFK``  order 4, F^3 x kappa^(3) -- cannot go through the
-            dynamic-coupling path (a kappa^(3) index sits on a C
-            propagator), so it is estimated with kappa^(3) collapsed to an
-            equal-time constant, calibrated on FK at order 2 where the
-            exact answer is known.
+* ``FFFF``  order 4 (64 diagrams), exact C_eff, by tensor-product
+            Gauss-Legendre.  It used to be Sobol QMC at 32768 samples,
+            which scatters 46 % across seeds at t = 15 -- the same size
+            as the residuals the column is used to interpret;
+* ``FFFK``  order 4, F^3 x kappa^(3), EXACTLY, through the R-contracted
+            kernel and the propagator-indexed dynamic-coupling path
+            (sft-wick >= 0.3.1; before that the package raised
+            NotImplementedError here and this channel was *estimated*
+            by collapsing kappa^(3) to an equal-time constant and
+            calibrating on FK).  30 diagrams, 3-D outer integral.  The
+            old equal-time estimate is still computed, as ``fk_eq`` /
+            ``fffk_eq``, so the write-up can quote how far off it was.
+
+Off-grid separations
+--------------------
+The simulation measures on a spatial grid of pitch ``sigma_x / 5 = 0.2``
+and reports ``xi(r)`` at the requested ``r`` by ``np.interp``.  On a
+convex ``e^{-r}``-like profile that OVERESTIMATES at an off-grid ``r`` by
+a few tenths of a percent -- bigger than several rows of this budget.  So
+the theory is evaluated at the grid sites too, and any off-grid ``r`` is
+compared against the SAME linear combination of theory values that
+``np.interp`` forms from the simulation.  See ``interp_to`` below.
 
 Simulation: ``sim_dt_study.py`` at dt = 0.02 and 0.01, 20 seeds x 100k
 realisations each (2M per step size), measured at exactly the theory
@@ -71,9 +87,20 @@ LAM, SIGMA_T, SIGMA_X, GAMMA, ALPHA, N = 0.05, 0.3, 1.0, 1.0, 0.6, 2
 LAM_EFF = LAM * (1 + 2 * ALPHA ** 2 * LAM)
 T_MAX = 50.0
 PAIRS = [(0, 0), (0, 1), (1, 1)]
+# The simulation's own spatial grid (sim_dt_study.simulate): pitch
+# sigma_x / 5, running past the largest requested separation.
+DX_SIM = SIGMA_X / 5.0
+# r values the sub-grid channels (FFFF, FFFK, FFK4) are computed on.
+# 0.4 and 0.6 are grid sites; 0.5 is the off-grid value the paper quotes
+# and is reconstructed from them with np.interp's own weights.
+R_SUB = [0.0, 0.4, 0.5, 0.6]
 CACHE = HERE / "cache2"
 CACHE.mkdir(exist_ok=True)
-N_JOBS = -1
+import os as _os  # noqa: E402
+# Parallelism for the L1 sweeps.  Overridable so the budget can be
+# re-run while the (28-core-hungry) F-scaling simulations are still
+# going: SFT_WICK_BUDGET_JOBS=6 python run_budget.py
+N_JOBS = int(_os.environ.get("SFT_WICK_BUDGET_JOBS", "-1"))
 
 F = np.zeros((N, N, N))
 F[0, 1, 1] = 1.0
@@ -132,6 +159,41 @@ def sweep_rows(system, props, orders, vertex_types, r_list, t_list, pairs,
     return out
 
 
+def sim_x_grid(r_max):
+    """The simulation's spatial grid -- must match
+    ``sim_dt_study.simulate`` exactly."""
+    n_sites = int(np.ceil(r_max / DX_SIM)) + 1
+    return np.arange(n_sites) * DX_SIM
+
+
+def interp_to(r_targets, r_theory, values):
+    """Reproduce the simulation's ``np.interp`` on the THEORY curve.
+
+    ``values`` is ``(n_t, len(r_theory))``.  For an ``r`` that is a
+    simulation grid site this is the identity; for an off-grid ``r`` it
+    forms the same two-point linear combination the simulation formed,
+    so the comparison is exact rather than biased by the convexity of
+    the profile.
+    """
+    r_theory = np.asarray(r_theory, float)
+    out = np.full((values.shape[0], len(r_targets)), np.nan)
+    for j, r in enumerate(r_targets):
+        x = sim_x_grid(max(r, float(r_theory.max())))
+        lo = np.searchsorted(x, r, side="right") - 1
+        lo = int(np.clip(lo, 0, len(x) - 2))
+        hi = lo + 1
+        w = (r - x[lo]) / (x[hi] - x[lo])
+        i_lo = int(np.argmin(np.abs(r_theory - x[lo])))
+        i_hi = int(np.argmin(np.abs(r_theory - x[hi])))
+        if abs(r_theory[i_lo] - x[lo]) > 1e-9 or abs(r_theory[i_hi] - x[hi]) > 1e-9:
+            raise ValueError(
+                f"theory grid {r_theory} lacks the sites {x[lo]}, {x[hi]} "
+                f"needed to reproduce the simulation's interpolation at r={r}"
+            )
+        out[:, j] = (1 - w) * values[:, i_lo] + w * values[:, i_hi]
+    return out
+
+
 def cached(name, fn):
     path = CACHE / f"{name}.pkl"
     if path.exists():
@@ -165,8 +227,12 @@ def main():
     sims = {dt: load_sims(dt) for dt in ("0.02", "0.01")}
     t_list = [float(t) for t in T_MEASURE]
     assert np.allclose(sims["0.02"]["t"], t_list) and np.allclose(sims["0.01"]["t"], t_list)
-    r_list = [float(r) for r in sim200["r"]]
-    r_sub = [0.0, 0.5]
+    # Theory r grid = every r the simulation reports, PLUS every
+    # simulation grid site, so an off-grid r can be compared against the
+    # same linear combination the simulation formed (see ``interp_to``).
+    r_req = [float(r) for r in sim200["r"]]
+    r_list = sorted(set(r_req) | {float(x) for x in sim_x_grid(max(r_req))})
+    r_sub = list(R_SUB)
     t_check = [1.0, 3.48, 15.0]
 
     sys_eff = make_system(LAM_EFF)
@@ -199,9 +265,44 @@ def main():
     ffk4_rc16 = cached("ffk4_rc16", lambda: sweep_rows(
         sys_k4R, props_for(sys_k4R, False), [3], ["FK4"], [0.0], t_check, [(0, 0)],
         "gauss_legendre", n_gauss=16, label="FFK4 R-contracted GL16 (check)"))
+    # FFFF: Gauss-Legendre, not QMC.  The integrand is 4-D and smooth,
+    # so a tensor-product rule converges exponentially, and it is
+    # DETERMINISTIC: the 32768-sample Sobol rule this used to use gives
+    # 7.47 / 3.22 / 2.80 / 5.05e-5 for FFFF_00(t=15, r=0) across four
+    # seeds -- 46 % scatter on a mean of 4.6e-5, the same size as the
+    # residuals the column is used to interpret.  ``ffff14`` is the
+    # convergence check whose difference is quoted as the column's error.
     ffff = cached("ffff", lambda: sweep_rows(
         sys_bare, props_for(sys_bare, True), [4], None, r_sub, t_list, PAIRS,
-        "qmc_vectorized", label="FFFF exact C_eff"))
+        "gauss_legendre", n_gauss=10, label="FFFF exact C_eff GL10"))
+    ffff14 = cached("ffff14", lambda: sweep_rows(
+        sys_bare, props_for(sys_bare, True), [4], None, r_sub, t_list, PAIRS,
+        "gauss_legendre", n_gauss=14, label="FFFF exact C_eff GL14 (check)"))
+    ffff_qmc = cached("ffff_qmc", lambda: sweep_rows(
+        sys_bare, props_for(sys_bare, True), [4], None, r_sub, t_list, PAIRS,
+        "qmc_vectorized", label="FFFF exact C_eff QMC32768 (superseded)"))
+    # FFFK: the order-4 F^3.kappa^3 channel, EXACTLY.  Needs the
+    # propagator-indexed dynamic-coupling path (sft-wick >= 0.3.1) and
+    # the R-contracted kernel, which drops the effective time dimension
+    # from 6 to 3.  Computed for all three pairs rather than for xi_01
+    # alone: xi_00 and xi_11 are expected to vanish by the phi_1 -> -phi_1
+    # parity that kills every odd cumulant there, and an expectation is
+    # worth two minutes of confirmation when it is load-bearing.
+    fffk_rc = cached("fffk_rc", lambda: sweep_rows(
+        sys_k3R, props_for(sys_k3R, False), [4], ["FK"], r_sub, t_list, PAIRS,
+        "gauss_legendre", n_gauss=10, label="FFFK R-contracted GL10"))
+    fffk_rc8 = cached("fffk_rc8", lambda: sweep_rows(
+        sys_k3R, props_for(sys_k3R, False), [4], ["FK"], r_sub, t_list, PAIRS,
+        "gauss_legendre", n_gauss=8, label="FFFK R-contracted GL8 (check)"))
+    # The 3-D rule loses the peak at large t_f for the same geometric
+    # reason the 4-D FFFF rule does: the integrand lives within ~1/gamma
+    # and ~sigma_t of the upper corner of a simplex of side t_f.  GL8 vs
+    # GL10 is 0.1 % to t = 5.4 and 2.7 % at t = 15, but 37 % at t = 50.
+    # GL14 on the late times says which of the two (if either) is right.
+    t_late = [tv for tv in t_list if tv >= 8.0]
+    fffk_rc14 = cached("fffk_rc14", lambda: sweep_rows(
+        sys_k3R, props_for(sys_k3R, False), [4], ["FK"], r_sub, t_late, [(0, 1)],
+        "gauss_legendre", n_gauss=14, label="FFFK R-contracted GL14 (late t)"))
     fk_eq = cached("fk_eq", lambda: sweep_rows(
         sys_k3eq, props_for(sys_k3eq, False), [2], ["FK"], [0.0], t_check, [(0, 1)],
         "qmc_vectorized", label="FK equal-time-constant (calibration)"))
@@ -219,7 +320,15 @@ def main():
             g[ti, ri] = row.value
         return g
 
-    out = {"t": np.array(t_list), "r": np.array(r_list), "r_sub": np.array(r_sub),
+    # ``r``      -- the THEORY grid (every requested r plus every
+    #               simulation grid site);
+    # ``r_sim``   -- the r values the simulation reports (what the
+    #               sim_* arrays are indexed by);
+    # ``r_sub``   -- the r values the expensive sub-grid channels
+    #               (FFFF, FFFK, FFK4) were computed on.
+    out = {"t": np.array(t_list), "r": np.array(r_list),
+           "r_sim": np.array(r_req), "r_sub": np.array(r_sub),
+           "x_grid_sim": sim_x_grid(max(r_req)),
            "t_check": np.array(t_check)}
     for pair in PAIRS:
         key = f"{pair[0]}{pair[1]}"
@@ -235,6 +344,14 @@ def main():
     out["ffk4_16_00"] = grid(ffk4_rc16, "FK4", 3, (0, 0), [0.0], t_check)
     out["fk_eq_01"] = grid(fk_eq, "FK", 2, (0, 1), [0.0], t_check)
     out["fffk_eq_01"] = grid(fffk_eq, "FK", 4, (0, 1), [0.0], t_check)
+    out["t_late"] = np.array(t_late)
+    out["fffk14_01"] = grid(fffk_rc14, "FK", 4, (0, 1), r_sub, t_late)
+    for pair in PAIRS:
+        key = f"{pair[0]}{pair[1]}"
+        out[f"fffk_{key}"] = grid(fffk_rc, "FK", 4, pair, r_sub, t_list)
+        out[f"fffk8_{key}"] = grid(fffk_rc8, "FK", 4, pair, r_sub, t_list)
+        out[f"ffff14_{key}"] = grid(ffff14, "F", 4, pair, r_sub, t_list)
+        out[f"ffff_qmc_{key}"] = grid(ffff_qmc, "F", 4, pair, r_sub, t_list)
 
     out["sim200_t"] = sim200["t"]
     out["sim200_xi"] = sim200["xi"]
@@ -254,8 +371,12 @@ def main():
                 seconds={name: float(df.seconds.iloc[0]) for name, df in [
                     ("ff_exact", ff_exact), ("ff_lameff", ff_lameff), ("fk_rc", fk_rc),
                     ("fk_rc64", fk_rc64), ("fk_raw8", fk_raw8), ("ffk4_rc", ffk4_rc),
-                    ("ffk4_rc16", ffk4_rc16), ("ffff", ffff), ("fk_eq", fk_eq),
-                    ("fffk_eq", fffk_eq)]})
+                    ("ffk4_rc16", ffk4_rc16), ("ffff", ffff),
+                    ("ffff14", ffff14), ("ffff_qmc", ffff_qmc),
+                    ("fffk_rc", fffk_rc), ("fffk_rc8", fffk_rc8),
+                    ("fffk_rc14", fffk_rc14),
+                    ("fk_eq", fk_eq), ("fffk_eq", fffk_eq)]},
+                dx_sim=DX_SIM, r_sub=R_SUB)
     (HERE / "budget_meta.json").write_text(json.dumps(meta, indent=2))
     print(json.dumps(meta, indent=2))
 
