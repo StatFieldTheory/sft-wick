@@ -13,9 +13,35 @@ integrated in the coordinates ``(v_a − v_b, v_b − v_c, v_c − v_d)`` -- a
 unimodular change of variables that puts all three of its cusps on the
 coordinate planes -- with a graded composite Gauss-Legendre rule; a
 cycle term keeps its fourth cusp unaligned (the cycle terms are
-``α² λ = 1.8 %`` of the amplitude).  Accuracy ~1e-3 relative (validated
-against QMC in ``validate_k4_R.py``), ample for a channel whose size is
-below the Monte-Carlo error of the simulation it is compared with.
+``α² λ = 1.8 %`` of the amplitude).
+
+Accuracy.  Measured against randomised-Sobol QMC of the raw 4-leg
+integral (8 scramblings x 2^22 points, so the reference carries its own
+error; ``tests/test_demo2_kernels.py`` re-runs a cheaper version):
+
+=========================  ==========  ===========  ====================
+partner times              rel. diff   QMC ref err  note
+=========================  ==========  ===========  ====================
+(1, 1, 1, 1)                 2.6e-04      7.2e-07
+(3, 1.5, 1.5, 1.5)           7.8e-04      6.8e-06   the FFK4-type config
+(10, 4, 4, 4)                1.3e-03      4.2e-04
+(2, 2, 0.5, 0.5)             1.9e-03      6.4e-07
+(15, 15, 15, 15)             2.2e-03      4.6e-02   ref is 0.0 sigma away
+(0.2, 0.2, 0.2, 0.2)         9.9e-03      5.0e-09   worst
+(50, 50, 50, 50)                 --      8.0e-01   NOT TESTABLE by QMC
+=========================  ==========  ===========  ====================
+
+So ~1e-3 is right over the range that carries the FFK4 integrand, with
+the same very-short-time corner as ``k3_R_coupling`` (fixed panel edges
+that do not align with the kink at ``|v| = t'``) reaching 1e-2 at
+``t' = 0.2``.  At ``t' = 50`` a Sobol rule on the ``50^4`` box has 80 %
+seed scatter -- the integrand lives in a ``sigma_t``-sized corner -- so
+that row says nothing about the kernel; what CAN be checked there is
+that ``K_R`` has saturated (identical at t' = 15 and t' = 50, as it must
+once R has decayed over the kernel's width), and it has.
+
+All of this is ample for a channel whose size is below the Monte-Carlo
+error of the simulation it is compared with.
 """
 from __future__ import annotations
 
