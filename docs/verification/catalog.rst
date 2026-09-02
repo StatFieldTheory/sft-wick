@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **803 tests** in 36 files (parametrised
+The suite has **1019 tests** in 38 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -88,7 +88,7 @@ Multiplicities and canonical forms
 Propagator numerics
 -------------------
 
-*106 tests in 9 files.*
+*307 tests in 10 files.*
 
 .. list-table::
    :header-rows: 1
@@ -119,6 +119,11 @@ Propagator numerics
      - closed-form OU C; domain-split dblquad at 1e-12; alternative backends
      - 1e-8 (quadrature) / 1e-2 (spline, QMC)
      - 46
+   * - ``test_demo3_shot_noise.py``
+     - demo 3 filtered-Poisson cumulants, the R-contracted kernel K_R, and the t_tilde branch dispatch
+     - Campbell's theorem vs Monte Carlo of the event process; m-dimensional quadrature of the raw leg integral; the package's own ClosedFormC; 60-digit mpmath at the branch boundary
+     - exact / 1e-10
+     - 201
    * - ``test_diag_C_offdiagonal.py``
      - off-diagonal C entries with diag_C=false
      - closed-form cross-correlation
@@ -213,7 +218,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*48 tests in 3 files.*
+*63 tests in 4 files.*
 
 .. list-table::
    :header-rows: 1
@@ -229,6 +234,11 @@ Workflow and YAML
      - tools/gen_test_catalog.py
      - exact
      - 1
+   * - ``test_demo3_levels.py``
+     - demo 3 level A: the free-field m-point function through the package, and the R-contracted vertex against the raw one
+     - closed form (level A is a single diagram, hence exact); QMC on the raw-vertex path
+     - exact / 2e-4
+     - 15
    * - ``test_workflow.py``
      - System / Expansion / Propagators / SweepResult surface; end-to-end vs the raw API; two-time sweeps
      - raw L0 pipeline (validate_phase5); closed forms
