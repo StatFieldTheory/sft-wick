@@ -379,6 +379,70 @@ enumeration does not depend on coupling values.  Noted on
   `t = 23.7, r = 0, (0,0)`, goes from **8.996e-05 to 3.972e-05**.  Full
   convergence tables in `examples/demo1/L2/INTEGRATION_ERROR.md`.
 
+### Demo 3 (filtered Poisson noise): a non-Gaussian example that is exact at F = 0
+
+`examples/demo3/` adds a third worked example whose driving field is a
+**filtered Poisson (shot) process**, `η = Σ_k h w(x−x_k) g(t−s_k)`.
+Campbell's theorem gives every cumulant in closed form, which buys three
+things demo 2 cannot offer.
+
+**One knob.**  With `n ≡ ν σ_t σ_x` the shape of the one-point law depends
+on `n` alone — skewness `(4√2/9)/√n`, excess kurtosis `1/(2n)` — and `h`
+is fixed to hold `κ₂ = n h²/2` constant.  A sweep in `n` therefore moves
+the non-Gaussian channels and *nothing else*; the observed ratio between
+`n = 0.25` and `n = 4` is 4.0000 against 4.0000 predicted.
+
+**An R-contracted vertex that is closed form, at any m.**  Every cumulant
+factors through a single source point, so the `m` leg integrals of
+`NonLocalVertex(already_R_contracted=True)` collapse to one
+one-dimensional integral over the source time with a `2^m` closed form.
+Demo 2's κ³ needs a cusp-aligned composite rule accurate to ~1e-6; this is
+exact, and being *m*-agnostic it makes the neglected-cumulant ladder
+computable rather than merely boundable.
+
+**A level-A test that is exact.**  With `F = 0` the series terminates: the
+`m`-point connected function is a single diagram equal to `K_R`, and no
+`κ^(m′)` with `m′ ≠ m` can balance the legs, so nothing else can mix in.
+The package reproduces the closed form to **1.4e-16** at `m = 3` and
+**4.9e-16** at `m = 4`, coincident and at unequal positions.  The
+reference simulation has **no discretisation error of any kind** — the
+drift carries no spatial derivative, so a finite set of sites is exact and
+sites sit exactly at the plotted separations; and the linear response to
+an exponential pulse is analytic per event, so there is no time stepping.
+The only approximation is the event window, bounded analytically at
+7.6e-11.  All pulls are ≤ 0.64σ over 1.2e6 realisations.
+
+**Level B computes the truncation instead of estimating it.**  `ξ₀₁` is
+driven by the odd cumulants alone (order 0, FF, FFFF and the whole κ⁴
+channel cancel identically under `φ₁ → −φ₁`), and all three leading
+channels are evaluated: `Fκ³` (order 2), `F³κ³` (order 4, 30 diagrams) and
+`F³κ⁵` (order 4, 6 diagrams — the cumulant-ladder term, which carries the
+same `F³` scaling and so *cannot* be separated by an amplitude-scaling
+test).  At `s = 0.2` they are 92.6 %, 7.3 % and 0.094 % of the total at
+`t = 3`, leaving a geometric `O(F⁵)` remainder of 0.63 %.  Against an
+exponential-time-differencing simulation over 6 seeds, every time agrees
+within **0.90σ**; a paired Δt study at identical events gives `O(Δt²)`
+convergence ratios of 4.0–5.1 with a residual 0.01× the Monte-Carlo error;
+and no trajectory of 7.3e6 diverged.
+
+The full validation ledger, error budget and the list of what is *not*
+established are in `examples/demo3/INTERPRETATION.md`.  Two L2 configs
+(`config_FK.yaml`, `config_F3K.yaml`) drive the same physics through the
+CLI.  Locked by `tests/test_demo3_shot_noise.py` (the cumulants and the
+`T̃_m` branch dispatch, against Monte Carlo of the event process,
+`m`-dimensional quadrature of the raw leg integral, the package's own
+`ClosedFormC`, and 60-digit `mpmath`) and `tests/test_demo3_levels.py`
+(level A through the package).
+
+Three limitations were found and are documented rather than worked around:
+`Expansion.sweep` unpacks `component_pairs` as exactly two, so level A
+cannot be driven from the L2 CLI; `to_feynman_diagram` hits a UID
+collision on the 3-point / order-1 / single-non-local-vertex expansion, so
+that diagram cannot be *drawn* (its numbers are exact); and
+`config.py::_build_kernel(axis="space")` accepts only `exponential` and
+`gaussian`, so demo 3's `σ_x(1+r/σ_x)e^{−r/σ_x}` envelope cannot be
+declared as a `SeparableTranslation` in YAML.
+
 ## 0.3.0 — 2026-09-02
 
 > **This is the version the CPC paper (arXiv:2606.19480, revised) refers

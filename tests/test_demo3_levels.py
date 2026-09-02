@@ -88,7 +88,7 @@ def test_level_a_three_point_is_exact(props, exp3, t_final, pos):
         method="gauss_legendre", n_gauss=20)
     exact = float(sn.K_R(np.array(pos, float)[:, None],
                          np.full((3, 1), t_final), P)[0])
-    assert result.total == pytest.approx(exact, rel=1e-13)
+    assert result.total == pytest.approx(exact, rel=1e-13, abs=0.0)
 
 
 @pytest.mark.parametrize("t_final", [1.0, 3.0])
@@ -99,11 +99,19 @@ def test_level_a_connected_four_point_is_exact(props, exp4, t_final):
         component_pair=(0, 0, 0, 0), orders=[1],
         method="gauss_legendre", n_gauss=20)
     exact = float(sn.K_R(np.zeros((4, 1)), np.full((4, 1), t_final), P)[0])
-    assert result.total == pytest.approx(exact, rel=1e-13)
+    assert result.total == pytest.approx(exact, rel=1e-13, abs=0.0)
 
 
 def test_level_a_cross_component_vanishes(props, exp3):
-    """``κ_m ∝ δ_{a_1…a_m}``: a mixed component triple must give exactly 0."""
+    """``κ_m ∝ δ_{a_1…a_m}``: a mixed component triple must give exactly 0.
+
+    Deliberately an exact comparison, not ``approx``.  The zero is
+    *structural*, not a cancellation: the coupling tensor is built with
+    ``np.zeros`` and only its diagonal assigned, so every product chain
+    contributing to a mixed triple contains an exact ``0.0`` and the sum
+    is exactly ``±0.0`` on any IEEE platform.  Loosening this to a
+    tolerance would hide a genuine failure of the delta structure.
+    """
     result = exp3.evaluate(
         props, positions={"x": 0.0, "y": 0.0, "z": 0.0}, t_final=1.5,
         component_pair=(0, 0, 1), orders=[1],
@@ -129,7 +137,7 @@ def test_r_contracted_agrees_with_the_raw_vertex(props):
         component_pair=(0, 0, 0), orders=[1],
         method="qmc_vectorized", n_samples=2 ** 18, seed=7)
     exact = float(sn.K_R(np.zeros((3, 1)), np.full((3, 1), 1.5), P)[0])
-    assert got.total == pytest.approx(exact, rel=2e-4)
+    assert got.total == pytest.approx(exact, rel=2e-4, abs=0.0)
 
 
 def test_r_contracted_diagram_has_no_time_integrals(exp3):
@@ -174,7 +182,7 @@ def test_coincident_spatial_labels_are_not_usable(props):
             method="gauss_legendre", n_gauss=20)
     except ValueError:
         return                      # hardened branch: the spelling is refused
-    assert repeated.total == pytest.approx(distinct.total / 6.0, rel=1e-12), (
+    assert repeated.total == pytest.approx(distinct.total / 6.0, rel=1e-12, abs=0.0), (
         "expected either a refusal or the known factor-6 collapse")
 
 
@@ -187,7 +195,7 @@ def test_distinct_label_spelling_is_the_correct_one(props, exp3):
         component_pair=(0, 0, 0), orders=[1],
         method="gauss_legendre", n_gauss=20)
     exact = float(sn.K_R(np.zeros((3, 1)), np.full((3, 1), 1.5), P)[0])
-    assert result.total == pytest.approx(exact, rel=1e-13)
+    assert result.total == pytest.approx(exact, rel=1e-13, abs=0.0)
 
 
 def test_single_component_with_callable_coupling(props):
@@ -217,7 +225,7 @@ def test_single_component_with_callable_coupling(props):
         assert "axis remapping" in str(exc) or "more dimensions" in str(exc)
         return                      # base commit: the documented defect
     exact = float(sn.K_R(np.zeros((3, 1)), np.full((3, 1), 1.0), p1)[0])
-    assert result.total == pytest.approx(exact, rel=1e-13)
+    assert result.total == pytest.approx(exact, rel=1e-13, abs=0.0)
 
 
 # =====================================================================
@@ -247,7 +255,7 @@ def test_control_variate_weights_batches_by_size():
 
     pooled = np.concatenate([big, small]).mean()
     est, err, _ = sb.control_variate_estimate(m_xy, m_z, m_xz, m_zz, sizes)
-    assert float(est[0]) == pytest.approx(pooled, rel=1e-12)
+    assert float(est[0]) == pytest.approx(pooled, rel=1e-12, abs=0.0)
 
     unweighted, _, _ = sb.control_variate_estimate(m_xy, m_z, m_xz, m_zz)
     assert abs(float(unweighted[0]) - pooled) > 1.0, (

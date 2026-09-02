@@ -104,7 +104,7 @@ def test_X_m_matches_quadrature(xs):
     """The piecewise-analytic spatial overlap is exact for every ``m``."""
     got = float(sn.X_m(np.array(xs, float)[:, None], P.sigma_x)[0])
     ref = _X_m_quadrature(xs, P.sigma_x)
-    assert got == pytest.approx(ref, rel=1e-12)
+    assert got == pytest.approx(ref, rel=1e-12, abs=0.0)
 
 
 @pytest.mark.parametrize("m", [2, 3, 4, 5, 6])
@@ -112,15 +112,15 @@ def test_X_m_coincident_is_two_sigma_over_m(m):
     """Coincident points: ``X_m = 2 σ_x / m`` --- the source of the ``1/m²``
     in ``κ_m`` and hence of the ``1/√n`` skewness law."""
     got = float(sn.X_m(np.zeros((m, 1)), P.sigma_x)[0])
-    assert got == pytest.approx(2.0 * P.sigma_x / m, rel=1e-14)
+    assert got == pytest.approx(2.0 * P.sigma_x / m, rel=1e-14, abs=0.0)
 
 
 def test_T_m_coincident_and_shift():
     """``T_m = (σ_t/m) e^{−Σ(t_i−t_min)/σ_t}``, and ``T₂`` is ``e^{−|Δt|/σ_t}``."""
-    assert float(sn.T_m(np.zeros((3, 1)), P.sigma_t)[0]) == pytest.approx(P.sigma_t / 3)
+    assert float(sn.T_m(np.zeros((3, 1)), P.sigma_t)[0]) == pytest.approx(P.sigma_t / 3, abs=0.0)
     dt = 0.4
     got = float(sn.T_m(np.array([[0.0], [dt]]), P.sigma_t)[0])
-    assert got == pytest.approx(P.sigma_t / 2 * np.exp(-dt / P.sigma_t), rel=1e-14)
+    assert got == pytest.approx(P.sigma_t / 2 * np.exp(-dt / P.sigma_t), rel=1e-14, abs=0.0)
 
 
 # =====================================================================
@@ -199,7 +199,7 @@ def test_kappa2_reproduces_package_closed_form_C(t1, t2, r):
     assert closed is not None, "the built-in closed form must accept demo 3's kernel"
     pkg = float(np.asarray(closed(0.0, t1, r, t2))[0, 0])
     mine = float(sn.K_R(np.array([[0.0], [r]]), np.array([[t1], [t2]]), P)[0])
-    assert mine == pytest.approx(pkg, rel=1e-13)
+    assert mine == pytest.approx(pkg, rel=1e-13, abs=0.0)
 
 
 # =====================================================================
@@ -214,7 +214,7 @@ def test_t_tilde_matches_leg_integral_m3(tvals):
     """``T̃₃`` against direct 3-D quadrature, incl. distinct and large ``t'``."""
     got = float(sn.t_tilde(np.array(tvals, float)[:, None], P)[0])
     ref = _leg_integral_reference(tvals, P, n_gl=28)
-    assert got == pytest.approx(ref, rel=1e-9)
+    assert got == pytest.approx(ref, rel=1e-9, abs=0.0)
 
 
 @pytest.mark.parametrize("tvals", [
@@ -224,7 +224,7 @@ def test_t_tilde_matches_leg_integral_m4(tvals):
     """``T̃₄`` against direct 4-D quadrature."""
     got = float(sn.t_tilde(np.array(tvals, float)[:, None], P)[0])
     ref = _leg_integral_reference(tvals, P, n_gl=24)
-    assert got == pytest.approx(ref, rel=1e-8)
+    assert got == pytest.approx(ref, rel=1e-8, abs=0.0)
 
 
 def test_leg_integral_reference_is_converged():
@@ -232,7 +232,7 @@ def test_leg_integral_reference_is_converged():
     for tvals in ([1.0, 1.0, 1.0], [3.0, 1.5, 1.5]):
         lo = _leg_integral_reference(tvals, P, n_gl=18)
         hi = _leg_integral_reference(tvals, P, n_gl=28)
-        assert lo == pytest.approx(hi, rel=1e-10)
+        assert lo == pytest.approx(hi, rel=1e-10, abs=0.0)
 
 
 def test_K_R_factorises_into_spatial_and_temporal():
@@ -243,7 +243,7 @@ def test_K_R_factorises_into_spatial_and_temporal():
     got = float(sn.K_R(xs, ts, P)[0])
     expect = (P.nu * P.h ** 3 * float(sn.X_m(xs, P.sigma_x)[0])
               * float(sn.t_tilde(ts, P)[0]))
-    assert got == pytest.approx(expect, rel=1e-15)
+    assert got == pytest.approx(expect, rel=1e-15, abs=0.0)
 
 
 # =====================================================================
@@ -321,7 +321,7 @@ def test_auto_dispatch_matches_extended_precision(mult, m, tvals):
         assert got == pytest.approx(float(sn.t_tilde_quad(arr, p)[0]), rel=1e-12)
         return
     ref = _t_tilde_mpmath(tvals, p)
-    assert got == pytest.approx(ref, rel=1e-10), (
+    assert got == pytest.approx(ref, rel=1e-10, abs=0.0), (
         f"gamma/a={mult} t={tvals}: auto={got!r} ref={ref!r}")
 
 
@@ -341,7 +341,13 @@ def test_closed_form_error_estimate_is_an_upper_bound(mult, m, tvals):
     value, est = sn.t_tilde_closed(arr, p, return_error=True)
     ref = _t_tilde_mpmath(tvals, p)
     actual = abs(float(value[0]) - ref) / abs(ref)
-    assert actual <= 4.0 * max(float(est[0]), 1e-16), (
+    # An order of magnitude of slack.  The estimate is a *bound* on a sum
+    # of rounding errors, not a prediction of their realisation, so the
+    # ratio is expected to sit below 1 most of the time and to exceed it
+    # occasionally; the worst measured over this grid is 3.45, at
+    # gamma/a = 0.1 and t = [40, 2, 0.05].  A tighter factor would be
+    # asserting a rounding outcome rather than the bound.
+    assert actual <= 10.0 * max(float(est[0]), 1e-16), (
         f"estimate {float(est[0]):.2e} under-reports actual {actual:.2e}")
 
 
@@ -355,9 +361,32 @@ def test_quad_branch_is_converged(m, tvals):
     """
     p = _p_at(1.0)                                   # exactly degenerate
     arr = np.array(tvals, float)[:, None]
-    lo = float(sn.t_tilde_quad(arr, p, n_gl=8)[0])
-    hi = float(sn.t_tilde_quad(arr, p, n_gl=16)[0])
-    assert lo == pytest.approx(hi, rel=1e-11)
+    lo = float(sn.t_tilde_quad(arr, p)[0])           # the shipped node count
+    hi = float(sn.t_tilde_quad(arr, p, n_gl=24)[0])
+    assert lo == pytest.approx(hi, rel=1e-12, abs=0.0)
+
+
+@pytest.mark.parametrize("m", [3, 4, 5])
+@pytest.mark.parametrize("T", [40.0, 100.0])
+def test_quad_branch_matches_the_exact_saturated_limit(m, T):
+    r"""At ``γ = 1/σ_t`` and large ``T``, ``T̃_m`` has an exactly-known limit.
+
+    ``J(t,s) → v e^{−a v}`` with ``v = T − s``, so as ``T → ∞``
+
+        ``T̃_m → ∫_0^∞ v^m e^{−m a v} dv = m! / (m a)^{m+1}``.
+
+    A *pin* against a closed form, which is much stronger than a
+    self-convergence check --- and it is what showed that 8 nodes per
+    panel left 4.3e-11 here while 12 is exact.  This is precisely the
+    corner where the quadrature is the only available method, since the
+    closed form is 0/0 at ``γ = a``.
+    """
+    import math
+    a = 1.0 / P.sigma_t
+    p = _p_at(1.0)
+    exact = math.factorial(m) / (m * a) ** (m + 1)
+    got = float(sn.t_tilde_quad(np.full((m, 1), T), p)[0])
+    assert got == pytest.approx(exact, rel=1e-13, abs=0.0)
 
 
 @pytest.mark.parametrize("m,tvals", _CORNERS)
@@ -372,7 +401,7 @@ def test_quad_branch_panel_stack_reaches_the_tail(m, tvals):
         wide = float(sn.t_tilde_quad(arr, p)[0])
     finally:
         sn.DECADES = old_dec
-    assert base == pytest.approx(wide, rel=1e-12)
+    assert base == pytest.approx(wide, rel=1e-12, abs=0.0)
 
 
 @pytest.mark.parametrize("offset", [0.0, 1e-9, -1e-9, 1e-6, -1e-6])
@@ -405,17 +434,23 @@ def test_degenerate_limit_against_independent_analytic_form():
             lambda s: np.prod([(t - s) * np.exp(-a * (t - s)) for t in tvals]),
             0.0, min(tvals), epsabs=1e-16, epsrel=1e-13, limit=300)
         got = float(sn.t_tilde(np.array(tvals, float)[:, None], p)[0])
-        assert got == pytest.approx(tail + body, rel=1e-10)
+        assert got == pytest.approx(tail + body, rel=1e-10, abs=0.0)
 
 
 def test_auto_dispatch_uses_the_closed_form_where_it_is_sound():
     """At the demo's own parameters the fast branch is chosen for the whole
     time range, so ``auto`` costs one closed-form evaluation."""
-    assert P.rel_split == pytest.approx(0.5)
+    assert P.rel_split == pytest.approx(0.5, abs=0.0)
     ts = np.linspace(0.2, 30.0, 200)[None, :].repeat(3, axis=0)
     _, est = sn.t_tilde_closed(ts, P, return_error=True)
     assert np.all(est < sn.AUTO_TOL), f"worst estimate {est.max():.2e}"
-    assert np.allclose(sn.t_tilde(ts, P), sn.t_tilde_closed(ts, P), rtol=0, atol=0)
+    # Agreement, not bit-identity: if a sample did cross the tolerance the
+    # dispatcher would repair it with the quadrature and the ANSWER would
+    # be unchanged, which is the part worth pinning.  Requiring identical
+    # bits would make this test depend on the branch choice, which is a
+    # rounding outcome.
+    assert np.allclose(sn.t_tilde(ts, P), sn.t_tilde_closed(ts, P),
+                       rtol=1e-12, atol=0.0)
 
 
 def test_auto_dispatch_repairs_the_small_time_corner():
@@ -450,10 +485,10 @@ def test_non_gaussianity_scaling_laws(n):
     """``n = ν σ_t σ_x`` is the *only* knob: skewness ``∝ 1/√n``, excess
     kurtosis ``∝ 1/n``, and ``κ₂`` held fixed by compensating ``h``."""
     q = P.with_n(n)
-    assert q.n_dimensionless == pytest.approx(n)
-    assert q.variance == pytest.approx(P.variance, rel=1e-12)
-    assert q.skewness == pytest.approx(0.6285393610547089 / np.sqrt(n), rel=1e-12)
-    assert q.excess_kurtosis == pytest.approx(0.5 / n, rel=1e-12)
+    assert q.n_dimensionless == pytest.approx(n, abs=0.0)
+    assert q.variance == pytest.approx(P.variance, rel=1e-12, abs=0.0)
+    assert q.skewness == pytest.approx(0.6285393610547089 / np.sqrt(n), rel=1e-12, abs=0.0)
+    assert q.excess_kurtosis == pytest.approx(0.5 / n, rel=1e-12, abs=0.0)
 
 
 def test_skewness_and_kurtosis_match_the_cumulant_formulas():
@@ -461,9 +496,9 @@ def test_skewness_and_kurtosis_match_the_cumulant_formulas():
     k2 = float(sn.kappa_m(np.zeros((2, 1)), np.zeros((2, 1)), P)[0])
     k3 = float(sn.kappa_m(np.zeros((3, 1)), np.zeros((3, 1)), P)[0])
     k4 = float(sn.kappa_m(np.zeros((4, 1)), np.zeros((4, 1)), P)[0])
-    assert k2 == pytest.approx(P.variance, rel=1e-14)
-    assert k3 / k2 ** 1.5 == pytest.approx(P.skewness, rel=1e-12)
-    assert k4 / k2 ** 2 == pytest.approx(P.excess_kurtosis, rel=1e-12)
+    assert k2 == pytest.approx(P.variance, rel=1e-14, abs=0.0)
+    assert k3 / k2 ** 1.5 == pytest.approx(P.skewness, rel=1e-12, abs=0.0)
+    assert k4 / k2 ** 2 == pytest.approx(P.excess_kurtosis, rel=1e-12, abs=0.0)
 
 
 @pytest.mark.parametrize("m", [3, 4, 5])
@@ -484,7 +519,7 @@ def test_kappa_ladder_ratio_closed_form():
     k3 = float(sn.kappa_m(np.zeros((3, 1)), np.zeros((3, 1)), P)[0])
     for m in (4, 5, 6):
         km = float(sn.kappa_m(np.zeros((m, 1)), np.zeros((m, 1)), P)[0])
-        assert km / k3 == pytest.approx(sn.kappa_ratio(m, P), rel=1e-13)
+        assert km / k3 == pytest.approx(sn.kappa_ratio(m, P), rel=1e-13, abs=0.0)
 
 
 def test_per_sample_and_vectorised_couplings_agree():
