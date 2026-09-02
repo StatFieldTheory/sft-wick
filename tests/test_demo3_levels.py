@@ -140,29 +140,42 @@ def test_r_contracted_diagram_has_no_time_integrals(exp3):
     assert len(spatial.r_absorbed_pairs) == 3
 
 
-@pytest.mark.xfail(
-    reason="package defect (present on base commit ac7f201, independent of "
-           "demo 3): repeating a spatial label across external operators "
-           "loses pairing multiplicity, silently. With distinct labels at "
-           "equal positions the order-1 K3 diagram is correct; with a "
-           "repeated label the coupling sum collapses to a single "
-           "permutation and the answer comes out 6x too small. Being fixed "
-           "by the parallel demo2-hardening session -- this flips to pass "
-           "when that lands.",
-    strict=True)
-def test_coincident_spatial_labels_agree_with_distinct_ones(props):
-    """Equal positions must give the same answer however they are spelled."""
+def test_coincident_spatial_labels_are_not_usable(props):
+    """Repeating a spatial label across external operators is a package
+    defect, and demo 3 must never rely on that spelling.
+
+    What the collapse loses is not a scalar factor but a *sum over
+    external-operator-to-leg assignments*: with distinct labels the
+    order-1 K3 coupling sum is ``K_abc + K_acb + K_bac + K_bca + K_cab +
+    K_cba``, while the repeated spelling yields ``K_abc`` alone.  Those
+    agree up to a factor 6 only when the coupling is symmetric under all
+    six index permutations --- true here (``κ_m ∝ δ_{a_1…a_m}``), which is
+    exactly why the bug is invisible, but *not* true for a general bare
+    tensor.  A blanket multiplicity would therefore be a new silent wrong
+    answer, so the parallel demo2-hardening session refuses the spelling
+    outright rather than repairing it.
+
+    This test accepts either behaviour, because they are the same
+    statement about demo 3: on the base commit ``ac7f201`` the call
+    silently returns exactly ``1/6`` of the right answer, and on the
+    hardened branch it raises.  Demo 3 uses distinct labels throughout
+    (see :func:`level_a.package_npt`), so no published number is affected.
+    """
     system = dsys.make_system(P, cumulants=(3,))
     distinct = system.expand(_OBS3, orders=[1]).evaluate(
         props, positions={"x": 0.0, "y": 0.0, "z": 0.0}, t_final=1.5,
         component_pair=(0, 0, 0), orders=[1],
         method="gauss_legendre", n_gauss=20)
-    repeated = system.expand(("phi_a(x)", "phi_b(x)", "phi_c(x)"),
-                             orders=[1]).evaluate(
-        props, positions={"x": 0.0}, t_final=1.5,
-        component_pair=(0, 0, 0), orders=[1],
-        method="gauss_legendre", n_gauss=20)
-    assert repeated.total == pytest.approx(distinct.total, rel=1e-12)
+    try:
+        repeated = system.expand(("phi_a(x)", "phi_b(x)", "phi_c(x)"),
+                                 orders=[1]).evaluate(
+            props, positions={"x": 0.0}, t_final=1.5,
+            component_pair=(0, 0, 0), orders=[1],
+            method="gauss_legendre", n_gauss=20)
+    except ValueError:
+        return                      # hardened branch: the spelling is refused
+    assert repeated.total == pytest.approx(distinct.total / 6.0, rel=1e-12), (
+        "expected either a refusal or the known factor-6 collapse")
 
 
 def test_distinct_label_spelling_is_the_correct_one(props, exp3):

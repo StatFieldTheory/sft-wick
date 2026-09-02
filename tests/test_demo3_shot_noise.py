@@ -469,8 +469,8 @@ def test_skewness_and_kurtosis_match_the_cumulant_formulas():
 @pytest.mark.parametrize("m", [3, 4, 5])
 def test_coupling_tensor_is_component_diagonal(m):
     """Each component is an independent event process, so ``κ_m ∝ δ_{a_1…a_m}``."""
-    fn = sn.coupling_vectorized_for(m)
-    K = fn(np.zeros((m, 3)), np.ones((m, 3)), P)
+    fn = sn.RContractedCoupling(m=m, params=P)
+    K = fn(np.zeros((m, 3)), np.ones((m, 3)))
     assert K.shape == (3,) + (P.n_components,) * m
     amp = float(sn.K_R(np.zeros((m, 1)), np.ones((m, 1)), P)[0])
     for idx in itertools.product(range(P.n_components), repeat=m):
