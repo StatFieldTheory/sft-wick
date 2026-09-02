@@ -194,7 +194,12 @@ def test_DK6_k3R_enforces_leg_causality_and_t_min_zero(k3R):
     two = np.full_like(t_lag, 2.0)
     tail = k3R.k3_R(t_lag, two, two, np.ones(2), np.ones(2), np.ones(2))
     decay = tail[1] / tail[0]
-    assert decay == pytest.approx(np.exp(-GAMMA * 35.0), rel=2e-2), (
+    # ``abs=0.0`` is load-bearing here, not decoration.  ``pytest.approx``
+    # compares against ``max(rel * expected, abs)`` with ``abs`` defaulting
+    # to 1e-12, and the expected value is exp(-35) = 6.3e-16 -- far below
+    # that floor.  Without an explicit ``abs`` this assertion enforced
+    # nothing at all: 0.0 == approx(6.3e-16, rel=2e-2) is True.
+    assert decay == pytest.approx(np.exp(-GAMMA * 35.0), rel=2e-2, abs=0.0), (
         f"lagging-leg tail decays as {decay:.3e}, expected "
         f"exp(-gamma dt) = {np.exp(-GAMMA * 35.0):.3e}"
     )
@@ -336,7 +341,9 @@ def test_DK2_k4R_saturates_at_late_partner_times(k4R):
     s = {(i, j): np.ones(1) for i in range(4) for j in range(4) if i != j}
     v15 = float(k4R.k4_R(np.full((4, 1), 15.0), s)[0])
     v50 = float(k4R.k4_R(np.full((4, 1), 50.0), s)[0])
-    assert v15 == pytest.approx(v50, rel=1e-10)
+    # abs=0.0: v ~ 3.9e-05, so rel * expected is 3.9e-15 and the default
+    # 1e-12 floor would have enforced 2.6e-08 relative instead of 1e-10.
+    assert v15 == pytest.approx(v50, rel=1e-10, abs=0.0)
     assert 3.0e-5 < v15 < 5.0e-5
 
 
@@ -374,14 +381,20 @@ def test_DK7_demo2_cumulant_formulas_match_the_closed_form(k4raw):
     missing its ``8 alpha^3 lam^3``), so pin all three against the
     generating function rather than against themselves.
     """
+    # ``abs=0.0`` throughout: kappa_n runs from 5.2e-02 down to 2.2e-03, so
+    # ``rel * expected`` is 5.2e-16 .. 2.2e-17 and the default 1e-12 floor
+    # would have enforced 1.9e-11 .. 4.6e-10 relative rather than the 1e-14
+    # written -- a real check still, but 1931x to 45478x looser than it reads.
     k2, k3, k4 = k4raw.single_site_cumulants()
-    assert k2 == pytest.approx(_cumulant_closed_form(2), rel=1e-14)
-    assert k3 == pytest.approx(_cumulant_closed_form(3), rel=1e-14)
-    assert k4 == pytest.approx(_cumulant_closed_form(4), rel=1e-14)
+    assert k2 == pytest.approx(_cumulant_closed_form(2), rel=1e-14, abs=0.0)
+    assert k3 == pytest.approx(_cumulant_closed_form(3), rel=1e-14, abs=0.0)
+    assert k4 == pytest.approx(_cumulant_closed_form(4), rel=1e-14, abs=0.0)
     # ... and the hand-written forms themselves.
-    assert k2 == pytest.approx(LAM + 2 * ALPHA ** 2 * LAM ** 2, rel=1e-14)
-    assert k3 == pytest.approx(6 * ALPHA * LAM ** 2 + 8 * ALPHA ** 3 * LAM ** 3, rel=1e-14)
-    assert k4 == pytest.approx(48 * ALPHA ** 2 * LAM ** 3 + 48 * ALPHA ** 4 * LAM ** 4, rel=1e-14)
+    assert k2 == pytest.approx(LAM + 2 * ALPHA ** 2 * LAM ** 2, rel=1e-14, abs=0.0)
+    assert k3 == pytest.approx(
+        6 * ALPHA * LAM ** 2 + 8 * ALPHA ** 3 * LAM ** 3, rel=1e-14, abs=0.0)
+    assert k4 == pytest.approx(
+        48 * ALPHA ** 2 * LAM ** 3 + 48 * ALPHA ** 4 * LAM ** 4, rel=1e-14, abs=0.0)
 
 
 def test_DK7_cumulant_ladder_does_not_terminate_at_four():
@@ -441,7 +454,7 @@ def test_DK4_pinned_FK_value(k3R):
     sw.reset_uid_counter()
     system = _demo2_system(k3R.coupling_fn_vectorized, r_contracted=True)
     val = _fk_value(system, t_final=1.0, n_gauss=32, t_max=50.0)
-    assert val == pytest.approx(1.5841e-04, rel=2e-4)
+    assert val == pytest.approx(1.5841e-04, rel=2e-4, abs=0.0)
 
 
 def test_DK5_pinned_order0_value():
@@ -472,7 +485,7 @@ def test_DK5_pinned_order0_value():
         props, positions={"x": 0.0, "y": 0.0}, t_final=1.0,
         component_pair=(0, 0), orders=[0], n_jobs=1,
     ).total
-    assert val == pytest.approx(8.9600e-03, rel=2e-4)
+    assert val == pytest.approx(8.9600e-03, rel=2e-4, abs=0.0)
     # The cross-component value must vanish exactly: the KroneckerDelta
     # the diagonal-simplification pass retains is what makes it do so.
     off = expansion.evaluate(
