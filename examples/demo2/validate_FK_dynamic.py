@@ -12,9 +12,9 @@ evaluation automatically.
 Demo2's third cumulant (from the quadratic-deformation non-Gaussian
 noise ``η̃ = η + α(η² − λ)``):
 
-    κ^{(3)}_{abc}(1,2,3) = 2α λ² δ_{ab} δ_{bc}
-                            · [κ(1,3) κ(2,3) + κ(1,2) κ(2,3)
-                               + κ(1,2) κ(1,3)]
+    κ^{(3)}_{abc}(1,2,3) = δ_{ab} δ_{bc}
+        · { 2α λ² [κ(1,3) κ(2,3) + κ(1,2) κ(2,3) + κ(1,2) κ(1,3)]
+            + 8α³λ³ κ(1,2) κ(2,3) κ(1,3) }          (α³ term added 2026-09)
 
     κ(i, j) = exp(−|t_i − t_j| / σ_t) · exp(−|x_i − x_j| / σ_x)
 
@@ -22,8 +22,11 @@ Run::
 
     python examples/demo2/validate_FK_dynamic.py
 
-Cross-check target (from demo2/analysis.ipynb cell 12, r=0.5, t_f=3):
+Cross-check target (from demo2/analysis.ipynb cell 12, r=0.5, t_f=3,
+without the α³ term and with the un-converged 4-D rule of the time):
     ξ^{FK}_{01} = +1.884322e-04
+The converged value from the R-contracted kernel (``k3_R_coupling.py``)
+at r = 0.5, t = 3.48 is 1.816e-04.
 """
 
 from __future__ import annotations
@@ -91,7 +94,8 @@ def K_fn(n_list, t_list):
         + kappa(0, 1) * kappa(1, 2) \
         + kappa(0, 1) * kappa(0, 2)
 
-    amplitude = 2.0 * ALPHA * LAM ** 2 * bracket
+    amplitude = (2.0 * ALPHA * LAM ** 2 * bracket
+                 + 8.0 * ALPHA ** 3 * LAM ** 3 * kappa(0, 1) * kappa(1, 2) * kappa(0, 2))
 
     # Component structure: δ_{ab}δ_{bc} → non-zero only on the
     # diagonal (a=b=c).  Build explicitly.

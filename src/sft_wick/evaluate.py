@@ -2008,16 +2008,27 @@ class PropagatorCache:
     # Quadrature-method resolution and kernel structure
     # ------------------------------------------------------------------ #
 
+    def _direct_is_overridden(self) -> bool:
+        """Whether a subclass replaced :meth:`_C_value_direct` (legacy
+        extension point).  Such a cache computes C its own way: no
+        quadrature is chosen for it and no quadrature kwargs are passed,
+        so overrides with the original 4-argument signature keep working.
+        """
+        return type(self)._C_value_direct is not PropagatorCache._C_value_direct
+
     @property
     def c_method_resolved(self) -> str:
         """The method the next table build will use.
 
-        ``'closed_form'`` when a C callable replaces the quadrature; the
-        resolved method after a build under ``'auto'``; ``'dblquad'`` for
-        an unresolved ``'auto'``; else the explicit setting.
+        ``'closed_form'`` when a C callable replaces the quadrature,
+        ``'custom'`` when a subclass overrides :meth:`_C_value_direct`;
+        the resolved method after a build under ``'auto'``; ``'dblquad'``
+        for an unresolved ``'auto'``; else the explicit setting.
         """
         if self.c_value_fn is not None:
             return "closed_form"
+        if self._direct_is_overridden():
+            return "custom"
         if self.c_method != "auto":
             return self.c_method
         return self._c_method_resolved or "dblquad"
@@ -2038,6 +2049,8 @@ class PropagatorCache:
         """
         if self.c_value_fn is not None:
             return "closed_form", None
+        if self._direct_is_overridden():
+            return "custom", None
         if self.c_method != "auto":
             return self.c_method, (self.n_gauss if self.c_method == "gauss_legendre" else None)
         horizon = getattr(self, "_c_method_horizon", None)
@@ -2048,12 +2061,37 @@ class PropagatorCache:
             self.model, t_max, n_start=self.n_gauss,
             positions=self._probe_positions(),
         )
+        if n is not None and not self._gl_is_cheaper(t_max, int(n)):
+            # Both rules are converged here; take the cheaper one.  On a
+            # smooth kernel over a short horizon adaptive dblquad needs
+            # only a few hundred evaluations (3.8 ms measured) and beats a
+            # 20-node tensor rule (5.6 ms); with a cusp or a long horizon
+            # the tensor rule wins by 5-30x.  One call of each decides.
+            n = None
         if n is None:
             self._c_method_resolved, self._n_gauss_resolved = "dblquad", None
         else:
             self._c_method_resolved, self._n_gauss_resolved = "gauss_legendre", int(n)
         self._c_method_horizon = float(t_max)
         return self._c_method_resolved, self._n_gauss_resolved
+
+    def _gl_is_cheaper(self, t_max: float, n: int) -> bool:
+        """Time one deep cell under each rule (the corner is the costliest
+        cell for an adaptive rule); ``True`` when Gauss-Legendre wins."""
+        import time
+
+        n1, n2 = self._probe_positions()
+        t = float(t_max)
+        try:
+            t0 = time.perf_counter()
+            _C_value_direct_gl(self.model, n1, t, n2, t, n_gauss=n)
+            t_gl = time.perf_counter() - t0
+            t0 = time.perf_counter()
+            self._C_value_direct(n1, t, n2, t, method="dblquad")
+            t_db = time.perf_counter() - t0
+        except Exception:
+            return True
+        return t_gl <= t_db
 
     def _resolve_build_method(self, c_method, n_gauss, t_max):
         """Per-build override → instance setting → ``'auto'`` resolution."""
@@ -2093,6 +2131,8 @@ class PropagatorCache:
         m = self.c_method_resolved
         if m == "closed_form":
             return "closed form"
+        if m == "custom":
+            return "custom C"
         if m == "gauss_legendre":
             return f"Gauss-Legendre n={self.n_gauss_resolved}"
         return "dblquad"
@@ -2106,7 +2146,8 @@ class PropagatorCache:
         that would break the scaling.  A user ``c_value_fn`` disables it:
         nothing is known about that function's structure.
         """
-        if self.c_value_fn is not None or self.model.sigma2 is not None:
+        if self.c_value_fn is not None or self.model.sigma2 is not None \
+                or self._direct_is_overridden():
             return None
         k2 = self.model.kappa2
         if getattr(k2, "separable_translation", False) and hasattr(k2, "spatial_factor"):
@@ -2144,7 +2185,8 @@ class PropagatorCache:
         built-in even temporal kernels -- and diagonal C (the off-diagonal
         ``C_ab`` swaps ``R_aa ↔ R_bb`` as well).
         """
-        if self.c_value_fn is not None or not self.model.diag_C:
+        if self.c_value_fn is not None or not self.model.diag_C \
+                or self._direct_is_overridden():
             return False
         return bool(getattr(self.model.kappa2, "symmetric_in_time", False))
 
