@@ -205,10 +205,22 @@ def test_phi_is_symmetric_and_reaches_the_stationary_limit():
     # Stationary variance λ Φ(∞, ∞) = λ / (γ (γ + a)).
     assert ou_exponential_phi(g, a, 400.0, 400.0) == pytest.approx(
         1.0 / (g * (g + a)), rel=1e-13)
-    # No overflow deep in the domain; the textbook form dies near γ t ≈ 350.
+    # No overflow deep in the domain: the textbook form multiplies
+    # exp(+2γt) by exp(-γ(t₁+t₂)), and the first factor is already inf at
+    # γt = 1.3e4, whereas every exponent in this one is non-positive.
     assert np.isfinite(ou_exponential_phi(g, a, 1e4, 1e4))
-    assert ou_exponential_phi(g, a, 1e4, 9.9e3) == pytest.approx(
-        np.exp(-g * 100.0) * 0.0 + ou_exponential_phi(g, a, 1e4, 9.9e3), rel=0)
+    # ... and it has reached the stationary limit there, where Φ depends on
+    # the separation alone -- so Φ(T, T−d) must not depend on T.
+    #
+    # This replaces an assertion that could not fail: it compared
+    # `Φ(1e4, 9.9e3)` against `np.exp(-g*100.0)*0.0 + Φ(1e4, 9.9e3)`, and
+    # since that first term is exactly 0.0 both sides were the same
+    # expression.  `abs=0.0` is required as well, not decoration: Φ is
+    # 9.5e-58 at this separation, far below approx's 1e-12 default floor,
+    # so a bare `rel=` would accept any value at all.
+    d = 100.0
+    assert ou_exponential_phi(g, a, 1e4, 1e4 - d) == pytest.approx(
+        ou_exponential_phi(g, a, 1e3, 1e3 - d), rel=1e-13, abs=0.0)
     # Empty domain.
     assert ou_exponential_phi(g, a, 0.0, 3.0) == 0.0
     assert ou_exponential_phi(g, a, -1.0, 3.0) == 0.0
