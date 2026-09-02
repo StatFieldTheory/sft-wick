@@ -2084,16 +2084,41 @@ class PropagatorCache:
         machine could resolve differently, which is a bad property for a
         package that sells reproducibility, and it made
         ``test_direct_calls_before_any_build_use_dblquad_under_auto``
-        fail intermittently under load.  (The race was worth ~1.5x on
-        one path: on a smooth kernel over a short horizon adaptive
-        dblquad needs a few hundred evaluations, 3.8 ms measured,
-        against 5.6 ms for a 20-node tensor rule.  With a cusp or a long
-        horizon the tensor rule wins by 5-30x.)
+        fail intermittently under load.
+
+        Removing it costs nothing measurable.  Per ``_C_value_direct``
+        call at the deep corner, on the demo1 kernel, comparing the two
+        rules AT THE NODE COUNT ``auto`` RESOLVES TO (best of 5, M3
+        Ultra, one core):
+
+        ====== ========== ======== ========= ==========
+        t_max  resolved n  GL       dblquad   GL wins by
+        ====== ========== ======== ========= ==========
+             5         20   5.7 ms    7.1 ms      1.3x
+            15         20   5.7 ms   39.5 ms      6.9x
+            30         30  12.5 ms   88.0 ms      7.0x
+            50         30  12.5 ms  144.4 ms     11.6x
+           100         45  27.9 ms  209.2 ms      7.5x
+        ====== ========== ======== ========= ==========
+
+        Gauss-Legendre wins everywhere here, because adaptive cost grows
+        with the interval while a fixed-``n`` tensor rule is flat and the
+        required ``n`` grows only slowly.  The one regime the race ever
+        chose dblquad for is a smooth kernel over a short horizon, where
+        unconditional GL costs ~1.3x.
 
         The decision is now a function of the inputs alone: prefer
         Gauss-Legendre whenever a converged node count exists, and fall
         back to dblquad only when none does -- which is what the caller
-        already does with ``n is None``.
+        already does with ``n is None``.  If the short-horizon case ever
+        matters, bring it back as a THRESHOLD on the converged ``n``, not
+        as a timing measurement.
+
+        One trap if you re-derive the accuracy bound: compare the two
+        rules at the RESOLVED ``n``, not at a fixed ``n = 20``.  At
+        ``t_max = 50`` a fixed 20-node rule differs from dblquad by
+        1.7e-04, which looks alarming -- but ``auto`` resolves to
+        ``n = 30`` there, and at 30 the two agree to 2.1e-09.
         """
         return True
 

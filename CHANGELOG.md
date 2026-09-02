@@ -298,11 +298,17 @@ tests of `test_propagator_dispatch.py`,
 `test_closed_form_dispatch_boundaries.py`,
 `test_c_propagator_gauss_legendre.py` and `test_deductive_numerics.py`.
 
-The cost the race was buying was ~1.5× on one path (3.8 ms adaptive
-against 5.6 ms for a 20-node tensor rule on a smooth kernel over a short
-horizon; with a cusp or a long horizon the tensor rule wins by 5–30×).
-If that matters it should come back as a deterministic rule — a
-threshold on the converged `n` — not a timing measurement.
+**And it is faster, not slower.**  Per `_C_value_direct` call at the
+deep corner on the demo1 kernel, comparing the two rules *at the node
+count `auto` resolves to* (best of 5, one core): 5.7 vs 7.1 ms at
+`t_max = 5` (n = 20), 5.7 vs 39.5 at 15, 12.5 vs 88.0 at 30 (n = 30),
+12.5 vs 144.4 at 50, 27.9 vs 209.2 at 100 (n = 45) — Gauss-Legendre
+wins by **1.3× to 11.6×**, because adaptive cost grows with the interval
+while a fixed-`n` tensor rule is flat and the required `n` grows only
+slowly.  The one regime the race ever chose `dblquad` for is a smooth
+kernel over a short horizon, where unconditional GL costs ~1.3×.  If
+that ever matters it should return as a *threshold on the converged n*,
+not a timing measurement.
 
 ### Documented: unstable cache keys for callable spec fields
 
