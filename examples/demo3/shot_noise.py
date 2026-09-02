@@ -99,7 +99,14 @@ _EPS = float(np.finfo(float).eps)
 
 #: Gauss-Legendre nodes per panel and decades of decay covered by the
 #: graded panel stack in :func:`t_tilde_quad`.
-N_GL_PANEL = 8
+#:
+#: 12, not 8: at ``γ = 1/σ_t`` (where the quadrature is the *only* method)
+#: and large ``T``, ``T̃_m`` saturates at the exactly-known
+#: ``m!/(m a)^{m+1}``, and 8 nodes per panel leaves 4.3e-11 relative error
+#: there against machine precision for 12.  The cost is 1.8x on a path
+#: that is only taken for the few ill-conditioned samples the closed form
+#: hands over, so it is not worth economising.
+N_GL_PANEL = 12
 DECADES = 42.0
 
 

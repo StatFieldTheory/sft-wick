@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1022 tests** in 38 files (parametrised
+The suite has **1028 tests** in 38 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -88,7 +88,7 @@ Multiplicities and canonical forms
 Propagator numerics
 -------------------
 
-*307 tests in 10 files.*
+*313 tests in 10 files.*
 
 .. list-table::
    :header-rows: 1
@@ -123,7 +123,7 @@ Propagator numerics
      - demo 3 filtered-Poisson cumulants, the R-contracted kernel K_R, and the t_tilde branch dispatch
      - Campbell's theorem vs Monte Carlo of the event process; m-dimensional quadrature of the raw leg integral; the package's own ClosedFormC; 60-digit mpmath at the branch boundary
      - exact / 1e-10
-     - 201
+     - 207
    * - ``test_diag_C_offdiagonal.py``
      - off-diagonal C entries with diag_C=false
      - closed-form cross-correlation
