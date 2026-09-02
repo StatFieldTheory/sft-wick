@@ -124,6 +124,21 @@ larger script:
 
    print(sweep.totals())    # long-format pandas DataFrame
 
+.. warning::
+
+   **Every external operator needs its own spatial label.**  Write the
+   equal-point correlator as ``("phi_a(x)", "phi_b(y)")`` with
+   ``positions={"x": 0.0, "y": 0.0}`` — *not* as
+   ``("phi_a(x)", "phi_b(x)")``, which raises ``ValueError``.
+
+   The label is the name of an integration/external coordinate, not the
+   point itself: coincident *points* are fully supported, and every demo
+   uses them.  A shared *label* is not, because the spatial contraction
+   is keyed by label, so operators sharing one are collapsed without
+   their distinct component-index routings.  Before 0.3.1 that produced
+   a silently wrong number at interacting orders (a factor 2 in demo2's
+   order-2 ``F`` channel); it is now refused.
+
 The five headline types
 -----------------------
 

@@ -14,6 +14,7 @@ import numpy as np
 from sft_wick.action import Action
 from sft_wick.evaluate import PropagatorModel
 from sft_wick.fields import Field, FieldOperator, reset_uid_counter
+from sft_wick.perturbation import check_distinct_external_labels
 from sft_wick.vertices import Vertex
 
 from .specs import (
@@ -237,7 +238,9 @@ class System:
         orders_list = sorted(set(int(o) for o in orders))
         iso_R_val = self.iso_R if iso_R is None else iso_R
 
-        obs_ops, obs_repr = _parse_observable(observable, self)
+        obs_ops, obs_repr = _parse_observable(
+            observable, self, max(orders_list),
+        )
 
         spec_key = {
             "system_hash": _system_spec_key(self),
@@ -431,7 +434,7 @@ class System:
 # =========================================================================
 
 
-def _parse_observable(observable, system: System):
+def _parse_observable(observable, system: System, _max_order: int = 1):
     """Normalise ``observable`` into a tuple of FieldOperators.
 
     Accepts:
@@ -484,9 +487,11 @@ def _parse_observable(observable, system: System):
             else:
                 out.append(field(comp, spatial))
                 repr_list.append((name, comp, spatial))
+        check_distinct_external_labels(out, _max_order)
         return tuple(out), tuple(repr_list)
 
     if all(isinstance(o, FieldOperator) for o in ops):
+        check_distinct_external_labels(ops, _max_order)
         repr_list = tuple(
             (o.field.name,
              tuple(o.component_indices) if o.component_indices else None,

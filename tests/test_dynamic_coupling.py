@@ -691,3 +691,70 @@ def test_WF8_dynamic_kappa3_with_3d_positions(method, kw):
         f"trivially-zero total {result.total!r} from method={method!r}; "
         f"the K-callable should give a nontrivial envelope at this grid"
     )
+
+
+def _scalar_field_system(coupling):
+    """A single-component (``n_components = 1``) system with a
+    non-local kappa^3 vertex.
+
+    N = 1 is the first thing a new user writes, and it takes a
+    DIFFERENT symbolic path: with one component there is nothing to sum
+    over, so the simplifier elides component indices entirely and every
+    ``Symbol`` in the coupling comes out with ``indices = ()``.  The
+    coupling array still has its rank-m shape, now all-ones.
+    """
+    F = np.zeros((1, 1, 1))
+    F[0, 0, 0] = 0.7
+    return sw.System(
+        field=sw.FieldSpec("phi", n_components=1),
+        linear=sw.DiagonalA(gamma=[1.0]),
+        vertices=[sw.LocalVertex("F", coupling=F)],
+        nonlocal_vertices=[sw.NonLocalVertex("K", 3, coupling=coupling)],
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.ExponentialTemporal(lam=0.05, sigma_t=0.3),
+                spatial=sw.ExponentialSpatial(sigma_x=1.0),
+            ),
+        ),
+    )
+
+
+@pytest.mark.parametrize("method", ["gauss_legendre", "qmc_vectorized"])
+def test_DC3_scalar_field_dynamic_coupling_matches_static(method):
+    """``n_components = 1`` with a CALLABLE coupling used to raise
+
+        ValueError: input operand has more dimensions than allowed by
+        the axis remapping
+
+    from ``_sum_coupling_batched``.  With one component the simplifier
+    drops every component index, so ``_eval_symbolic_batched`` took its
+    ``not expr.indices`` branch and returned the coupling array whole --
+    shape ``(n_samples, 1, 1, 1)`` -- where the caller expected
+    ``(n_samples,)``.  The scalar evaluator has always tolerated a
+    size-1 array of any shape here; the batched one did not.
+
+    A constant callable is the static tensor, so the two must agree
+    exactly.  N = 2 is covered by WF6; this is the N = 1 boundary.
+    """
+    K = np.full((1, 1, 1), 1e-3)
+
+    sw.reset_uid_counter()
+    static_sys = _scalar_field_system(K)
+    sw.reset_uid_counter()
+    dyn_sys = _scalar_field_system(lambda n_list, t_list: K)  # noqa: ARG005
+
+    kw = dict(
+        positions={"x": 0.0, "y": 0.5}, t_final=1.5, component_pair=(0, 0),
+        orders=[2], vertex_types=["FK"], method=method, n_gauss=8,
+        n_samples=2 ** 12, seed=0, n_jobs=1,
+    )
+    vals = []
+    for system in (static_sys, dyn_sys):
+        props = system.propagators(
+            t_max=2.0, n_grid_t=8, c_closed_form=_load_demo1_C_fn(),
+        )
+        expansion = system.expand(("phi(x)", "phi(y)"), orders=[2])
+        vals.append(expansion.evaluate(props, **kw).total)
+
+    assert vals[0] != 0.0, "test is vacuous if the static value is zero"
+    assert vals[1] == pytest.approx(vals[0], rel=1e-12)

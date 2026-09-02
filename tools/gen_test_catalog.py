@@ -167,6 +167,20 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Integrators",
         "already_R_contracted non-local vertices across L0/L1/L2",
         "raw-κ³ evaluation of the same diagram", "1e-12"),
+    "tests/test_demo2_kernels.py": (
+        "Integrators",
+        "demo2's hand-written R-contracted κ³ / κ⁴ kernels, the raw-vs-"
+        "R-contracted route on a NON-constant kernel, the "
+        "already_R_contracted contract, pinned FK and order-0 values, "
+        "the single-site cumulant ladder",
+        "cusp-aware adaptive quadrature and randomised-Sobol QMC of the "
+        "raw leg integrals; the cumulant generating function",
+        "1e-6 - 2e-2 (measured per configuration)"),
+    "tests/test_coincident_external_labels.py": (
+        "Integrators",
+        "external operators sharing a spatial label are refused at L1 "
+        "and L0 rather than silently mis-counted",
+        "the distinct-label spelling of the same observable", "exact"),
     "tests/test_higher_cumulants.py": (
         "Integrators",
         "non-Gaussian driving at cumulant order m ≥ 4 (κ⁴, κ⁵)",

@@ -483,7 +483,35 @@ class LegendreAngular:
 
 @dataclass(frozen=True)
 class CustomKernel:
-    """Escape hatch for a user-supplied 1-D kernel callable."""
+    """Escape hatch for a user-supplied 1-D kernel callable.
+
+    .. note::
+
+       **Pass a callable OBJECT, not a bare function, if you use
+       ``cache_path``.**  The expansion and propagator cache keys are
+       built from ``repr()`` of the spec, and ``repr()`` of a plain
+       function embeds its memory address — so the key changes every
+       process and the cache never hits.  A module-level ``def`` is
+       affected exactly as much as a ``lambda``; what fixes it is a
+       small frozen dataclass with ``__call__``, whose ``repr`` is its
+       field values::
+
+           @dataclass(frozen=True)
+           class MyKernel:
+               width: float
+               def __call__(self, x): return math.exp(-abs(x) / self.width)
+
+           CustomKernel(fn=MyKernel(width=1.0))    # stable key
+
+       This is a performance trap, not a correctness one: an unstable
+       ``repr`` can only cause a cache MISS, never a wrong hit.  The
+       same applies to :class:`GeneralKappa2`, :class:`CustomImpulse`,
+       :class:`ExplicitR` and a callable :attr:`DiagonalA.gamma`.
+       **Vertex couplings are unaffected** — they never enter the key,
+       because the symbolic enumeration does not depend on coupling
+       values.  A frozen dataclass also pickles cleanly for joblib, so
+       it is the better choice under ``n_jobs > 1`` regardless.
+    """
 
     fn: Callable
 
