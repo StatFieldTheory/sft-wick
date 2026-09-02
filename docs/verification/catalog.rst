@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **778 tests** in 34 files (parametrised
+The suite has **803 tests** in 36 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -148,7 +148,7 @@ Propagator numerics
 Integrators
 -----------
 
-*236 tests in 8 files.*
+*261 tests in 10 files.*
 
 .. list-table::
    :header-rows: 1
@@ -164,11 +164,21 @@ Integrators
      - raw-κ³ evaluation of the same diagram
      - 1e-12
      - 22
+   * - ``test_coincident_external_labels.py``
+     - external operators sharing a spatial label are refused at L1 and L0 rather than silently mis-counted
+     - the distinct-label spelling of the same observable
+     - exact
+     - 7
+   * - ``test_demo2_kernels.py``
+     - demo2's hand-written R-contracted κ³ / κ⁴ kernels, the raw-vs-R-contracted route on a NON-constant kernel, the already_R_contracted contract, pinned FK and order-0 values, the single-site cumulant ladder
+     - cusp-aware adaptive quadrature and randomised-Sobol QMC of the raw leg integrals; the cumulant generating function
+     - 1e-6 - 2e-2 (measured per configuration)
+     - 16
    * - ``test_dynamic_coupling.py``
      - spacetime-dependent (callable) κ^(m) couplings, per-sample and vectorised contracts, propagator-indexed contraction
      - static tensor at the same point; two contracts against each other
      - 1e-12
-     - 12
+     - 14
    * - ``test_equal_time_nonlocal.py``
      - equal_time non-local vertices (single time integral)
      - explicit δ-function reduction

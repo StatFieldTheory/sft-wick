@@ -10,6 +10,8 @@ __pycache__/
 .claude/
 CLAUDE.md
 HANDOFF*
+REFEREE_BRIEF.md
+AGENTS.md
 paper/
 archived/
 
@@ -19,3 +21,4 @@ docs/_build/
 examples/demo_workflow_plot.png
 examples/demo1/__pycache__/
 examples/demo2/__pycache__/
+sims_fscale/*.log

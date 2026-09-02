@@ -36,7 +36,11 @@ def test_local_coupling_symbols_keep_the_local_flag_through_simplification():
     phi = Field("phi", "physical", n_components=3)
     psi = Field("psi", "response", n_components=3)
     action = Action(vertices=[Vertex(fields=[phi, phi, psi], coupling="F")])
-    obs = [phi("a", "x"), phi("b", "x"), phi("c", "y")]
+    # Distinct spatial labels per external operator: sharing one is
+    # refused at interacting orders (see
+    # tests/test_coincident_external_labels.py).  This test is about
+    # symbol flags and rendering, not about the labels.
+    obs = [phi("a", "x"), phi("b", "y"), phi("c", "z")]
     result = compute_moment(obs, action, order=1)
 
     seen = 0
