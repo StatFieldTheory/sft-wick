@@ -1,6 +1,21 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-09-02
+
+> **This is the version the CPC paper refers to.**  v0.3.0 predates the
+> exact order-4 calculation in demo 2 and all of demo 3, so neither
+> demo's headline result can be reproduced against it.
+>
+> **One breaking change**: external operators may no longer share a
+> spatial label — `("phi_a(x)", "phi_b(x)")` now raises rather than
+> silently losing pairing multiplicity.  Write distinct labels with
+> equal positions instead: `("phi_a(x)", "phi_b(y)")` with
+> `positions={"x": 0.0, "y": 0.0}`.  See the section below for why a
+> multiplicity factor would have been wrong rather than merely absent.
+>
+> **Numbers move** in demo 1's L2 sweep (its order-4 channel was resting
+> on a single QMC seed) and, at the 1e-9 level and below, wherever the
+> `auto` C-quadrature dispatch previously raced.  Both are sized in place.
 
 ### Propagator-indexed dynamic couplings (demo2's order-4 F³κ³)
 
