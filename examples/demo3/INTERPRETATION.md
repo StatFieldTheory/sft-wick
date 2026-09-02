@@ -112,7 +112,7 @@ coherent offset across a curve is *one* fluctuation, not one per point.
 | ETDRK2 discretisation (level B) | **0.01×** the MC error | paired Δt study at identical events; convergence ratio 4.0–5.1 confirms `O(Δt²)` |
 | Monte Carlo, level A | 0.9 % (`⟨φ³⟩`), 3.9 % (connected `⟨φ⁴⟩`) | batch scatter over ≥ 20 batches |
 | Monte Carlo, level B | 0.7–1.0 % on `ξ₀₁` from 6 × 4e5 realisations | inverse-variance combination, with χ²/dof reported — see below |
-| blow-up of the quadratic drift | **0.00e+00** — not one diverged trajectory in 6e6 | measured and reported per run |
+| blow-up of the quadratic drift | **0 diverged trajectories out of 7.3e6 integrated** | every trajectory the script integrates is checked — the `t` sweep, the paired Δt study, the separation sweep and the amplitude scan — and the count is aggregated, not quoted per run |
 
 **The `ξ₀₁` estimator is heavy-tailed, and that has to be handled
 explicitly.**  `ξ₀₁` is a product of two heavy-tailed fields, and at small
