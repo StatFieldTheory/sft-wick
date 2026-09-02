@@ -45,8 +45,9 @@ expand:
 propagators:
   t_max: 50.0
   n_grid_t: 60   # ignored under c_closed_form_only=true
-  c_closed_form_module: ./c_closed_form.py
-  c_closed_form_attr: C_fn_bare
+  # Built-in closed form for the bare-lam kernel declared above
+  # (identical to ``c_closed_form.py::C_fn_bare``, kept as a reference).
+  c_closed_form: auto
   c_closed_form_only: true
   c_closed_form_vectorized: true
 

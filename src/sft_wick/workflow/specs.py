@@ -155,6 +155,24 @@ class _SeparableTranslationKappa2:
         self.spatial = spatial
         self._n = int(n_components)
 
+    #: ``κ²(1, 2) = κ_t(t1 − t2) · κ_x(r)`` -- the L0 lazy cache uses this to
+    #: build one temporal table and scale it by ``κ_x(r)`` per separation.
+    separable_translation: bool = True
+
+    @property
+    def symmetric_in_time(self) -> bool:
+        """Whether ``κ_t(Δt) = κ_t(−Δt)`` is guaranteed (built-in kernels only)."""
+        return bool(getattr(self.temporal, "is_even", False))
+
+    @property
+    def has_diagonal_cusp(self):
+        """``True`` / ``False`` for the built-in temporal kernels, ``None``
+        (unknown, probe numerically) for a custom one."""
+        return getattr(self.temporal, "has_diagonal_cusp", None)
+
+    def spatial_factor(self, r: float) -> float:
+        return float(self.spatial(float(r)))
+
     def __call__(self, n1, t1, n2, t2):
         diff = np.asarray(n1, dtype=float) - np.asarray(n2, dtype=float)
         if diff.ndim == 0:
@@ -174,6 +192,14 @@ class _SeparableRotationKappa2:
         self.temporal = temporal
         self.angular = angular
         self._n = int(n_components)
+
+    @property
+    def symmetric_in_time(self) -> bool:
+        return bool(getattr(self.temporal, "is_even", False))
+
+    @property
+    def has_diagonal_cusp(self):
+        return getattr(self.temporal, "has_diagonal_cusp", None)
 
     def __call__(self, n1, t1, n2, t2):
         from sft_wick.evaluate import _rotation_cos
@@ -394,6 +420,12 @@ class ExponentialTemporal:
 
     lam: float
     sigma_t: float
+    #: Even in ``Δt`` -- lets the propagator-table builders fill the
+    #: ``(t1, t2)`` grid from its upper triangle.
+    is_even: bool = True
+    #: ``|Δt|`` gives a derivative jump at ``Δt = 0``; the dblquad path
+    #: splits the integration rectangle there.
+    has_diagonal_cusp: bool = True
 
     def __call__(self, dt: float) -> float:
         return self.lam * float(np.exp(-abs(dt) / self.sigma_t))
@@ -405,6 +437,8 @@ class GaussianTemporal:
 
     lam: float
     sigma_t: float
+    is_even: bool = True
+    has_diagonal_cusp: bool = False
 
     def __call__(self, dt: float) -> float:
         return self.lam * float(np.exp(-(dt * dt) / (2.0 * self.sigma_t ** 2)))

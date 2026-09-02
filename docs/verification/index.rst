@@ -3,10 +3,11 @@ Verification
 
 sft-wick's correctness rests on two complementary layers of evidence:
 
-1. A **deductive** test suite (Phases 1–8, **275 tests**, ~3.5 min
-   full run) that pits each elementary transformation in the package
-   against an independent reference — any failure points at a
-   specific module.
+1. A **deductive** test suite (Phases 1–8 plus the later feature
+   suites; every file, its reference and its collected test count are
+   listed in the generated :doc:`catalog`) that pits each elementary
+   transformation in the package against an independent reference —
+   any failure points at a specific module.
 2. Two **inductive** end-to-end demos (Gaussian and non-Gaussian
    driving) that compare the package's full pipeline to direct
    Langevin simulation over a large parameter grid.

@@ -71,12 +71,12 @@ expand:
 propagators:
   t_max: 15.0
   n_grid_t: 60
-  # The closed-form C here is bare-λ OU (same as demo1), so it is
+  # The built-in closed form (``c_closed_form: auto``) evaluates C for
+  # the bare-λ OU kernel declared above (same as demo1), so it is
   # slightly out of sync with λ_eff-based FF — see
   # validate_wrapper_demo2.py for the nuance.  For this CLI demo
   # we accept the ~1% residual and report via the table.
-  c_closed_form_module: ./demo1/c_closed_form.py
-  c_closed_form_attr: C_fn
+  c_closed_form: auto
 
 sweep:
   integrate_over: null            # fixed-time ⟨φ(t_f)·φ(t_f)⟩

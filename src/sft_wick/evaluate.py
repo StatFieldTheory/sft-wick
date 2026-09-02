@@ -429,14 +429,26 @@ class _LazyTimeSplineCache:
         mode: str,
         round_decimals: int = 10,
         n_jobs: int = 1,
+        direct_kwargs: dict | None = None,
     ):
         self.parent = parent
         self.t_max = t_max
         self.n_grid_t = n_grid_t
         self.mode = mode
         self.round_decimals = round_decimals
+        #: ``method`` / ``n_gauss`` forwarded to ``_C_value_direct`` for
+        #: every grid cell (empty for dblquad / closed-form, so subclasses
+        #: overriding the legacy 4-argument signature keep working).
+        self.direct_kwargs: dict = dict(direct_kwargs or {})
         self.ts = np.linspace(parent.model.t_min, t_max, n_grid_t)
         self._splines_by_key: dict = {}
+        #: Separable-translation shortcut (see :meth:`_build`): the
+        #: ``(t1, t2)`` grids at zero separation divided by ``κ_x(0)``, built
+        #: once and rescaled by ``κ_x(r)`` for every later ``r``.
+        self._base_grids: list | None = None
+        #: Number of times the full quadrature grid was actually built --
+        #: exposed so tests and the cost estimator can count table builds.
+        self.n_grid_builds: int = 0
         #: Parallel-worker count forwarded to :meth:`_build`.  ``1``
         #: (default) is serial; ``-1`` is all cores via
         #: :mod:`joblib.Parallel` with the ``loky`` backend.  Each
@@ -474,58 +486,113 @@ class _LazyTimeSplineCache:
         return ("xx", a, b)
 
     def _build(self, x1_val, x2_val) -> list:
-        """Build 2-D ``(t1, t2)`` splines at this specific parameter
-        value by evaluating ``_C_value_direct`` on the time grid.
+        """Build 2-D ``(t1, t2)`` splines at this specific parameter value.
 
-        Parallelises across the ``n_grid_t × n_grid_t`` grid points
-        when :attr:`n_jobs` ≠ 1, mirroring the full-grid builders.
+        Two shortcuts, both exact up to floating-point rounding:
+
+        * **Separability** (translation mode, ``κ²(1, 2) = κ_t · κ_x(r)``,
+          no white noise): ``C(r; t1, t2) = κ_x(r) · C(0; t1, t2)``, so the
+          quadrature grid is built ONCE at zero separation and rescaled
+          for every further ``r``.  The lazy cache used to redo the full
+          ``n_grid_t²`` quadrature per distinct ``r`` -- 4× the work for a
+          four-point moment, 12×+ in a positions sweep.
+        * **Time symmetry** (``κ_t`` even, diagonal C): the grid is
+          symmetric in ``(t1, t2)``, so only the upper triangle is
+          evaluated and mirrored.
+
+        Whether either applies is decided by the parent cache
+        (:meth:`PropagatorCache._lazy_spatial_factor` /
+        :meth:`PropagatorCache._c_time_symmetric`); a user-supplied
+        closed form or C callable gets neither, since nothing is known
+        about its structure.
+
+        Parallelises across grid points when :attr:`n_jobs` ≠ 1, with a
+        progress bar in either case.
         """
-        from scipy.interpolate import RectBivariateSpline
+        x1_arr = np.asarray(x1_val)
+        x2_arr = np.asarray(x2_val)
+        grids = None
+        if self.mode == "translation":
+            factor_fn = self.parent._lazy_spatial_factor()
+            if factor_fn is not None:
+                grids = self._grids_from_base(x1_arr, x2_arr, factor_fn)
+        if grids is None:
+            grids = self._grids_by_quadrature(x1_arr, x2_arr)
+        return self._splines_from_grids(grids)
+
+    def _grids_from_base(self, x1_arr, x2_arr, factor_fn) -> list | None:
+        """Rescale the zero-separation grids by ``κ_x(r) / κ_x(0)``.
+
+        Returns ``None`` (caller falls back to quadrature) when
+        ``κ_x(0)`` vanishes or is not finite, so the shortcut can never
+        divide by zero.
+        """
+        diff = np.asarray(x1_arr, dtype=float) - np.asarray(x2_arr, dtype=float)
+        r = float(abs(diff)) if diff.ndim == 0 else float(np.linalg.norm(diff))
+        f_r = float(factor_fn(r))
+        if self._base_grids is None:
+            f0 = float(factor_fn(0.0))
+            if not np.isfinite(f0) or f0 == 0.0:
+                return None
+            zero = np.zeros_like(np.asarray(x1_arr, dtype=float))
+            self._base_grids = [
+                g / f0 for g in self._grids_by_quadrature(zero, zero)
+            ]
+        return [f_r * g for g in self._base_grids]
+
+    def _grids_by_quadrature(self, x1_arr, x2_arr) -> list:
+        """The per-component ``(n_t, n_t)`` grids from ``_C_value_direct``."""
+        from .progress import progress_map
 
         parent = self.parent
         N = parent.model.n_components
         ts = self.ts
         n_t = self.n_grid_t
+        symmetric = parent._c_time_symmetric()
 
         tasks = [
             (i, j, ts[i], ts[j])
             for i in range(n_t)
             for j in range(n_t)
+            if (not symmetric) or j >= i
         ]
 
-        x1_arr = np.asarray(x1_val)
-        x2_arr = np.asarray(x2_val)
+        direct_kwargs = self.direct_kwargs
 
         def _point(args):
             i, j, t1, t2 = args
-            C_mat = parent._C_value_direct(x1_arr, t1, x2_arr, t2)
+            C_mat = parent._C_value_direct(x1_arr, t1, x2_arr, t2, **direct_kwargs)
             return i, j, np.array([C_mat[a, a] for a in range(N)])
 
-        # Serial fast path; matches the full-grid builders' short-list
-        # threshold so small caches don't pay joblib startup.
-        if self.n_jobs == 1 or len(tasks) <= 4:
-            results = [_point(t) for t in tasks]
-        else:
-            from joblib import Parallel, delayed
-            results = Parallel(n_jobs=self.n_jobs, backend="loky")(
-                delayed(_point)(t) for t in tasks
-            )
+        label = parent._c_source_label()
+        results = progress_map(
+            _point, tasks, f"C table ({label})",
+            n_jobs=self.n_jobs, unit="cell",
+        )
+        self.n_grid_builds += 1
 
         grids = [np.zeros((n_t, n_t)) for _ in range(N)]
         for i, j, cvec in results:
             for a in range(N):
                 grids[a][i, j] = cvec[a]
+                if symmetric:
+                    grids[a][j, i] = cvec[a]
+        return grids
 
+    def _splines_from_grids(self, grids: list) -> list:
+        from scipy.interpolate import RectBivariateSpline
+
+        ts = self.ts
         # Wrap each 2-D spline with the diagonal spline harvested from the
         # SAME grid -- the lazy spatial path carried the identical kink as
         # the legacy table (measured 22.3% at n_grid_t=41, bit-for-bit the
         # same numbers), and this is the path examples/demo1 uses.
         return [
             _DiagAwareSpline(
-                RectBivariateSpline(ts, ts, grids[a]),
-                _diag_line_interp(ts, np.diag(grids[a])),
+                RectBivariateSpline(ts, ts, g),
+                _diag_line_interp(ts, np.diag(g)),
             )
-            for a in range(N)
+            for g in grids
         ]
 
 
@@ -910,6 +977,101 @@ def _C_value_direct_gl(
     return C_mat
 
 
+def _probe_diagonal_cusp(model: "PropagatorModel", positions: tuple) -> bool:
+    """Numerically decide whether ``κ²`` has a derivative jump at ``λ1 = λ2``.
+
+    ``J(h) = |κ(λ, λ+h) + κ(λ, λ−h) − 2 κ(λ, λ)| / h`` is the jump of the
+    one-sided derivatives.  For a smooth kernel it is ``O(h)``; for a
+    ``|Δ|`` cusp it tends to a constant.  Compare ``h`` and ``h / 4``.
+    """
+    n1, n2 = positions
+    t_min = float(model.t_min)
+    try:
+        vals = []
+        for lam0 in (t_min + 0.7, t_min + 2.3):
+            for h in (1e-3, 2.5e-4):
+                k0 = np.asarray(model.kappa2(n1, lam0, n2, lam0), dtype=float)
+                kp = np.asarray(model.kappa2(n1, lam0, n2, lam0 + h), dtype=float)
+                km = np.asarray(model.kappa2(n1, lam0, n2, lam0 - h), dtype=float)
+                scale = max(float(np.max(np.abs(k0))), 1e-300)
+                vals.append(float(np.max(np.abs(kp + km - 2.0 * k0))) / h / scale)
+    except Exception:
+        return True
+    j_h, j_h4 = vals[0] + vals[2], vals[1] + vals[3]
+    if j_h4 < 1e-9:
+        return False
+    return bool(j_h4 > 0.5 * j_h)
+
+
+def select_gl_node_count(
+    model: "PropagatorModel",
+    t_max: float,
+    *,
+    n_start: int = 20,
+    n_max: int = 110,
+    tol: float = 1e-8,
+    growth: float = 1.5,
+    positions: tuple | None = None,
+) -> int | None:
+    """Smallest Gauss-Legendre node count that is converged for a table
+    reaching ``t_max``, or ``None`` if none up to ``n_max`` is.
+
+    A fixed-node tensor-product rule loses accuracy as the integrand's
+    exponential rates times the interval length grow -- for the demo1
+    kernel (``γ = 1``, ``σ_t = 0.3``) ``n_gauss = 20`` is at 1e-12 for
+    ``t_max = 15`` but 1e-5 at 30 and 2e-2 at 100.  Rather than trust a
+    number, this probes the table's extreme cells (the deep corner
+    ``(t_max, t_max)``, its mid-table neighbours and the thinnest strip
+    ``(t_max, t_min + h)``) and accepts ``n`` when the rule agrees with
+    its ``growth × n`` refinement to ``tol`` relative at every probe
+    (cells below ``1e-6`` of the table scale are judged against that
+    floor).  This is the nested-rule convergence test every adaptive
+    quadrature runs, applied once per table instead of per cell; it
+    costs a handful of GL evaluations.
+
+    Returns ``None`` -- meaning "use dblquad" -- when the cap is reached
+    or the kernel raises on the probe positions.
+    """
+    import math
+
+    t_min = float(model.t_min)
+    if float(t_max) <= t_min:
+        return int(n_start)
+    if positions is None:
+        n1 = n2 = np.asarray(0.0)
+    else:
+        n1, n2 = positions
+    span = float(t_max) - t_min
+    h = span / 60.0
+    mid = t_min + 0.5 * span
+    cells = [
+        (t_max, t_max), (t_max, mid), (mid, mid),
+        (t_max, t_min + h), (t_min + h, t_min + h),
+    ]
+    n = int(n_start)
+    try:
+        while True:
+            n_ref = max(n + 2, int(math.ceil(growth * n)))
+            if n_ref > n_max:
+                return None
+            vals = [_C_value_direct_gl(model, n1, t1, n2, t2, n_gauss=n)
+                    for t1, t2 in cells]
+            refs = [_C_value_direct_gl(model, n1, t1, n2, t2, n_gauss=n_ref)
+                    for t1, t2 in cells]
+            scale = max(float(np.max(np.abs(r))) for r in refs)
+            if not np.isfinite(scale) or scale == 0.0:
+                return None
+            worst = max(
+                float(np.max(np.abs(v - r) / np.maximum(np.abs(r), 1e-6 * scale)))
+                for v, r in zip(vals, refs)
+            )
+            if worst <= tol:
+                return n
+            n = n_ref
+    except Exception:
+        return None
+
+
 def _causal_lower_bounds(
     spatial,
     int_vars,
@@ -1263,7 +1425,7 @@ class PropagatorCache:
         quad_opts: dict | None = None,
         homogeneity: str = "translation",
         interp_method: str = "linear",
-        c_method: str = "dblquad",
+        c_method: str = "auto",
         n_gauss: int = 20,
         c_value_fn: Callable | None = None,
     ):
@@ -1291,26 +1453,39 @@ class PropagatorCache:
             c_method: Quadrature method used by :meth:`_C_value_direct`
                 (and therefore by every ``precompute_C_table_*`` builder).
 
-                - ``'dblquad'`` (default, robust): adaptive 2-D
-                  quadrature via :func:`scipy.integrate.dblquad`.
-                  Handles arbitrary κ² but slow (10-80 ms per call)
-                  due to adaptive recursion.
+                - ``'auto'`` (default): Gauss-Legendre, with the node
+                  count chosen at the first table build by
+                  :func:`select_gl_node_count` -- the rule is refined
+                  until it agrees with itself at the table's extreme
+                  cells -- and ``'dblquad'`` as the fallback when no
+                  node count up to the cap converges.  Direct
+                  :meth:`C_value` calls made *before* any table build
+                  use ``'dblquad'``, since no ``t_max`` is known yet.
                 - ``'gauss_legendre'``: tensor-product Gauss-Legendre
                   with diagonal-aware sub-region splitting at
-                  ``λ1 = λ2``.  ~10-1000× faster than ``'dblquad'``
-                  on smooth κ² with a single ``|λ1−λ2|`` cusp on the
-                  diagonal (the demo1/demo2 OU-style kernels).  See
-                  :func:`_C_value_direct_gl` for details.
+                  ``λ1 = λ2`` and exactly ``n_gauss`` nodes -- no
+                  convergence check.  ~10-1000× faster than
+                  ``'dblquad'`` on smooth κ² with a single ``|λ1−λ2|``
+                  cusp on the diagonal (the demo1/demo2 OU-style
+                  kernels).  See :func:`_C_value_direct_gl`.  Its
+                  accuracy at fixed ``n_gauss`` degrades as
+                  ``(γ + 1/σ_t) · t_max`` grows (measured: 1e-12 at
+                  ``t_max = 15``, 1e-5 at 30, 2e-2 at 100 for the
+                  demo1 kernel with ``n_gauss=20``), which is why
+                  ``'auto'`` re-checks instead of trusting 20.
+                - ``'dblquad'`` (robust): adaptive 2-D quadrature via
+                  :func:`scipy.integrate.dblquad`.  Handles arbitrary
+                  κ² but slow (10-250 ms per call) due to adaptive
+                  recursion around the diagonal cusp.
 
                 Each ``precompute_C_table_*`` builder also accepts a
                 local ``c_method`` kwarg that overrides this default
                 for the duration of the build.
             n_gauss: Number of Gauss-Legendre nodes per dimension per
-                sub-region when ``c_method='gauss_legendre'``.  Default
-                ``20`` is enough for machine precision on smooth OU /
-                Gaussian kernels.  Cost scales as ``n_gauss²`` per
-                sub-region (3 sub-regions for ``t1 ≠ t2``, 2 for
-                ``t1 = t2``).
+                sub-region for ``c_method='gauss_legendre'``, and the
+                STARTING node count for ``'auto'``.  Default ``20``.
+                Cost scales as ``n_gauss²`` per sub-region (3
+                sub-regions for ``t1 ≠ t2``, 2 for ``t1 = t2``).
             homogeneity: Physical assumption about how C depends on the
                 spatial coordinates.  Determines which
                 ``precompute_C_table_*`` builder is valid.
@@ -1360,9 +1535,9 @@ class PropagatorCache:
                 f"homogeneity must be 'translation', 'rotation', or "
                 f"'general'; got {homogeneity!r}"
             )
-        if c_method not in ("dblquad", "gauss_legendre"):
+        if c_method not in ("auto", "dblquad", "gauss_legendre"):
             raise ValueError(
-                f"c_method must be 'dblquad' or 'gauss_legendre'; "
+                f"c_method must be 'auto', 'dblquad' or 'gauss_legendre'; "
                 f"got {c_method!r}"
             )
         if int(n_gauss) < 2:
@@ -1375,6 +1550,10 @@ class PropagatorCache:
         self.interp_method = interp_method
         self.c_method = c_method
         self.n_gauss = int(n_gauss)
+        #: What ``'auto'`` resolved to at the first table build (``None``
+        #: until then, or when ``c_method`` was explicit).
+        self._c_method_resolved: str | None = None
+        self._n_gauss_resolved: int | None = None
         #: Optional user-supplied C, bypassing the ``∫∫ R κ R`` construction.
         self.c_value_fn = c_value_fn
 
@@ -1826,6 +2005,150 @@ class PropagatorCache:
         return out
 
     # ------------------------------------------------------------------ #
+    # Quadrature-method resolution and kernel structure
+    # ------------------------------------------------------------------ #
+
+    @property
+    def c_method_resolved(self) -> str:
+        """The method the next table build will use.
+
+        ``'closed_form'`` when a C callable replaces the quadrature; the
+        resolved method after a build under ``'auto'``; ``'dblquad'`` for
+        an unresolved ``'auto'``; else the explicit setting.
+        """
+        if self.c_value_fn is not None:
+            return "closed_form"
+        if self.c_method != "auto":
+            return self.c_method
+        return self._c_method_resolved or "dblquad"
+
+    @property
+    def n_gauss_resolved(self) -> int | None:
+        """Node count in force for Gauss-Legendre, else ``None``."""
+        if self.c_method_resolved != "gauss_legendre":
+            return None
+        return self._n_gauss_resolved or self.n_gauss
+
+    def resolve_c_method(self, t_max: float) -> tuple[str, int | None]:
+        """Decide (and remember) the quadrature for a table reaching ``t_max``.
+
+        Explicit settings are returned as they are.  ``'auto'`` runs
+        :func:`select_gl_node_count` once -- later calls with a larger
+        ``t_max`` re-run it, since convergence depends on the horizon.
+        """
+        if self.c_value_fn is not None:
+            return "closed_form", None
+        if self.c_method != "auto":
+            return self.c_method, (self.n_gauss if self.c_method == "gauss_legendre" else None)
+        horizon = getattr(self, "_c_method_horizon", None)
+        if self._c_method_resolved is not None and horizon is not None \
+                and float(t_max) <= horizon:
+            return self._c_method_resolved, self._n_gauss_resolved
+        n = select_gl_node_count(
+            self.model, t_max, n_start=self.n_gauss,
+            positions=self._probe_positions(),
+        )
+        if n is None:
+            self._c_method_resolved, self._n_gauss_resolved = "dblquad", None
+        else:
+            self._c_method_resolved, self._n_gauss_resolved = "gauss_legendre", int(n)
+        self._c_method_horizon = float(t_max)
+        return self._c_method_resolved, self._n_gauss_resolved
+
+    def _resolve_build_method(self, c_method, n_gauss, t_max):
+        """Per-build override → instance setting → ``'auto'`` resolution."""
+        if c_method is None or c_method == "auto":
+            method, n = self.resolve_c_method(t_max)
+            if n_gauss is not None and method == "gauss_legendre":
+                n = int(n_gauss)
+            return method, n
+        if c_method not in ("dblquad", "gauss_legendre"):
+            raise ValueError(
+                f"c_method must be 'auto', 'dblquad' or 'gauss_legendre'; "
+                f"got {c_method!r}"
+            )
+        return c_method, int(self.n_gauss if n_gauss is None else n_gauss)
+
+    @staticmethod
+    def _direct_kwargs(method: str, n_gauss: int | None) -> dict:
+        """Keyword arguments for ``_C_value_direct`` under ``method``.
+
+        Forwarded only for Gauss-Legendre, so subclasses that override
+        ``_C_value_direct`` with the legacy 4-argument signature keep
+        working on the dblquad / closed-form paths.
+        """
+        if method == "gauss_legendre":
+            return {"method": method, "n_gauss": int(n_gauss)}
+        return {}
+
+    def _probe_positions(self) -> tuple:
+        """``(n1, n2)`` the node-count probe evaluates κ² at."""
+        if self.homogeneity == "rotation":
+            v = np.array([0.0, 0.0, 1.0])
+            return v, v
+        return np.asarray(0.0), np.asarray(0.0)
+
+    def _c_source_label(self) -> str:
+        """Short description of how C is evaluated, for progress bars."""
+        m = self.c_method_resolved
+        if m == "closed_form":
+            return "closed form"
+        if m == "gauss_legendre":
+            return f"Gauss-Legendre n={self.n_gauss_resolved}"
+        return "dblquad"
+
+    def _lazy_spatial_factor(self) -> Callable | None:
+        """``r ↦ κ_x(r)`` when C factorises as ``κ_x(r) · C(0; t1, t2)``.
+
+        True for a separable translation-invariant ``kappa2`` (the L1
+        :class:`~sft_wick.workflow.specs.SeparableTranslation`) without a
+        white-noise impulse -- the impulse adds an ``r``-independent term
+        that would break the scaling.  A user ``c_value_fn`` disables it:
+        nothing is known about that function's structure.
+        """
+        if self.c_value_fn is not None or self.model.sigma2 is not None:
+            return None
+        k2 = self.model.kappa2
+        if getattr(k2, "separable_translation", False) and hasattr(k2, "spatial_factor"):
+            return k2.spatial_factor
+        return None
+
+    def _kappa2_has_diagonal_cusp(self) -> bool:
+        """Whether ``κ²(λ1, λ2)`` has a derivative jump on ``λ1 = λ2``.
+
+        Decides whether the dblquad path splits the rectangle at the
+        diagonal.  Splitting is what makes a stationary ``|λ1 − λ2|``
+        kernel fast and accurate (7 ms and 1e-10 instead of 74-245 ms and
+        2e-6), but on a SMOOTH kernel the three variable-limit pieces cost
+        scipy 10-250× more evaluations than the one rectangle (measured
+        0.2 ms → 8-50 ms), so the choice must be made per kernel.  The
+        built-in kernels say so themselves (``has_diagonal_cusp``); any
+        other callable is probed once: the jump ``|κ'(0⁺) − κ'(0⁻)|`` is
+        estimated from one-sided differences at two step sizes and called
+        a cusp when it does not shrink with the step.  A kernel that
+        raises on the probe is treated as having a cusp (the safe side).
+        """
+        cached = getattr(self, "_cusp_cache", None)
+        if cached is not None:
+            return cached
+        flag = getattr(self.model.kappa2, "has_diagonal_cusp", None)
+        if flag is None:
+            flag = _probe_diagonal_cusp(self.model, self._probe_positions())
+        self._cusp_cache = bool(flag)
+        return self._cusp_cache
+
+    def _c_time_symmetric(self) -> bool:
+        """Whether the diagonal C table is symmetric under ``t1 ↔ t2``.
+
+        Requires ``κ_aa(λ1, λ2) = κ_aa(λ2, λ1)`` -- guaranteed only by the
+        built-in even temporal kernels -- and diagonal C (the off-diagonal
+        ``C_ab`` swaps ``R_aa ↔ R_bb`` as well).
+        """
+        if self.c_value_fn is not None or not self.model.diag_C:
+            return False
+        return bool(getattr(self.model.kappa2, "symmetric_in_time", False))
+
+    # ------------------------------------------------------------------ #
     # Spatial-aware extension: (t, x) coordinates via homogeneity modes
     # ------------------------------------------------------------------ #
 
@@ -1836,8 +2159,8 @@ class PropagatorCache:
         r_max: float | None = None,
         n_grid_r: int | None = None,
         n_jobs: int = 1,
-        c_method: str = "dblquad",
-        n_gauss: int = 20,
+        c_method: str | None = None,
+        n_gauss: int | None = None,
     ) -> None:
         """Enable spatial support under the translation-invariance
         assumption:
@@ -1882,19 +2205,14 @@ class PropagatorCache:
                 startup cost).
             c_method: Quadrature method passed to
                 :meth:`_C_value_direct` for every grid-point
-                evaluation (full-grid mode only -- lazy mode will use
-                the cache instance's :attr:`c_method` default).
-
-                - ``'dblquad'`` (default): backwards-compatible
-                  adaptive quadrature.
-                - ``'gauss_legendre'``: tensor-product GL with
-                  diagonal-aware sub-region splitting.  10-1000×
-                  faster on smooth κ² with a single ``|λ1−λ2|`` cusp.
-                  See :func:`_C_value_direct_gl`.
-            n_gauss: Per-dimension GL node count when
-                ``c_method='gauss_legendre'``.  Default ``20`` is
-                enough for machine precision on demo1/demo2 OU
-                kernels.
+                evaluation, in both full-grid and lazy mode.  ``None``
+                (default) uses the cache instance's setting, resolving
+                ``'auto'`` for this ``t_max`` (see
+                :meth:`resolve_c_method`); ``'dblquad'`` /
+                ``'gauss_legendre'`` override it for this build.
+            n_gauss: Per-dimension GL node count for
+                ``'gauss_legendre'``; ``None`` uses the instance's
+                (resolved) value.
 
         Requires ``self.homogeneity == 'translation'``.
 
@@ -1910,17 +2228,20 @@ class PropagatorCache:
         m = self.model
         t_min = m.t_min
         self._c_table_range = (t_min, t_max)
+        method, n_gauss_val = self._resolve_build_method(c_method, n_gauss, t_max)
+        direct_kwargs = self._direct_kwargs(method, n_gauss_val)
 
         # Lazy mode: defer per-r spline construction to first query.
         if r_max is None or n_grid_r is None:
             self._lazy_translation = _LazyTimeSplineCache(
                 self, t_max, n_grid_t, mode="translation",
-                n_jobs=n_jobs,
+                n_jobs=n_jobs, direct_kwargs=direct_kwargs,
             )
             return
 
         # Full-grid mode: build the 3-D (t1, t2, r) spline now.
         from scipy.interpolate import RegularGridInterpolator
+        from .progress import progress_map
 
         N = m.n_components
         ts = np.linspace(t_min, t_max, n_grid_t)
@@ -1936,27 +2257,15 @@ class PropagatorCache:
         def _point(args):
             i, j, k, t1, t2, r = args
             # TODO(d-dim): replace scalar r with np.ndarray x_diff
-            # Forward the GL kwargs only when explicitly requested, so
-            # subclasses overriding ``_C_value_direct`` with the
-            # legacy 4-arg signature continue to work unchanged.
-            if c_method != "dblquad":
-                C_mat = self._C_value_direct(
-                    np.asarray(0.0), t1, np.asarray(r), t2,
-                    method=c_method, n_gauss=n_gauss,
-                )
-            else:
-                C_mat = self._C_value_direct(
-                    np.asarray(0.0), t1, np.asarray(r), t2,
-                )
+            C_mat = self._C_value_direct(
+                np.asarray(0.0), t1, np.asarray(r), t2, **direct_kwargs,
+            )
             return i, j, k, np.array([C_mat[a, a] for a in range(N)])
 
-        if n_jobs == 1 or len(tasks) <= 4:
-            results = [_point(t) for t in tasks]
-        else:
-            from joblib import Parallel, delayed
-            results = Parallel(n_jobs=n_jobs, backend="loky")(
-                delayed(_point)(t) for t in tasks
-            )
+        results = progress_map(
+            _point, tasks, f"C table ({self._c_source_label()}, full r-grid)",
+            n_jobs=n_jobs, unit="cell",
+        )
 
         grids = [np.zeros((n_grid_t, n_grid_t, n_grid_r)) for _ in range(N)]
         for i, j, k, cvec in results:
@@ -1990,8 +2299,8 @@ class PropagatorCache:
         n_grid_t: int = 60,
         n_grid_cos: int | None = None,
         n_jobs: int = 1,
-        c_method: str = "dblquad",
-        n_gauss: int = 20,
+        c_method: str | None = None,
+        n_gauss: int | None = None,
     ) -> None:
         """Enable spatial support under the rotation-invariance
         assumption:
@@ -2043,15 +2352,18 @@ class PropagatorCache:
         m = self.model
         t_min = m.t_min
         self._c_table_range = (t_min, t_max)
+        method, n_gauss_val = self._resolve_build_method(c_method, n_gauss, t_max)
+        direct_kwargs = self._direct_kwargs(method, n_gauss_val)
 
         if n_grid_cos is None:
             self._lazy_rotation = _LazyTimeSplineCache(
                 self, t_max, n_grid_t, mode="rotation",
-                n_jobs=n_jobs,
+                n_jobs=n_jobs, direct_kwargs=direct_kwargs,
             )
             return
 
         from scipy.interpolate import RegularGridInterpolator
+        from .progress import progress_map
 
         N = m.n_components
         ts = np.linspace(t_min, t_max, n_grid_t)
@@ -2081,24 +2393,13 @@ class PropagatorCache:
         def _point(args):
             i, j, k, t1, t2, cos_val = args
             e1, e2 = _rep_vectors(cos_val)
-            # See ``precompute_C_table_translation._point`` for the
-            # legacy-subclass-compat rationale.
-            if c_method != "dblquad":
-                C_mat = self._C_value_direct(
-                    e1, t1, e2, t2,
-                    method=c_method, n_gauss=n_gauss,
-                )
-            else:
-                C_mat = self._C_value_direct(e1, t1, e2, t2)
+            C_mat = self._C_value_direct(e1, t1, e2, t2, **direct_kwargs)
             return i, j, k, np.array([C_mat[a, a] for a in range(N)])
 
-        if n_jobs == 1 or len(tasks) <= 4:
-            results = [_point(t) for t in tasks]
-        else:
-            from joblib import Parallel, delayed
-            results = Parallel(n_jobs=n_jobs, backend="loky")(
-                delayed(_point)(t) for t in tasks
-            )
+        results = progress_map(
+            _point, tasks, f"C table ({self._c_source_label()}, full cos-grid)",
+            n_jobs=n_jobs, unit="cell",
+        )
 
         grids = [np.zeros((n_grid_t, n_grid_t, n_grid_cos)) for _ in range(N)]
         for i, j, k, cvec in results:
@@ -2132,8 +2433,8 @@ class PropagatorCache:
         x_max: float | None = None,
         n_grid_x: int | None = None,
         n_jobs: int = 1,
-        c_method: str = "dblquad",
-        n_gauss: int = 20,
+        c_method: str | None = None,
+        n_gauss: int | None = None,
     ) -> None:
         """Pre-compute C with no spatial symmetry assumed.
 
@@ -2172,15 +2473,18 @@ class PropagatorCache:
         m = self.model
         t_min = m.t_min
         self._c_table_range = (t_min, t_max)
+        method, n_gauss_val = self._resolve_build_method(c_method, n_gauss, t_max)
+        direct_kwargs = self._direct_kwargs(method, n_gauss_val)
 
         if x_max is None or n_grid_x is None:
             self._lazy_general = _LazyTimeSplineCache(
                 self, t_max, n_grid_t, mode="general",
-                n_jobs=n_jobs,
+                n_jobs=n_jobs, direct_kwargs=direct_kwargs,
             )
             return
 
         from scipy.interpolate import RegularGridInterpolator
+        from .progress import progress_map
 
         N = m.n_components
         ts = np.linspace(t_min, t_max, n_grid_t)
@@ -2197,26 +2501,15 @@ class PropagatorCache:
         def _point(args):
             i, j, p, q, t1, t2, x1, x2 = args
             # TODO(d-dim): x1, x2 would be vectors
-            # See ``precompute_C_table_translation._point`` for the
-            # legacy-subclass-compat rationale.
-            if c_method != "dblquad":
-                C_mat = self._C_value_direct(
-                    np.asarray(x1), t1, np.asarray(x2), t2,
-                    method=c_method, n_gauss=n_gauss,
-                )
-            else:
-                C_mat = self._C_value_direct(
-                    np.asarray(x1), t1, np.asarray(x2), t2,
-                )
+            C_mat = self._C_value_direct(
+                np.asarray(x1), t1, np.asarray(x2), t2, **direct_kwargs,
+            )
             return i, j, p, q, np.array([C_mat[a, a] for a in range(N)])
 
-        if n_jobs == 1 or len(tasks) <= 4:
-            results = [_point(t) for t in tasks]
-        else:
-            from joblib import Parallel, delayed
-            results = Parallel(n_jobs=n_jobs, backend="loky")(
-                delayed(_point)(t) for t in tasks
-            )
+        results = progress_map(
+            _point, tasks, f"C table ({self._c_source_label()}, full x-grid)",
+            n_jobs=n_jobs, unit="cell",
+        )
 
         grids = [
             np.zeros((n_grid_t, n_grid_t, n_grid_x, n_grid_x))
@@ -2281,8 +2574,14 @@ class PropagatorCache:
             # User-supplied C replaces the whole quadrature construction.
             return np.asarray(self.c_value_fn(n1, t1, n2, t2), dtype=float)
 
-        method = self.c_method if method is None else method
-        n_gauss_val = self.n_gauss if n_gauss is None else int(n_gauss)
+        if method is None or method == "auto":
+            # Unresolved 'auto' (no table built yet, so no horizon to probe)
+            # takes the robust path.
+            method = self.c_method_resolved
+        n_gauss_val = (
+            (self._n_gauss_resolved or self.n_gauss)
+            if n_gauss is None else int(n_gauss)
+        )
         if method == "gauss_legendre":
             return _C_value_direct_gl(
                 self.model, n1, t1, n2, t2, n_gauss=n_gauss_val,
@@ -2313,6 +2612,44 @@ class PropagatorCache:
                 return row
             return np.asarray(rt, dtype=float)[idx, :]
 
+        # Integrate the rectangle ``[t_min, t1] × [t_min, t2]`` as the three
+        # cusp-free pieces used by the Gauss-Legendre path (the two
+        # triangles of the square ``[t_min, min(t1,t2)]²`` on either side
+        # of ``λ1 = λ2``, plus the strip outside it) rather than in one
+        # go.  Stationary κ² has a ``|λ1 − λ2|`` cusp on that diagonal,
+        # and an adaptive rule straddling it both stalls (per-call cost
+        # rising from 74 to 245 ms with ``t`` on the demo1 kernel) and
+        # reports roundoff: measured 2e-6 relative error at
+        # ``epsrel=1e-10`` against the closed form, versus 1e-10 for the
+        # split.  The union of the pieces is the same rectangle, so a κ²
+        # without a cusp is unaffected.
+        def _split_dblquad(integrand) -> float:
+            if not self._kappa2_has_diagonal_cusp():
+                val, _ = dblquad(integrand, t_min, t1, t_min, t2, **self.quad_opts)
+                return val
+            t_d = min(t1, t2)
+            total = 0.0
+            if t_d > t_min:
+                val, _ = dblquad(integrand, t_min, t_d,
+                                 lambda l1: t_min, lambda l1: l1,
+                                 **self.quad_opts)
+                total += val
+                val, _ = dblquad(integrand, t_min, t_d,
+                                 lambda l1: l1, lambda l1: t_d,
+                                 **self.quad_opts)
+                total += val
+            if t1 > t2:
+                val, _ = dblquad(integrand, t_d, t1,
+                                 lambda l1: t_min, lambda l1: t_d,
+                                 **self.quad_opts)
+                total += val
+            elif t2 > t1:
+                val, _ = dblquad(integrand, t_min, t_d,
+                                 lambda l1: t_d, lambda l1: t2,
+                                 **self.quad_opts)
+                total += val
+            return total
+
         if m.diag_C:
             for a in range(N):
                 def integrand(lam2: float, lam1: float, _a: int = a) -> float:
@@ -2322,10 +2659,7 @@ class PropagatorCache:
                     return float(
                         _row(t1, lam1, _a) @ kappa_mat @ _row(t2, lam2, _a)
                     )
-                val, _ = dblquad(
-                    integrand, t_min, t1, t_min, t2, **self.quad_opts,
-                )
-                C_mat[a, a] = val
+                C_mat[a, a] = _split_dblquad(integrand)
         else:
             for a in range(N):
                 for b in range(N):
@@ -2336,10 +2670,7 @@ class PropagatorCache:
                         return float(
                             _row(t1, lam1, _a) @ kappa_mat @ _row(t2, lam2, _b)
                         )
-                    val, _ = dblquad(
-                        integrand, t_min, t1, t_min, t2, **self.quad_opts,
-                    )
-                    C_mat[a, b] = val
+                    C_mat[a, b] = _split_dblquad(integrand)
 
         # --- White-noise (δ-correlated) component: 1-D integral ---
         if m.sigma2 is not None:
@@ -4787,6 +5118,7 @@ def integrate_diagrams(
     integrate_over: Any = None,
     n_gauss: int = 8,
     external_times: dict[str, float] | None = None,
+    progress_tick: Callable | None = None,
 ) -> tuple[float, list[tuple[float, float]]]:
     """Integrate a batch of diagram terms, optionally in parallel.
 
@@ -4818,6 +5150,10 @@ def integrate_diagrams(
             back to sequential for ``len(diagram_terms) <= 2`` to
             avoid joblib's ~1 s startup overhead on trivial batches.
             Requires :mod:`joblib` when ``n_jobs != 1``.
+        progress_tick: Optional ``tick(n=1)`` callable invoked after each
+            diagram finishes (per batch on the parallel path).  Used by
+            :meth:`~sft_wick.workflow.Expansion.sweep` to drive one bar
+            across grid points × diagrams; never affects results.
 
     Returns:
         ``(total, details)`` where *total* is the scalar sum and
@@ -4825,6 +5161,8 @@ def integrate_diagrams(
     """
     if not diagram_terms:
         return (0.0, [])
+
+    tick = progress_tick or (lambda n=1: None)
 
     if n_jobs == 1 or len(diagram_terms) <= 2:
         # Sequential — no overhead
@@ -4839,6 +5177,7 @@ def integrate_diagrams(
                 n_gauss=n_gauss, external_times=external_times,
             )
             details.append((val, err))
+            tick()
     else:
         # Parallel via joblib
         from joblib import Parallel, delayed
@@ -4852,6 +5191,7 @@ def integrate_diagrams(
             for dt in diagram_terms
         )
         details = list(results)
+        tick(len(details))
 
     total = sum(v for v, _ in details)
     return (total, details)

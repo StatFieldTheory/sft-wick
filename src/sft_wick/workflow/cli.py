@@ -9,7 +9,17 @@ Usage::
         Patch config fields without editing the file.
 
     sft-wick run CONFIG.yaml --dry-run
-        Parse + validate the config, print a resolved summary, exit 0.
+        Parse + validate the config, print a resolved summary and a cost
+        estimate (diagram counts, grid size, quadrature calls, a rough
+        wall-clock from a one-second micro-benchmark), exit 0.
+
+    sft-wick run CONFIG.yaml --quiet
+        No progress bars or stage banners (``SFT_WICK_PROGRESS=0`` does
+        the same from the environment).
+
+    sft-wick quickstart
+        Write ``quickstart.yaml`` (a < 1 minute demo1 sweep) to the
+        current directory and run it.
 """
 
 from __future__ import annotations
@@ -42,16 +52,64 @@ def main(argv: list[str] | None = None) -> int:
     )
     run_p.add_argument(
         "--dry-run", action="store_true",
-        help="parse and validate the config; print a summary; "
-             "don't execute.",
+        help="parse and validate the config; print a summary and a cost "
+             "estimate; don't execute.",
     )
+    run_p.add_argument(
+        "--quiet", "-q", action="store_true",
+        help="no progress bars or stage banners (also: SFT_WICK_PROGRESS=0).",
+    )
+
+    qs_p = sub.add_parser(
+        "quickstart",
+        help="write quickstart.yaml to the current directory and run it "
+             "(< 1 minute on a laptop).",
+    )
+    qs_p.add_argument(
+        "--dir", type=Path, default=Path("."),
+        help="directory to write quickstart.yaml into (default: cwd).",
+    )
+    qs_p.add_argument(
+        "--force", action="store_true",
+        help="overwrite an existing quickstart.yaml.",
+    )
+    qs_p.add_argument("--quiet", "-q", action="store_true")
+    qs_p.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args(argv)
     if args.cmd == "run":
         return _cmd_run(args)
+    if args.cmd == "quickstart":
+        return _cmd_quickstart(args)
 
     parser.print_help()
     return 1
+
+
+def _progress_setting(args) -> bool:
+    """CLI default: report progress (text fallback when piped) unless
+    ``--quiet`` or ``SFT_WICK_PROGRESS=0``."""
+    if getattr(args, "quiet", False):
+        return False
+    raw = os.environ.get("SFT_WICK_PROGRESS", "").strip().lower()
+    return raw not in ("0", "false", "off", "no")
+
+
+def _cmd_quickstart(args) -> int:
+    from importlib import resources
+
+    target = Path(args.dir) / "quickstart.yaml"
+    if target.exists() and not args.force:
+        print(f"[sft-wick] {target} exists; re-run with --force to overwrite "
+              f"or run it directly:  sft-wick run {target}")
+    else:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        src = resources.files("sft_wick.workflow").joinpath("quickstart.yaml")
+        target.write_text(src.read_text())
+        print(f"[sft-wick] wrote {target}")
+    args.config = target
+    args.override = []
+    return _cmd_run(args)
 
 
 def _cmd_run(args) -> int:
@@ -69,13 +127,20 @@ def _cmd_run(args) -> int:
 
     _print_summary(cfg)
     _maybe_warn_blas_oversubscription(cfg)
+    progress = _progress_setting(args)
 
     if args.dry_run:
-        print("[sft-wick] dry run — exiting before execution")
+        from .estimate import estimate_cost
+
+        t0 = time.perf_counter()
+        est = estimate_cost(cfg)
+        print(est.summary())
+        print(f"[sft-wick] dry run — exiting before execution "
+              f"(estimate took {time.perf_counter() - t0:.1f}s)")
         return 0
 
     t0 = time.perf_counter()
-    sweep, totals = run_workflow(cfg)
+    sweep, totals = run_workflow(cfg, progress=progress)
     print(f"[sft-wick] workflow done in "
           f"{time.perf_counter() - t0:.1f}s — "
           f"{len(sweep.rows)} diagram-level rows, "
@@ -165,9 +230,12 @@ def _print_summary(cfg) -> None:
     print(f"[sft-wick] expand: observable={e.observable}, "
           f"orders={list(e.orders)}")
     p = cfg.propagators
+    if p.c_closed_form_module is not None:
+        c_src = f"closed_form:user ({p.c_closed_form_module})"
+    else:
+        c_src = f"c_closed_form={p.c_closed_form!r}, c_method={p.c_method!r}"
     print(f"[sft-wick] propagators: t_max={p.t_max}, n_grid_t={p.n_grid_t}, "
-          f"n_jobs={p.n_jobs}, "
-          f"c_closed_form={p.c_closed_form_module is not None}")
+          f"n_jobs={p.n_jobs}, {c_src}")
     sw = cfg.sweep
     method_detail = (
         f"n_gauss={sw.n_gauss}"

@@ -210,6 +210,7 @@ class System:
         diag_C: bool = True,
         iso_C: bool = False,
         cache_path: Any = None,
+        progress: Any = None,
     ) -> "Expansion":
         """Run the perturbative expansion and return an
         :class:`Expansion` object.
@@ -223,8 +224,12 @@ class System:
             cache_path: directory (or file) for on-disk caching.
                 ``None`` disables caching (prints a one-shot
                 reminder).
+            progress: progress-bar setting for the per-order expansion
+                (``True`` / ``False`` / callable / ``None`` = inherit);
+                see :mod:`sft_wick.progress`.
         """
         from sft_wick.perturbation import compute_moment
+        from sft_wick.progress import progress as _progress_scope
 
         from .cache import load_or_compute
         from .expansion import Expansion
@@ -268,10 +273,11 @@ class System:
                 "raw_result": result,
             }
 
-        payload = load_or_compute(
-            cache_path, spec_key, _compute,
-            operation_name="expansion",
-        )
+        with _progress_scope(progress):
+            payload = load_or_compute(
+                cache_path, spec_key, _compute,
+                operation_name="expansion",
+            )
 
         return Expansion(
             system=self,
@@ -293,14 +299,15 @@ class System:
         x_max: float | None = None,
         n_grid_x: int | None = None,
         n_jobs: int = 1,
-        c_closed_form: Callable | None = None,
+        c_closed_form: Callable | str | None = "auto",
         cache_path: Any = None,
         interp_method: str = "linear",
         c_closed_form_only: bool = False,
         c_closed_form_vectorized: bool = False,
-        c_method: str = "dblquad",
+        c_method: str = "auto",
         c_n_gauss: int = 20,
         diag_C: bool = True,
+        progress: Any = None,
     ) -> "Propagators":
         """Build a :class:`Propagators` object with a precomputed
         spatial table matching ``self.homogeneity``.
@@ -308,6 +315,15 @@ class System:
         By default (all grid args ``None``) the cache enters **lazy
         mode** for the inferred homogeneity — recommended for moment
         calculations at a small fixed set of external positions.
+
+        How C is obtained is decided in two steps, both ``'auto'`` by
+        default: ``c_closed_form`` (built-in closed form when the kernel
+        family has one -- diagonal constant drift with a separable
+        exponential-temporal noise, the demo1/demo2 family -- so no
+        quadrature at all), then ``c_method`` (Gauss-Legendre with a
+        converged node count for the package's own kernels, ``dblquad``
+        for user callables).  The result is reported in
+        :attr:`Propagators.c_source`.
 
         Args:
             t_max: upper time bound.
@@ -323,12 +339,11 @@ class System:
                 (both given ⇒ full 4-D spline).
             n_jobs: parallel workers for grid build (``-1`` = all
                 cores, via joblib).
-            c_closed_form: optional callable
-                ``(n1, t1, n2, t2) -> (N, N)`` returning the full C
-                matrix directly.  When provided, the spline-table
-                builder bypasses ``scipy.integrate.dblquad`` — use
-                this when the user knows C in closed form (e.g. OU
-                kernel).
+            c_closed_form: ``'auto'`` (default: the built-in closed form
+                when one applies), ``None`` (force quadrature), or a
+                callable ``(n1, t1, n2, t2) -> (N, N)`` returning the
+                full C matrix directly (a user closed form; wins over
+                the built-in one).  See :meth:`Propagators.build`.
             cache_path: directory (or file) for on-disk caching of
                 the constructed :class:`PropagatorCache`.
             interp_method: ``RegularGridInterpolator`` method for the
@@ -344,27 +359,30 @@ class System:
                 returns ``(n, N, N)`` (only meaningful with
                 ``c_closed_form_only=True``).
             c_method: Quadrature method for the inner C-propagator
-                ``∫ R κ² R`` integral when the cache builds its table.
+                ``∫ R κ² R`` integral when no closed form applies.
 
-                - ``'dblquad'`` (default) -- adaptive Gauss-Kronrod;
-                  robust on any κ² but slow (10-80 ms / cell).
+                - ``'auto'`` (default) -- Gauss-Legendre with a node
+                  count refined from ``c_n_gauss`` until the rule is
+                  converged at the table's extreme cells (falling back
+                  to ``dblquad`` if it never is) for the package's own
+                  kernel families; ``dblquad`` for any user callable.
                 - ``'gauss_legendre'`` -- tensor-product GL with a
-                  diagonal-aware sub-region split.  Recommended for
-                  any κ² that is **piecewise analytic** -- the
-                  package's exponential / Gaussian / Legendre
-                  kernels all qualify.  18-100× faster than dblquad
-                  at machine precision (``c_n_gauss=20``).  Not the
-                  right tool for non-smooth κ² (discontinuous,
-                  oscillatory at high frequency, integrable
-                  singularities like ``1/√t``).
+                  diagonal-aware sub-region split and exactly
+                  ``c_n_gauss`` nodes.  18-100× faster than dblquad on
+                  piecewise-analytic κ²; accuracy at fixed node count
+                  degrades with ``(γ + 1/σ_t) t_max``.  Not the right
+                  tool for non-smooth κ² (discontinuous, oscillatory
+                  at high frequency, integrable singularities like
+                  ``1/√t``).
+                - ``'dblquad'`` -- adaptive Gauss-Kronrod; robust on
+                  any κ² but slow (10-250 ms / cell).
 
-                Ignored when ``c_closed_form_only=True`` (the user's
-                C_fn is exact and bypasses both quadrature paths).
-                See :doc:`/user_guide/workflow` "Choosing an
-                integrator" for the full decision matrix.
+                Ignored when a closed form is in use.  See
+                :doc:`/user_guide/workflow` "Choosing an integrator"
+                for the full decision matrix.
             c_n_gauss: Per-dim GL node count for
-                ``c_method='gauss_legendre'`` (default 20 → machine
-                precision on smooth kernels). Cost ``c_n_gauss²`` per
+                ``c_method='gauss_legendre'`` and the starting count
+                for ``'auto'`` (default 20). Cost ``c_n_gauss²`` per
                 sub-region.
             diag_C: when ``True`` (default), the numerical C propagator is
                 represented as a diagonal vector ``(n, N)`` -- the
@@ -375,29 +393,37 @@ class System:
                 κ-γ₊ cross-correlation). Only meaningful with
                 ``c_closed_form_only=True``: spline-table paths build
                 diagonal entries only.
+            progress: ``True`` / ``False`` / a ``(desc, done, total)``
+                callable / ``None`` (inherit: the ``SFT_WICK_PROGRESS``
+                environment variable, else on only when stderr is a
+                terminal).  Controls the table-build progress bar; see
+                :mod:`sft_wick.progress`.  Never affects results.
         """
+        from sft_wick.progress import progress as _progress_scope
+
         from .propagators import Propagators
 
-        return Propagators.build(
-            self,
-            t_max=t_max,
-            n_grid_t=n_grid_t,
-            homogeneity=homogeneity,
-            r_max=r_max,
-            n_grid_r=n_grid_r,
-            n_grid_cos=n_grid_cos,
-            x_max=x_max,
-            n_grid_x=n_grid_x,
-            n_jobs=n_jobs,
-            c_closed_form=c_closed_form,
-            cache_path=cache_path,
-            interp_method=interp_method,
-            c_closed_form_only=c_closed_form_only,
-            c_closed_form_vectorized=c_closed_form_vectorized,
-            c_method=c_method,
-            c_n_gauss=c_n_gauss,
-            diag_C=diag_C,
-        )
+        with _progress_scope(progress):
+            return Propagators.build(
+                self,
+                t_max=t_max,
+                n_grid_t=n_grid_t,
+                homogeneity=homogeneity,
+                r_max=r_max,
+                n_grid_r=n_grid_r,
+                n_grid_cos=n_grid_cos,
+                x_max=x_max,
+                n_grid_x=n_grid_x,
+                n_jobs=n_jobs,
+                c_closed_form=c_closed_form,
+                cache_path=cache_path,
+                interp_method=interp_method,
+                c_closed_form_only=c_closed_form_only,
+                c_closed_form_vectorized=c_closed_form_vectorized,
+                c_method=c_method,
+                c_n_gauss=c_n_gauss,
+                diag_C=diag_C,
+            )
 
 
 # =========================================================================

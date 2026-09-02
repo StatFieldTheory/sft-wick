@@ -925,17 +925,31 @@ def test_CF14_c_closed_form_only_matches_spline_path(tmp_path: Path) -> None:
 
 
 def test_CF14_c_closed_form_only_requires_callable(tmp_path: Path) -> None:
-    """``c_closed_form_only=true`` without a ``c_closed_form_module``
-    must raise -- the no-spline path needs an actual c_fn to use as
-    the lookup function."""
+    """``c_closed_form_only=true`` with no closed form at all must raise
+    -- the no-spline path needs a c_fn to use as the lookup function.
+
+    Demo1's kernel family now gets the BUILT-IN closed form, so the
+    failing case needs a kernel the built-in form does not cover (a
+    Gaussian temporal kernel) or ``c_closed_form: null``."""
     cfg_yaml = yaml.safe_load(_DEMO1_YAML)
     cfg_yaml["propagators"].pop("c_closed_form_module", None)
     cfg_yaml["propagators"].pop("c_closed_form_attr", None)
     cfg_yaml["propagators"]["c_closed_form_only"] = True
+    cfg_yaml["system"]["noise"]["kappa2"]["temporal"]["type"] = "gaussian"
     (tmp_path / "bad.yaml").write_text(yaml.safe_dump(cfg_yaml))
     cfg = load_workflow_config(tmp_path / "bad.yaml")
     with pytest.raises(ValueError, match="c_closed_form_only=True"):
         run_workflow(cfg)
+
+    # Forcing quadrature on the demo1 kernel fails the same way.
+    cfg_yaml = yaml.safe_load(_DEMO1_YAML)
+    cfg_yaml["propagators"].pop("c_closed_form_module", None)
+    cfg_yaml["propagators"].pop("c_closed_form_attr", None)
+    cfg_yaml["propagators"]["c_closed_form_only"] = True
+    cfg_yaml["propagators"]["c_closed_form"] = None
+    (tmp_path / "bad2.yaml").write_text(yaml.safe_dump(cfg_yaml))
+    with pytest.raises(ValueError, match="c_closed_form_only=True"):
+        run_workflow(load_workflow_config(tmp_path / "bad2.yaml"))
 
 
 def test_CF14_vectorized_without_only_raises(tmp_path: Path) -> None:
