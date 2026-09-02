@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1028 tests** in 38 files (parametrised
+The suite has **1032 tests** in 38 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -189,7 +189,7 @@ Propagator numerics
 Integrators
 -----------
 
-*261 tests in 10 files.*
+*265 tests in 10 files.*
 
 .. list-table::
    :header-rows: 1
@@ -209,7 +209,7 @@ Integrators
      - external operators sharing a spatial label are refused at L1 and L0 rather than silently mis-counted
      - the distinct-label spelling of the same observable
      - exact
-     - 7
+     - 11
    * - ``test_demo2_kernels.py``
      - demo2's hand-written R-contracted κ³ / κ⁴ kernels, the raw-vs-R-contracted route on a NON-constant kernel, the already_R_contracted contract, pinned FK and order-0 values, the single-site cumulant ladder
      - cusp-aware adaptive quadrature and randomised-Sobol QMC of the raw leg integrals; the cumulant generating function

@@ -1,5 +1,68 @@
 # Changelog
 
+## 0.4.2 (unreleased)
+
+> **Paper assets and documentation only — no `src/` changes, no behaviour
+> change.**  Two of the three items below are corrections to claims made in
+> the 0.4.0 and 0.4.1 entries themselves.
+
+### Fixed: the Table 1 asset did not run on the version the paper cites
+
+`examples/paper_assets/table1/generate_table1.py` built its odd-order
+observable as `phi_a(x) phi_b(x) phi_c(y)` — two externals sharing the
+spatial label `x`.  0.4.0 made exactly that spelling a `ValueError` at
+interacting orders, so from 0.4.0 onward the script raised at orders 1
+and 3.  A referee re-running the asset against the cited version got a
+traceback, which is the worst available outcome for a reproducibility
+artefact.
+
+**The counts change, and the published ones were the artefact.**  With a
+distinct label per external the script runs and gives
+
+| Order | Diagrams, submitted | Diagrams, correct | Reduction |
+|---|---|---|---|
+| 1 | 4 | **6** | 4 → **2** |
+| 2 | 6 | 6 (unchanged — `m = 2` already used distinct labels) | 18 |
+| 3 | 75 | **80** | 139 → **130** |
+
+This is the collapse this repository documented one release earlier and
+did not then apply to its own asset: same-label externals lose the sum
+over assignments of externals to legs.  The six order-1 diagrams are
+three pairs, one per choice of which external carries the `R` leg, each
+pair splitting into a tree and a tadpole — visible directly in the
+regenerated `order1_diagrams.md`, where the trees carry
+`F_{i₀i₁i₂} + F_{i₁i₀i₂}` and the tadpoles `F_{i₀i₁i₂}` alone.  `3n+m`
+and the raw pairing count `(3n{+}m{-}1)!!` are unchanged: `m` is 3 either
+way.
+
+The script no longer hardcodes any count.  Its `assert len(dts) == 4` is
+what turned a recount into a traceback, and the prose in the generated
+`order1_diagrams.md` said "exactly four" as a literal; both now derive
+from the data, so the next such change shows up as a different number
+rather than a crash.  All six standalone TikZ diagrams and the matplotlib
+rendering are regenerated; the four tracked `_standalone.pdf` files had
+been compiled from the superseded four-diagram version.
+
+**Wall-clock is not comparable across this change** and is still to be
+re-measured on an idle machine: the order-3 cell now times an 80-diagram
+enumeration rather than a 75-diagram one, so the column changed meaning
+as well as magnitude.
+
+### Fixed: two figures misquoted from demo 3's own stored results
+
+- The level-A `m = 4` agreement is **6.6e-16**, the maximum over the nine
+  times in `level_a_results.npz`.  0.4.0 and 0.4.1 quoted **4.9e-16**,
+  which is the `t = 3` cell.  `INTERPRETATION.md` had the maximum right;
+  the CHANGELOG did not.
+- The ETDRK2 `O(Δt²)` convergence ratios span **4.0–6.9**, not the
+  4.0–5.1 quoted in both files.  The 6.9 cell is not anomalous
+  convergence: its Δt differences are ~1e-8, so the ratio there is
+  noise-dominated.  Quoting a range that excluded it made the agreement
+  look tidier than the data.
+
+Neither affects a released number, and both were found by re-deriving the
+figures from the `.npz` files rather than by reading the prose.
+
 ## 0.4.1 — 2026-09-02
 
 > **Test-suite hardening only — no `src/` changes, no behaviour change.**  The
@@ -139,8 +202,16 @@ expansion.evaluate(props, positions={"x": 0.0, "y": 0.0}, ...)
 ```
 
 Coincident external *points* are, and always were, fully supported;
-it is the shared *label* that is not.  Demo 1, demo 2 and the paper all
-use distinct labels, so nothing in this repository changes.
+it is the shared *label* that is not.  Demo 1 and demo 2 use distinct
+labels and are unaffected.
+
+**Correction (0.4.2):** this entry originally continued "and the paper
+all use distinct labels, so nothing in this repository changes."  That
+was wrong, and wrong because the sweep behind it was incomplete:
+`examples/paper_assets/table1/generate_table1.py` builds its odd-order
+observable as `phi_a(x) phi_b(x) phi_c(y)` and therefore raised on the
+very version this entry ships in.  See the 0.4.2 entry for the recount
+it forced.
 
 **What was wrong.**  The spatial Wick engine enumerates topologies keyed
 by spatial label and recovers the operator-level count with a
@@ -470,7 +541,10 @@ computable rather than merely boundable.
 `m`-point connected function is a single diagram equal to `K_R`, and no
 `κ^(m′)` with `m′ ≠ m` can balance the legs, so nothing else can mix in.
 The package reproduces the closed form to **1.4e-16** at `m = 3` and
-**4.9e-16** at `m = 4`, coincident and at unequal positions.  The
+**6.6e-16** at `m = 4`, coincident and at unequal positions (maxima over
+the nine times in `examples/demo3/level_a_results.npz`; 4.9e-16 is the
+`m = 4` value at `t = 3`, and was quoted here in 0.4.0/0.4.1 as though it
+were the maximum).  The
 reference simulation has **no discretisation error of any kind** — the
 drift carries no spatial derivative, so a finite set of sites is exact and
 sites sit exactly at the plotted separations; and the linear response to
@@ -488,7 +562,10 @@ test).  At `s = 0.2` they are 92.6 %, 7.3 % and 0.094 % of the total at
 `t = 3`, leaving a geometric `O(F⁵)` remainder of 0.63 %.  Against an
 exponential-time-differencing simulation over 6 seeds, every time agrees
 within **0.90σ**; a paired Δt study at identical events gives `O(Δt²)`
-convergence ratios of 4.0–5.1 with a residual 0.01× the Monte-Carlo error;
+convergence ratios of 4.0–6.9 with a residual 0.01× the Monte-Carlo error
+(0.4.0/0.4.1 quoted 4.0–5.1, which excluded the second time, where the
+ratio is 6.9 because the Δt differences there are ~1e-8 and the ratio is
+noise-dominated rather than better than second order);
 and no trajectory of 7.3e6 diverged.
 
 The full validation ledger, error budget and the list of what is *not*
