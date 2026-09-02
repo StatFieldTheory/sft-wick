@@ -1,0 +1,112 @@
+# Demo 3, level B -- the leading non-Gaussian channel of xi_01.
+#
+#   dphi_0/dt = -gamma phi_0 + s phi_1^2   + eta_0
+#   dphi_1/dt = -gamma phi_1 + s phi_0 phi_1 + eta_1
+#
+# The drift is invariant under phi_1 -> -phi_1.  Were the noise law also
+# invariant under eta_1 -> -eta_1, xi_01 = <phi_0 phi_1> would vanish
+# identically.  Filtered-Poisson noise is skewed, so xi_01 is driven by
+# the ODD cumulants of eta_1 alone: order 0, FF, FFFF and the whole
+# kappa^4 channel cancel.  That makes it the cleanest available
+# non-Gaussian observable -- there is no Gaussian background to subtract.
+#
+# This config is the ORDER-4 correction: F^3.kappa^3 (30 diagrams) and
+# F^3.kappa^5 (6 diagrams), both with 3 time integration variables after
+# the leg contraction (6 without it).
+#
+# kappa^5 is the neglected-cumulant LADDER term.  Filtered-Poisson noise
+# has every kappa_m -- kappa_m/kappa_3 = h^{m-3} (3/m)^2 at coincident
+# points -- and F^3.kappa^5 enters at the same order and with the same
+# F^3 scaling as F^3.kappa^3.  The amplitude-scaling test therefore
+# CANNOT separate them; only computing one of them can.  Because the
+# s-factorisation of shot_noise.py is m-agnostic, computing it needs no
+# new ideas: it is the same 2^m closed form at m = 5.
+#
+# NOTE ON THE NOISE DECLARATION: see the header of L2/c_closed_form.py.
+# kappa2 is separable and translation-invariant with an exponential
+# temporal kernel -- the family the built-in closed form recognises --
+# but the YAML spatial-kernel builder accepts only 'exponential' and
+# 'gaussian', and demo 3's envelope sigma_x (1 + r/sigma_x) e^{-r/sigma_x}
+# is neither.  C is supplied in closed form instead, so the propagators
+# are still machine precision and no quadrature runs.
+
+system:
+  field: {name: phi, n_components: 2}
+  linear: {type: diagonal, gamma: [1.0, 1.0]}
+
+  vertices:
+    - name: F
+      # s * F_abc with F[0,1,1] = 1, F[1,0,1] = F[1,1,0] = 1/2, s = 0.2.
+      # s is chosen so the computed F^3 correction stays a genuine
+      # correction (7.9 % of the total at t = 3) and the uncomputed
+      # O(F^5) remainder, geometrically ~(F^3/F)^2, stays below 1 %.
+      coupling:
+        - [[0.0, 0.0], [0.0, 0.2]]
+        - [[0.0, 0.1], [0.1, 0.0]]
+
+  nonlocal_vertices:
+    - name: K5
+      order: 5
+      coupling_module: shot_noise.py
+      coupling_attr: coupling_k5_vectorized
+      coupling_vectorized: true
+      already_R_contracted: true
+
+    - name: K3
+      order: 3
+      coupling_module: shot_noise.py
+      coupling_attr: coupling_k3_vectorized
+      coupling_vectorized: true
+      # The three leg integrals are done analytically inside the
+      # callable: every filtered-Poisson cumulant factors through a
+      # single source time, so they collapse to one 1-D integral with a
+      # 2^m closed form.  The FK diagram's outer integral is then
+      # one-dimensional.  (Demo 2's R-contracted kappa^3 needs a
+      # cusp-aligned composite rule accurate only to ~1e-6.)
+      already_R_contracted: true
+
+  noise:
+    kappa2:
+      type: callable_module
+      module: L2/kappa2_general.py
+      attr: kappa2
+    sigma2: null
+
+expand:
+  observable: ["phi_a(x)", "phi_b(y)"]
+  orders: [2, 4]
+  # Order-4 enumeration with a 5-leg vertex takes ~2.5 min; cache it.
+  cache_path: .expansion_cache
+
+propagators:
+  t_max: 4.0
+  n_grid_t: 40
+  c_closed_form_module: L2/c_closed_form.py
+  c_closed_form_attr: C_fn
+  c_closed_form_only: true
+  c_closed_form_vectorized: true
+
+sweep:
+  integrate_over: null
+  positions_grid:
+    x: [0.0]
+    y: [0.0]
+  t_final_grid: [1.0, 2.0, 3.0]
+  # (0,1) is the signal; (0,0) and (1,1) are the even sector, shown for
+  # contrast -- the FK channel contributes nothing to them.
+  component_pairs: [[0, 1]]
+  vertex_types: [FK3, FK5]
+  orders: [4]
+  # 1-D outer integral: deterministic and converged well before 32 nodes.
+  # 3-D outer integral over 36 diagrams; 12 nodes agrees with 14 to
+  # ~2e-5 relative on a channel that is itself 8 % of the total.
+  method: gauss_legendre
+  n_gauss: 12
+  n_jobs: -1
+
+output:
+  - type: npz
+    path: results/xi01_F3K.npz
+  - type: table
+    format: csv
+    path: results/xi01_F3K.csv

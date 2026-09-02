@@ -189,6 +189,21 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Integrators",
         "matrix-valued R with callable couplings in the scalar loop",
         "qmc_vectorized where legal; closed-form 1-D integrals", "1e-6"),
+    "tests/test_demo3_shot_noise.py": (
+        "Propagator numerics",
+        "demo 3 filtered-Poisson cumulants, the R-contracted kernel K_R, and "
+        "the t_tilde branch dispatch",
+        "Campbell's theorem vs Monte Carlo of the event process; m-dimensional "
+        "quadrature of the raw leg integral; the package's own ClosedFormC; "
+        "60-digit mpmath at the branch boundary",
+        "exact / 1e-10"),
+    "tests/test_demo3_levels.py": (
+        "Workflow and YAML",
+        "demo 3 level A: the free-field m-point function through the package, "
+        "and the R-contracted vertex against the raw one",
+        "closed form (level A is a single diagram, hence exact); QMC on the "
+        "raw-vertex path",
+        "exact / 2e-4"),
     "tests/test_workflow.py": (
         "Workflow and YAML",
         "System / Expansion / Propagators / SweepResult surface; end-to-end "
