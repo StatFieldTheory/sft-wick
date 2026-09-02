@@ -1982,7 +1982,7 @@ def _apply_perm_to_coupling(coupling: Expr, perm: dict[str, str]) -> Expr:
         new_spatial = tuple(perm.get(s, s) for s in coupling.spatial_args)
         if new_indices == coupling.indices and new_spatial == coupling.spatial_args:
             return coupling
-        return Symbol(coupling.name, new_indices, new_spatial)
+        return Symbol(coupling.name, new_indices, new_spatial, coupling.local)
     return coupling
 
 

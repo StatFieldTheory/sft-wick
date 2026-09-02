@@ -1103,14 +1103,33 @@ Decision matrix:
      - Method
      - Best for
      - Trade-off
+   * - ``propagators.c_closed_form``
+     - ``auto`` (default)
+     - Diagonal constant drift + separable exponential-temporal noise
+       (the demo1 / demo2 family), optional constant white noise
+     - **No quadrature at all**: the built-in closed form fills the
+       table in milliseconds.  ``null`` forces quadrature; a
+       ``c_closed_form_module`` supplies your own.
    * - ``propagators.c_method``
-     - ``dblquad`` (default)
-     - Any κ² (robust)
-     - 10-80 ms / cell, → 2-7 min builds
+     - ``auto`` (default)
+     - Any of the package's own kernels (exponential / Gaussian /
+       Legendre) when no closed form applies
+     - Gauss-Legendre with the node count refined until the rule is
+       converged at the table's extreme cells (20 → 30 → 45 → 68), so
+       6-30 ms / cell; ``dblquad`` if no count converges.  User
+       callables always get ``dblquad``.
    * -
      - ``gauss_legendre``
      - Piecewise-analytic κ² (single ``|Δt|`` cusp on the diagonal)
-     - **18-100× faster** at machine precision (``c_n_gauss=20``)
+     - Fixed ``c_n_gauss`` nodes, ~6 ms / cell at 20; accuracy
+       degrades with ``(γ + 1/σ_t) t_max`` (1e-12 at ``t_max=15``,
+       2e-2 at 100 for demo1's kernel), so prefer ``auto``
+   * -
+     - ``dblquad``
+     - Any κ² (robust, adaptive)
+     - 7 ms / cell at ``t_max ≈ 5`` rising to ~200 ms at 100 (the
+       rectangle is split at the diagonal cusp; un-split it was
+       74-245 ms and only ~2e-6 accurate)
    * - ``sweep.method``
      - ``qmc_vectorized`` (default)
      - High-d diagrams (``d ≥ 6``), non-smooth integrands, or when stochastic error bars are wanted

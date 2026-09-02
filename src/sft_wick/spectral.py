@@ -22,7 +22,7 @@ feature a DMFT solution has and a closed-form free theory does not.
 
 Why this belongs in the library
 -------------------------------
-Two reasons, both learned the hard way in ``applications/ML/phase3``:
+Two reasons, both of which bite when the construction is attempted by hand:
 
 * ``C^*`` cannot be rebuilt from ``R^*`` through the package's own
   ``C = ∫∫ R κ R`` relation, because the ensemble average does not factorise:
@@ -48,8 +48,8 @@ vertex instead of at the propagator.  It is the annealed / one-loop-with-
 dressed-lines step.
 
 At order 0 there is nothing to average over and the result is exact.  Above
-it, ``applications/ML/phase3`` measured the gap against the exact quenched
-answer at **35%** -- not a small correction.  A controlled treatment needs
+it, the gap against the exact quenched answer has been measured at **35%**
+on a Marchenko-Pastur spectrum -- not a small correction.  A controlled treatment needs
 replicas or an explicit fluctuation expansion around the saddle, neither of
 which this module provides.  Use it for order 0, for structure, and for cost
 estimates; do not read an interacting order as a quenched result.
@@ -203,9 +203,9 @@ class SpectralDensity:
         assuming a rate.
 
         Carrying every sampled eigenvalue instead would make each propagator
-        call a reduction over the whole sample (200k in
-        ``applications/ML/phase3``), inside every quadrature node of every
-        diagram.
+        call a reduction over the whole sample (hundreds of thousands of
+        eigenvalues for a realistic random matrix), inside every quadrature
+        node of every diagram.
         """
         s = np.asarray(samples, dtype=float).ravel() + float(shift)
         if s.size == 0:

@@ -42,6 +42,11 @@ Clone the repository and install in editable mode:
 The ``parallel`` extra is retained for compatibility with older install
 commands; ``joblib`` is now part of the default runtime install.
 
+Progress bars use ``tqdm`` when it is installed; without it the same
+information is printed as plain lines on stderr::
+
+   pip install "sft-wick[progress]"
+
 .. code-block:: bash
 
    pip install -e ".[parallel]"

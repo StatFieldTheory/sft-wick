@@ -43,6 +43,9 @@ Documentation = "https://sft-wick.readthedocs.io"
 parallel = [
     "joblib>=1.3",
 ]
+progress = [
+    "tqdm>=4.60",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov",
