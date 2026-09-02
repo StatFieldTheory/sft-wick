@@ -158,8 +158,7 @@ def _report_tsweep(runs, tot_t):
     vals = np.array([r.xi01[0] for r in runs])
     claimed = np.array([r.xi01_err[0] for r in runs])
     mean, err, chi2, rob, rob_err = _combine_seeds(vals, claimed)
-    print(f"    blow-up fraction: {max(r.blowup_fraction for r in runs):.2e}   "
-          f"variance reduction from the control variate: "
+    print(f"    variance reduction from the control variate: "
           f"x{runs[0].variance_reduction.min():.1f}-"
           f"{runs[0].variance_reduction.max():.1f}")
     print(f"    {'t':>5} {'theory':>13} {'simulation':>13} {'err':>10} {'dev':>7} "
@@ -215,6 +214,20 @@ def _report_scaling(res, th, slope):
           f"{100*th['f3k5'][-1]/th['f3k3'][-1]:.2f}% of F3.k3 at t={T_GRID[-1]}.")
 
 
+def _report_blowups(tally):
+    """[6] the quadratic drift can run away in finite time; count every case.
+
+    Aggregated over **every** trajectory the script integrates -- the t
+    sweep, the paired dt study, the separation sweep and the amplitude
+    scan -- not just the headline sweep, since each one is checked anyway.
+    """
+    n_traj = sum(n for n, _ in tally)
+    n_blow = sum(int(round(n * f)) for n, f in tally)
+    print(f"    {n_blow} diverged trajectories out of {n_traj:,} integrated "
+          f"({n_blow / n_traj:.2e})")
+    return n_blow, n_traj
+
+
 def _report_xi00(xi00, sim):
     """[5] the even-cumulant sector -- an independent, kappa^4-driven check."""
     print(f"    {'t':>5} {'order0':>12} {'FF':>12} {'F2.k4':>12} {'total':>12} "
@@ -260,6 +273,7 @@ def main():
           f"({time.perf_counter()-t0:.0f} s)")
     sim_mean, sim_err, chi2, rob, rob_err, vals, claimed = _report_tsweep(runs, tot_t)
     sim = runs[0]
+    blow_tally = [(per, r.blowup_fraction) for r in runs]
 
     # Same seed AND same n_real for every dt, so the SAME events are drawn
     # (the draw happens before stepping and consumes no per-step rng state).
@@ -268,12 +282,14 @@ def main():
     t0 = time.perf_counter()
     dts = [0.02, 0.01, 0.005]
     paired = [sb.simulate_xi(p, s, [0.0], T_GRID, n_dt, dt=h, seed=101) for h in dts]
+    blow_tally += [(n_dt, pp.blowup_fraction) for pp in paired]
     print(f"\n[2b] paired dt study, {n_dt:,} realisations, identical events "
           f"({time.perf_counter()-t0:.0f} s)")
     _report_dt_study(paired, dts, sim_err)
 
     t0 = time.perf_counter()
     simr = sb.simulate_xi(p, s, R_GRID, [T_R], n_r, dt=0.01, seed=13)
+    blow_tally.append((n_r, simr.blowup_fraction))
     print(f"\n[3] separations at t = {T_R} ({time.perf_counter()-t0:.0f} s) -- "
           f"sites placed exactly at the plotted r, no interpolation")
     _report_separations(simr, tot_r)
@@ -283,6 +299,7 @@ def main():
     res = []
     for a in (0.1, 0.2, 0.3):
         r = sb.simulate_xi(p, a, [0.0], [T_R], n_scal, dt=0.01, seed=17)
+        blow_tally.append((n_scal, r.blowup_fraction))
         lead = a * th["fk3"][j_r]
         res.append((a, r.xi01[0, 0], r.xi01_err[0, 0], lead, r.xi01[0, 0] - lead,
                     a ** 3 * (th["f3k3"] + th["f3k5"])[j_r]))
@@ -294,6 +311,9 @@ def main():
     xi00 = theory_xi00(T_GRID, s, p=p)
     print(f"\n[5] xi_00 -- the even-cumulant sector ({time.perf_counter()-t0:.0f} s)")
     _report_xi00(xi00, sim)
+
+    print(f"\n[6] blow-up of the quadratic drift, over every trajectory integrated")
+    n_blow, n_traj = _report_blowups(blow_tally)
 
     np.savez(args.out, t_grid=T_GRID, r_grid=R_GRID, t_r=T_R, s=s,
              **{f"th_{k}": v for k, v in th.items()},
@@ -307,7 +327,8 @@ def main():
              sim_xi00=sim.xi00[0], sim_xi00_err=sim.xi00_err[0],
              **{f"xi00_{k}": v for k, v in xi00.items()},
              scaling=np.array([list(r) for r in res]),
-             scaling_slope=slope, blowup=max(r.blowup_fraction for r in runs),
+             scaling_slope=slope, blowup=n_blow / n_traj,
+             blowup_count=n_blow, blowup_total=n_traj,
              var_reduction=sim.variance_reduction[0], n_real=n_real)
     print(f"\nwrote {args.out}")
 
