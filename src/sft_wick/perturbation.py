@@ -2482,7 +2482,16 @@ def compute_moment_numerical(
         ``{order_n: [DiagramTerm, ...]}`` for each order with
         non-zero contributions.  Use :meth:`DiagramTerm.build_integrand`
         for numerical evaluation.
+
+    Raises:
+        ValueError: If two external operators share a spatial label at
+            an interacting order.  This engine drives the same
+            label-keyed :func:`sft_wick.wick.wick_contract_spatial` as
+            :func:`compute_moment`, so it inherits the same collapse and
+            must refuse the same spelling -- see
+            :func:`check_distinct_external_labels`.
     """
+    check_distinct_external_labels(observable, order)
     # E_psi: response legs carried by the observable itself.  Fixes the
     # phase needed to rotate a diagram value onto the real axis.
     _n_ext_response = sum(1 for _op in observable if _op.field.is_response)
