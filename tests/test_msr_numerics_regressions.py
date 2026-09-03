@@ -28,6 +28,8 @@ Covered:
 
 from __future__ import annotations
 
+import functools
+
 import numpy as np
 import pytest
 from scipy.integrate import nquad, quad
@@ -844,14 +846,39 @@ _F14_T = 4.0
 _F14_NCOMP = 2
 
 
+def _f14_kappa2(n1, t1, n2, t2):
+    a1 = np.atleast_1d(np.asarray(n1, dtype=float))
+    a2 = np.atleast_1d(np.asarray(n2, dtype=float))
+    r = float(np.abs(a1[0] - a2[0]))
+    return np.eye(_F14_NCOMP) * np.exp(-r / _F14_SIGMA_X)
+
+
+@functools.lru_cache(maxsize=None)
+def _f14_cache():
+    """The legacy time-only C table for this model, built ONCE.
+
+    ``precompute_C_table`` reads only ``(model, t_max, n_grid, direction)``.
+    It does not see the expansion order -- that enters through the integrand
+    list -- and it cannot see the separation, which is the whole point of
+    F14: the legacy table is position-blind and the separation is applied
+    afterwards by ``c_spatial_factors``.  So every F14/F22 case used to
+    rebuild a bit-identical 60x60 dblquad table.  Sharing the one object
+    leaves every compared value bit-for-bit unchanged (verified) and is not
+    a weakening: the table's resolution is not what any of these tests
+    claims -- they claim an exact closed form and an exact exp(-n r/sigma)
+    ratio, both of which the shared table reproduces identically.
+    """
+    model = PropagatorModel(
+        R_time=lambda t, tp: np.exp(-MU * (t - tp)), kappa2=_f14_kappa2,
+        n_components=_F14_NCOMP, iso_R=True, diag_C=True, t_min=0.0,
+    )
+    cache = PropagatorCache(model)
+    cache.precompute_C_table(t_max=_F14_T, n_grid=60)
+    return cache
+
+
 def _f14_setup(order: int):
     """Return (integrands, cache) for the separable two-point model."""
-    def kappa2(n1, t1, n2, t2):
-        a1 = np.atleast_1d(np.asarray(n1, dtype=float))
-        a2 = np.atleast_1d(np.asarray(n2, dtype=float))
-        r = float(np.abs(a1[0] - a2[0]))
-        return np.eye(_F14_NCOMP) * np.exp(-r / _F14_SIGMA_X)
-
     phi = Field("phi", "physical", n_components=_F14_NCOMP)
     psi = Field("psi", "response", n_components=_F14_NCOMP)
     res = compute_moment(
@@ -862,15 +889,9 @@ def _f14_setup(order: int):
     )
     F = np.zeros((_F14_NCOMP,) * 3)
     F[0, 0, 0] = F[1, 1, 1] = -0.5
-    model = PropagatorModel(
-        R_time=lambda t, tp: np.exp(-MU * (t - tp)), kappa2=kappa2,
-        n_components=_F14_NCOMP, iso_R=True, diag_C=True, t_min=0.0,
-    )
-    cache = PropagatorCache(model)
-    cache.precompute_C_table(t_max=_F14_T, n_grid=60)
     igs = [dt.build_integrand({"F": -1j * F}, fixed_indices={"a": 0, "b": 0})
            for dt in res.diagram_terms(order)]
-    return igs, cache
+    return igs, _f14_cache()
 
 
 def _f14_n_cross(ig, positions):
@@ -1125,6 +1146,32 @@ def _f17_sep(n1, n2):
     return float(abs(a[0] - b[0]))
 
 
+def _f17_growing_kappa2(n1, t1, n2, t2):
+    """Correlation length grows with time: NOT separable, so the ratio fails."""
+    ell = 1.0 + 0.25 * (t1 + t2)
+    return np.eye(_F17_N) * np.exp(-_f17_sep(n1, n2) / ell)
+
+
+@functools.lru_cache(maxsize=None)
+def _f17_growing_setup():
+    """Integrands + a both-tables cache for the growing-length kernel.
+
+    Neither table depends on the separation ``r``: ``precompute_C_table``
+    and the ``n_grid_t`` time axis of the translation table are functions of
+    (model, t_max, grid) alone, and the lazy translation cache builds its
+    2-D spline per distinct ``r`` on first demand -- deterministically in
+    ``r``, so the r-th spline is the same object it would have been in a
+    freshly-built cache.  Sharing therefore replaces three identical legacy
+    builds with one and leaves the per-r spatial builds exactly as they
+    were, one each.  Every compared value is bit-identical (verified).
+    """
+    igs, model = _f17_igs(_f17_growing_kappa2)
+    cache = PropagatorCache(model)
+    cache.precompute_C_table_translation(t_max=_F17_T, n_grid_t=40)
+    cache.precompute_C_table(t_max=_F17_T, n_grid=40)  # legacy present too
+    return tuple(igs), cache
+
+
 @pytest.mark.parametrize("r", [0.5, 2.0, 4.0])
 def test_F17_spatial_table_stays_exact_for_a_nonseparable_kernel(r):
     """With a spatial table the kappa2 ratio must NOT be substituted.
@@ -1136,14 +1183,8 @@ def test_F17_spatial_table_stays_exact_for_a_nonseparable_kernel(r):
     from sft_wick.evaluate import integrate_two_point_qmc
     from scipy.integrate import dblquad
 
-    def kappa2(n1, t1, n2, t2):
-        ell = 1.0 + 0.25 * (t1 + t2)
-        return np.eye(_F17_N) * np.exp(-_f17_sep(n1, n2) / ell)
-
-    igs, model = _f17_igs(kappa2)
-    cache = PropagatorCache(model)
-    cache.precompute_C_table_translation(t_max=_F17_T, n_grid_t=40)
-    cache.precompute_C_table(t_max=_F17_T, n_grid=40)  # legacy present too
+    igs_t, cache = _f17_growing_setup()
+    igs = list(igs_t)
 
     got, _ = integrate_two_point_qmc(igs, _F17_T, {"x": 0.0, "y": r}, cache,
                                      n_samples=2 ** 8, seed=0)
@@ -1265,7 +1306,14 @@ def _f18_kappa_separable(n1, t1, n2, t2):
     return np.eye(1) * np.exp(-_f17_sep(n1, n2) / _F18_SX)
 
 
-def _f18_setup(order, kappa2):
+def _f18_model(kappa2):
+    return PropagatorModel(
+        R_time=lambda t, tp: np.exp(-MU * (t - tp)), kappa2=kappa2,
+        n_components=1, iso_R=True, diag_C=True, t_min=0.0,
+    )
+
+
+def _f18_igs(order):
     phi = Field("phi", "physical")
     psi = Field("psi", "response")
     res = compute_moment(
@@ -1274,13 +1322,46 @@ def _f18_setup(order, kappa2):
         order=order, ito=True, response_phase=True, collect_topology=True,
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
-    model = PropagatorModel(
-        R_time=lambda t, tp: np.exp(-MU * (t - tp)), kappa2=kappa2,
-        n_components=1, iso_R=True, diag_C=True, t_min=0.0,
-    )
-    igs = [dt.build_integrand({"g": np.array(1j)})
-           for dt in res.diagram_terms(order)]
-    return igs, model
+    return [dt.build_integrand({"g": np.array(1j)})
+            for dt in res.diagram_terms(order)]
+
+
+def _f18_setup(order, kappa2):
+    return _f18_igs(order), _f18_model(kappa2)
+
+
+# The two caches the separable test compares.  NEITHER depends on ``order``
+# (which only selects the integrand list) nor on ``r`` (which only reaches
+# the integrator through ``positions``; the lazy translation table then
+# builds one 2-D spline per distinct r on demand, deterministically).  The
+# nine (order, r) cases were therefore rebuilding 33 tables of which 5 are
+# distinct.  Building each once changes no compared value -- verified
+# bit-for-bit against the per-case version -- and changes nothing about what
+# is claimed: the claim is that these two caches, one with a spatial table
+# and one without, agree, and both are still built by real quadrature on the
+# same 60-point grid as before.
+
+@functools.lru_cache(maxsize=None)
+def _f18_legacy_cache():
+    """Legacy time-only table only -- the kappa2-ratio evaluation mode."""
+    cache = PropagatorCache(_f18_model(_f18_kappa_separable))
+    cache.precompute_C_table(t_max=_F18_T, n_grid=60)
+    return cache
+
+
+@functools.lru_cache(maxsize=None)
+def _f18_spatial_cache():
+    """Same model and grid, plus the spatial table under test."""
+    cache = PropagatorCache(_f18_model(_f18_kappa_separable))
+    cache.precompute_C_table_translation(t_max=_F18_T, n_grid_t=60)
+    cache.precompute_C_table(t_max=_F18_T, n_grid=60)
+    return cache
+
+
+@functools.lru_cache(maxsize=None)
+def _f18_igs_pair(order):
+    """Two independently built integrand lists, one per side, as before."""
+    return tuple(_f18_igs(order)), tuple(_f18_igs(order))
 
 
 @pytest.mark.parametrize("order", [0, 1, 2])
@@ -1294,16 +1375,12 @@ def test_F18_spatial_table_does_not_move_a_separable_result(order, r):
     """
     from sft_wick.evaluate import integrate_two_point_qmc
 
-    igs_a, model_a = _f18_setup(order, _f18_kappa_separable)
-    if not igs_a:
+    igs_a_t, igs_b_t = _f18_igs_pair(order)
+    if not igs_a_t:
         pytest.skip(f"order {order} has no diagrams")
-    legacy = PropagatorCache(model_a)
-    legacy.precompute_C_table(t_max=_F18_T, n_grid=60)
-
-    igs_b, model_b = _f18_setup(order, _f18_kappa_separable)
-    spatial = PropagatorCache(model_b)
-    spatial.precompute_C_table_translation(t_max=_F18_T, n_grid_t=60)
-    spatial.precompute_C_table(t_max=_F18_T, n_grid=60)
+    igs_a, igs_b = list(igs_a_t), list(igs_b_t)
+    legacy = _f18_legacy_cache()
+    spatial = _f18_spatial_cache()
 
     kw = dict(n_samples=2 ** 12, seed=5)
     v_legacy, _ = integrate_two_point_qmc(igs_a, _F18_T, {"x": 0.0, "y": r},

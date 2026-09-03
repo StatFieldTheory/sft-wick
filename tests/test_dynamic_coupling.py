@@ -180,7 +180,45 @@ def _order4_fk_integrands(system, fixed_indices):
     return out
 
 
-def test_DC1_prop_indexed_dynamic_matches_static() -> None:
+@pytest.fixture(scope="module")
+def dc1_setup():
+    """Order-4 FK integrands for the static and dynamic constant-κ³
+    systems, plus the propagator cache -- built once for both DC1 tests.
+
+    The two DC1 tests need the *same* objects: the agreement test pairs
+    static against dynamic, and the not-silently-zero companion
+    re-integrates the prop-indexed subset of that same dynamic set.  The
+    order-4 symbolic expansion costs ~3.1 s per system and was being run
+    three times (static once, dynamic twice); here each runs exactly
+    once.  Nothing that either test asserts happens in here: both
+    expansions are still performed independently, the diagram sets are
+    still compared in the test, and every integration -- the part
+    actually under test -- still runs per test.
+
+    The cache is built from the static system.  ``PropagatorModel`` is a
+    function of ``field``/``linear``/``noise`` only, which the two
+    systems share verbatim, and DC1 already fed one cache to both
+    routes, so the cache is not part of either claim.
+    """
+    fixed_indices = {"a": 0, "b": 1}
+
+    sw.reset_uid_counter()
+    static_sys = _make_constant_kappa3_system(dynamic=False)
+    static_igs = _order4_fk_integrands(static_sys, fixed_indices)
+
+    sw.reset_uid_counter()
+    dyn_sys = _make_constant_kappa3_system(dynamic=True)
+    dyn_igs = _order4_fk_integrands(dyn_sys, fixed_indices)
+
+    props = static_sys.propagators(
+        t_max=2.0, n_grid_t=8, c_closed_form=_load_demo1_C_fn(),
+    )
+    return SimpleNamespace(
+        static_igs=static_igs, dyn_igs=dyn_igs, cache=props.cache,
+    )
+
+
+def test_DC1_prop_indexed_dynamic_matches_static(dc1_setup) -> None:
     """A dynamic coupling whose contraction leaves a propagator index
     must agree with the same coupling supplied as a static tensor.
 
@@ -191,16 +229,8 @@ def test_DC1_prop_indexed_dynamic_matches_static() -> None:
     is the one configuration where both routes are legal, so their
     agreement is the boundary test for the feature.
     """
-    fixed_indices = {"a": 0, "b": 1}
-    C_fn = _load_demo1_C_fn()
-
-    sw.reset_uid_counter()
-    static_sys = _make_constant_kappa3_system(dynamic=False)
-    static_igs = _order4_fk_integrands(static_sys, fixed_indices)
-
-    sw.reset_uid_counter()
-    dyn_sys = _make_constant_kappa3_system(dynamic=True)
-    dyn_igs = _order4_fk_integrands(dyn_sys, fixed_indices)
+    static_igs = dc1_setup.static_igs
+    dyn_igs = dc1_setup.dyn_igs
 
     assert set(static_igs) == set(dyn_igs), (
         "static and dynamic systems must produce the same diagram set"
@@ -215,12 +245,9 @@ def test_DC1_prop_indexed_dynamic_matches_static() -> None:
         "test is vacuous unless some order-4 FK diagram is prop-indexed"
     )
 
-    props = static_sys.propagators(
-        t_max=2.0, n_grid_t=8, c_closed_form=C_fn,
-    )
     kw = dict(
         lambda_f=1.5,
-        cache=props.cache,
+        cache=dc1_setup.cache,
         n_gauss=6,
         positions={"x": 0.0, "y": 0.5},
     )
@@ -239,24 +266,26 @@ def test_DC1_prop_indexed_dynamic_matches_static() -> None:
     assert n_compared == sum(len(v) for v in static_igs.values())
 
 
-def test_DC1_prop_indexed_dynamic_is_not_silently_zero() -> None:
+def test_DC1_prop_indexed_dynamic_is_not_silently_zero(dc1_setup) -> None:
     """Guard against the agreement test passing because BOTH routes
     return zero: at least one prop-indexed order-4 FK diagram must
-    integrate to a non-negligible value."""
-    fixed_indices = {"a": 0, "b": 1}
-    sw.reset_uid_counter()
-    dyn_sys = _make_constant_kappa3_system(dynamic=True)
+    integrate to a non-negligible value.
+
+    Shares the module fixture's dynamic integrands with the agreement
+    test -- they are the same objects the agreement test compares, which
+    is exactly what this guard has to speak about -- but integrates them
+    itself.
+    """
     igs = [
         ig
-        for group in _order4_fk_integrands(dyn_sys, fixed_indices).values()
+        for group in dc1_setup.dyn_igs.values()
         for ig in group
         if ig.diagram_term.propagator_indices
     ]
-    props = dyn_sys.propagators(t_max=2.0, n_grid_t=8,
-                                c_closed_form=_load_demo1_C_fn())
+    assert igs, "no prop-indexed order-4 FK diagram to speak about"
     vals = [
         ig.integrate_moment_gauss_legendre(
-            lambda_f=1.5, cache=props.cache, n_gauss=6,
+            lambda_f=1.5, cache=dc1_setup.cache, n_gauss=6,
             positions={"x": 0.0, "y": 0.5},
         )[0]
         for ig in igs
