@@ -13,7 +13,10 @@ HANDOFF*
 REFEREE_BRIEF.md
 AGENTS.md
 paper/
-archived/
+# Top-level scratch dir only; the demo notebooks below are matched
+# explicitly so that `archived/` does not silently catch new ones.
+/archived/
+examples/archived/
 
 # Build / generated artifacts
 .DS_Store
