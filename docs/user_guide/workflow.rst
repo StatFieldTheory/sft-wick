@@ -129,13 +129,14 @@ larger script:
    **Every external operator needs its own spatial label.**  Write the
    equal-point correlator as ``("phi_a(x)", "phi_b(y)")`` with
    ``positions={"x": 0.0, "y": 0.0}`` — *not* as
-   ``("phi_a(x)", "phi_b(x)")``, which raises ``ValueError``.
+   ``("phi_a(x)", "phi_b(x)")``, which raises ``ValueError`` at
+   interacting orders (order 0 is exempt).
 
    The label is the name of an integration/external coordinate, not the
    point itself: coincident *points* are fully supported, and every demo
    uses them.  A shared *label* is not, because the spatial contraction
    is keyed by label, so operators sharing one are collapsed without
-   their distinct component-index routings.  Before 0.3.1 that produced
+   their distinct component-index routings.  Before 0.4.0 that produced
    a silently wrong number at interacting orders (a factor 2 in demo2's
    order-2 ``F`` channel); it is now refused.
 
@@ -638,13 +639,17 @@ fields must be present.
      n_grid_x:           null
 
      # closed-form C hook (machine precision; bypasses the cache)
+     # 'auto': built-in closed form when the kernel family has one
+     # (diagonal constant drift + separable exponential-temporal noise,
+     # optional constant white noise); null forces quadrature
+     c_closed_form:           auto
      c_closed_form_module:    null   # ./c_closed_form.py
      c_closed_form_attr:      C_fn   # callable name in the module
      c_closed_form_only:      false  # skip spline cache entirely
      c_closed_form_vectorized:false  # c_fn accepts (n,) arrays, returns (n, N, N)
 
      # quadrature for the inner ∫ R κ² R when no closed form is given
-     c_method:           dblquad      # 'dblquad' | 'gauss_legendre'
+     c_method:           auto         # 'auto' | 'dblquad' | 'gauss_legendre'
      c_n_gauss:          20           # GL nodes/dim under c_method='gauss_legendre'
 
      interp_method:      linear       # 'linear' | 'cubic'
@@ -954,6 +959,10 @@ Section reference: ``propagators``
      - ``float`` + ``int``
      - ``null``
      - General full-grid mode
+   * - ``c_closed_form``
+     - ``str``
+     - ``"auto"``
+     - How C is obtained without quadrature. ``"auto"`` (default) uses the built-in closed form when the kernel family has one — diagonal constant drift + separable exponential-temporal noise, optionally a constant white-noise impulse — and falls through to ``c_method`` otherwise; ``null`` forces quadrature. A ``c_closed_form_module`` supplies your own closed form and takes precedence over both. See :ref:`integrator-choice` below
    * - ``c_closed_form_module``
      - ``str``
      - ``null``
@@ -972,8 +981,8 @@ Section reference: ``propagators``
      - ``C_fn`` accepts ``(n,)``-shaped time/position arrays and returns ``(n, N, N)`` (only with ``c_closed_form_only: true``)
    * - ``c_method``
      - ``str``
-     - ``"dblquad"``
-     - Quadrature for the inner :math:`\int R\kappa^2 R`. ``"dblquad"`` (adaptive) or ``"gauss_legendre"`` (18-100× faster on piecewise-analytic κ²). See :ref:`integrator-choice` below
+     - ``"auto"``
+     - Quadrature for the inner :math:`\int R\kappa^2 R`, used only when no closed form applies. ``"auto"`` (default) is Gauss-Legendre for the package's own kernels, with the node count refined from ``c_n_gauss`` until the rule is converged at the table's extreme cells, and ``"dblquad"`` for user callables; ``"gauss_legendre"`` forces fixed-``c_n_gauss`` GL (18-100× faster on piecewise-analytic κ²) and ``"dblquad"`` forces the adaptive rule. See :ref:`integrator-choice` below
    * - ``c_n_gauss``
      - ``int``
      - ``20``
@@ -1078,7 +1087,9 @@ Two layers in the pipeline run numerical quadrature:
    inner :math:`\int_0^{t_1}\!\int_0^{t_2} R(t_1,\lambda_1)\,
    \kappa^2(\lambda_1,\lambda_2)\,R(t_2,\lambda_2)\,d\lambda` for
    each :math:`(t_1, t_2, n_1, n_2)` cache cell. Skipped entirely
-   when you supply ``c_closed_form_module``.
+   when a closed form applies — the built-in one under
+   ``c_closed_form: auto`` (the default), or your own via
+   ``c_closed_form_module``.
 2. **Diagram evaluation** (``sweep.method``) — the outer
    :math:`d`-dimensional time integral over the causal simplex,
    one evaluation per ``(positions, t_final, component_pair)``

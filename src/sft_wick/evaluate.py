@@ -3161,7 +3161,7 @@ class DynamicCouplingPromise:
         returned array keeps those axes.  Callers must then contract
         it against the C-propagator product one index assignment at a
         time, exactly as the static branch does; see
-        :meth:`DiagramIntegrand._dynamic_values`.  Before 0.3.1 this
+        :meth:`DiagramIntegrand._dynamic_values`.  Before 0.4.0 this
         case raised ``NotImplementedError``; the static-vs-dynamic
         agreement that replaced it is locked by ``DC1`` in
         ``tests/test_dynamic_coupling.py``.

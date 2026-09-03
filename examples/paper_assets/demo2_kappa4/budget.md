@@ -237,7 +237,7 @@ chi² of (extrap − total) over the 18 times: 22.9; mean pull -0.12; largest |r
 
 ## Truncation: F³κ³ (order 4), computed vs the estimate it replaces
 
-Until sft-wick 0.3.1 the package refused this channel (`NotImplementedError: Dynamic coupling with propagator-indexed contraction`), because a κ³ leg index survives onto a C propagator.  It was therefore ESTIMATED by collapsing κ³ to an equal-time constant 24 α λ² σ_t² δ_abc and rescaling by (converged FK)/(collapsed FK) at the same t.  The estimate's calibration ratio is 0.42-0.64 for the FK-type partner-time configuration `(t', s, s)` but 1.08-1.50 for three distinct partner times, which is what the F³κ³ diagrams actually have — so it was a factor-of-2 quantity.  Both are now in the table:
+Until sft-wick 0.4.0 the package refused this channel (`NotImplementedError: Dynamic coupling with propagator-indexed contraction`), because a κ³ leg index survives onto a C propagator.  It was therefore ESTIMATED by collapsing κ³ to an equal-time constant 24 α λ² σ_t² δ_abc and rescaling by (converged FK)/(collapsed FK) at the same t.  The estimate's calibration ratio is 0.42-0.64 for the FK-type partner-time configuration `(t', s, s)` but 1.08-1.50 for three distinct partner times, which is what the F³κ³ diagrams actually have — so it was a factor-of-2 quantity.  Both are now in the table:
 
 | t | FK converged | FK collapsed | ratio | FFFK collapsed | old ESTIMATE | **exact FFFK** | estimate/exact |
 |---|---|---|---|---|---|---|---|

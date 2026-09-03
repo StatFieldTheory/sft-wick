@@ -15,7 +15,7 @@ author = "Zheng Zhang"
 try:
     release = get_version("sft-wick")
 except Exception:
-    release = "0.4.1"
+    release = "0.4.2"
 version = release
 
 # -- General configuration ---------------------------------------------------

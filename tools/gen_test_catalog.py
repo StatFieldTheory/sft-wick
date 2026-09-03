@@ -257,6 +257,63 @@ def test_files() -> list[str]:
     )
 
 
+
+
+def _approx_audit_lines():
+    """Render the approx-audit paragraph FROM the measurement.
+
+    0.4.1 stated this partition as prose and it did not add up: 108 + 29 + 15
+    + 22 + 2 = 176 against a stated total of 207, because 29 and 15 were
+    carried over from an earlier 173-site run while the total was updated.
+    ``tests/test_catalog_current.py`` could not catch it, because it
+    regenerates the catalogue from these same literals and compares the two.
+    A figure that describes a measurement must be READ from it, which is what
+    this does -- ``tools/approx_audit.py`` writes the JSON during a normal
+    instrumented run.
+    """
+    import json
+
+    path = ROOT / "docs" / "verification" / "approx_audit_summary.json"
+    if not path.exists():                                    # pragma: no cover
+        return ["   The approx-audit summary is missing; regenerate it with",
+                "   ``PYTHONPATH=tools pytest tests/ -p approx_audit``."]
+    d = json.loads(path.read_text())
+    b = d["buckets"]
+    assert sum(b.values()) == d["total_sites"], (
+        f"approx_audit_summary.json does not partition its own total: "
+        f"{sum(b.values())} != {d['total_sites']}")
+
+    lines = [
+        f"   Measured over the {d['total_sites']} runtime sites in this suite:",
+        f"   {b['rel_in_force']} have their ``rel`` genuinely in force,",
+        f"   {b['explicit_abs']} pass an explicit ``abs=``",
+        f"   ({d['explicit_abs_zero']} of them ``abs=0.0``),",
+        f"   {b['compared_to_zero']} compare against zero on the default floor",
+        f"   (where the floor is the intent, not a defect), and",
+        f"   **{b['weakened']} are weakened by the floor**.",
+    ]
+    if b["weakened"]:
+        lines += [
+            f"   Those {b['weakened']} still enforce between",
+            f"   {d['weakened_effective_rel_min']:.1e} and"
+            f" {d['weakened_effective_rel_max']:.1e} relative — looser than the",
+            "   row states, but a real check in every case.  They fall in "
+            + ", ".join(f"``{f.split('/')[-1]}`` ({n})"
+                        for f, n in d["weakened_per_file"].items()) + ".",
+            "   See `issue #5 <https://github.com/StatFieldTheory/sft-wick/"
+            "issues/5>`_.",
+        ]
+    else:
+        lines += [
+            "   No site is weakened: every ``rel`` written in this suite is the",
+            "   tolerance actually enforced, because each states its ``abs=``",
+            "   explicitly.  ``test_every_approx_rel_site_states_its_abs`` in",
+            "   ``tests/test_catalog_current.py`` keeps it that way.",
+        ]
+    lines.append(f"   Vacuous sites — assertions that cannot fail: "
+                 f"**{d['vacuous']}**.")
+    return lines
+
 def render(counts: Counter) -> str:
     files = test_files()
     missing = [f for f in files if f not in FILE_META]
@@ -296,16 +353,7 @@ def render(counts: Counter) -> str:
         "   ``PYTHONPATH=tools pytest tests/ -p approx_audit`` records the",
         "   enforced tolerance at every site (``tools/approx_audit.py``).",
         "",
-        "   Measured over the 207 runtime sites in this suite: 108 have",
-        "   their ``rel`` genuinely in force, 29 pass an explicit ``abs=``",
-        "   and 15 compare against zero (where the floor is the intent, not",
-        "   a defect), and **22 are weakened by the floor**.  All 22 still",
-        "   enforce between 2.0e-12 and 8.1e-07 relative — looser than the",
-        "   row states, but a real check in every case; none is vacuous.",
-        "   They fall in ``test_msr_numerics_regressions.py`` (10),",
-        "   ``test_spectral.py`` (8), ``test_closed_form_dispatch_boundaries",
-        "   .py`` (2) and ``test_demo3_shot_noise.py`` (2).  See",
-        "   `issue #5 <https://github.com/StatFieldTheory/sft-wick/issues/5>`_.",
+        *_approx_audit_lines(),
         "",
         "   Two sites that were *vacuous* — the enforced tolerance exceeded",
         "   the quantity compared, so they could not fail — have been fixed:",

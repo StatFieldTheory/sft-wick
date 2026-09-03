@@ -466,8 +466,13 @@ def test_auto_dispatch_repairs_the_small_time_corner():
     ts = np.full((3, 1), 0.02)
     _, est = sn.t_tilde_closed(ts, P, return_error=True)
     assert est[0] > sn.AUTO_TOL
+    # Tolerance audit (issue #5): ``abs`` used to default to 1e-12 on a
+    # quantity of ~1.3e-6, so this enforced ~8e-7 relative, not the 1e-15
+    # written.  The repair is a straight assignment of the quadrature value
+    # into the bad slot, so the two agree bit-for-bit --- ``abs=0.0`` puts the
+    # written 1e-15 actually in force (a ~9-order-of-magnitude tightening).
     assert sn.t_tilde(ts, P)[0] == pytest.approx(
-        float(sn.t_tilde_quad(ts, P)[0]), rel=1e-15)
+        float(sn.t_tilde_quad(ts, P)[0]), rel=1e-15, abs=0.0)
 
 
 def test_auto_dispatch_repairs_only_the_bad_samples():
@@ -479,7 +484,13 @@ def test_auto_dispatch_repairs_only_the_bad_samples():
     assert est[0] < sn.AUTO_TOL < est[1], "the fixture must contain one of each"
     auto = sn.t_tilde(ts, p)
     assert auto[0] == float(sn.t_tilde_closed(ts, p)[0])
-    assert auto[1] == pytest.approx(float(sn.t_tilde_quad(ts, p)[1]), rel=1e-15)
+    # Tolerance audit (issue #5): same story as the previous test --- the
+    # default ``abs=1e-12`` floor made this ~8e-7 relative on a ~1.2e-6
+    # quantity.  The bad sample is recomputed by the vectorised quadrature on
+    # the bad *subset*, which is elementwise-identical to the full-batch call,
+    # so ``abs=0.0`` holds the written 1e-15 (was ~8e-7 effective).
+    assert auto[1] == pytest.approx(float(sn.t_tilde_quad(ts, p)[1]), rel=1e-15,
+                                    abs=0.0)
 
 
 # =====================================================================

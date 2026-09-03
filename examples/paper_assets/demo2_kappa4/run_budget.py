@@ -31,7 +31,7 @@ of the simulations (the demo2 grid snapped to multiples of 0.02):
             as the residuals the column is used to interpret;
 * ``FFFK``  order 4, F^3 x kappa^(3), EXACTLY, through the R-contracted
             kernel and the propagator-indexed dynamic-coupling path
-            (sft-wick >= 0.3.1; before that the package raised
+            (sft-wick >= 0.4.0; before that the package raised
             NotImplementedError here and this channel was *estimated*
             by collapsing kappa^(3) to an equal-time constant and
             calibrating on FK).  30 diagrams, 3-D outer integral.  The
@@ -282,7 +282,7 @@ def main():
         sys_bare, props_for(sys_bare, True), [4], None, r_sub, t_list, PAIRS,
         "qmc_vectorized", label="FFFF exact C_eff QMC32768 (superseded)"))
     # FFFK: the order-4 F^3.kappa^3 channel, EXACTLY.  Needs the
-    # propagator-indexed dynamic-coupling path (sft-wick >= 0.3.1) and
+    # propagator-indexed dynamic-coupling path (sft-wick >= 0.4.0) and
     # the R-contracted kernel, which drops the effective time dimension
     # from 6 to 3.  Computed for all three pairs rather than for xi_01
     # alone: xi_00 and xi_11 are expected to vanish by the phi_1 -> -phi_1
