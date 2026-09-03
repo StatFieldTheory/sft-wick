@@ -1,10 +1,51 @@
 # Changelog
 
-## 0.4.2 (unreleased)
+## 0.4.2 — 2026-09-03
 
-> **Paper assets and documentation only — no `src/` changes, no behaviour
-> change.**  Two of the three items below are corrections to claims made in
-> the 0.4.0 and 0.4.1 entries themselves.
+> **One `src/` fix, a documentation catch-up, and the test suite's tolerances
+> made honest.**  An earlier draft of this entry said "paper assets and
+> documentation only — no `src/` changes"; a readiness audit then found a
+> silent factor-2 wrong answer on an exported API, so that framing was wrong
+> and has been corrected rather than kept.  Four of the items below are
+> corrections to claims made in the 0.4.0 and 0.4.1 entries themselves.
+
+### Fixed: `compute_moment_numerical` bypassed the coincident-label guard
+
+0.4.0 made two external operators sharing a spatial label a `ValueError` and
+described the coverage as "both `System.expand` (L1) and `compute_moment`
+(L0)".  **L0 exports two engines.**  `compute_moment_numerical` — the nauty
+path documented as the faster drop-in for order ≥ 4 — was left open, and it
+drives the identical label-keyed `wick_contract_spatial`, so it inherited the
+identical collapse.
+
+Measured on a demo2-shaped system (N=2, one cubic vertex, `lam=0.05`,
+`sigma_t=0.3`, `sigma_x=1.0`, t_f = 3.48, both externals at position 0, QMC
+2¹⁴ seed 42):
+
+| call | observable | result |
+|---|---|---|
+| `compute_moment` | `('x','y')` | 1.47018966e-03 |
+| `compute_moment_numerical` | `('x','y')` | 1.47018966e-03 — agree bit-for-bit |
+| `compute_moment_numerical` | `('x','x')` | 7.35094832e-04 — **ratio exactly 0.500000** |
+| `compute_moment` | `('x','x')` | `ValueError` |
+
+So the silently-wrong factor 2 that the 0.4.0 entry calls out was still
+reachable through the engine `CLAUDE.md` advertises as "same output", and it
+continued past the guard to order 4 (7560 `DiagramTerm`s).  `docs/deductive_
+verification.md` check C1 cross-validates the two engines as "2 independent
+symbolic engines produce equal integrated totals", which this input class made
+vacuous.
+
+Exposure was narrow, which is why it survived: L1 and L2 never call the
+numerical engine, and it appears in one test file and no example or paper
+asset.  The rationale was already written into
+`test_CE1_repeated_external_label_is_refused_at_L0` — "the raw API is a public
+entry point and an L1 check would not protect it" — and simply was not
+followed through to the second engine.
+
+Locked by `CE4`, including a parametrised check that both engines guard
+identically at orders 0, 1 and 2: whatever they do, they must do the same
+thing, or C1 cross-validates two engines that disagree about what is legal.
 
 ### Fixed: the Table 1 asset did not run on the version the paper cites
 
@@ -48,6 +89,97 @@ re-measured on an idle machine: the order-3 cell now times an 80-diagram
 enumeration rather than a 75-diagram one, so the column changed meaning
 as well as magnitude.
 
+### Fixed: every `approx(rel=)` site now states its `abs=` (issue #5)
+
+`pytest.approx(x, rel=r)` compares against `max(r * expected, abs)` with `abs`
+defaulting to **1e-12**, so wherever the compared quantity is small the floor —
+not the written `rel` — is what is enforced.  0.4.1 fixed the two sites where
+that made an assertion unable to fail, and documented 22 more as weakened.
+This release closes the rest.
+
+**78 sites** wrote an explicit `rel` without an `abs`.  They split cleanly, and
+the split is what made this safe to do at all:
+
+* **56 were no-ops.**  At a site whose `rel` is already in force,
+  `max(rel * expected, 0.0) == rel * expected`, so adding `abs=0.0` cannot
+  change behaviour — only make the intent explicit.
+* **22 were the weakened ones**, and adding `abs=0.0` tightens them, by up to
+  nine orders of magnitude.
+
+**All 22 pass at the tolerance they were written to assert, and none needed a
+loosened `rel` or a reverse-engineered `abs`.**  Every one was measured rather
+than merely re-run: the largest true deviation found anywhere in the group is
+9.0e-16, and several sites are bit-identical.  The two most extreme — the
+`t_tilde` auto-dispatch repairs in `test_demo3_shot_noise.py`, written
+`rel=1e-15` but enforcing 8.1e-07 — turn out to compare a value against its own
+source, because the `auto` path assigns the quadrature result elementwise; they
+agree exactly, to 0.0.  So the floor had been masking agreement far better than
+the tests claimed, not covering up disagreement.
+
+**The measured result.**  Before and after, over the same 207 runtime sites:
+
+| bucket | 0.4.1 | 0.4.2 |
+|---|---|---|
+| `rel` genuinely in force | 108 | 52 |
+| explicit `abs=` | 75 | **153** (120 of them `abs=0.0`) |
+| compares against 0 on the default floor | 2 | 2 |
+| **weakened by the floor** | **22** | **0** |
+| vacuous | 0 | 0 |
+| total | 207 | 207 |
+
+The 56 no-ops moved from "rel in force" to "explicit `abs=`" without changing
+what they enforce; the 22 moved from "weakened" to enforcing what they say.
+
+Three sites in `test_spectral.py` keep a deliberate non-zero `abs`, and
+correctly: `R` is structurally exactly zero for acausal and equal times, and
+`C` vanishes at `t1 = t2 = 0`, so a relative tolerance is meaningless there.
+That is the distinction the guard below is meant to force an author to make.
+
+**A guard, so this cannot come back**: `test_every_approx_rel_site_states_its
+_abs` walks the suite's AST and fails on any `approx(..., rel=...)` with no
+`abs=`.  It is static by design — the runtime auditor can only tell you a site
+was weakened after the magnitudes happened to come out small, whereas the AST
+rule refuses the site before it ever runs.
+
+### Fixed: the 0.4.1 approx breakdown did not add up
+
+0.4.1's CHANGELOG and catalogue both read "Over 207 runtime sites: 108 have
+`rel` genuinely in force, 29 pass an explicit `abs=`, 15 compare against 0.0,
+22 are weakened, and 2 were vacuous" — presented as an exhaustive partition.
+**108 + 29 + 15 + 22 + 2 = 176.**  Thirty-one sites were in no category.
+
+The 29 and 15 were carried over from an earlier measurement of a 173-site
+suite, where `15 + 29 + 108 + 21 = 173` does sum; the total was updated to 207
+and the weakened count to 22, and those two were not.  `tests/test_catalog_
+current.py` could not catch it: the figures were hardcoded prose inside
+`tools/gen_test_catalog.py`, so the test regenerated the catalogue from the
+same literals it then compared against — structurally incapable of noticing
+they were wrong.
+
+**The fix is not a corrected number but a corrected mechanism.**
+`tools/approx_audit.py` now writes `docs/verification/approx_audit_summary
+.json` during the instrumented run, asserting as it does so that the buckets
+partition the total exactly, and `tools/gen_test_catalog.py` renders the
+paragraph from that file.  The bucket priority is recorded in the JSON, so the
+partition is reproducible rather than a convention someone has to guess.  A
+figure that describes a measurement is now read from that measurement.
+
+### Fixed: a published timing could not notice that its subject had changed
+
+The README's row for `examples/demo1/L2/config.yaml` read "4.6 min (28
+workers), 32768 samples".  That number was never wrong — nobody's machine got
+slower.  Its **subject** was replaced: the config became `method:
+gauss_legendre` with `n_gauss: 24`, under which a sample count is not a
+meaningful quantity at all.  A caveat about hardware would not have caught it,
+because the hardware was not the variable.
+
+The measurements cannot be automated — the table spans three machines and
+needs an idle one, so generating it at build time would replace three careful
+numbers with one machine-dependent number.  The **invalidation** can be.
+`test_readme_timings_still_describe_these_configs` pins the integrator, its
+resolution and the worker count for every config the table names, so a config
+change turns a silently-wrong row into a failure that names itself.
+
 ### Fixed: two figures misquoted from demo 3's own stored results
 
 - The level-A `m = 4` agreement is **6.6e-16**, the maximum over the nine
@@ -79,9 +211,19 @@ passes for any value.  This cannot be read off the source, since it depends on
 each site's runtime magnitude; `tools/approx_audit.py` measures it during a
 normal pytest run.
 
-Over 207 runtime sites: 108 have `rel` genuinely in force, 29 pass an explicit
-`abs=`, 15 compare against `0.0` (where the floor is the intent), **22 are
-weakened** (enforcing 2.0e-12 to 8.1e-07 relative), and **2 were vacuous**:
+Over 207 runtime sites: 108 have `rel` genuinely in force, 75 pass an explicit
+`abs=`, 2 compare against `0.0` on the default floor (where the floor is the
+intent), **22 are weakened** (enforcing 2.0e-12 to 8.1e-07 relative), and
+**2 were vacuous**:
+
+> **Corrected in 0.4.2.**  As shipped, this paragraph read "29 pass an explicit
+> `abs=`, 15 compare against `0.0`", which does not add up: 108 + 29 + 15 + 22
+> + 2 = 176 against a stated total of 207.  Those two figures were carried over
+> from an earlier 173-site measurement.  The numbers above are the re-measured
+> partition; 108, 22, the 2.0e-12–8.1e-07 range and the two vacuous sites were
+> always right.  See the 0.4.2 entry for why the catalogue no longer restates
+> figures it can read.
+
 
 - `tests/test_demo3_shot_noise.py` — the dispatch check at the removable
   singularity `γ = 1/σ_t`, called "the boundary check in its strongest form" by

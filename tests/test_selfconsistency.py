@@ -27,7 +27,8 @@ def test_SC1_scalar_contraction_reaches_its_analytic_fixed_point():
     a = 7.0
     res = solve_self_consistency(1.0, lambda x: 0.5 * (x + a / x), tol=1e-14)
     assert res.converged and res.reason == "converged"
-    assert float(res.state) == pytest.approx(np.sqrt(a), rel=1e-12)
+    assert float(res.state) == pytest.approx(np.sqrt(a), rel=1e-12,
+                                             abs=0.0)
     assert bool(res) is True
     # the residual history is monotone here and ends below tol
     assert res.residuals[-1] <= 1e-14
@@ -43,7 +44,7 @@ def test_SC1_linear_map_matches_the_closed_form_fixed_point():
     res = solve_self_consistency(np.zeros(4), lambda x: A @ x + b, tol=1e-13,
                                  max_iter=500)
     assert res.converged, res.summary()
-    assert res.state == pytest.approx(want, rel=1e-10)
+    assert res.state == pytest.approx(want, rel=1e-10, abs=0.0)
 
 
 def test_SC1_structured_states_work():

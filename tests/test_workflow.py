@@ -337,7 +337,7 @@ def test_WF11_sweep_reaches_two_time_response(demo1_system):
         row = tot[(abs(tot["t_y"] - tp) < 1e-12) & (tot["order"] == 0)]
         assert len(row) == 1, f"t'={tp}: {len(row)} rows"
         got = float(row["value"].iloc[0])
-        assert got == pytest.approx(np.exp(-_WF11_GAMMA * (T - tp)), rel=1e-9)
+        assert got == pytest.approx(np.exp(-_WF11_GAMMA * (T - tp)), rel=1e-9, abs=0.0)
         assert got != 0.0
 
 
@@ -403,7 +403,7 @@ def test_WF11_two_time_correlator_matches_the_closed_form(demo1_system):
     for tp in (1.5, 3.0):
         got = float(tot[abs(tot["t_y"] - tp) < 1e-12]["value"].iloc[0])
         want = _C_t_closed_form(4.0, tp)
-        assert got == pytest.approx(want, rel=2e-3), (
+        assert got == pytest.approx(want, rel=2e-3, abs=0.0), (
             f"C(4.0, {tp}) = {got:.8f} vs closed form {want:.8f}"
         )
 
@@ -449,13 +449,13 @@ def test_WF11_two_time_at_interacting_order_agrees_across_backends(
     # The order-2 term must actually be there -- a zero would make the
     # comparison vacuous, which is the failure mode of the order-0 tests.
     assert abs(ref2) > 1e-6, f"order-2 reference is ~0 ({ref2:.3e})"
-    assert got2 == pytest.approx(ref2, rel=5e-3), (
+    assert got2 == pytest.approx(ref2, rel=5e-3, abs=0.0), (
         f"{method} order 2 = {got2:.8f} vs nquad {ref2:.8f} "
         f"(ratio {got2 / ref2:.4f})"
     )
     # And order 0 is still the exact retarded propagator.
     got0 = float(tot[tot["order"] == 0]["value"].iloc[0])
-    assert got0 == pytest.approx(np.exp(-1.0 * (4.0 - 1.5)), rel=1e-6)
+    assert got0 == pytest.approx(np.exp(-1.0 * (4.0 - 1.5)), rel=1e-6, abs=0.0)
 
 
 def test_WF11_guards_reject_the_three_silent_failures(demo1_system):
