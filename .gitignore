@@ -12,6 +12,22 @@ CLAUDE.md
 HANDOFF*
 REFEREE_BRIEF.md
 AGENTS.md
+# Other agent / assistant working files.  Additive to the four above:
+# no leading slash, so a nested copy is caught too.  Never publishable.
+CLAUDE.local.md
+AGENT.md
+GEMINI.md
+.cursor/
+.cursorrules
+.codex/
+.aider*
+.github/copilot-instructions.md
+PLAN.md
+NOTES.md
+SESSION*.md
+SUMMARY.md
+scratch*.py
+tmp_*.py
 paper/
 # Top-level scratch dir only; the demo notebooks below are matched
 # explicitly so that `archived/` does not silently catch new ones.
