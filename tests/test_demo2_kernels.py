@@ -4,10 +4,13 @@ Nothing in ``tests/`` used to pin a demo-2 number.
 ``tests/test_R_contracted_vertex.py`` exercises the
 ``already_R_contracted`` machinery only on a CONSTANT ``κ³`` -- the one
 case where the R-contraction factorises exactly and the two routes must
-agree for trivial reasons -- and the ``validate_k*_R.py`` scripts in
-``examples/paper_assets/demo2_kappa4/`` are loose scripts that nothing
-runs.  So the two hand-written kernels the demo2 results rest on, and
-the channel values the paper quotes, were unprotected.
+agree for trivial reasons -- and what did cover these kernels lived in
+loose ``validate_k*_R.py`` scripts under
+``examples/paper_assets/demo2_kappa4/`` that nothing ran (deleted once
+DK1/DK2 below took over: same references, measured tolerances, and
+seconds rather than minutes).  So the two hand-written kernels the
+demo2 results rest on, and the channel values the paper quotes, were
+unprotected.
 
 This module pins:
 
