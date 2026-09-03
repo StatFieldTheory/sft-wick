@@ -8,9 +8,10 @@ sft-wick's correctness rests on two complementary layers of evidence:
    listed in the generated :doc:`catalog`) that pits each elementary
    transformation in the package against an independent reference —
    any failure points at a specific module.
-2. Two **inductive** end-to-end demos (Gaussian and non-Gaussian
-   driving) that compare the package's full pipeline to direct
-   Langevin simulation over a large parameter grid.
+2. Three **inductive** end-to-end demos (Gaussian driving, and two
+   independent kinds of non-Gaussian driving) that compare the
+   package's full pipeline to direct simulation of the same
+   stochastic equation over a large parameter grid.
 
 Both layers are necessary: the deductive suite proves the machinery
 is right *per step*; the demos confirm the output matches physics
@@ -274,11 +275,11 @@ infinite claim no test suite can make.  But they do prove:
   depend on Phase 2 passing and vice versa, so a numerical bug
   cannot mask a symbolic bug or vice versa.
 
-End-to-end validation — the two demos
--------------------------------------
+End-to-end validation — the three demos
+---------------------------------------
 
 For full **inductive** validation against direct simulation on
-physically non-trivial problems, see the two demos in
+physically non-trivial problems, see the three demos in
 ``examples/``:
 
 **examples/demo1** — Gaussian driving
@@ -288,7 +289,7 @@ physically non-trivial problems, see the two demos in
   :math:`10^5` realisations.  Perturbative expansion to order 4
   (0th, 2nd, 4th FF).  Agreement within the MC error envelope
   across the full :math:`(r, t)` grid.  Open:
-  ``examples/demo1/analysis_combined.ipynb``.
+  ``examples/demo1/analysis.ipynb``.
 
 **examples/demo2** — Non-Gaussian driving, non-local MSR vertex
   Same Langevin system with a quadratic deformation of the noise
@@ -308,6 +309,45 @@ physically non-trivial problems, see the two demos in
     the expected 1:1 level.
 
   Open: ``examples/demo2/analysis.ipynb``.
+
+**examples/demo3** — filtered Poisson (shot) noise
+  A second, independent kind of non-Gaussian driving: the noise is a
+  filtered Poisson (shot) process — events :math:`(x_k, s_k)` drawn
+  from a Poisson process of rate :math:`\nu`, each contributing a
+  pulse :math:`h\,w(x - x_k)\,g(t - s_k)`, with the mean subtracted.
+  Campbell's theorem gives *every* cumulant in closed form, and all
+  of them factor through the single source point, so the
+  R-contracted non-local vertex
+  (``NonLocalVertex(already_R_contracted=True)``) is **exact** here
+  at any leg count :math:`m`.  Two levels:
+
+  - **Level A** (:math:`F = 0`) is an exact test rather than a
+    consistency check: the m-point function is a *single* diagram
+    equal to a closed form, which the package reproduces to
+    1.4e-16 (3-point) and 6.6e-16 (connected 4-point) relative.
+    Its reference simulation is **event-exact** — no time stepping
+    and no spatial discretisation — so the only error is Monte
+    Carlo; over :math:`1.2\times10^6` realisations every pull on
+    :math:`\langle\phi^3\rangle(t)` is ≤ 0.64σ (≤ 1.12σ for the
+    connected 4-point).  Non-Gaussianity is set by the single
+    dimensionless knob :math:`n = \nu\sigma_t\sigma_x` at fixed
+    :math:`\kappa^{(2)}` (skewness :math:`\propto 1/\sqrt{n}`),
+    which makes the demo falsifiable: across
+    :math:`n \in \{0.25, 1, 4\}` the measured ratio is 4.0000
+    against 4.0000 predicted.
+  - **Level B** (:math:`F \neq 0`) computes all three contributions
+    to the cross correlator :math:`\xi_{01} = F\kappa^{(3)} +
+    F^3\kappa^{(3)} + F^3\kappa^{(5)}`, so both the leading
+    :math:`F` correction and the neglected-cumulant ladder term
+    (7.9 % and 0.094 % of the :math:`F\kappa^{(3)}` term at
+    :math:`t = 3`) are *computed*, not estimated.  It agrees with an
+    ETD simulation within 0.90σ at every time.
+
+  Open: ``examples/demo3/README.md``, and
+  ``examples/demo3/INTERPRETATION.md`` for the full validation
+  ledger and error budget.  The L2 configs are
+  ``examples/demo3/config_FK.yaml`` (order 2) and
+  ``examples/demo3/config_F3K.yaml`` (order 4).
 
 Running the tests
 -----------------
@@ -329,10 +369,13 @@ Running the tests
 
    # Demo notebooks (minutes)
    cd examples/demo1 && python run_simulation.py --n_real 5000 && \
-       jupyter nbconvert --to notebook --execute analysis_combined.ipynb
+       jupyter nbconvert --to notebook --execute analysis.ipynb
 
    cd examples/demo2 && python run_simulation.py --n_real 200000 --alpha 0.6 && \
        jupyter nbconvert --to notebook --execute analysis.ipynb
+
+   # Demo 3 — scripts, not a notebook (~3 min + ~6 min)
+   cd examples/demo3 && python level_a.py && python level_b.py
 
 For the detailed per-test matrix, tolerances, and design rationale,
 see :download:`deductive_verification.md <../deductive_verification.md>`

@@ -13,7 +13,7 @@ Currently locked here:
   machine precision.  A callable that ignores its arguments and
   returns a constant tensor is mathematically the static tensor, so
   the two routes must return bit-comparable numbers; this is the
-  boundary test for the feature that replaced the pre-0.3.1
+  boundary test for the feature that replaced the pre-0.4.0
   ``NotImplementedError``.
 * **WF6** -- end-to-end FK (κ^{(3)}) integration: a constant
   callable κ^{(3)} routed through ``DynamicCouplingPromise`` must
@@ -186,7 +186,7 @@ def test_DC1_prop_indexed_dynamic_matches_static() -> None:
 
     This is demo2's blocked case: at order 4 the F³κ³ diagrams keep a
     single surviving index ``('i_0', 2)`` that sits on a C propagator,
-    which the pre-0.3.1 ``DynamicCouplingPromise`` refused with
+    which the pre-0.4.0 ``DynamicCouplingPromise`` refused with
     ``NotImplementedError``.  A callable returning a constant tensor
     is the one configuration where both routes are legal, so their
     agreement is the boundary test for the feature.
@@ -306,7 +306,9 @@ def test_DC2_scalar_qmc_integrates_the_callable_not_the_placeholder(fn, exact):
     """
     val, _err = _dc2_integrand(fn).integrate_moment_qmc(
         lambda_f=1.0, cache=_dc2_cache(), n_samples=2 ** 14, seed=3)
-    assert val == pytest.approx(exact, rel=1e-6)
+    # abs=0.0 is a no-op here: the smallest ``exact`` is 1-e^-1 = 0.63, so
+    # rel*expected = 6.3e-07 already dominates the 1e-12 default abs floor.
+    assert val == pytest.approx(exact, rel=1e-6, abs=0.0)
     assert val != 0.0
 
 
@@ -333,7 +335,9 @@ def test_DC2_a_coupling_leg_with_no_propagator_still_gets_a_position():
 
     val, _ = _dc2_integrand(fn).integrate_moment_qmc(
         lambda_f=1.0, cache=_dc2_cache(), n_samples=64, seed=1)
-    assert val == pytest.approx(1.0, rel=1e-3)
+    # abs=0.0 is a no-op here: expected is exactly 1.0, so rel*expected
+    # = 1e-03 already dominates the 1e-12 default abs floor.
+    assert val == pytest.approx(1.0, rel=1e-3, abs=0.0)
     assert seen, "the callable was never invoked"
     assert all(len(n) == 1 and len(t) == 1 for n, t in seen)
 
