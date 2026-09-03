@@ -234,7 +234,7 @@ def budget_table():
 
     L.append("## Truncation: F³κ³ (order 4), computed vs the estimate it replaces")
     L.append("")
-    L.append("Until sft-wick 0.3.1 the package refused this channel "
+    L.append("Until sft-wick 0.4.0 the package refused this channel "
              "(`NotImplementedError: Dynamic coupling with propagator-indexed "
              "contraction`), because a κ³ leg index survives onto a C propagator.  "
              "It was therefore ESTIMATED by collapsing κ³ to an equal-time constant "

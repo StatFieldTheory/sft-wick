@@ -109,7 +109,8 @@ sft-wick run quickstart.yaml --quiet           # no bars / banners
 The next step up is `examples/demo1_config.yaml` (orders 0, 2 and 4;
 four separations; the sweep behind the paper's Gaussian-noise figures),
 then `examples/demo2_config.yaml` (non-local κ⁽³⁾ vertex with a dynamic
-coupling).
+coupling), then `examples/demo3/config_FK.yaml` (filtered Poisson shot
+noise, whose κ⁽³⁾ vertex is R-contracted exactly).
 
 ### How long will this take?
 
@@ -120,8 +121,10 @@ run.  Measured wall-clock, serial, `pip install sft-wick` with no extras:
 |---|---|---|---|---|
 | `sft-wick quickstart` | 2 s | 10 s | 6 s | orders 0–2, 12 grid points, 4096 samples |
 | `examples/demo1_config.yaml` | 50 s | 5.2 min | 1.5 min | orders 0–4 (71 diagrams), 16 grid points, 8192 samples |
-| `examples/demo1/L2/config.yaml` (paper figures) | 4.6 min (28 workers) | — | — | 672 grid points × 71 diagrams, 32768 samples, `sweep.n_jobs: -1` |
+| `examples/demo1/L2/config.yaml` (paper figures) | ~15 min (28 workers) | — | — | 672 grid points × 71 diagrams, `method: gauss_legendre` with `n_gauss: 24`, `sweep.n_jobs: -1` |
 | `examples/demo2/L2/*.yaml` (κ⁽³⁾ figures) | 39 s (28 workers) | — | — | FF (QMC) + FK (R-contracted κ⁽³⁾, 1-D Gauss-Legendre), `sweep.n_jobs: -1` |
+| `examples/demo3/config_FK.yaml` | 0.6 s | — | — | order-2 `Fκ³` channel (2 diagrams), 5 separations × 6 times |
+| `examples/demo3/config_F3K.yaml` | 178 s (cold, `sweep.n_jobs: -1`) | — | — | the order-4 `F³κ³ + F³κ⁵` channels (36 diagrams, 3 times); 143 s of that is the one-off order-4 enumeration, cached afterwards |
 
 ¹ the same machine throttled with `taskpolicy -c background` and
 `OMP_NUM_THREADS=1`; a 2023 MacBook Pro should be within a factor of two.
@@ -133,10 +136,13 @@ orders 0 / 2 / 4 for the cubic vertex), the number of grid points
 (`sweep.positions_grid` × `t_final_grid` × `component_pairs`),
 `sweep.n_samples` per diagram, and — only when no closed form applies —
 `propagators.n_grid_t²` quadrature calls for the C table.  The exponential-
-temporal kernel family used in every shipped example gets a built-in closed
-form (`propagators.c_closed_form: auto`), so its C table costs nothing;
-other kernels are integrated by Gauss-Legendre with a node count checked for
-convergence at the table's extreme cells (`c_method: auto`).
+temporal kernel family gets a built-in closed form
+(`propagators.c_closed_form: auto`), so its C table costs nothing.  That
+covers the quick start, demo 1 and demo 2; demo 3 is the exception and
+supplies its own (`c_closed_form_module`), because its spatial envelope is
+outside the YAML kernel vocabulary.  Kernels with neither are integrated by
+Gauss-Legendre with a node count checked for convergence at the table's
+extreme cells (`c_method: auto`).
 
 ## Quick Start — L1 (Python, for programmatic use)
 
@@ -478,6 +484,28 @@ result = compute_moment(obs, action, order=1)
 
 ## Conventions and Options
 
+### Distinct external labels (breaking change in 0.4.0)
+
+Each external operator must carry its own spatial label.  Since 0.4.0,
+`("phi_a(x)", "phi_b(x)")` raises `ValueError` at `System.expand` (L1)
+and `compute_moment` (L0) **at interacting orders**; order 0 is exempt
+and unchanged.  Upgrading from 0.3.x, give each external a distinct
+label and put them at the same point through `positions`:
+
+```python
+expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0, 2])
+expansion.evaluate(props, positions={"x": 0.0, "y": 0.0}, ...)
+```
+
+Coincident external *points* are, and always were, fully supported — it
+is the shared *label* that is not.  The spatial contraction is keyed by
+label, so two operators sharing one were collapsed without their
+distinct component-index routings, giving a silently wrong answer:
+measured on demo 2's system, the order-2 `F` channel was low by a factor
+2 while its `FK` channel was exactly right.  The 0.4.0 entry in
+`CHANGELOG.md` explains why the spelling is refused rather than repaired
+with a multiplicity factor.
+
 ### Itô prescription (`ito=True`, default)
 
 By default, the Itô discretisation convention Θ(0)=0 is applied:
@@ -547,10 +575,10 @@ At order 6, the dominant cost is **component routing** (`_enumerate_component_ro
 pytest tests/ -v
 ```
 
-**777 tests** (parametrised cases counted; 564 test functions in 34
-files, a few minutes on a laptop).  Every file, what it checks, the
-independent reference it is checked against and its tolerance are listed
-in the generated validation catalogue, `docs/verification/catalog.rst`
+**1032 tests** (parametrised cases counted; 38 files, a few minutes on a
+laptop).  Every file, what it checks, the independent reference it is
+checked against and its tolerance are listed in the generated validation
+catalogue, `docs/verification/catalog.rst`
 (`python tools/gen_test_catalog.py`).  The core is organised into eight
 deductive phases:
 
@@ -571,13 +599,13 @@ See `docs/verification/index.rst` for the per-phase test matrix, tolerances, and
 | Path | Contents |
 |------|----------|
 | `src/sft_wick/` | Package source: diagram enumeration, propagators, numerical evaluation, drawing, and the `workflow/` high-level API + CLI |
-| `examples/` | Worked examples — `demo1/` (Gaussian noise), `demo2/` (non-Gaussian, non-zero κ³), and tutorial notebooks |
+| `examples/` | Worked examples — `demo1/` (Gaussian noise), `demo2/` (non-Gaussian, non-zero κ³), `demo3/` (filtered Poisson shot noise), and tutorial notebooks |
 | `tests/` | pytest suite (eight deductive phases) |
 | `docs/` | Sphinx documentation (ReadTheDocs source) |
 
 ## Worked examples (reproducible test runs)
 
-Two end-to-end examples ship with committed inputs **and** outputs, each covering
+Three end-to-end examples ship with committed inputs **and** outputs, each covering
 symbolic diagram expansion *and* numerical evaluation against a direct Langevin
 simulation:
 
@@ -590,10 +618,25 @@ python examples/demo1/run_simulation.py            # writes sim_cache.npz (~50k 
 python examples/demo2/run_simulation.py --alpha 0.6   # non-Gaussian
 python examples/demo2/run_simulation.py --alpha 0.0   # Gaussian control
 # then run examples/demo2/analysis.ipynb           # kappa^3 cross-check + FK channel
+
+# demo3 — filtered Poisson (shot) noise, exact in the free-field limit
+cd examples/demo3
+python level_a.py                 # ~3 min   level A (F = 0): the exact check
+python level_b.py                 # ~6 min   level B: Fkappa^3 + F^3kappa^3 + F^3kappa^5
+python make_figures.py            #          figures + TikZ diagram sources
+sft-wick run config_FK.yaml       # the same level-B physics through the L2 CLI
 ```
 
-The `sim_cache.npz` files and reference figures are committed, so a reviewer can
-re-run the scripts and diff against the shipped outputs. See also
+Demo 3's level A runs through the L1 Python API rather than the CLI —
+`Expansion.sweep` is 2-point only, so a 3-point observable cannot be
+driven from YAML; both of demo 3's configs (`config_FK.yaml`,
+`config_F3K.yaml`) are level B.  See `examples/demo3/INTERPRETATION.md`
+for its validation ledger and error budget.
+
+The cached simulation outputs (`sim_cache.npz` for demos 1 and 2,
+`level_a_results.npz` / `level_b_results.npz` for demo 3) and the
+reference figures are committed, so a reviewer can re-run the scripts and
+diff against the shipped outputs. See also
 `examples/nonlocal_vertex_2pt.ipynb` for a non-local-vertex tutorial.
 
 ## Documentation
@@ -617,7 +660,7 @@ If you use `sft-wick`, please cite the paper:
 }
 ```
 
-A specific software version can additionally be referenced via its Zenodo archive ([DOI:10.5281/zenodo.20776358](https://doi.org/10.5281/zenodo.20776358)).
+The software is additionally archived on Zenodo.  [DOI:10.5281/zenodo.20776358](https://doi.org/10.5281/zenodo.20776358) is the *concept* DOI: it covers all versions and always resolves to the most recent release.  To reference the *specific* version your results were produced with, cite that release's own version DOI, listed under "Versions" on the Zenodo record page — for 0.4.1 that is [DOI:10.5281/zenodo.22261750](https://doi.org/10.5281/zenodo.22261750).
 
 ## License
 
