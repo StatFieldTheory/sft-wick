@@ -323,8 +323,12 @@ def test_equal_time_jacobian_ratio_qmc_vectorized():
     # Constant integrand (R=C=1, coupling=1) so QMC integrates the
     # raw simplex volume exactly up to QMC bias. 2**12 Sobol samples
     # nail span^3 = 8 and span = 2 to ~0.1% on this trivial fixture.
-    assert full == pytest.approx(span ** 3, rel=1e-3)
-    assert equal_time == pytest.approx(span, rel=1e-3)
+    # abs=0.0 makes the written rel the *only* tolerance: pytest.approx
+    # otherwise ORs in a 1e-12 absolute floor. Provable no-op here —
+    # expected values are the constants 8.0 and 2.0, so rel*expected
+    # (8e-3, 2e-3) already dominates the floor by ~9 orders of magnitude.
+    assert full == pytest.approx(span ** 3, rel=1e-3, abs=0.0)
+    assert equal_time == pytest.approx(span, rel=1e-3, abs=0.0)
 
 
 def test_equal_time_qmc_vectorized_alias_redirect_in_times():

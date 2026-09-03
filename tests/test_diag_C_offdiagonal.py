@@ -154,7 +154,7 @@ def test_diag_C_true_preserves_current_behaviour(tmp_path: Path) -> None:
 
     # On-diagonal pair: R(t, t) is 1 under iso_R + gamma=1, the stub
     # ``C[0, 0] = 11.0`` is the entire integrand at order 0.
-    assert v_00 == pytest.approx(11.0, rel=1e-12), (
+    assert v_00 == pytest.approx(11.0, rel=1e-12, abs=0.0), (
         f"diag_C=True: (0, 0) must read C[0, 0] = 11.0; got {v_00:.6e}"
     )
     # Off-diagonal pair: the symbolic ``KroneckerDelta(a, b)`` from
@@ -181,10 +181,10 @@ def test_diag_C_false_returns_off_diagonal(tmp_path: Path) -> None:
     v_01 = _pair_value(totals, (0, 1))
     v_12 = _pair_value(totals, (1, 2))
 
-    assert v_01 == pytest.approx(12.0, rel=1e-12), (
+    assert v_01 == pytest.approx(12.0, rel=1e-12, abs=0.0), (
         f"diag_C=False: (0, 1) must read C[0, 1] = 12.0; got {v_01:.6e}"
     )
-    assert v_12 == pytest.approx(23.0, rel=1e-12), (
+    assert v_12 == pytest.approx(23.0, rel=1e-12, abs=0.0), (
         f"diag_C=False: (1, 2) must read C[1, 2] = 23.0; got {v_12:.6e}"
     )
 
@@ -211,7 +211,7 @@ def test_mixed_diag_offdiag_pairs_in_one_sweep(tmp_path: Path) -> None:
     }
     for pair, want in expected.items():
         got = _pair_value(totals, pair)
-        assert got == pytest.approx(want, rel=1e-12), (
+        assert got == pytest.approx(want, rel=1e-12, abs=0.0), (
             f"pair {pair}: want C[{pair[0]}, {pair[1]}] = {want}; "
             f"got {got:.6e}"
         )
@@ -249,7 +249,7 @@ def test_iso_R_independent_of_diag_C(tmp_path: Path) -> None:
 
     # The C matrix entry must come through unchanged: iso_R does not
     # touch the C side when diag_C is False.
-    assert v_01 == pytest.approx(12.0, rel=1e-12), (
+    assert v_01 == pytest.approx(12.0, rel=1e-12, abs=0.0), (
         f"iso_R=True + diag_C=False: (0, 1) must read C[0, 1] = 12.0; "
         f"got {v_01:.6e}"
     )

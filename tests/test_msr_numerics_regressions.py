@@ -148,7 +148,7 @@ def test_F1_quartic_series_matches_stationary_fokker_planck(order, exact):
                        opts={"epsabs": 1e-11, "epsrel": 1e-9, "limit": 200})
         total += val
     # t = 8 is not quite t -> infinity; exp(-2t) ~ 1e-7 leaves ~2.5e-5.
-    assert total == pytest.approx(exact, rel=1e-3)
+    assert total == pytest.approx(exact, rel=1e-3, abs=0.0)
 
 
 def test_F1_linear_perturbation_is_exactly_solvable():
@@ -181,7 +181,7 @@ def test_F1_linear_perturbation_is_exactly_solvable():
             val, _ = nquad(f, ig.integration_bounds(ext, t_min=0.0),
                            opts={"epsabs": 1e-11, "epsrel": 1e-9})
             total += val
-        assert total == pytest.approx(exact[n], rel=1e-4), f"order {n}"
+        assert total == pytest.approx(exact[n], rel=1e-4, abs=0.0), f"order {n}"
 
 
 # --------------------------------------------------------------------- #
@@ -237,7 +237,7 @@ def test_F2_never_returns_abs_of_a_negative_contribution():
     assert clean < 0
     perturbed = run(np.array(1j * (1 + 1e-12j)))
     assert perturbed < 0, "sign was destroyed by an abs()-style projection"
-    assert perturbed == pytest.approx(clean, rel=1e-9)
+    assert perturbed == pytest.approx(clean, rel=1e-9, abs=0.0)
 
 
 def test_F2_real_or_raise_boundary():
@@ -323,7 +323,7 @@ def test_F3_iso_R_path_is_unchanged():
     exact = (0.5 / 2.0) * (np.exp(-2 * 0.4) - np.exp(-2 * 1.6))
     for method in ("dblquad", "gauss_legendre"):
         got = float(cache._C_value_direct(0, 1.0, 0, 0.6, method=method)[0, 0])
-        assert got == pytest.approx(exact, rel=1e-12)
+        assert got == pytest.approx(exact, rel=1e-12, abs=0.0)
 
 
 # --------------------------------------------------------------------- #
@@ -384,8 +384,11 @@ def test_F6_callable_local_coupling_matches_static():
             for t in terms
         )
 
+    # Tolerance audit (issue #5): `abs=0.0` makes the written rel=1e-14
+    # real; the default abs=1e-12 floor had it enforcing only ~2e-12.  The
+    # callable and ndarray paths agree bit-for-bit (measured deviation 0.0).
     assert total(lambda n, t: np.asarray(1j)) == pytest.approx(
-        total(np.array(1j)), rel=1e-14
+        total(np.array(1j)), rel=1e-14, abs=0.0
     )
 
 
@@ -409,7 +412,7 @@ def test_F6_time_dependent_local_coupling_matches_closed_form():
     )
     truth, _ = quad(lambda s: k(s) * np.exp(-MU * (T - s)) * _C0(T, s),
                     0.0, T, limit=300)
-    assert got == pytest.approx(-2.0 * truth, rel=1e-8)
+    assert got == pytest.approx(-2.0 * truth, rel=1e-8, abs=0.0)
 
 
 def test_F6_multi_point_callable_is_refused_not_silently_wrong():
@@ -501,7 +504,7 @@ def test_F9_response_at_order1_respects_the_lower_causal_bound(t2):
     if truth == 0.0:
         assert total == pytest.approx(0.0, abs=1e-12)
     else:
-        assert total == pytest.approx(truth, rel=1e-8)
+        assert total == pytest.approx(truth, rel=1e-8, abs=0.0)
 
 
 def test_F9_lower_bounds_seed_externally_then_propagate():
@@ -561,7 +564,7 @@ def test_F10_qmc_scalar_zero_dim_uses_the_reality_projection():
     dirs = {d: 0 for d in set(ig.spatial.direction_map.values())}
     causal = float(np.real(ig.evaluate({"x": T, "y": 0.6 * T}, dirs, cache)
                            * res.diagram_terms(0)[0].observable_phase_factor()))
-    assert causal == pytest.approx(np.exp(-MU * (T - 0.6 * T)), rel=1e-12)
+    assert causal == pytest.approx(np.exp(-MU * (T - 0.6 * T)), rel=1e-12, abs=0.0)
     assert causal != 0.0
 
 
@@ -753,7 +756,7 @@ def test_F13_swept_external_lower_bound_is_applied(method, kw, tol, batch):
         )
         total += v
     ref = _f13_reference()
-    assert total == pytest.approx(ref, rel=tol), (
+    assert total == pytest.approx(ref, rel=tol, abs=0.0), (
         f"{method} {kw}: {total:.8f} vs closed form {ref:.8f} "
         f"(rel {abs(total - ref) / abs(ref):.2e})"
     )
@@ -898,7 +901,7 @@ def test_F14_two_point_qmc_order0_carries_the_spatial_factor(r):
     )
     exact = (np.exp(-r / _F14_SIGMA_X)
              * ((1.0 - np.exp(-MU * _F14_T)) / MU) ** 2)
-    assert val == pytest.approx(exact, rel=1e-6), (
+    assert val == pytest.approx(exact, rel=1e-6, abs=0.0), (
         f"r={r}: got {val:.10f}, closed form {exact:.10f}"
     )
 
@@ -931,7 +934,11 @@ def test_F14_cross_propagator_count_sets_the_separation_scaling(order):
                 assert abs(base) > 1e-12, f"n_cross={n_cross} vanishes at r=0"
                 continue
             want = np.exp(-n_cross * r / _F14_SIGMA_X)
-            assert val / base == pytest.approx(want, rel=1e-12), (
+            # Tolerance audit (issue #5): `abs=0.0` -- the default abs=1e-12
+            # floor relaxed this to ~5e-11 relative at want = exp(-4).  The
+            # r-dependence factors out of the (seed-fixed) QMC sum exactly,
+            # so rel=1e-12 has ~4 decades of headroom (measured 2e-16).
+            assert val / base == pytest.approx(want, rel=1e-12, abs=0.0), (
                 f"order {order}, n_cross={n_cross}, r={r}: "
                 f"ratio {val / base:.12f} != exp(-{n_cross} r/sx) = {want:.12f}"
             )
@@ -1003,14 +1010,14 @@ def test_F15_ito_false_changes_the_expression_not_the_number(T):
         f"equal-point R term is missing, so this test proves nothing"
     )
     # (b) ... but not the number ...
-    assert v_str == pytest.approx(v_ito, rel=1e-12)
+    assert v_str == pytest.approx(v_ito, rel=1e-12, abs=0.0)
     # (c) ... and that number is the stationary one.  The tolerance
     # TIGHTENS with T, because the finite-time correction is
     # O(T exp(-2 mu T)) while the error a Theta(0)=1/2 "fix" would inject
     # GROWS with T.  A single loose tolerance would admit the latter --
     # which is the whole failure mode this test guards.
     stationary_tol = {4.0: 1e-2, 8.0: 1e-4, 16.0: 1e-6}[T]
-    assert v_str == pytest.approx(-D / MU ** 2, rel=stationary_tol)
+    assert v_str == pytest.approx(-D / MU ** 2, rel=stationary_tol, abs=0.0)
 
 
 def test_F15_theta_half_would_grow_without_bound():
@@ -1023,7 +1030,7 @@ def test_F15_theta_half_would_grow_without_bound():
     spurious = {T: -_C0(T, T) * T / 2 for T in (4.0, 8.0, 16.0)}
     exact = -D / MU ** 2
     # Grows linearly in T, so it cannot be part of a T-independent answer.
-    assert spurious[16.0] == pytest.approx(2 * spurious[8.0], rel=1e-3)
+    assert spurious[16.0] == pytest.approx(2 * spurious[8.0], rel=1e-3, abs=0.0)
     assert abs(spurious[16.0] / exact) > 7.0
 
 
@@ -1146,7 +1153,7 @@ def test_F17_spatial_table_stays_exact_for_a_nonseparable_kernel(r):
                         * np.exp(-MU * (_F17_T - l2))),
         0.0, _F17_T, lambda _: 0.0, lambda _: _F17_T, epsabs=1e-11,
     )
-    assert got == pytest.approx(exact, rel=1e-3), (
+    assert got == pytest.approx(exact, rel=1e-3, abs=0.0), (
         f"r={r}: {got:.9f} vs exact {exact:.9f} — the kappa2 ratio was "
         f"substituted for an exact spatial C"
     )
@@ -1169,7 +1176,7 @@ def test_F17_cache_without_a_legacy_table_still_works_at_order_0():
                                          cache, n_samples=2 ** 8, seed=0)
         exact = (np.exp(-r / sigma_x)
                  * ((1.0 - np.exp(-MU * _F17_T)) / MU) ** 2)
-        assert got == pytest.approx(exact, rel=1e-6), f"r={r}"
+        assert got == pytest.approx(exact, rel=1e-6, abs=0.0), f"r={r}"
 
 
 def test_F17_off_diagonal_C_uses_both_propagator_indices():
@@ -1194,7 +1201,7 @@ def test_F17_off_diagonal_C_uses_both_propagator_indices():
         cache = PropagatorCache(model)
         got, _ = integrate_two_point_qmc(igs, _F17_T, {"x": 0.0, "y": r},
                                          cache, n_samples=2 ** 8, seed=0)
-        assert got == pytest.approx(want, rel=1e-6), (
+        assert got == pytest.approx(want, rel=1e-6, abs=0.0), (
             f"<phi_{a} phi_{b}>: {got:.9f} vs {want:.9f} "
             f"(M[{a},{b}]={M[a, b]})"
         )
@@ -1228,7 +1235,7 @@ def test_F13_two_swept_externals_pick_the_right_column():
                              integrate_over=["x", "y"], **kw)[0]
             for ig in igs
         )
-        assert total == pytest.approx(ref, rel=tol), (
+        assert total == pytest.approx(ref, rel=tol, abs=0.0), (
             f"{method}: {total:.8f} vs {ref:.8f}"
         )
 
@@ -1303,7 +1310,7 @@ def test_F18_spatial_table_does_not_move_a_separable_result(order, r):
                                           legacy, **kw)
     v_spatial, _ = integrate_two_point_qmc(igs_b, _F18_T, {"x": 0.0, "y": r},
                                            spatial, **kw)
-    assert v_spatial == pytest.approx(v_legacy, rel=2e-3), (
+    assert v_spatial == pytest.approx(v_legacy, rel=2e-3, abs=0.0), (
         f"order {order}, r={r}: spatial table changed a separable result "
         f"({v_spatial:.10f} vs {v_legacy:.10f}) — the ratio was either "
         f"dropped or double-counted"
@@ -1338,7 +1345,7 @@ def test_F18_nonseparable_agrees_with_the_spatially_aware_integrator():
                          positions={"x": 0.0, "y": r})[0]
         for ig in igs
     )
-    assert tp == pytest.approx(ref, rel=1e-3), (
+    assert tp == pytest.approx(ref, rel=1e-3, abs=0.0), (
         f"two_point_qmc {tp:.8f} vs spatially-aware integrate_moment "
         f"{ref:.8f} (rel {abs(tp - ref) / abs(ref):.2%})"
     )
@@ -1411,7 +1418,7 @@ def test_F19_swept_to_swept_ordering_is_carried(method, kw, tol):
         for ig in _f19_integrands()
     )
     ref = _f19_reference()
-    assert total == pytest.approx(ref, rel=tol), (
+    assert total == pytest.approx(ref, rel=tol, abs=0.0), (
         f"{method} {kw}: {total:.8f} vs closed form {ref:.8f} "
         f"(rel {abs(total - ref) / abs(ref):.2e})"
     )
@@ -1517,7 +1524,7 @@ def test_F20_order0_response_at_unequal_times(method, ty):
     T = 4.0
     kw = {"n_gauss": 16} if method == "gauss_legendre" else {}
     got = _f20_eval(0, T, ty, method, **kw)
-    assert got == pytest.approx(np.exp(-MU * (T - ty)), rel=1e-9)
+    assert got == pytest.approx(np.exp(-MU * (T - ty)), rel=1e-9, abs=0.0)
     assert got != 0.0
 
 
@@ -1530,7 +1537,7 @@ def test_F20_order1_response_matches_the_closed_form(method, ty):
           else {"n_gauss": 24} if method == "gauss_legendre" else {})
     got = _f20_eval(1, T, ty, method, **kw)
     want = _d1R_closed_form(T, ty)
-    assert got == pytest.approx(want, rel=2e-3), (
+    assert got == pytest.approx(want, rel=2e-3, abs=0.0), (
         f"{method} ty={ty}: {got:.8f} vs closed form {want:.8f}"
     )
 
@@ -1610,7 +1617,7 @@ def test_F20_lambda_f_must_not_stand_in_for_an_external_time(method):
         for ig in _f20_response(1)
     )
     want = _d1R_closed_form(tx, ty)
-    assert got == pytest.approx(want, rel=2e-3), (
+    assert got == pytest.approx(want, rel=2e-3, abs=0.0), (
         f"{method}: {got:.8f} vs closed form {want:.8f} — lambda_f={lam} "
         f"leaked in as the time of external 'x' (t_x={tx})"
     )
@@ -1708,7 +1715,7 @@ def test_F21_the_kink_is_exactly_minus_sigma2():
     t, eps = 2.0, 1e-6
     d_above = (_C0(t + eps, t) - _C0(t, t)) / eps
     d_below = (_C0(t, t) - _C0(t - eps, t)) / eps
-    assert (d_above - d_below) == pytest.approx(-2.0 * D, rel=1e-5), (
+    assert (d_above - d_below) == pytest.approx(-2.0 * D, rel=1e-5, abs=0.0), (
         "the derivative jump across the diagonal is not -sigma2"
     )
 
@@ -1730,7 +1737,7 @@ def test_F21_tadpole_coefficient_is_accurate():
     ss = np.linspace(0.0, T, 2001)
     vals = np.array([float(cache.C_diagonal(0, s, 0, s)[0]) for s in ss])
     got = -3.0 * np.trapezoid(np.exp(-2 * MU * (T - ss)) * vals, ss)
-    assert got == pytest.approx(exact, rel=1e-5), (
+    assert got == pytest.approx(exact, rel=1e-5, abs=0.0), (
         f"tadpole c1 {got:.10f} vs exact {exact:.10f} "
         f"(was 7.3e-03 relative at this grid)"
     )
@@ -1749,9 +1756,13 @@ def test_F21_batch_and_scalar_accessors_agree_on_the_diagonal():
     for k, t in enumerate(ts):
         scalar = float(cache.C_diagonal(0, t, 0, t)[0])
         matrix = float(cache.C_value(0, t, 0, t)[0, 0])
-        assert batch[k, 0] == pytest.approx(scalar, rel=1e-14)
-        assert matrix == pytest.approx(scalar, rel=1e-14)
-        assert scalar == pytest.approx(_C0(t, t), rel=1e-3)
+        # Tolerance audit (issue #5): `abs=0.0` makes rel=1e-14 binding on
+        # the next two lines.  The default abs=1e-12 floor had them
+        # enforcing only ~4e-12 relative.  All three accessors return
+        # bit-identical values, so there is no cost -- measured dev 0.0.
+        assert batch[k, 0] == pytest.approx(scalar, rel=1e-14, abs=0.0)
+        assert matrix == pytest.approx(scalar, rel=1e-14, abs=0.0)
+        assert scalar == pytest.approx(_C0(t, t), rel=1e-3, abs=0.0)
 
 
 def test_F21_lazy_spatial_path_has_the_same_diagonal_fix():
@@ -1849,7 +1860,7 @@ def test_F22_two_point_qmc_takes_external_times():
     # Same model as F14: R = exp(-mu (t-t')), kappa separable exponential.
     exact = (np.exp(-r / _F14_SIGMA_X)
              * (1.0 - np.exp(-MU * tx)) * (1.0 - np.exp(-MU * ty)) / MU ** 2)
-    assert got == pytest.approx(exact, rel=1e-5), (
+    assert got == pytest.approx(exact, rel=1e-5, abs=0.0), (
         f"two-point at unequal times: {got:.10f} vs closed form {exact:.10f}"
     )
 
@@ -1913,7 +1924,7 @@ def test_F22_nquad_orders_swept_externals_outermost(method, kw, tol):
                          integrate_over=["x", "y"], **kw)[0]
         for ig in igs
     )
-    assert total == pytest.approx(_f19_reference(), rel=tol)
+    assert total == pytest.approx(_f19_reference(), rel=tol, abs=0.0)
 
 
 # --------------------------------------------------------------------- #
@@ -1964,7 +1975,7 @@ def test_F23_propagator_cache_survives_a_pickle_round_trip(kind):
     after = probe(pickle.loads(pickle.dumps(cache)))
     assert after == before, f"{kind}: {before!r} -> {after!r} across pickle"
     # and it is still the right number (t=2.0 is a node of this grid)
-    assert before == pytest.approx(_C0(2.0, 2.0), rel=1e-9)
+    assert before == pytest.approx(_C0(2.0, 2.0), rel=1e-9, abs=0.0)
 
 
 def test_F23_diag_line_spline_keeps_cubic_accuracy():
@@ -2021,7 +2032,12 @@ def test_F24_c_memo_never_shares_a_key_across_positions():
     big = lambda v: [np.full(600, v)]          # noqa: E731
     v1 = float(cache.C_value(zero, 1.0, big(1.0), 1.0)[0, 0])
     v5 = float(cache.C_value(zero, 1.0, big(5.0), 1.0)[0, 0])
-    assert v5 / v1 == pytest.approx(np.exp(-4.0), rel=1e-12), (
+    # Tolerance audit (issue #5): `abs=0.0` on both exp(-4) ratio checks
+    # in this test.  pytest's default abs=1e-12 floor had them enforcing
+    # only ~5e-11 relative (want = exp(-4) = 1.8e-2); the written 1e-12 is
+    # now what actually runs.  The position factor divides out exactly, so
+    # both ratios are bit-exact -- measured deviation 0.0.
+    assert v5 / v1 == pytest.approx(np.exp(-4.0), rel=1e-12, abs=0.0), (
         f"nested large positions shared a memo key: {v1} vs {v5}"
     )
     assert len(cache._c_cache) == 2, "two distinct positions, two entries"
@@ -2033,7 +2049,7 @@ def test_F24_c_memo_never_shares_a_key_across_positions():
     cache = PropagatorCache(model)
     a = float(cache.C_value(zero, 1.0, np.array([1.0]), 1.0)[0, 0])
     b = float(cache.C_value(zero, 1.0, np.array([5.0]), 1.0)[0, 0])
-    assert b / a == pytest.approx(np.exp(-4.0), rel=1e-12)
+    assert b / a == pytest.approx(np.exp(-4.0), rel=1e-12, abs=0.0)
     # a non-contiguous slice with the same value is the SAME position
     same = float(cache.C_value(zero, 1.0, np.array([9.0, 1.0])[1:], 1.0)[0, 0])
     assert same == a
@@ -2066,7 +2082,7 @@ def test_F25_C_diagonal_and_C_value_agree_when_both_tables_exist():
         n = np.array([r])
         diag = float(cache.C_diagonal(np.array([0.0]), 2.0, n, 1.0)[0])
         val = float(cache.C_value(np.array([0.0]), 2.0, n, 1.0)[0, 0])
-        assert diag == pytest.approx(val, rel=1e-12), (
+        assert diag == pytest.approx(val, rel=1e-12, abs=0.0), (
             f"separation {r}: C_diagonal {diag:.10f} vs C_value {val:.10f}"
         )
     # and the position dependence is actually there -- otherwise the check

@@ -56,10 +56,11 @@ def test_SP1_theta_is_the_librarys_not_a_hand_rolled_one():
     t1 = np.array([3.0, 2.0, 1.0])
     t2 = np.array([1.0, 2.0, 3.0])          # causal, equal, acausal
     out = cache.R_time_batch(t1, t2)
-    assert out[0] == pytest.approx(np.exp(-2.0), rel=1e-12)
+    assert out[0] == pytest.approx(np.exp(-2.0), rel=1e-12, abs=0.0)
     assert out[1] == 0.0 and out[2] == 0.0
     # raw accessor: no Theta, and it is the spectral sum
-    assert cache.model.R_time(1.0, 3.0) == pytest.approx(np.exp(2.0), rel=1e-12)
+    assert cache.model.R_time(1.0, 3.0) == pytest.approx(
+        np.exp(2.0), rel=1e-12, abs=0.0)
 
 
 # --------------------------------------------------------------------- #
@@ -72,8 +73,10 @@ def test_SP2_two_rate_density_is_the_weighted_mean_of_two_OU_answers():
     cache = spectral_cache(dens, D_NOISE)
     for t1, t2 in [(4.0, 1.0), (2.0, 2.0), (0.5, 3.5)]:
         want_c = w1 * _ou_C(h1, t1, t2) + (1 - w1) * _ou_C(h2, t1, t2)
+        # abs=0.0: the default floor made this ~4.6e-11 relative at
+        # C ~ 0.022; the written 1e-12 now binds (dev 2e-16).
         assert float(cache.C_diagonal(0, t1, 0, t2)[0]) == pytest.approx(
-            want_c, rel=1e-12)
+            want_c, rel=1e-12, abs=0.0)
         want_r = w1 * _ou_R(h1, t1, t2) + (1 - w1) * _ou_R(h2, t1, t2)
         assert float(cache.R_time_batch(np.array([t1]), np.array([t2]))[0]) \
             == pytest.approx(want_r, rel=1e-12, abs=1e-15)
@@ -158,8 +161,10 @@ def test_SP3_shift_adds_to_every_rate():
     a = spectral_cache(SpectralDensity.delta(1.0), D_NOISE, shift=lam)
     b = spectral_cache(SpectralDensity.delta(1.0 + lam), D_NOISE)
     for t1, t2 in [(3.0, 1.0), (2.0, 2.0)]:
+        # abs=0.0: the default floor made this ~1.1e-10 relative at
+        # C ~ 0.0095; the written 1e-13 now binds (dev 0.0).
         assert float(a.C_diagonal(0, t1, 0, t2)[0]) == pytest.approx(
-            float(b.C_diagonal(0, t1, 0, t2)[0]), rel=1e-13)
+            float(b.C_diagonal(0, t1, 0, t2)[0]), rel=1e-13, abs=0.0)
 
 
 # --------------------------------------------------------------------- #
@@ -176,13 +181,15 @@ def test_SP4_diagonal_is_exact_not_interpolated():
     cache = spectral_cache(SpectralDensity.delta(1.0), D_NOISE)
     # deliberately off any plausible grid node
     for t in (0.0137, 0.5001, 2.71828, 4.99999):
+        # abs=0.0: the default floor made this ~7.4e-11 relative at
+        # C ~ 0.0135; the written 1e-13 now binds (dev 9e-16).
         assert float(cache.C_diagonal(0, t, 0, t)[0]) == pytest.approx(
-            _ou_C(1.0, t, t), rel=1e-13)
+            _ou_C(1.0, t, t), rel=1e-13, abs=0.0)
     # and the derivative jump is the one the docstring claims
     t, eps = 2.0, 1e-6
     up = (_ou_C(1.0, t + eps, t) - _ou_C(1.0, t, t)) / eps
     dn = (_ou_C(1.0, t, t) - _ou_C(1.0, t - eps, t)) / eps
-    assert (up - dn) == pytest.approx(-2.0 * D_NOISE, rel=1e-4)
+    assert (up - dn) == pytest.approx(-2.0 * D_NOISE, rel=1e-4, abs=0.0)
 
 
 def test_SP4_batch_and_scalar_accessors_agree():
@@ -195,8 +202,11 @@ def test_SP4_batch_and_scalar_accessors_agree():
     for k in range(len(ts1)):
         scalar = float(cache.C_diagonal(0, ts1[k], 0, ts2[k])[0])
         matrix = float(cache.C_value(0, ts1[k], 0, ts2[k])[0, 0])
-        assert batch[k, 0] == pytest.approx(scalar, rel=1e-14)
-        assert matrix == pytest.approx(scalar, rel=1e-14)
+        # abs=0.0 on both: the default abs=1e-12 floor made these ~1.4e-11
+        # relative at C ~ 0.071, 1400x looser than written.  The three
+        # accessors are in fact bitwise identical here (dev 0.0).
+        assert batch[k, 0] == pytest.approx(scalar, rel=1e-14, abs=0.0)
+        assert matrix == pytest.approx(scalar, rel=1e-14, abs=0.0)
 
 
 # --------------------------------------------------------------------- #
@@ -224,7 +234,7 @@ def test_SP5_order0_through_the_integrators_is_C_star(method):
         for dt in res.diagram_terms(0)
     )
     want = 0.4 * _ou_C(0.5, T, T) + 0.6 * _ou_C(2.5, T, T)
-    assert total == pytest.approx(want, rel=1e-9)
+    assert total == pytest.approx(want, rel=1e-9, abs=0.0)
 
 
 def test_SP5_two_time_response_is_the_spectral_R():
@@ -247,7 +257,7 @@ def test_SP5_two_time_response_is_the_spectral_R():
         for dt in res.diagram_terms(0)
     )
     want = 0.4 * _ou_R(0.5, T, tp) + 0.6 * _ou_R(2.5, T, tp)
-    assert total == pytest.approx(want, rel=1e-9)
+    assert total == pytest.approx(want, rel=1e-9, abs=0.0)
     assert total != 0.0
 
 
@@ -324,7 +334,8 @@ def test_SP7_t_min_shifts_the_initial_condition(t_min, t1, t2):
     h = 1.3
     cache = spectral_cache(SpectralDensity.delta(h), D_NOISE, t_min=t_min)
     got = float(cache.C_diagonal(0, t1, 0, t2)[0])
-    assert got == pytest.approx(_c_defining(h, t1, t2, t_min), rel=1e-10)
+    assert got == pytest.approx(
+        _c_defining(h, t1, t2, t_min), rel=1e-10, abs=0.0)
 
 
 def test_SP7_before_t_min_there_is_no_accumulated_noise():
@@ -346,9 +357,10 @@ def test_SP7_zero_rate_is_free_diffusion_not_a_division_by_zero(h, t_min):
     got = float(cache.C_diagonal(0, t1, 0, t2)[0])
     assert np.isfinite(got)
     want = 2.0 * D_NOISE * (min(t1, t2) - t_min)
-    assert got == pytest.approx(want, rel=1e-6)
+    assert got == pytest.approx(want, rel=1e-6, abs=0.0)
     if h > 0:  # and it agrees with the defining integral too
-        assert got == pytest.approx(_c_defining(h, t1, t2, t_min), rel=1e-6)
+        assert got == pytest.approx(
+            _c_defining(h, t1, t2, t_min), rel=1e-6, abs=0.0)
 
 
 def test_SP7_negative_rates_are_rejected():
@@ -365,7 +377,8 @@ def test_SP7_small_h_does_not_lose_precision_to_cancellation():
     for h in (1e-6, 1e-4, 1e-2):
         cache = spectral_cache(SpectralDensity.delta(h), D_NOISE)
         got = float(cache.C_diagonal(0, 3.0, 0, 2.0)[0])
-        assert got == pytest.approx(_c_defining(h, 3.0, 2.0, 0.0), rel=1e-9)
+        assert got == pytest.approx(
+            _c_defining(h, 3.0, 2.0, 0.0), rel=1e-9, abs=0.0)
 
 
 # --------------------------------------------------------------------- #
@@ -404,7 +417,7 @@ def test_SP8_two_point_at_a_separation_is_not_silently_zero():
     for r, v in zip((0.0, 1.0, 2.5), vals):
         assert v != 0.0, f"separation r={r} returned exactly 0"
         # spatially uniform: the same C at every separation, and it is C*
-        assert v == pytest.approx(want, rel=1e-9), f"r={r}"
+        assert v == pytest.approx(want, rel=1e-9, abs=0.0), f"r={r}"
 
 
 def test_SP8_round_off_negative_eigenvalues_are_tolerated():
@@ -515,8 +528,10 @@ def test_SP9_batch_C_appends_the_component_axis():
     assert out.shape == (2, 2, 3), out.shape
     for i in range(2):
         for j in range(2):
+            # abs=0.0: the default abs=1e-12 floor held this to ~1.5e-11
+            # relative at C ~ 0.066; the written 1e-12 now binds (dev 2e-16).
             assert out[i, j, 0] == pytest.approx(
-                _ou_C(1.0, t1[i, j], t2[i, j]), rel=1e-12)
+                _ou_C(1.0, t1[i, j], t2[i, j]), rel=1e-12, abs=0.0)
     # the 1-D contract the base class documents still holds
     flat = cache.C_diagonal_batch(t1.ravel(), t2.ravel())
     assert flat.shape == (4, 3)
@@ -590,7 +605,7 @@ def test_SP9_spectral_cache_is_usable_from_the_workflow_layer():
     for tp in tprimes:
         got = float(tot[abs(tot["t_y"] - tp) < 1e-12]["value"].iloc[0])
         want = 0.4 * _ou_R(0.5, T, tp) + 0.6 * _ou_R(2.5, T, tp)
-        assert got == pytest.approx(want, rel=1e-9), f"R*({T},{tp})"
+        assert got == pytest.approx(want, rel=1e-9, abs=0.0), f"R*({T},{tp})"
         assert got != 0.0
 
 

@@ -29,7 +29,7 @@ as a relative tolerance, against ``rel_written`` which is what it reads
 as.  ``vacuous`` marks a site whose tolerance exceeds the quantity being
 compared, i.e. one that cannot fail.
 """
-import csv, inspect, os
+import csv, inspect, json, os
 import numpy as np
 import pytest as _pytest
 
@@ -94,3 +94,73 @@ def pytest_unconfigure(config):
         w = csv.DictWriter(fh, fieldnames=list(rows[0]))
         w.writeheader(); w.writerows(rows)
     print(f"\n[approx-audit] {len(rows)} distinct sites -> {out}")
+    _write_summary(rows)
+
+
+#: The catalogue quotes these figures.  They are WRITTEN HERE by the
+#: measurement rather than retyped into prose, because the 0.4.1 catalogue
+#: restated a partition by hand and it did not add up: it carried 29 and 15
+#: from an earlier 173-site run while updating the total to 207, leaving 31
+#: sites in no bucket.  A figure that describes a measurement should come from
+#: that measurement.
+SUMMARY_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "docs", "verification", "approx_audit_summary.json",
+)
+
+
+def classify(row):
+    """Bucket one row.  Priority, stated so the partition is reproducible:
+
+    explicit ``abs=`` > compares against 0 > floor dominates > ``rel`` in force.
+
+    The priority matters only for sites that are BOTH explicit-``abs`` and
+    zero-compared; putting them under "explicit" keeps the buckets answering
+    "what did the author write" first and "what did it enforce" second.
+    """
+    if row["abs_written"] != "default":
+        return "explicit_abs"
+    if float(row["min_abs_expected"]) == 0.0:
+        return "compared_to_zero"
+    if row["floor_dominates"]:
+        return "weakened"
+    return "rel_in_force"
+
+
+def summarise(rows):
+    counts = {k: 0 for k in
+              ("rel_in_force", "explicit_abs", "compared_to_zero", "weakened")}
+    weakened, per_file = [], {}
+    for r in rows:
+        b = classify(r)
+        counts[b] += 1
+        if b == "weakened":
+            weakened.append(r)
+            f = r["site"].split(":")[0]
+            per_file[f] = per_file.get(f, 0) + 1
+    effs = sorted(r["effective_rel"] for r in weakened)
+    return {
+        "total_sites": len(rows),
+        "buckets": counts,
+        "bucket_priority": ["explicit_abs", "compared_to_zero", "weakened",
+                            "rel_in_force"],
+        "explicit_abs_zero": sum(
+            1 for r in rows if r["abs_written"] != "default"
+            and float(r["abs_written"]) == 0.0),
+        "vacuous": sum(1 for r in rows if r["vacuous"]),
+        "weakened_effective_rel_min": effs[0] if effs else None,
+        "weakened_effective_rel_max": effs[-1] if effs else None,
+        "weakened_per_file": dict(sorted(per_file.items())),
+    }
+
+
+def _write_summary(rows):
+    summary = summarise(rows)
+    assert sum(summary["buckets"].values()) == summary["total_sites"], (
+        "the buckets must partition the sites exactly -- that they did not is "
+        "the defect this summary exists to prevent")
+    os.makedirs(os.path.dirname(SUMMARY_PATH), exist_ok=True)
+    with open(SUMMARY_PATH, "w") as fh:
+        json.dump(summary, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+    print(f"[approx-audit] summary -> {SUMMARY_PATH}")

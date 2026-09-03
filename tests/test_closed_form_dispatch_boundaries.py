@@ -200,11 +200,20 @@ def test_gl_and_dblquad_agree_where_no_closed_form_exists():
 
 def test_phi_is_symmetric_and_reaches_the_stationary_limit():
     g, a = 1.3, 1.0 / 0.3
+    # Φ is manifestly symmetric: the implementation reduces (t₁, t₂) to
+    # (min, max) before any arithmetic, so the two orderings are bit-for-bit
+    # identical (observed rel deviation exactly 0.0).  `abs=0.0` makes the
+    # written rel the one in force: Φ = 5.5e-3 here, so approx's 1e-12
+    # default floor had been enforcing 1.8e-10, not 1e-14 -- 4 orders of
+    # magnitude looser than the line claimed.
     assert ou_exponential_phi(g, a, 2.0, 5.0) == pytest.approx(
-        ou_exponential_phi(g, a, 5.0, 2.0), rel=1e-14)
-    # Stationary variance λ Φ(∞, ∞) = λ / (γ (γ + a)).
+        ou_exponential_phi(g, a, 5.0, 2.0), rel=1e-14, abs=0.0)
+    # Stationary variance λ Φ(∞, ∞) = λ / (γ (γ + a)).  At γt = 520 the
+    # transient exp(-2γt) has underflowed, so only roundoff is left and the
+    # agreement is 1 ULP (rel 1.7e-16).  `abs=0.0`: Φ = 0.166, so the 1e-12
+    # floor had been enforcing 6.0e-12 rather than the written 1e-13.
     assert ou_exponential_phi(g, a, 400.0, 400.0) == pytest.approx(
-        1.0 / (g * (g + a)), rel=1e-13)
+        1.0 / (g * (g + a)), rel=1e-13, abs=0.0)
     # No overflow deep in the domain: the textbook form multiplies
     # exp(+2γt) by exp(-γ(t₁+t₂)), and the first factor is already inf at
     # γt = 1.3e4, whereas every exponent in this one is non-positive.
@@ -232,7 +241,7 @@ def test_gamma_zero_limit_is_finite_and_continuous():
     v0 = ou_exponential_phi(0.0, a, 1.5, 2.5)
     v1 = ou_exponential_phi(1e-7, a, 1.5, 2.5)
     assert np.isfinite(v0)
-    assert v0 == pytest.approx(v1, rel=1e-5)
+    assert v0 == pytest.approx(v1, rel=1e-5, abs=0.0)
 
 
 def test_closed_form_batched_and_scalar_contracts_agree():

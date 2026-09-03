@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1032 tests** in 38 files (parametrised
+The suite has **1037 tests** in 38 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -22,16 +22,18 @@ this page is out of date.
    ``PYTHONPATH=tools pytest tests/ -p approx_audit`` records the
    enforced tolerance at every site (``tools/approx_audit.py``).
 
-   Measured over the 207 runtime sites in this suite: 108 have
-   their ``rel`` genuinely in force, 29 pass an explicit ``abs=``
-   and 15 compare against zero (where the floor is the intent, not
-   a defect), and **22 are weakened by the floor**.  All 22 still
-   enforce between 2.0e-12 and 8.1e-07 relative — looser than the
-   row states, but a real check in every case; none is vacuous.
-   They fall in ``test_msr_numerics_regressions.py`` (10),
-   ``test_spectral.py`` (8), ``test_closed_form_dispatch_boundaries
-   .py`` (2) and ``test_demo3_shot_noise.py`` (2).  See
-   `issue #5 <https://github.com/StatFieldTheory/sft-wick/issues/5>`_.
+   Measured over the 207 runtime sites in this suite:
+   52 have their ``rel`` genuinely in force,
+   153 pass an explicit ``abs=``
+   (120 of them ``abs=0.0``),
+   2 compare against zero on the default floor
+   (where the floor is the intent, not a defect), and
+   **0 are weakened by the floor**.
+   No site is weakened: every ``rel`` written in this suite is the
+   tolerance actually enforced, because each states its ``abs=``
+   explicitly.  ``test_every_approx_rel_site_states_its_abs`` in
+   ``tests/test_catalog_current.py`` keeps it that way.
+   Vacuous sites — assertions that cannot fail: **0**.
 
    Two sites that were *vacuous* — the enforced tolerance exceeded
    the quantity compared, so they could not fail — have been fixed:
@@ -189,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*265 tests in 10 files.*
+*268 tests in 10 files.*
 
 .. list-table::
    :header-rows: 1
@@ -209,7 +211,7 @@ Integrators
      - external operators sharing a spatial label are refused at L1 and L0 rather than silently mis-counted
      - the distinct-label spelling of the same observable
      - exact
-     - 11
+     - 14
    * - ``test_demo2_kernels.py``
      - demo2's hand-written R-contracted κ³ / κ⁴ kernels, the raw-vs-R-contracted route on a NON-constant kernel, the already_R_contracted contract, pinned FK and order-0 values, the single-site cumulant ladder
      - cusp-aware adaptive quadrature and randomised-Sobol QMC of the raw leg integrals; the cumulant generating function
@@ -254,7 +256,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*66 tests in 4 files.*
+*68 tests in 4 files.*
 
 .. list-table::
    :header-rows: 1
@@ -269,7 +271,7 @@ Workflow and YAML
      - this catalogue matches the collected suite
      - tools/gen_test_catalog.py
      - exact
-     - 1
+     - 3
    * - ``test_demo3_levels.py``
      - demo 3 level A: the free-field m-point function through the package, and the R-contracted vertex against the raw one
      - closed form (level A is a single diagram, hence exact); QMC on the raw-vertex path

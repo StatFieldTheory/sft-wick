@@ -1,0 +1,20 @@
+{
+  "bucket_priority": [
+    "explicit_abs",
+    "compared_to_zero",
+    "weakened",
+    "rel_in_force"
+  ],
+  "buckets": {
+    "compared_to_zero": 2,
+    "explicit_abs": 153,
+    "rel_in_force": 52,
+    "weakened": 0
+  },
+  "explicit_abs_zero": 120,
+  "total_sites": 207,
+  "vacuous": 0,
+  "weakened_effective_rel_max": null,
+  "weakened_effective_rel_min": null,
+  "weakened_per_file": {}
+}
