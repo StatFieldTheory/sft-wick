@@ -2210,10 +2210,19 @@ class TestWhiteNoiseComponent:
         )
         cache = PropagatorCache(model)
         cache.precompute_C_table_translation(
-            t_max=self.T_MAX, n_grid_t=15,  # lazy mode — trimmed from 25
-                                            # (costs come from lazy
-                                            # per-r dblquad grid build,
-                                            # not from QMC sampling)
+            # Lazy mode — trimmed from 25 to 15, then (2026-09) to 8.
+            # Cost is the per-r quadrature grid build, O(n_grid_t**2),
+            # not the QMC sampling (c_method='auto' resolves to
+            # Gauss-Legendre n=20 for this model, not dblquad).  What
+            # is asserted is a RATIO of two integrals taken over the
+            # same samples, against splines that
+            # differ only by the r-independent factor exp(-r/σ_x)
+            # carried identically by κ²_smooth and by σ², so the grid
+            # cancels out of it exactly.  Measured: the ratio is
+            # 0.367879441171442 and the residual against the prediction
+            # is 1.509e-16 at n_grid_t = 15, 10 and 8 alike (6.04e-16 at
+            # 6), against an unchanged 5e-3 tolerance.  4.3 s -> 1.1 s.
+            t_max=self.T_MAX, n_grid_t=8,
         )
 
         # Order-2 bubble diagram setup (same as Phase-5 S5)

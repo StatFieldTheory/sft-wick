@@ -36,6 +36,7 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+import pandas as pd
 import pytest
 
 import sft_wick as sw
@@ -63,6 +64,20 @@ def demo1_system():
             ),
         ),
     )
+
+
+@pytest.fixture(scope="module")
+def demo1_expansion(demo1_system):
+    """The orders-[0, 2, 4] expansion of ``demo1_system``.
+
+    WF1, WF2 and WF4 each asked for *this same* expansion — same system,
+    same observable, same orders — and ``System.expand`` has no in-memory
+    memo (its ``cache_path`` cache is opt-in and off here), so the
+    identical 1.7 s ``compute_moment`` ran three times.  ``Expansion`` is
+    a frozen dataclass over frozen ``DiagramTerm``s and every consumer
+    below is read-only, so one build serves all three.
+    """
+    return demo1_system.expand(("phi_a(x)", "phi_b(y)"), orders=[0, 2, 4])
 
 
 def _C_t_closed_form(t1, t2, lam=0.05, sigma_t=0.3, gamma=1.0):
@@ -93,13 +108,11 @@ def _C_demo1(n1, t1, n2, t2):
 # =====================================================================
 
 
-def test_WF1_expand_produces_expected_diagram_counts(demo1_system):
+def test_WF1_expand_produces_expected_diagram_counts(demo1_expansion):
     """System.expand at orders 0, 2, 4 yields the canonical counts
     (1 + 6 + 64 = 71 diagrams) produced by the raw compute_moment
     path on the same physical spec."""
-    exp = demo1_system.expand(
-        ("phi_a(x)", "phi_b(y)"), orders=[0, 2, 4],
-    )
+    exp = demo1_expansion
     assert len(exp.diagrams(0)) == 1, (
         "order-0 should be a single self-loop"
     )
@@ -112,11 +125,8 @@ def test_WF1_expand_produces_expected_diagram_counts(demo1_system):
 # =====================================================================
 
 
-def test_WF2_summary_purely_local_theory(demo1_system):
-    exp = demo1_system.expand(
-        ("phi_a(x)", "phi_b(y)"), orders=[0, 2, 4],
-    )
-    summary = exp.summary()
+def test_WF2_summary_purely_local_theory(demo1_expansion):
+    summary = demo1_expansion.summary()
 
     # All 3 orders present
     assert set(summary) == {0, 2, 4}
@@ -177,34 +187,15 @@ def test_WF3_FF_FK_classification():
 # =====================================================================
 
 
-def test_WF4_end_to_end_matches_validate_phase5(demo1_system):
-    """Sweep at 4 r × 2 t × 2 (a,b) × 3 orders via the wrapper and
-    assert a handful of well-tested reference values from
-    ``examples/demo1/validate_phase5.py`` match to < 1e-6 rel."""
-    exp = demo1_system.expand(
-        ("phi_a(x)", "phi_b(y)"), orders=[0, 2, 4],
-    )
+def test_WF4_end_to_end_matches_validate_phase5(demo1_expansion, demo1_system):
+    """Sweep via the wrapper and assert a handful of well-tested
+    reference values from ``examples/demo1/validate_phase5.py`` match to
+    < 1e-6 rel."""
+    exp = demo1_expansion
     props = demo1_system.propagators(
         t_max=15.0, n_grid_t=60,
         c_closed_form=_C_demo1,
     )
-    sweep = exp.sweep(
-        props,
-        # All reference values below pin y ∈ {0.0, 0.5, 1.0} and
-        # t_f = 15.0 — trimmed from the original 4×2 grid to keep
-        # this test under 20 s while preserving every asserted point.
-        positions_grid={"x": [0.0], "y": [0.0, 0.5, 1.0]},
-        t_final_grid=[15.0],
-        component_pairs=[(0, 0), (1, 1)],
-        orders=[0, 2, 4],
-        # validate_phase5.py reference values are time-integrated
-        # (``integrate_moment`` integrates all externals over
-        # ``[0, lambda_f]``).  Match that convention here.
-        integrate_over="all",
-        n_samples=2 ** 13,
-        seed=42,
-    )
-    totals = sweep.totals()
 
     # Reference values from examples/demo1/validate_phase5.py run.
     #
@@ -233,6 +224,79 @@ def test_WF4_end_to_end_matches_validate_phase5(demo1_system):
         (1, 1, 1.0, 15.0, 2): 9.627814e-03,
         (1, 1, 1.0, 15.0, 4): 7.887824e-04,
     }
+
+    # The grid is DERIVED from the reference table rather than being a
+    # Cartesian box drawn around it.  The box (3 separations x 2 component
+    # pairs x 3 orders) evaluated 18 cells; only these 6 are ever read, so
+    # 12 QMC integrations at ~2.3 s each were computed and discarded.
+    #
+    # Splitting the box into one sweep per (component pair, order) block
+    # cannot move a retained value: `Expansion.sweep` flattens the grid to
+    # independent `evaluate` tasks, each re-seeded with the same `seed`,
+    # and `integrate_diagrams` integrates each order's diagrams
+    # separately.  Verified rather than assumed -- all six values are
+    # bit-identical to the 3x2x3 box's, e.g. (0,0,0.5,4) is
+    # 0.002236402700096169 either way.
+    blocks: dict[tuple, list] = {}
+    for (a, b, r, t_f, ord_) in reference:
+        blocks.setdefault((a, b, t_f, ord_), []).append(r)
+
+    frames = []
+    for (a, b, t_f, ord_), separations in blocks.items():
+        frames.append(exp.sweep(
+            props,
+            positions_grid={"x": [0.0], "y": sorted(set(separations))},
+            t_final_grid=[t_f],
+            component_pairs=[(a, b)],
+            orders=[ord_],
+            # validate_phase5.py reference values are time-integrated
+            # (``integrate_moment`` integrates all externals over
+            # ``[0, lambda_f]``).  Match that convention here.
+            integrate_over="all",
+            n_samples=2 ** 13,
+            seed=42,
+        ).totals())
+    # Each block above carries a single component pair, so none of them
+    # exercises `sweep`'s Cartesian product over `component_pairs` -- the
+    # 3x2x3 box did, and no other test in the suite passes a multi-entry
+    # `component_pairs`.  Order 0 restores that axis for ~0.5 s, and can
+    # be *asserted* rather than merely run: gamma_0 == gamma_1 and
+    # C_{ab} = delta_{ab} C_t(t1,t2) e^{-r}, so the two diagonal pairs are
+    # the same number.  Both (1,1) rows are therefore pinned by the (0,0)
+    # references already in the table -- a symmetry consequence, not a
+    # fresh snapshot of today's output.  (The box computed these two cells
+    # too, and asserted nothing about them.)
+    pair_axis = exp.sweep(
+        props,
+        positions_grid={"x": [0.0], "y": [0.0, 0.5]},
+        t_final_grid=[15.0],
+        component_pairs=[(0, 0), (1, 1)],
+        orders=[0],
+        integrate_over="all",
+        n_samples=2 ** 13,
+        seed=42,
+    ).totals()
+    frames.append(pair_axis)
+    for r in (0.0, 0.5):
+        vals = {}
+        for (a, b) in ((0, 0), (1, 1)):
+            m = ((pair_axis["a"] == a) & (pair_axis["b"] == b)
+                 & (abs(pair_axis["y"] - r) < 1e-12))
+            assert len(pair_axis.loc[m]) == 1, (
+                f"component_pairs axis: {len(pair_axis.loc[m])} rows for "
+                f"(a={a}, b={b}, r={r})"
+            )
+            vals[(a, b)] = float(pair_axis.loc[m, "value"].iloc[0])
+        assert vals[(1, 1)] == vals[(0, 0)], (
+            f"order-0 component symmetry broken at r={r}: "
+            f"(0,0)={vals[(0, 0)]!r} vs (1,1)={vals[(1, 1)]!r}"
+        )
+        # ... and the shared value is the one validate_phase5.py pins.
+        ref = reference[(0, 0, r, 15.0, 0)]
+        assert abs(vals[(1, 1)] - ref) / abs(ref) < 1e-5
+
+    totals = pd.concat(frames, ignore_index=True)
+
     bad = []
     for (a, b, r, t_f, ord_), expected in reference.items():
         mask = (
