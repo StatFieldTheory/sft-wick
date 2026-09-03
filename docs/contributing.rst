@@ -154,8 +154,31 @@ Releases are published to PyPI automatically by the ``Publish`` workflow
 <https://docs.pypi.org/trusted-publishers/>`_ (OpenID Connect) — there
 are **no API tokens or stored secrets**.
 
-The version is single-sourced from ``pyproject.toml``; bump it there
-before tagging.  The pipeline then has two stages:
+``pyproject.toml`` carries the authoritative version, but it is **not the
+only file to touch**.  Nothing derives or cross-checks the others, and
+nothing in CI fails on a mismatch, so one release commit must update all
+of these before the tag is pushed:
+
+- ``pyproject.toml`` — the ``version`` field.  It is static
+  (``hatchling`` does not derive it, and there is no ``__version__``
+  anywhere in ``src/``), so this is the single source the built
+  distribution and the installed package metadata take their version
+  from.
+- ``CITATION.cff`` — the ``version`` field.  This is what GitHub's
+  *Cite this repository* widget shows; a missed bump ships stale
+  citation metadata on the release.
+- ``CHANGELOG.md`` — turn the ``## X.Y.Z (unreleased)`` heading into a
+  dated one, ``## X.Y.Z — YYYY-MM-DD``.
+- ``docs/changelog.rst`` — the Sphinx page is a hand-maintained summary
+  of ``CHANGELOG.md`` (which stays authoritative); add the new release's
+  section so the published docs do not fall behind.
+
+``docs/conf.py`` does **not** need editing: it reads the installed
+package's metadata (``importlib.metadata.version("sft-wick")``), and the
+version literal in its ``except`` branch is only a fallback for a build
+where the package is not installed.
+
+The pipeline then has two stages:
 
 #. **Tag → validate.**  Push a ``vX.Y.Z`` tag.  The workflow runs the
    tests and builds + ``twine check``\ s the distribution, but publishes
@@ -163,7 +186,7 @@ before tagging.  The pipeline then has two stages:
 
    .. code-block:: bash
 
-      # after bumping `version` in pyproject.toml and committing:
+      # after committing the version bump across all four files above:
       git tag v0.2.0
       git push origin v0.2.0
 

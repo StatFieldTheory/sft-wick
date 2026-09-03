@@ -6,28 +6,54 @@ script that regenerates its contents.
 
 ## `table1/` — Table 1 and the order-1 diagrams
 
-`generate_table1.py` reproduces the scaling table with two corrections to
-the submitted version: for the cubic vertex `F_abc φ_a φ_b ψ_c` the
-operator count is **3n + m**, not 2n + m, and the observable alternates
-with the parity of n (⟨φ_a(x)φ_b(x)φ_c(y)⟩ for odd n, ⟨φ_a(x)φ_b(y)⟩ for
-even n), so the table now carries an observable column; wall-clock is to
-three significant digits (best of three, single core).
+`generate_table1.py` reproduces the scaling table with three corrections
+to the submitted version: for the cubic vertex `F_abc φ_a φ_b ψ_c` the
+operator count is **3n + m**, not 2n + m; the observable alternates with
+the parity of n (⟨φ_a(x)φ_b(y)φ_c(z)⟩ for odd n, ⟨φ_a(x)φ_b(y)⟩ for even
+n), so the table now carries an observable column; and **the odd-order
+diagram counts change**, because the submitted ones were produced with
+two externals sharing the spatial label `x`.  Wall-clock is to three
+significant digits (best of three, single core).
 
 | Order n | Observable | Operators 3n+m | Raw pairings (3n+m−1)!! | Distinct diagrams | Wall-clock (s) | Reduction |
 |---|---|---|---|---|---|---|
-| 1 | ⟨φ_a(x)φ_b(x)φ_c(y)⟩ | 6 | 15 | 4 | 2.50e-04 | 4 |
-| 2 | ⟨φ_a(x)φ_b(y)⟩ | 8 | 105 | 6 | 0.00126 | 18 |
-| 3 | ⟨φ_a(x)φ_b(x)φ_c(y)⟩ | 12 | 10395 | 75 | 0.0677 | 139 |
+| 1 | ⟨φ_a(x)φ_b(y)φ_c(z)⟩ | 6 | 15 | 6 | see below | 2 |
+| 2 | ⟨φ_a(x)φ_b(y)⟩ | 8 | 105 | 6 | see below | 18 |
+| 3 | ⟨φ_a(x)φ_b(y)φ_c(z)⟩ | 12 | 10395 | 80 | see below | 130 |
+
+The submitted table gave 4 and 75 at orders 1 and 3 (reductions 4 and
+139).  Those were the artefact of the label collapse that 0.4.0 made a
+`ValueError`: same-label externals lose the sum over assignments of
+externals to legs.  `3n+m` and the raw pairing count are unaffected —
+`m` is 3 either way — and order 2 never used a repeated label, so its
+row is unchanged.  See the 0.4.2 CHANGELOG entry, and
+`tests/test_coincident_external_labels.py::test_CE3_*`, which pins these
+counts so the asset cannot silently drift again.
+
+**Wall-clock is deliberately not quoted here.**  It must be re-measured
+on an otherwise idle machine: the numbers this script last emitted came
+off a heavily loaded one, and the order-3 cell now times an 80-diagram
+enumeration rather than a 75-diagram one, so it is not comparable to the
+submitted value even after re-measurement.  Run the script and take the
+column from `table1.md`.
 
 Files: `tab_scaling.tex` (drop-in replacement for the table in
 `main.tex`; the paper repository's `generate_figures.py::generate_table`
 should take its header from it), `table1.md`.
 
-The four order-1 diagrams of row 1 (`compute_moment(order=1)` returns
-exactly four `DiagramTerm`s — `R(x;z)C(x;y)C(z;z)`, `R(x;z)C(x;z)C(y;z)`,
-`R(y;z)C(x;x)C(z;z)`, `R(y;z)C(x;z)C(x;z)`; Wick's theorem produces six
-pairings with multiplicities 1, 2, 1, 2, folded into the prefactors):
-`order1_diagram_{1..4}.tex` (TikZ, the styles of
+The six order-1 diagrams of row 1 are three pairs, one per choice of
+which external carries the `R` leg, each pair splitting into a tree
+(`R(x;w)C(y;w)C(w;z)`, coupling `F_{i₀i₁i₂} + F_{i₁i₀i₂}`, pairing
+multiplicity 2) and a tadpole (`R(x;w)C(y;z)C(w;w)`, coupling
+`F_{i₀i₁i₂}`, multiplicity 1).  Wick's theorem pairs the six operators in
+fifteen ways; the six that pair the vertex's ψ with one of its own φ's
+vanish under the Itô prescription (`R(x, x) = 0`), leaving nine, which
+group into these six topologies with multiplicities 2, 1, 2, 1, 1, 2,
+folded into the rational prefactors.  ⟨ψψ⟩ = 0 removes nothing at order
+1 — the expression contains a single ψ, so no ψψ pairing exists; it
+starts pruning at order 2.  (Checked by re-running with `ito=False`,
+which restores all fifteen.)  Files:
+`order1_diagram_{1..6}.tex` (TikZ, the styles of
 `fig_example_diagrams_order2.pdf`: blue solid C, red dashed R, circles
 for external points, squares for vertices), `order1_diagram_{k}_standalone.pdf`
 (compiled), `order1_diagrams.pdf` (matplotlib grid with multiplicities),

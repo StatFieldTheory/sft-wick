@@ -100,6 +100,10 @@ See :doc:`user_guide/workflow` for the complete YAML schema, the
 ``examples/demo1_config.yaml`` / ``examples/demo2_config.yaml`` for
 the fuller sweeps behind the paper's figures (orders up to 4, a
 non-local :math:`\kappa^{(3)}` vertex with a dynamic coupling).
+``examples/demo3/config_FK.yaml`` (order 2) and
+``examples/demo3/config_F3K.yaml`` (order 4) run the interacting
+channels of the filtered-Poisson (shot) noise demo through the same
+CLI; see :doc:`verification/index` for what each demo establishes.
 
 Quick Start (L1 — Python, for programmatic use)
 -----------------------------------------------

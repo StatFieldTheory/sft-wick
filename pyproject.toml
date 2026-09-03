@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sft-wick"
-version = "0.4.1"
+version = "0.4.2"
 description = "Wick's theorem contractions for statistical field theory perturbative calculations"
 readme = "README.md"
 authors = [{ name = "Zheng Zhang", email = "zzhang0123@gmail.com" }]
@@ -49,6 +49,12 @@ progress = [
 dev = [
     "pytest>=7.0",
     "pytest-cov",
+    # docs/verification/catalog.rst advertises "60-digit mpmath at the branch
+    # boundary" as demo 3's independent reference, but the test obtains it via
+    # pytest.importorskip.  Undeclared, that check silently SKIPPED in CI while
+    # passing on any developer machine that happened to have mpmath -- the
+    # catalogue claiming a verification that never ran.
+    "mpmath>=1.3",
 ]
 docs = [
     "sphinx>=7.0",

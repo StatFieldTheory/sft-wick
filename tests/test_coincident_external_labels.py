@@ -154,3 +154,167 @@ def test_CE2_order_zero_is_exempt_and_correct():
         A0, order=0, ito=False, response_phase=False,
     ).order(0).to_latex()
     assert "3" in scalar and "R(x, x)" in scalar and "C(x, x)" in scalar, scalar
+
+
+# --------------------------------------------------------------------------
+# CE3 -- the paper assets are covered by this rule too.
+# --------------------------------------------------------------------------
+
+def _table1_module():
+    """Import the Table 1 generator without running it (it is __main__-guarded)."""
+    import importlib.util
+    from pathlib import Path
+
+    path = (Path(__file__).resolve().parents[1]
+            / "examples" / "paper_assets" / "table1" / "generate_table1.py")
+    if not path.exists():                                    # pragma: no cover
+        pytest.skip(f"paper asset not present: {path}")
+    spec = importlib.util.spec_from_file_location("_table1_asset", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_CE3_table1_asset_uses_distinct_external_labels():
+    """The Table 1 generator must not regress to the collapsed spelling.
+
+    It shipped in 0.4.0 and 0.4.1 building its odd-order observable as
+    ``phi_a(x) phi_b(x) phi_c(y)``, which those same versions had just
+    made a ``ValueError`` -- so the asset raised on the very version the
+    paper cites.  A referee re-running it got a traceback.
+
+    The published counts were the artefact the refusal exists to prevent:
+    the collapse discards the sum over assignments of externals to legs,
+    giving 4 diagrams at order 1 where there are 6, and 75 at order 3
+    where there are 80.
+    """
+    mod = _table1_module()
+    sw.reset_uid_counter()
+    phi = sw.Field("phi", "physical", n_components=3)
+
+    for order in (1, 2, 3):
+        obs, _tex, m = mod.observable(order, phi)
+        labels = [op.spatial_arg for op in obs]
+        assert len(set(labels)) == len(labels), (
+            f"order {order}: externals share a spatial label {labels}; "
+            "this is refused at interacting orders since 0.4.0"
+        )
+        assert len(obs) == m, (order, len(obs), m)
+
+
+@pytest.mark.parametrize("order, expected", [(1, 6), (2, 6), (3, 80)])
+def test_CE3_table1_asset_counts_are_the_published_ones(order, expected):
+    """Pin the diagram counts the paper's Table 1 reports.
+
+    These are derived, not asserted, inside the generator -- the literal
+    ``assert len(dts) == 4`` it used to carry is what turned the 0.4.0
+    label change into a traceback instead of a visible recount.  Pinning
+    them here instead means a future change to the enumeration shows up
+    as a failure in the test suite rather than in a referee's terminal.
+    """
+    mod = _table1_module()
+    sw.reset_uid_counter()
+    phi = sw.Field("phi", "physical", n_components=3)
+    psi = sw.Field("psi", "response", n_components=3)
+    action = sw.Action(vertices=[sw.Vertex(fields=[phi, phi, psi], coupling="F")])
+    obs, _tex, _m = mod.observable(order, phi)
+    result = sw.compute_moment(obs, action, order=order,
+                               collect_topology=True, response_phase=False)
+    assert len(result.diagram_terms(order)) == expected
+
+
+# --------------------------------------------------------------------------
+# CE4 -- the SECOND public L0 engine must refuse the same spelling.
+# --------------------------------------------------------------------------
+
+def test_CE4_compute_moment_numerical_refuses_repeated_labels():
+    """``compute_moment_numerical`` is the other public L0 entry point.
+
+    v0.4.0 guarded ``compute_moment`` and ``System.expand`` and described
+    the coverage as "both L1 and L0", but L0 exports TWO engines and the
+    nauty one was left open.  It drives the identical label-keyed
+    ``wick_contract_spatial``, so it inherited the identical collapse:
+    measured on a demo2-shaped system at t = 3.48 with both externals at
+    position 0, the repeated spelling returned exactly HALF the correct
+    order-2 F-channel value (7.351e-04 against 1.470e-03) with no warning,
+    and went on to enumerate 7560 order-4 terms.
+
+    The rationale in ``test_CE1_repeated_external_label_is_refused_at_L0``
+    -- "the raw API is a public entry point and an L1 check would not
+    protect it" -- applies verbatim here; this test is that sentence
+    followed through to the second engine.
+    """
+    from sft_wick.perturbation import compute_moment_numerical
+
+    sw.reset_uid_counter()
+    phi = sw.Field("phi", "physical", n_components=N)
+    psi = sw.Field("psi", "response", n_components=N)
+    action = sw.Action(vertices=[sw.Vertex(fields=[phi, phi, psi], coupling="F")])
+    F = np.zeros((N, N, N))
+    F[0, 1, 1] = 1.0
+    F[1, 0, 1] = F[1, 1, 0] = 0.5
+
+    with pytest.raises(ValueError, match="share the same spatial label"):
+        compute_moment_numerical(
+            [phi("a", "x"), phi("b", "x")], action, order=2,
+            coupling_values={"F": -1j * F}, fixed_indices={"a": 0, "b": 0},
+            diag_R=True, diag_C=True, iso_R=True, iso_C=True,
+        )
+
+
+def test_CE4_compute_moment_numerical_order_zero_stays_exempt():
+    """The exemption must match ``compute_moment``'s, or the two engines
+    disagree about what is legal rather than only about what is correct."""
+    from sft_wick.perturbation import compute_moment_numerical
+
+    sw.reset_uid_counter()
+    phi = sw.Field("phi", "physical", n_components=N)
+    psi = sw.Field("psi", "response", n_components=N)
+    action = sw.Action(vertices=[sw.Vertex(fields=[phi, phi, psi], coupling="F")])
+    F = np.zeros((N, N, N))
+    F[0, 1, 1] = 1.0
+
+    out = compute_moment_numerical(
+        [phi("a", "x"), phi("b", "x")], action, order=0,
+        coupling_values={"F": -1j * F}, fixed_indices={"a": 0, "b": 0},
+        diag_R=True, diag_C=True, iso_R=True, iso_C=True,
+    )
+    assert 0 in out and len(out[0]) >= 1, out
+
+
+def test_CE4_both_L0_engines_guard_identically():
+    """Whatever the two engines do, they must do the same thing -- C1 in
+    ``test_deductive_numerics.py`` cross-validates them, and a guard on
+    only one makes that cross-validation vacuous on this input class."""
+    from sft_wick.perturbation import compute_moment, compute_moment_numerical
+
+    phi_maker = lambda: sw.Field("phi", "physical", n_components=N)
+    for order in (0, 1, 2):
+        sw.reset_uid_counter()
+        phi = phi_maker()
+        psi = sw.Field("psi", "response", n_components=N)
+        action = sw.Action(vertices=[sw.Vertex(fields=[phi, phi, psi], coupling="F")])
+        F = np.zeros((N, N, N))
+        F[0, 1, 1] = 1.0
+        obs = [phi("a", "x"), phi("b", "x")]
+
+        def _raises(fn):
+            try:
+                fn()
+            except ValueError as exc:
+                return "share the same spatial label" in str(exc)
+            return False
+
+        sym = _raises(lambda: compute_moment(obs, action, order=order))
+        sw.reset_uid_counter()
+        phi = phi_maker()
+        psi = sw.Field("psi", "response", n_components=N)
+        action = sw.Action(vertices=[sw.Vertex(fields=[phi, phi, psi], coupling="F")])
+        obs = [phi("a", "x"), phi("b", "x")]
+        num = _raises(lambda: compute_moment_numerical(
+            obs, action, order=order, coupling_values={"F": -1j * F},
+            fixed_indices={"a": 0, "b": 0},
+            diag_R=True, diag_C=True, iso_R=True, iso_C=True))
+        assert sym == num, (
+            f"order {order}: compute_moment refuses={sym} but "
+            f"compute_moment_numerical refuses={num}")

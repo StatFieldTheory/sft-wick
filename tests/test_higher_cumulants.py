@@ -121,7 +121,7 @@ def test_HC2_numeric_and_callable_quartic_couplings_agree():
     K = _kappa(4)
     static = _evaluate(_system(4, K), 4).total
     callable_ = _evaluate(_system(4, lambda n_list, t_list: K), 4).total
-    assert static == pytest.approx(callable_, rel=1e-12)
+    assert static == pytest.approx(callable_, rel=1e-12, abs=0.0)
 
 
 def test_HC2_the_result_is_linear_in_the_quartic_amplitude():
@@ -130,7 +130,7 @@ def test_HC2_the_result_is_linear_in_the_quartic_amplitude():
     K = _kappa(4)
     one = _evaluate(_system(4, K), 4).total
     two = _evaluate(_system(4, 2.0 * K), 4).total
-    assert two == pytest.approx(2.0 * one, rel=1e-12)
+    assert two == pytest.approx(2.0 * one, rel=1e-12, abs=0.0)
 
 
 # --------------------------------------------------------------------- #
@@ -158,7 +158,7 @@ def test_HC3_a_callable_coupling_works_with_matrix_valued_R(order):
     dynamic = _evaluate(_system(order, lambda n_list, t_list: K,
                                 gammas=(1.0, 1.3)), order, method="qmc").total
     assert np.isfinite(static) and abs(static) > 0.0
-    assert dynamic == pytest.approx(static, rel=1e-12)
+    assert dynamic == pytest.approx(static, rel=1e-12, abs=0.0)
 
 
 @pytest.mark.parametrize("order", [3, 4])
@@ -173,7 +173,7 @@ def test_HC3_the_scalar_path_agrees_with_the_vectorised_one(order):
                        method="qmc").total
     batched = _evaluate(_system(order, lambda n_list, t_list: K), order,
                         method="qmc_vectorized").total
-    assert scalar == pytest.approx(batched, rel=1e-12)
+    assert scalar == pytest.approx(batched, rel=1e-12, abs=0.0)
 
 
 def test_HC3_a_spacetime_dependent_callable_is_actually_evaluated():
@@ -254,7 +254,7 @@ def test_HC4_a_vectorized_callable_works_under_the_scalar_loop():
                       method="qmc").total
     vec = _evaluate(system(batched, True, (1.0, 1.3)), 3, method="qmc").total
     assert np.isfinite(plain) and abs(plain) > 0.0
-    assert vec == pytest.approx(plain, rel=1e-12)
+    assert vec == pytest.approx(plain, rel=1e-12, abs=0.0)
 
     # isotropic R: cross-check the scalar loop against the batched backend,
     # which has its own independent vectorised materialisation
@@ -262,7 +262,7 @@ def test_HC4_a_vectorized_callable_works_under_the_scalar_loop():
                        method="qmc").total
     batch = _evaluate(system(batched, True, (1.0, 1.0)), 3,
                       method="qmc_vectorized").total
-    assert scalar == pytest.approx(batch, rel=1e-12)
+    assert scalar == pytest.approx(batch, rel=1e-12, abs=0.0)
 
 
 def test_HC4_an_equal_time_callable_gets_its_aliased_leg_times():
