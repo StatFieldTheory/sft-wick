@@ -61,7 +61,14 @@ def test_lazy_translation_shared_temporal_table_matches_per_r_build(c_method):
     kw = dict(homogeneity="translation", c_method=c_method, n_gauss=16)
     fast = PropagatorCache(model, **kw)
     slow = _NoShortcuts(model, **kw)
-    n_grid_t, t_max = 12, 4.0
+    # Cost note (2026-09): n_grid_t was 12.  ``fast`` and ``slow`` build
+    # the SAME grid by two routes, so the resolution is not what is
+    # asserted -- the agreement is.  Measured: worst relative gap over
+    # the four r's is 3.436e-16 (GL) / 1.718e-16 (dblquad) at n_grid_t
+    # = 12, and bit-identically the same at 8 and at 6, while the build
+    # cost falls as n_grid_t**2 (dblquad: 6.4 s -> 2.6 s).  Tolerances
+    # below are unchanged.
+    n_grid_t, t_max = 8, 4.0
     fast.precompute_C_table_translation(t_max=t_max, n_grid_t=n_grid_t)
     slow.precompute_C_table_translation(t_max=t_max, n_grid_t=n_grid_t)
 
