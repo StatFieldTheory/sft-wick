@@ -1,0 +1,497 @@
+{
+ "positions": {
+  "x": 0.0,
+  "y": 0.8
+ },
+ "t_equal": 1.9,
+ "t_distinct": {
+  "x": 1.9,
+  "y": 1.3
+ },
+ "t_min": 0.4,
+ "rates": [
+  1.05,
+  1.05
+ ],
+ "worst": {
+  "F G | GL equal times": 2.89869309995832e-16,
+  "F3 | GL equal times": 6.880389089158849e-16,
+  "F G2 | GL equal times": 1.002534699128451e-15,
+  "F2 | GL equal times": 5.768927898952144e-16,
+  "F2 | GL distinct times": 0.0007491058600218788,
+  "F2 | QMC distinct times": 2.3757569821151635e-07,
+  "G2 | GL equal times": 6.669244401171482e-16,
+  "G2 | GL distinct times": 0.03291452006582804,
+  "G2 | QMC distinct times": 5.572781358921395e-06,
+  "F2 G | GL equal times": 2.6171834499056063e-15,
+  "F2 G | GL distinct times": 0.0016218062278520976,
+  "F2 G | QMC distinct times": 0.00011533174728618647,
+  "G3 | GL equal times": 1.373655334211473e-13,
+  "G3 | GL distinct times": 0.0012172970789179555,
+  "G3 | QMC distinct times": 6.039415111155863e-05
+ },
+ "rows": [
+  {
+   "observable": "1pt",
+   "order": 2,
+   "channel": "F G",
+   "route": "GL equal times",
+   "comps": [
+    0
+   ],
+   "package": 0.09575203258333218,
+   "hierarchy": 0.09575203258333215,
+   "rel": 2.89869309995832e-16
+  },
+  {
+   "observable": "1pt",
+   "order": 2,
+   "channel": "F G",
+   "route": "GL equal times",
+   "comps": [
+    1
+   ],
+   "package": 0.02398482361698296,
+   "hierarchy": 0.02398482361698296,
+   "rel": 0.0
+  },
+  {
+   "observable": "1pt",
+   "order": 3,
+   "channel": "F3",
+   "route": "GL equal times",
+   "comps": [
+    0
+   ],
+   "package": 0.02318650196598856,
+   "hierarchy": 0.02318650196598855,
+   "rel": 4.488965550357041e-16
+  },
+  {
+   "observable": "1pt",
+   "order": 3,
+   "channel": "F3",
+   "route": "GL equal times",
+   "comps": [
+    1
+   ],
+   "package": -0.040340125036478346,
+   "hierarchy": -0.04034012503647832,
+   "rel": 6.880389089158849e-16
+  },
+  {
+   "observable": "1pt",
+   "order": 3,
+   "channel": "F G2",
+   "route": "GL equal times",
+   "comps": [
+    0
+   ],
+   "package": 0.02422472627110898,
+   "hierarchy": 0.024224726271108957,
+   "rel": 1.002534699128451e-15
+  },
+  {
+   "observable": "1pt",
+   "order": 3,
+   "channel": "F G2",
+   "route": "GL equal times",
+   "comps": [
+    1
+   ],
+   "package": 0.024375214130607354,
+   "hierarchy": 0.024375214130607344,
+   "rel": 4.2700510445122e-16
+  },
+  {
+   "observable": "2pt",
+   "order": 2,
+   "channel": "F2",
+   "route": "GL equal times",
+   "comps": [
+    0,
+    1
+   ],
+   "package": -0.07654884097222377,
+   "hierarchy": -0.07654884097222375,
+   "rel": 1.812932453523379e-16
+  },
+  {
+   "observable": "2pt",
+   "order": 2,
+   "channel": "F2",
+   "route": "GL equal times",
+   "comps": [
+    1,
+    0
+   ],
+   "package": -0.07654884097222378,
+   "hierarchy": -0.07654884097222375,
+   "rel": 3.625864907046758e-16
+  },
+  {
+   "observable": "2pt",
+   "order": 2,
+   "channel": "F2",
+   "route": "GL equal times",
+   "comps": [
+    1,
+    1
+   ],
+   "package": 0.12028047542711702,
+   "hierarchy": 0.12028047542711695,
+   "rel": 5.768927898952144e-16
+  },
+  {
+   "observable": "2pt",
+   "order": 2,
+   "channel": "F2",
+   "route": "GL distinct times",
+   "comps": [
+    0,
+    1
+   ],
+   "package": -0.04409432801767271,
+   "hierarchy": -0.04412461066750194,
+   "rel": 0.0006862984028894345
+  },
+  {
+   "observable": "2pt",
+   "order": 2,
+   "channel": "F2",
+   "route": "GL distinct times",
+   "comps": [
+    1,
+    0
+   ],
+   "package": -0.05067385987933405,
+   "hierarchy": -0.050708784469252796,
+   "rel": 0.0006887285957311983
+  },
+  {
+   "observable": "2pt",
+   "order": 2,
+   "channel": "F2",
+   "route": "GL distinct times",
+   "comps": [
+    1,
+    1
+   ],
+   "package": 0.07381231432805493,
+   "hierarchy": 0.07386764901679946,
+   "rel": 0.0007491058600218788
+  },
+  {
+   "observable": "2pt",
+   "order": 2,
+   "channel": "F2",
+   "route": "QMC distinct times",
+   "comps": [
+    0,
+    1
+   ],
+   "package": -0.044124619900332944,
+   "hierarchy": -0.04412461066750194,
+   "rel": 2.092444752941035e-07
+  },
+  {
+   "observable": "2pt",
+   "order": 2,
+   "channel": "F2",
+   "route": "QMC distinct times",
+   "comps": [
+    1,
+    0
+   ],
+   "package": -0.05070879651642767,
+   "hierarchy": -0.050708784469252796,
+   "rel": 2.3757569821151635e-07
+  },
+  {
+   "observable": "2pt",
+   "order": 2,
+   "channel": "F2",
+   "route": "QMC distinct times",
+   "comps": [
+    1,
+    1
+   ],
+   "package": 0.07386766510643544,
+   "hierarchy": 0.07386764901679946,
+   "rel": 2.1781708500011328e-07
+  },
+  {
+   "observable": "2pt",
+   "order": 2,
+   "channel": "G2",
+   "route": "GL equal times",
+   "comps": [
+    0,
+    1
+   ],
+   "package": 0.01489713816794371,
+   "hierarchy": 0.014897138167943707,
+   "rel": 2.3289352040912913e-16
+  },
+  {
+   "observable": "2pt",
+   "order": 2,
+   "channel": "G2",
+   "route": "GL equal times",
+   "comps": [
+    1,
+    0
+   ],
+   "package": 0.014897138167943708,
+   "hierarchy": 0.01489713816794371,
+   "rel": 1.1644676020456454e-16
+  },
+  {
+   "observable": "2pt",
+   "order": 2,
+   "channel": "G2",
+   "route": "GL equal times",
+   "comps": [
+    1,
+    1
+   ],
+   "package": -0.010404317920465452,
+   "hierarchy": -0.010404317920465445,
+   "rel": 6.669244401171482e-16
+  },
+  {
+   "observable": "2pt",
+   "order": 2,
+   "channel": "G2",
+   "route": "GL distinct times",
+   "comps": [
+    0,
+    1
+   ],
+   "package": -0.0005467649974408217,
+   "hierarchy": -0.0005293419608487798,
+   "rel": 0.03291452006582804
+  },
+  {
+   "observable": "2pt",
+   "order": 2,
+   "channel": "G2",
+   "route": "GL distinct times",
+   "comps": [
+    1,
+    0
+   ],
+   "package": 0.013168394530329173,
+   "hierarchy": 0.01319235788268005,
+   "rel": 0.001816457115853315
+  },
+  {
+   "observable": "2pt",
+   "order": 2,
+   "channel": "G2",
+   "route": "GL distinct times",
+   "comps": [
+    1,
+    1
+   ],
+   "package": -0.008715185652992483,
+   "hierarchy": -0.008708198008912588,
+   "rel": 0.0008024213589015357
+  },
+  {
+   "observable": "2pt",
+   "order": 2,
+   "channel": "G2",
+   "route": "QMC distinct times",
+   "comps": [
+    0,
+    1
+   ],
+   "package": -0.0005293449107557917,
+   "hierarchy": -0.0005293419608487798,
+   "rel": 5.572781358921395e-06
+  },
+  {
+   "observable": "2pt",
+   "order": 2,
+   "channel": "G2",
+   "route": "QMC distinct times",
+   "comps": [
+    1,
+    0
+   ],
+   "package": 0.01319236133467295,
+   "hierarchy": 0.01319235788268005,
+   "rel": 2.616661047676044e-07
+  },
+  {
+   "observable": "2pt",
+   "order": 2,
+   "channel": "G2",
+   "route": "QMC distinct times",
+   "comps": [
+    1,
+    1
+   ],
+   "package": -0.008708202305568225,
+   "hierarchy": -0.008708198008912588,
+   "rel": 4.934035299595605e-07
+  },
+  {
+   "observable": "2pt",
+   "order": 3,
+   "channel": "F2 G",
+   "route": "GL equal times",
+   "comps": [
+    0,
+    1
+   ],
+   "package": -0.10074875277007579,
+   "hierarchy": -0.10074875277007606,
+   "rel": 2.6171834499056063e-15
+  },
+  {
+   "observable": "2pt",
+   "order": 3,
+   "channel": "F2 G",
+   "route": "GL equal times",
+   "comps": [
+    1,
+    1
+   ],
+   "package": -0.03743367603264847,
+   "hierarchy": -0.03743367603264857,
+   "rel": 2.5951102042442894e-15
+  },
+  {
+   "observable": "2pt",
+   "order": 3,
+   "channel": "F2 G",
+   "route": "GL distinct times",
+   "comps": [
+    0,
+    1
+   ],
+   "package": -0.08715779288542252,
+   "hierarchy": -0.08708449345241343,
+   "rel": 0.0008417047639962853
+  },
+  {
+   "observable": "2pt",
+   "order": 3,
+   "channel": "F2 G",
+   "route": "GL distinct times",
+   "comps": [
+    1,
+    1
+   ],
+   "package": -0.013880588918357516,
+   "hierarchy": -0.01385811374318254,
+   "rel": 0.0016218062278520976
+  },
+  {
+   "observable": "2pt",
+   "order": 3,
+   "channel": "F2 G",
+   "route": "QMC distinct times",
+   "comps": [
+    0,
+    1
+   ],
+   "package": -0.08708061284487952,
+   "hierarchy": -0.08708449345241343,
+   "rel": 4.45614067449375e-05
+  },
+  {
+   "observable": "2pt",
+   "order": 3,
+   "channel": "F2 G",
+   "route": "QMC distinct times",
+   "comps": [
+    1,
+    1
+   ],
+   "package": -0.013856515462710448,
+   "hierarchy": -0.01385811374318254,
+   "rel": 0.00011533174728618647
+  },
+  {
+   "observable": "2pt",
+   "order": 3,
+   "channel": "G3",
+   "route": "GL equal times",
+   "comps": [
+    0,
+    1
+   ],
+   "package": 0.011370295222553888,
+   "hierarchy": 0.011370295222555019,
+   "rel": 9.947320489034078e-14
+  },
+  {
+   "observable": "2pt",
+   "order": 3,
+   "channel": "G3",
+   "route": "GL equal times",
+   "comps": [
+    1,
+    1
+   ],
+   "package": -0.004849351931191581,
+   "hierarchy": -0.0048493519311922475,
+   "rel": 1.373655334211473e-13
+  },
+  {
+   "observable": "2pt",
+   "order": 3,
+   "channel": "G3",
+   "route": "GL distinct times",
+   "comps": [
+    0,
+    1
+   ],
+   "package": 0.00213468417243357,
+   "hierarchy": 0.002132088786981184,
+   "rel": 0.0012172970789179555
+  },
+  {
+   "observable": "2pt",
+   "order": 3,
+   "channel": "G3",
+   "route": "GL distinct times",
+   "comps": [
+    1,
+    1
+   ],
+   "package": -0.005044334028028744,
+   "hierarchy": -0.005044169839814948,
+   "rel": 3.255009625182411e-05
+  },
+  {
+   "observable": "2pt",
+   "order": 3,
+   "channel": "G3",
+   "route": "QMC distinct times",
+   "comps": [
+    0,
+    1
+   ],
+   "package": 0.0021320658167315073,
+   "hierarchy": 0.002132088786981184,
+   "rel": 1.0773589644576543e-05
+  },
+  {
+   "observable": "2pt",
+   "order": 3,
+   "channel": "G3",
+   "route": "QMC distinct times",
+   "comps": [
+    1,
+    1
+   ],
+   "package": -0.005044474478170486,
+   "hierarchy": -0.005044169839814948,
+   "rel": 6.039415111155863e-05
+  }
+ ]
+}

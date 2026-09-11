@@ -1,0 +1,692 @@
+{
+ "positions": {
+  "x": 0.0,
+  "y": 0.8,
+  "z": -0.5,
+  "w": 1.2,
+  "v": 0.3
+ },
+ "times": {
+  "x": 1.9,
+  "y": 1.3,
+  "z": 2.2,
+  "w": 1.6,
+  "v": 2.0
+ },
+ "equal_times": {
+  "x": 1.9,
+  "y": 1.9
+ },
+ "t_min": 0.4,
+ "worst": {
+  "2pt order 0 | distinct times | gauss_legendre | rates [1.05, 1.05]": 0.0,
+  "2pt F X3 | distinct times | gauss_legendre | rates [1.05, 1.05]": 3.8458660193243068e-16,
+  "2pt F X3 | distinct times | qmc_vectorized | rates [1.05, 1.05]": 1.6455223846947564e-06,
+  "2pt F X3 | distinct times | qmc_scalar | rates [0.8, 1.3]": 1.907451884243439e-05,
+  "2pt F F X4 | distinct times | gauss_legendre | rates [1.05, 1.05]": 4.2991134150146166e-16,
+  "2pt F F X4 | distinct times | qmc_scalar | rates [0.8, 1.3]": 5.2139537779887255e-05,
+  "2pt F F | equal times | gauss_legendre | rates [1.05, 1.05]": 5.438797360570138e-16,
+  "2pt F F | distinct times | gauss_legendre | rates [1.05, 1.05]": 0.0007491058600222543,
+  "2pt F F | distinct times | qmc_vectorized | rates [1.05, 1.05]": 2.375756983483545e-07,
+  "5pt F J3 J3 | distinct times | qmc_vectorized | rates [1.05, 1.05]": 9.949551762193788e-07,
+  "5pt F J3 J3 | distinct times | gauss_legendre | rates [1.05, 1.05]": 0.054836652423409946,
+  "5pt F X3 X3 | distinct times | qmc_vectorized | rates [1.05, 1.05]": 6.395523960293777e-07,
+  "5pt F X3 X3 | distinct times | gauss_legendre | rates [1.05, 1.05]": 1.6454847365064912e-15
+ },
+ "rows": [
+  {
+   "observable": "2pt",
+   "channel": "order 0",
+   "order": 0,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    0,
+    1
+   ],
+   "package": -0.055291621155520686,
+   "hierarchy": -0.055291621155520686,
+   "rel": 0.0
+  },
+  {
+   "observable": "2pt",
+   "channel": "order 0",
+   "order": 0,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    1,
+    0
+   ],
+   "package": -0.055291621155520686,
+   "hierarchy": -0.055291621155520686,
+   "rel": 0.0
+  },
+  {
+   "observable": "2pt",
+   "channel": "order 0",
+   "order": 0,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    1,
+    1
+   ],
+   "package": 0.1434218835714452,
+   "hierarchy": 0.1434218835714452,
+   "rel": 0.0
+  },
+  {
+   "observable": "2pt",
+   "channel": "F X3",
+   "order": 2,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    0,
+    1
+   ],
+   "package": -0.09011983067882642,
+   "hierarchy": -0.0901198306788264,
+   "rel": 3.079852170888518e-16
+  },
+  {
+   "observable": "2pt",
+   "channel": "F X3",
+   "order": 2,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    1,
+    0
+   ],
+   "package": -0.10825484614973169,
+   "hierarchy": -0.10825484614973165,
+   "rel": 3.8458660193243068e-16
+  },
+  {
+   "observable": "2pt",
+   "channel": "F X3",
+   "order": 2,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    1,
+    1
+   ],
+   "package": 0.12483923628004087,
+   "hierarchy": 0.12483923628004086,
+   "rel": 1.1116527320532175e-16
+  },
+  {
+   "observable": "2pt",
+   "channel": "F X3",
+   "order": 2,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "qmc_vectorized",
+   "comps": [
+    0,
+    1
+   ],
+   "package": -0.0901199527282638,
+   "hierarchy": -0.0901198306788264,
+   "rel": 1.3543016723894963e-06
+  },
+  {
+   "observable": "2pt",
+   "channel": "F X3",
+   "order": 2,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "qmc_vectorized",
+   "comps": [
+    1,
+    0
+   ],
+   "package": -0.10825502428550424,
+   "hierarchy": -0.10825484614973165,
+   "rel": 1.6455223846947564e-06
+  },
+  {
+   "observable": "2pt",
+   "channel": "F X3",
+   "order": 2,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "qmc_vectorized",
+   "comps": [
+    1,
+    1
+   ],
+   "package": 0.12483942518969883,
+   "hierarchy": 0.12483923628004086,
+   "rel": 1.513223435205673e-06
+  },
+  {
+   "observable": "2pt",
+   "channel": "F X3",
+   "order": 2,
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "route": "qmc_scalar",
+   "comps": [
+    0,
+    1
+   ],
+   "package": -0.09641740830499637,
+   "hierarchy": -0.09641635517449158,
+   "rel": 1.0922737152659062e-05
+  },
+  {
+   "observable": "2pt",
+   "channel": "F X3",
+   "order": 2,
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "route": "qmc_scalar",
+   "comps": [
+    1,
+    0
+   ],
+   "package": -0.110715388745511,
+   "hierarchy": -0.1107141896173008,
+   "rel": 1.0830844847843768e-05
+  },
+  {
+   "observable": "2pt",
+   "channel": "F X3",
+   "order": 2,
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "route": "qmc_scalar",
+   "comps": [
+    1,
+    1
+   ],
+   "package": 0.10094303230600803,
+   "hierarchy": 0.10094110690296243,
+   "rel": 1.907451884243439e-05
+  },
+  {
+   "observable": "2pt",
+   "channel": "F F X4",
+   "order": 3,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    0,
+    1
+   ],
+   "package": -0.013914754809785237,
+   "hierarchy": -0.013914754809785232,
+   "rel": 3.740037463161556e-16
+  },
+  {
+   "observable": "2pt",
+   "channel": "F F X4",
+   "order": 3,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    1,
+    0
+   ],
+   "package": -0.03228058082707564,
+   "hierarchy": -0.032280580827075654,
+   "rel": 4.2991134150146166e-16
+  },
+  {
+   "observable": "2pt",
+   "channel": "F F X4",
+   "order": 3,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    1,
+    1
+   ],
+   "package": 0.005637611890442294,
+   "hierarchy": 0.0056376118904422935,
+   "rel": 1.5385268706752985e-16
+  },
+  {
+   "observable": "2pt",
+   "channel": "F F X4",
+   "order": 3,
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "route": "qmc_scalar",
+   "comps": [
+    0,
+    1
+   ],
+   "package": -0.020371204906310624,
+   "hierarchy": -0.020372095766139017,
+   "rel": 4.372941491238976e-05
+  },
+  {
+   "observable": "2pt",
+   "channel": "F F X4",
+   "order": 3,
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "route": "qmc_scalar",
+   "comps": [
+    1,
+    0
+   ],
+   "package": -0.03881092822680664,
+   "hierarchy": -0.038809538174062255,
+   "rel": 3.58172967209184e-05
+  },
+  {
+   "observable": "2pt",
+   "channel": "F F X4",
+   "order": 3,
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "route": "qmc_scalar",
+   "comps": [
+    1,
+    1
+   ],
+   "package": 0.012118231078967184,
+   "hierarchy": 0.01211886295087986,
+   "rel": 5.2139537779887255e-05
+  },
+  {
+   "observable": "2pt",
+   "channel": "F F",
+   "order": 2,
+   "times": "equal",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    0,
+    1
+   ],
+   "package": -0.07654884097222377,
+   "hierarchy": -0.07654884097222374,
+   "rel": 3.6258649070467587e-16
+  },
+  {
+   "observable": "2pt",
+   "channel": "F F",
+   "order": 2,
+   "times": "equal",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    1,
+    0
+   ],
+   "package": -0.07654884097222378,
+   "hierarchy": -0.07654884097222374,
+   "rel": 5.438797360570138e-16
+  },
+  {
+   "observable": "2pt",
+   "channel": "F F",
+   "order": 2,
+   "times": "equal",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    1,
+    1
+   ],
+   "package": 0.12028047542711702,
+   "hierarchy": 0.12028047542711698,
+   "rel": 3.461356739371286e-16
+  },
+  {
+   "observable": "2pt",
+   "channel": "F F",
+   "order": 2,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    0,
+    1
+   ],
+   "package": -0.04409432801767271,
+   "hierarchy": -0.04412461066750192,
+   "rel": 0.0006862984028891202
+  },
+  {
+   "observable": "2pt",
+   "channel": "F F",
+   "order": 2,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    1,
+    0
+   ],
+   "package": -0.05067385987933405,
+   "hierarchy": -0.05070878446925279,
+   "rel": 0.0006887285957310616
+  },
+  {
+   "observable": "2pt",
+   "channel": "F F",
+   "order": 2,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    1,
+    1
+   ],
+   "package": 0.07381231432805493,
+   "hierarchy": 0.07386764901679949,
+   "rel": 0.0007491058600222543
+  },
+  {
+   "observable": "2pt",
+   "channel": "F F",
+   "order": 2,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "qmc_vectorized",
+   "comps": [
+    0,
+    1
+   ],
+   "package": -0.044124619900332944,
+   "hierarchy": -0.04412461066750192,
+   "rel": 2.092444756086171e-07
+  },
+  {
+   "observable": "2pt",
+   "channel": "F F",
+   "order": 2,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "qmc_vectorized",
+   "comps": [
+    1,
+    0
+   ],
+   "package": -0.05070879651642767,
+   "hierarchy": -0.05070878446925279,
+   "rel": 2.375756983483545e-07
+  },
+  {
+   "observable": "2pt",
+   "channel": "F F",
+   "order": 2,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "qmc_vectorized",
+   "comps": [
+    1,
+    1
+   ],
+   "package": 0.07386766510643544,
+   "hierarchy": 0.07386764901679949,
+   "rel": 2.178170846243658e-07
+  },
+  {
+   "observable": "5pt",
+   "channel": "F J3 J3",
+   "order": 3,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "qmc_vectorized",
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": 0.002587002025475974,
+   "hierarchy": 0.002587000033344579,
+   "rel": 7.700546459468237e-07
+  },
+  {
+   "observable": "5pt",
+   "channel": "F J3 J3",
+   "order": 3,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "qmc_vectorized",
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": 0.0027810580644105115,
+   "hierarchy": 0.002781060831441381,
+   "rel": 9.949551762193788e-07
+  },
+  {
+   "observable": "5pt",
+   "channel": "F J3 J3",
+   "order": 3,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": 0.002537130206850923,
+   "hierarchy": 0.002587000033344579,
+   "rel": 0.01927708768877844
+  },
+  {
+   "observable": "5pt",
+   "channel": "F J3 J3",
+   "order": 3,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": 0.0029335648976234916,
+   "hierarchy": 0.002781060831441381,
+   "rel": 0.054836652423409946
+  },
+  {
+   "observable": "5pt",
+   "channel": "F X3 X3",
+   "order": 3,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "qmc_vectorized",
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.6370528466733326,
+   "hierarchy": -0.6370529148521816,
+   "rel": 1.0702226992668466e-07
+  },
+  {
+   "observable": "5pt",
+   "channel": "F X3 X3",
+   "order": 3,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "qmc_vectorized",
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": -0.607237527613179,
+   "hierarchy": -0.6072379159736431,
+   "rel": 6.395523960293777e-07
+  },
+  {
+   "observable": "5pt",
+   "channel": "F X3 X3",
+   "order": 3,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.6370529148521826,
+   "hierarchy": -0.6370529148521816,
+   "rel": 1.5684736681481005e-15
+  },
+  {
+   "observable": "5pt",
+   "channel": "F X3 X3",
+   "order": 3,
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "route": "gauss_legendre",
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": -0.6072379159736441,
+   "hierarchy": -0.6072379159736431,
+   "rel": 1.6454847365064912e-15
+  }
+ ]
+}
