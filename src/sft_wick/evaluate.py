@@ -4525,16 +4525,22 @@ class DiagramIntegrand:
             cache: A :class:`PropagatorCache`.
 
         Returns:
-            Callable ``f(*time_args) → float``.
+            Callable ``f(*time_args) → float``.  A spacetime-dependent
+            (callable) coupling is evaluated at every call, as in
+            :meth:`integrate_moment_nquad`.
         """
         spatial = self.spatial
         int_vars = spatial.time_integration_vars
+        dyn = self.dynamic_coupling is not None
 
         def integrand(*time_args: float) -> float:
             times = dict(external_times)
             for var, val in zip(int_vars, time_args):
                 times[var] = val
-            result = self.evaluate(times, external_directions, cache)
+            ca = (self.dynamic_coupling_array(times, external_directions)
+                  if dyn else None)
+            result = self.evaluate(times, external_directions, cache,
+                                   coupling_array=ca)
             return _real_or_raise(result, self._e_psi,
                                   where=' (make_scipy_integrand)')
 
@@ -5469,6 +5475,13 @@ class DiagramIntegrand:
         See :meth:`integrate_moment_qmc_vectorized` for the
         ``integrate_over`` kwarg semantics (external-time partition
         into integrated vs fixed-at-``lambda_f``).
+
+        A spacetime-dependent (callable) coupling is evaluated at every
+        point the quadrature visits, through
+        :meth:`dynamic_coupling_array`, as the scalar QMC loop does: the
+        callable is called once per integrand evaluation and per coupling
+        symbol (one per leg order and leg set, see
+        :meth:`~sft_wick.perturbation.DiagramTerm.build_integrand`).
         """
         from scipy.integrate import nquad as _nquad
 
@@ -5516,26 +5529,12 @@ class DiagramIntegrand:
             )
             return (val, 0.0)
 
-        # Spacetime-dependent (callable) couplings are NOT supported
-        # by the nquad path: ``self.evaluate`` uses the static
-        # ``coupling_array`` which is a placeholder zero array when
-        # the integrand was built from a callable κ.  Multiplying by
-        # 0 would silently return 0 for every diagram with a
-        # dynamic vertex (a latent bug pre-2026-04).  We refuse
-        # explicitly and point to ``method='gauss_legendre'`` -- a
-        # tensor-product GL rule with deterministic exponential
-        # convergence on smooth integrands, which is the natural
-        # match for diagrams that have callable couplings (and
-        # vastly outperforms 4D adaptive nquad in practice anyway).
-        if self.dynamic_coupling is not None:
-            raise NotImplementedError(
-                "method='nquad' does not support spacetime-dependent "
-                "(callable) couplings.  Use method='gauss_legendre' "
-                "(deterministic, exponential convergence on smooth "
-                "integrands, matches the notebook hand-derivation) "
-                "or method='qmc_vectorized' (Sobol QMC, recommended "
-                "for high-d diagrams) instead."
-            )
+        # A spacetime-dependent (callable) coupling leaves the static
+        # ``coupling_array`` as a zeros placeholder, so every point the
+        # quadrature visits materialises its own coupling tensor, as the
+        # scalar QMC loop does.  Up to 0.5.0 this method refused callable
+        # couplings instead (before 2026-04 it silently returned 0).
+        dyn = self.dynamic_coupling is not None
 
         # Split at kinks until none is left (see
         # integrate_moment_gauss_legendre).  An extra ordering bounds its
@@ -5564,7 +5563,11 @@ class DiagramIntegrand:
             times = dict(fixed_times)
             for i, var in enumerate(all_vars):
                 times[var] = args[i]
-            result = self.evaluate(times, directions, cache)
+            ca = (self.dynamic_coupling_array(times, directions,
+                                              default_position=direction)
+                  if dyn else None)
+            result = self.evaluate(times, directions, cache,
+                                   coupling_array=ca)
             return _real_or_raise(result, self._e_psi, where=' (nquad)')
 
         # Causal bounds for internal vars

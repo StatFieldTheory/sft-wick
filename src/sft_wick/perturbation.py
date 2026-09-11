@@ -895,8 +895,12 @@ class DiagramTerm:
                   vertex's ψ-leg positions and times, in the leg order
                   of the coupling-sum term being evaluated: axis ``l``
                   of the returned tensor belongs to the leg at
-                  ``n_list[l]``, ``t_list[l]``.  The callable is called
-                  once per distinct leg order in ``coupling_sum``.
+                  ``n_list[l]``, ``t_list[l]``.  A local vertex has one
+                  point, so its lists have length 1.  The callable is
+                  called once per distinct ``spatial_args`` tuple of its
+                  symbol in ``coupling_sum``: per leg order, and per
+                  vertex copy (and leg set) when the vertex occurs more
+                  than once.
 
                 When any value is callable the integrand enters a
                 **per-QMC-sample** evaluation path (see
@@ -956,34 +960,21 @@ class DiagramTerm:
         # legs in ``spatial_args``.  The coupling sum of one non-local vertex
         # lists the symbol at every leg order the contraction produced,
         # K_{σ(abc)}(σ(y)), with each component index kept on its own leg, so
-        # every term must be evaluated at its own leg order.  Up to 0.4.2 the
-        # callable was evaluated once, at the first term's legs, and every
-        # term read that tensor with its own indices: Σ_σ K_{σ(abc)}(y)
-        # instead of Σ_σ K_{σ(abc)}(σ(y)).  The two agree only for a kernel
-        # symmetric under a permutation of its leg points at fixed indices.
+        # every term must be evaluated at its own leg order.  At order >= 2
+        # the sum also lists every copy of a vertex (local or non-local) at
+        # its own points, and routes the legs of non-local copies between
+        # them, K(y_0, y_1, y_3) K(y_2, y_4, y_5) next to
+        # K(y_0, y_1, y_2) K(y_3, y_4, y_5).  Every distinct
+        # ``spatial_args`` tuple therefore gets a symbol of its own below and
+        # is evaluated at its own points.  Up to 0.4.2 the callable was
+        # evaluated once, at the first term's legs, and every term read that
+        # tensor with its own indices: Σ_σ K_{σ(abc)}(y) instead of
+        # Σ_σ K_{σ(abc)}(σ(y)).  Up to 0.5.0 a callable at more than one set
+        # of points (two copies of one vertex) was refused.
         occurrences = _collect_symbol_occurrences(self.coupling_sum)
         for name in active_dynamic:
             if name not in occurrences:
                 raise _no_spatial_args_error(name)
-            # Occurrences at different point sets (two copies of one vertex
-            # at order >= 2, at different times) are still refused.  The
-            # per-occurrence split below would evaluate each copy at its own
-            # coordinates, but that case has no independent check yet; under
-            # the first-occurrence rule it was measured 4.06x wrong.
-            places = occurrences[name]
-            distinct_point_sets = {frozenset(pl) for pl in places}
-            if len(distinct_point_sets) > 1:
-                raise NotImplementedError(
-                    f"coupling '{name}' is callable and occurs at "
-                    f"{len(distinct_point_sets)} different sets of spacetime "
-                    f"points in this diagram "
-                    f"({', '.join(str(p) for p in places)}).  This happens "
-                    f"when one vertex species appears more than once (order "
-                    f">= 2), and a callable coupling at more than one point "
-                    f"set is not supported yet.  Supported today: a callable "
-                    f"coupling whose occurrences all sit at one point set, in "
-                    f"any leg order.  Pass an ndarray for the constant case."
-                )
 
         static_values = {
             name: np.asarray(v) for name, v in coupling_values.items()
@@ -1028,9 +1019,14 @@ class DiagramTerm:
 def _collect_r_absorbed_pairs(
     props: tuple[Propagator, ...],
     vertex_instances,
+    absorbed_legs: Iterable[str] | None = None,
 ) -> tuple[tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]]:
     """Identify R-propagators that touch a leg of an
     ``already_R_contracted`` non-local vertex.
+
+    The absorbed legs are those of the ``already_R_contracted`` instances in
+    ``vertex_instances``, unless ``absorbed_legs`` names them (see
+    :func:`_split_by_instance_structure`).
 
     For each such R-propagator, the leg's ψ-side gets aliased onto the
     partner's φ-side (so time and direction integration collapses), and
@@ -1050,10 +1046,13 @@ def _collect_r_absorbed_pairs(
         ``equal_time_aliases`` so the leg's time variable is dropped
         from integration.
     """
-    absorbed_legs: set[str] = set()
-    for vi in vertex_instances:
-        if getattr(vi.vertex, "already_R_contracted", False):
-            absorbed_legs.update(vi.spatial_variables)
+    if absorbed_legs is None:
+        absorbed_legs = set()
+        for vi in vertex_instances:
+            if getattr(vi.vertex, "already_R_contracted", False):
+                absorbed_legs.update(vi.spatial_variables)
+    else:
+        absorbed_legs = set(absorbed_legs)
     if not absorbed_legs:
         return (), ()
 
@@ -1136,6 +1135,97 @@ def _pin_absorbed_leg_indices(dt: DiagramTerm) -> DiagramTerm:
             (name, dim) for name, dim in dt.summation_indices
             if name not in sub),
     )
+
+
+def _symbols_in(expr: Expr) -> list[Symbol]:
+    """Every :class:`Symbol` in a coupling-sum term, walking products and
+    sums."""
+    if isinstance(expr, Symbol):
+        return [expr]
+    if isinstance(expr, Product):
+        return [s for f in expr.factors for s in _symbols_in(f)]
+    if isinstance(expr, Sum):
+        return [s for t in expr.terms for s in _symbols_in(t)]
+    return []
+
+
+def _split_by_instance_structure(
+    props: tuple[Propagator, ...],
+    coupling: Expr,
+    vertex_instances,
+) -> list[tuple[Expr, tuple[tuple[str, str], ...],
+                tuple[tuple[str, str], ...]]]:
+    """Split a collected coupling sum by the leg structure of its terms.
+
+    :func:`_collect_grouped_wick` merges pairings related by a relabelling of
+    the integration points.  Each leg of a non-local vertex is a point of its
+    own, so the merge also moves leg labels between the copies of a vertex:
+    one diagram's coupling sum holds ``K(y_0, y_1, y_3) K(y_2, y_4, y_5)``
+    next to ``K(y_0, y_1, y_2) K(y_3, y_4, y_5)``.  Which legs belong to one
+    copy decides the measure when the vertex is ``equal_time`` (its legs
+    share one time) or ``already_R_contracted`` (its legs take their
+    partners' times and drop their R factors).  Both used to be read off the
+    vertex instances, which is right only for the terms that leave every leg
+    on its own instance; up to 0.5.0 the other terms were integrated with
+    the wrong measure.
+
+    Each term here gets the aliases and absorbed pairs of its own legs, and
+    the terms are grouped by them.  An equal-time class is represented by
+    its leg created first, as in :meth:`VertexInstance.instantiate`, so a
+    term that keeps the instance legs reproduces the instance aliases.
+
+    Returns:
+        ``[(coupling_sum, equal_time_aliases, r_absorbed_pairs), ...]``, one
+        entry per distinct leg structure in first-seen order.  Without an
+        ``equal_time`` or ``already_R_contracted`` vertex this is the input
+        coupling with no aliases and no absorbed pairs.
+
+    Raises:
+        RuntimeError: a term does not name every copy of such a vertex
+            exactly once, so its leg structure is undefined.
+    """
+    et_names = {vi.vertex.coupling for vi in vertex_instances
+                if getattr(vi.vertex, "equal_time", False)}
+    rc_names = {vi.vertex.coupling for vi in vertex_instances
+                if getattr(vi.vertex, "already_R_contracted", False)}
+    if not et_names and not rc_names:
+        return [(coupling, (), ())]
+
+    leg_rank = {var: k for k, var in enumerate(
+        var for vi in vertex_instances for var in vi.spatial_variables)}
+    n_structured = sum(1 for vi in vertex_instances
+                       if vi.vertex.coupling in et_names | rc_names)
+    terms = coupling.terms if isinstance(coupling, Sum) else (coupling,)
+    groups: dict[tuple, list[Expr]] = {}
+    for term in terms:
+        syms = [s for s in _symbols_in(term)
+                if s.name in et_names or s.name in rc_names]
+        if len(syms) != n_structured:
+            raise RuntimeError(
+                f"internal: a coupling-sum term names {len(syms)} copies of "
+                f"equal_time / already_R_contracted vertices where the "
+                f"diagram has {n_structured}, so its leg structure is "
+                f"undefined: {term!r}"
+            )
+        classes = frozenset(frozenset(s.spatial_args) for s in syms
+                            if s.name in et_names)
+        absorbed = frozenset(leg for s in syms if s.name in rc_names
+                             for leg in s.spatial_args)
+        groups.setdefault((classes, absorbed), []).append(term)
+
+    out = []
+    for (classes, absorbed), group_terms in groups.items():
+        aliases: set[tuple[str, str]] = set()
+        for cls in classes:
+            rep = min(cls, key=leg_rank.__getitem__)
+            aliases.update((leg, rep) for leg in cls if leg != rep)
+        pairs, leg_aliases = _collect_r_absorbed_pairs(
+            props, vertex_instances, absorbed_legs=absorbed,
+        )
+        sub = (group_terms[0] if len(group_terms) == 1
+               else Sum(tuple(group_terms)))
+        out.append((sub, tuple(sorted(aliases | set(leg_aliases))), pairs))
+    return out
 
 
 def _collect_symbol_names(expr: Expr) -> set[str]:
@@ -1585,17 +1675,6 @@ def compute_moment(
                     for var in vi.spatial_variables
                 )
 
-                # Collect equal-time alias map from any equal_time
-                # NonLocalVertex instances; each maps a non-representative
-                # leg label → the canonical representative whose time
-                # variable is integrated. Empty when no equal_time vertex
-                # is present (back-compat).
-                _eq_time_alias_pairs: list[tuple[str, str]] = []
-                for vi in vertex_instances:
-                    for k, v in vi.equal_time_aliases or ():
-                        _eq_time_alias_pairs.append((k, v))
-                eq_time_aliases_tuple = tuple(sorted(_eq_time_alias_pairs))
-
                 # Build summation index info for DiagramTerm
                 sum_indices: list[tuple[str, int]] = []
                 for vi in vertex_instances:
@@ -1640,35 +1719,33 @@ def compute_moment(
                         continue
                     term = Product((prefactor, inner))
 
-                    # Extract DiagramTerm records from inner
+                    # Extract DiagramTerm records from inner.  A record whose
+                    # coupling sum routes the legs of equal_time /
+                    # already_R_contracted copies differently from term to
+                    # term becomes one DiagramTerm per leg structure, each
+                    # with its own measure (_split_by_instance_structure).
                     for dt_props, dt_coupling in _extract_diagram_records(
                         inner
                     ):
-                        r_absorbed_pairs, leg_aliases = (
-                            _collect_r_absorbed_pairs(
-                                dt_props, vertex_instances,
+                        for sub_coupling, aliases, absorbed in (
+                            _split_by_instance_structure(
+                                dt_props, dt_coupling, vertex_instances,
                             )
-                        )
-                        merged_aliases = (
-                            tuple(sorted(
-                                set(eq_time_aliases_tuple) | set(leg_aliases)
-                            ))
-                            if leg_aliases else eq_time_aliases_tuple
-                        )
-                        order_dterms.append(_pin_absorbed_leg_indices(
-                            DiagramTerm(
-                                propagators=dt_props,
-                                coupling_sum=dt_coupling,
-                                rational_prefactor=prefactor,
-                                integration_vars=int_vars_sorted,
-                                summation_indices=tuple(sum_indices),
-                                n_response=sum(
-                                    1 for p in dt_props if p.kind == "R"
-                                ),
-                                equal_time_aliases=merged_aliases,
-                                r_absorbed_pairs=r_absorbed_pairs,
-                                n_external_response=_n_ext_response,
-                            )))
+                        ):
+                            order_dterms.append(_pin_absorbed_leg_indices(
+                                DiagramTerm(
+                                    propagators=dt_props,
+                                    coupling_sum=sub_coupling,
+                                    rational_prefactor=prefactor,
+                                    integration_vars=int_vars_sorted,
+                                    summation_indices=tuple(sum_indices),
+                                    n_response=sum(
+                                        1 for p in dt_props if p.kind == "R"
+                                    ),
+                                    equal_time_aliases=aliases,
+                                    r_absorbed_pairs=absorbed,
+                                    n_external_response=_n_ext_response,
+                                )))
                 else:
                     # --- Operator-level Wick contraction ---
                     wick_result, pairings = wick_contract(all_ops, ito=ito)

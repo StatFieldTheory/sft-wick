@@ -698,7 +698,11 @@ def build_system(cfg: SystemConfig):
         return c if callable(c) else np.asarray(c)
 
     vertices = [
-        sp.LocalVertex(name=v["name"], coupling=_coupling_value(v))
+        sp.LocalVertex(
+            name=v["name"], coupling=_coupling_value(v),
+            rank=None if v.get("rank") is None else int(v["rank"]),
+            coupling_vectorized=bool(v.get("coupling_vectorized", False)),
+        )
         for v in cfg.vertices
     ]
     nonlocal_vertices = [

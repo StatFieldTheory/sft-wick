@@ -254,7 +254,7 @@ class Expansion:
                        ``n_gauss^d`` per consistent order of kinked pairs
                    * - ``'nquad'``
                      - Adaptive 1-3D fallback
-                     - slow; raises ``NotImplementedError`` on dynamic-coupling
+                     - slow; a callable coupling costs one call per point
                    * - ``'qmc'`` / ``'qmc_scalar'``
                      - Compatibility / debugging
                      - slow Python loop
