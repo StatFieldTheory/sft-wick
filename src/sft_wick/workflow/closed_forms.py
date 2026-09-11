@@ -61,6 +61,7 @@ from .specs import (
     ConstantImpulse,
     DiagonalA,
     ExponentialTemporal,
+    MultiplicativeImpulse,
     SeparableTranslation,
 )
 
@@ -296,7 +297,9 @@ def builtin_closed_form_for(system: Any) -> ClosedFormC | None:
     sigma2_tuple: tuple | None
     if sigma2 is None:
         sigma2_tuple = None
-    elif isinstance(sigma2, ConstantImpulse):
+    elif isinstance(sigma2, (ConstantImpulse, MultiplicativeImpulse)):
+        # A MultiplicativeImpulse enters C through D0 = g0 g0ᵀ only; its
+        # φ-dependent part is vertices.
         amp = np.asarray(sigma2.amplitude, dtype=float)
         mat = float(amp) * np.eye(N) if amp.ndim == 0 else amp
         if mat.shape != (N, N):

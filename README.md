@@ -514,7 +514,22 @@ By default, the Itô discretisation convention Θ(0)=0 is applied:
 - **Equal-point R vanishes**: R(x,x) = 0 — eliminates self-response contractions and intra-vertex tadpoles in local vertices.
 - **Causal R-loops vanish**: Any closed loop of response propagators R(a,b)R(b,c)...R(z,a) = 0, since this would require a cyclic time ordering t\_a > t\_b > ... > t\_a, which is impossible for the retarded propagator.
 
-Pass `ito=False` to keep these terms symbolic.
+Pass `ito=False` to keep these terms symbolic.  The numerical layer
+evaluates every R at equal times as 0, i.e. it computes the Itô SDE.  On a
+local vertex with one ψ leg that is exact: the equal-point term and the
+Stratonovich functional Jacobian cancel, and sft-wick emits neither, so the
+number is the `ito=True` one.  On a local vertex with two or more ψ legs (a
+φ-dependent noise covariance) or between two external operators, the Itô and
+Stratonovich values differ and the numerical layer raises rather than return
+the Itô value under another name.
+
+A Stratonovich SDE is computed in its Itô form.  At L1,
+`GaussianNoise(sigma2=MultiplicativeImpulse(g0, g1, interpretation=...))`
+declares white noise with the amplitude `g(φ) = g0 + g1 φ`: `D0 = g0 g0ᵀ`
+enters C, the rest of `D = g gᵀ` becomes local ψψφⁿ vertices (factor
+`−i²/2! = ½`), and `interpretation='stratonovich'` adds the noise-induced
+drift `½ Σ g ∂g` as a source (ψ) and a linear (ψφ) vertex.  See
+`docs/user_guide/workflow.rst`.
 
 ### Response phase convention (`response_phase=True`, default)
 
@@ -599,7 +614,7 @@ See `docs/verification/index.rst` for the per-phase test matrix, tolerances, and
 | Path | Contents |
 |------|----------|
 | `src/sft_wick/` | Package source: diagram enumeration, propagators, numerical evaluation, drawing, and the `workflow/` high-level API + CLI |
-| `examples/` | Worked examples — `demo1/` (Gaussian noise), `demo2/` (non-Gaussian, non-zero κ³), `demo3/` (filtered Poisson shot noise), `demo4/` (compound-Poisson noise asymmetric in points and components), `demo5/` (white noise on every integrator, additive and multiplicative), `reference/` (the exact Itô moment hierarchy demos 4 and 5 are checked against), and tutorial notebooks |
+| `examples/` | Worked examples — `demo1/` (Gaussian noise), `demo2/` (non-Gaussian, non-zero κ³), `demo3/` (filtered Poisson shot noise), `demo4/` (compound-Poisson noise asymmetric in points and components), `demo5/` (white noise on every integrator; multiplicative noise at L0 and L1, Itô and Stratonovich), `reference/` (the exact moment hierarchies demos 4 and 5 are checked against), and tutorial notebooks |
 | `tests/` | pytest suite (eight deductive phases) |
 | `docs/` | Sphinx documentation (ReadTheDocs source) |
 
@@ -643,13 +658,18 @@ Demos 4 and 5 have an exact reference instead of a simulation: the moment
 hierarchy of the Itô process at the observation points
 (`examples/reference/ito_moments.py`, which imports nothing from
 sft-wick), solved order by order in the couplings, so each package channel
-is compared with one exact coefficient.
+is compared with one exact coefficient.  Demo 5's multiplicative-noise part
+uses `examples/reference/hormander_moments.py`, which builds the same
+hierarchy from the drift and the noise columns as written — in Hörmander
+form for the Stratonovich reading, so the noise-induced drift is never
+formed on the reference side.
 
 ```bash
 # demo4 — cumulants asymmetric in points and components (the leg-order defect's class)
 cd examples/demo4 && python level_a.py && python level_b.py     # ~10 s
-# demo5 — white noise on every integrator; multiplicative noise at L0
+# demo5 — white noise on every integrator; multiplicative noise at L0 and L1
 cd examples/demo5 && python run.py && python multiplicative.py
+cd examples/demo5 && python white_l1_multiplicative.py   # Itô and Stratonovich
 ```
 
 Each README (`examples/demo4/README.md`, `examples/demo5/README.md`)

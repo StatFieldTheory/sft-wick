@@ -189,6 +189,119 @@ The raw API (``compute_moment``, ``DiagramTerm.evaluate_coupling``)
 does NOT apply these factors automatically — raw callers must pass
 the pre-multiplied tensor.
 
+Multiplicative white noise, Itô and Stratonovich
+------------------------------------------------
+
+White noise whose amplitude depends on the field is declared as the
+system's :math:`\sigma^2`:
+
+.. code-block:: python
+
+   system = sw.System(
+       field=sw.FieldSpec("phi", n_components=2),
+       linear=sw.DiagonalA(gamma=[1.1, 1.1]),
+       vertices=[sw.LocalVertex("F", coupling=F)],
+       noise=sw.GaussianNoise(
+           kappa2=...,                       # the coloured noise, if any
+           sigma2=sw.MultiplicativeImpulse(
+               g0=g0,                        # (N, M): the amplitude at φ = 0
+               g1=g1,                        # (N, M, N): dg_ak/dφ_b
+               interpretation="stratonovich",   # or "ito" (default)
+           )),
+   )
+
+for the SDE
+
+.. math::
+
+   d\varphi_a = \bigl(\dots\bigr)\,dt
+       + g_{ak}(\varphi)\,(\circ)\,dW_k , \qquad
+   g_{ak}(\varphi) = g^{(0)}_{ak} + g^{(1)}_{akb}\,\varphi_b ,
+
+with ``M`` independent Wiener processes.  The noise covariance
+:math:`D(\varphi) = g(\varphi) g(\varphi)^{\mathsf T}` splits into a part
+that C carries and a part that becomes vertices:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 12 20 30 14 12
+
+   * - Vertex
+     - Legs
+     - Bare coupling
+     - MSR factor
+     - power of ``g1``
+   * - —
+     - —
+     - ``D0 = g0 g0ᵀ`` → the white noise of C
+     - —
+     - 0
+   * - ``G``
+     - ψ ψ φ
+     - ``D1_abc = g0_ak g1_bkc + g1_akc g0_bk``
+     - ``1/2``
+     - 1
+   * - ``H``
+     - ψ ψ φ φ
+     - ``D2_abce = g1_akc g1_bke``
+     - ``1/2``
+     - 2
+   * - ``B``
+     - ψ
+     - ``b_i = ½ g1_ikj g0_jk`` (Stratonovich)
+     - ``−i``
+     - 1
+   * - ``L``
+     - ψ φ
+     - ``L_ic = ½ g1_ikj g1_jkc`` (Stratonovich)
+     - ``−i``
+     - 2
+
+The MSR action carries :math:`\tfrac12 \psi_a \psi_b D_{ab}(\varphi)`, so
+the two-ψ vertices take :math:`-i^2/2! = 1/2`, applied by
+``System.build_coupling_values`` exactly as the :math:`-i` of a
+``LocalVertex`` is.  ``interpretation='stratonovich'`` converts the SDE to
+its Itô form: the extra drift
+:math:`\tfrac12 \sum_{jk} g_{jk}\,\partial_j g_{ik} = b + L\varphi`
+becomes the drift vertices ``B`` and ``L``, so R and C stay those of the
+Itô part and every integrator that runs the Itô model runs the
+Stratonovich one.  (Folding ``L`` into the linear operator would resum it,
+but a generic ``L`` is not diagonal, and a dense R runs only on the
+scalar-loop integrators and has no closed-form C.)  Rename the vertices
+with ``vertex_names=`` and ``drift_names=`` if they collide with your own;
+a vertex whose coupling is identically zero is not generated.
+
+**Orders count vertices**, whatever power of ``g1`` a vertex carries: at
+:math:`g_1^2`, ``H`` sits at order 1 and ``GG``, ``GB``, ``BB`` at order 2
+(and ``L`` at order 1 under Stratonovich).  Use
+``Expansion.by_vertex_type`` / ``vertex_types=`` to collect a fixed power.
+
+Expand with ``ito=True`` (the default): the numerical layer evaluates the
+Itô form, and under ``ito=False`` it refuses the equal-point R of a
+two-ψ vertex rather than return the Itô value (see
+:doc:`perturbative_expansion`).
+
+Two further properties of this spec:
+
+* ``D0`` reaches C as a ``ConstantImpulse(D0)`` would, so the built-in
+  closed form covers it (``DiagonalA`` + separable exponential κ² +
+  white noise).  ``D0`` is dense in general, so pass ``diag_C=False`` to
+  ``System.expand`` and to ``System.propagators`` (with
+  ``c_closed_form_only=True``), as for any component-mixing white noise.
+* The vertices are local, so the model is one SDE per spatial point.
+  ``Expansion.evaluate`` refuses external points at different positions
+  that a chain of response propagators joins: the answer would depend on
+  how the noise at different points is correlated, which local vertices do
+  not describe.  Distinct labels and distinct ``external_times`` at one
+  position are fine.
+
+A quadratic term in ``g`` is not supported; it would add vertices with two
+ψ legs and three and four φ legs, and a quadratic and a cubic
+noise-induced drift.
+
+``examples/demo5/white_l1_multiplicative.py`` runs this route against an
+exact reference; the YAML form is ``noise.sigma2.type: multiplicative``.
+
 Observable convention — ``integrate_over``
 ------------------------------------------
 
@@ -913,7 +1026,7 @@ Section reference: ``system``
    * - ``noise.sigma2``
      - block or ``null``
      - ``null``
-     - Optional δ-correlated white-noise variance.  Two flavours: ``{type: constant, amplitude: 0.01}`` for a scalar / spacetime-independent impulse, **or** ``{type: callable_module, module: ./fn.py, attr: sigma2}`` for a user-supplied ``sigma2(n1, lam, n2) → (N, N)`` (mirrors the ``kappa2.callable_module`` pattern; the spec is wrapped via ``CustomImpulse``)
+     - Optional δ-correlated white-noise variance.  Three flavours: ``{type: constant, amplitude: 0.01}`` for a scalar / spacetime-independent impulse; ``{type: callable_module, module: ./fn.py, attr: sigma2}`` for a user-supplied ``sigma2(n1, lam, n2) → (N, N)`` (mirrors the ``kappa2.callable_module`` pattern; the spec is wrapped via ``CustomImpulse``); or ``{type: multiplicative, g0: [[...]], g1: [[[...]]], interpretation: ito|stratonovich}`` for white noise whose amplitude depends on φ (:class:`~sft_wick.workflow.MultiplicativeImpulse`; optional ``vertex_names``, ``drift_names``).  With ``multiplicative``, ``D0 = g0 g0ᵀ`` is dense in general, so set ``propagators.diag_C: false`` and ``c_closed_form_only: true``
    * - ``vertices``
      - list of blocks
      - ``[]``
