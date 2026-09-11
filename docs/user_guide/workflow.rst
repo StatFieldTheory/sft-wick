@@ -733,7 +733,7 @@ Section reference: ``system``
    * - ``linear.type``
      - ``str``
      - ``"diagonal"``
-     - ``"diagonal"`` -> :class:`~sft_wick.workflow.DiagonalA`; ``"explicit"`` -> :class:`~sft_wick.workflow.ExplicitR`. ``ConstantMatrix`` still needs L1 Python.
+     - ``"diagonal"`` -> :class:`~sft_wick.workflow.DiagonalA`; ``"explicit"`` -> :class:`~sft_wick.workflow.ExplicitR` with a scalar R.  A dense (matrix-valued) R needs L1 Python: ``ExplicitR(iso_R=False)`` with ``diag_R=False`` and ``diag_C=False``.
    * - ``linear.gamma``
      - ``list[float]`` of length N
      - **required** unless ``gamma_module`` set (``type: diagonal``)

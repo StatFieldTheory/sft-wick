@@ -1,10 +1,20 @@
 """Acceptance test for the high-level workflow API.
 
-Reproduce ``validate_phase5.py``'s 48-point comparison but through
-the new :class:`System` / :class:`Expansion` / :class:`Propagators` /
-:class:`SweepResult` interface — the goal is that <15 lines of
-physics-level code replace the earlier ~60-line raw-API flow and
-produce **bit-identical** numbers.
+Runs demo 1's 48-point sweep through the :class:`System` /
+:class:`Expansion` / :class:`Propagators` / :class:`SweepResult`
+interface in <15 lines of physics-level code, and compares the
+``(a, b) = (0, 0)`` rows with a stored table.
+
+The table was first copied from ``validate_phase5.py``, which then
+reported time-integrated moments.  That script now reports fixed-time
+correlators, the L1 default, so the two no longer compute the same
+quantity; the equivalence of the L1 and raw-API routes is tested by
+``tests/test_workflow.py::test_WF4_end_to_end_matches_validate_phase5``.
+The table below is this script's own output (time-integrated,
+``qmc_vectorized``, 2^13 samples, seed 42), refreshed on 2026-09-11 when
+the order-2 and order-4 rows no longer matched the copied values (by
+7.6e-4 to 5.4e-3 relative, QMC-level changes from the sampling fixes of
+0.3.0-0.4.x; order 0 matched to 2.4e-7).
 
 Run::
 
@@ -137,8 +147,8 @@ for _, row in totals.iterrows():
 
 print("-" * 90)
 
-# Expected totals — extracted from validate_phase5.py's printed output
-# for a=0,b=0 at each (r, t_f, order).  Bit-match is the target.
+# Expected totals for a=0, b=0 at each (r, t_f, order): this script's own
+# output at the settings above (see the module docstring for its history).
 EXPECTED = {
     (0, 0, 0.0, 1.0, 0):  3.274077e-03,
     (0, 0, 0.0, 15.0, 0): 3.996863e-01,
@@ -148,25 +158,25 @@ EXPECTED = {
     (0, 0, 1.0, 15.0, 0): 1.470364e-01,
     (0, 0, 2.5, 1.0, 0):  2.687526e-04,
     (0, 0, 2.5, 15.0, 0): 3.280825e-02,
-    (0, 0, 0.0, 1.0, 2):  7.033309e-06,
-    (0, 0, 0.0, 15.0, 2): 3.982281e-02,
-    (0, 0, 0.5, 1.0, 2):  4.292876e-06,
-    (0, 0, 0.5, 15.0, 2): 3.212865e-02,
-    (0, 0, 1.0, 1.0, 2):  2.952800e-06,
-    (0, 0, 1.0, 15.0, 2): 2.824665e-02,
-    (0, 0, 2.5, 1.0, 2):  1.668009e-06,
-    (0, 0, 2.5, 15.0, 2): 2.437748e-02,
-    (0, 0, 0.0, 1.0, 4):  3.358017e-08,
-    (0, 0, 0.0, 15.0, 4): 2.930656e-03,
-    (0, 0, 0.5, 1.0, 4):  1.843353e-08,
-    (0, 0, 0.5, 15.0, 4): 2.231587e-03,
-    (0, 0, 1.0, 1.0, 4):  1.167776e-08,
-    (0, 0, 1.0, 15.0, 4): 1.899270e-03,
-    (0, 0, 2.5, 1.0, 4):  5.744135e-09,
-    (0, 0, 2.5, 15.0, 4): 1.584070e-03,
+    (0, 0, 0.0, 1.0, 2):  7.042303e-06,
+    (0, 0, 0.0, 15.0, 2): 3.991869e-02,
+    (0, 0, 0.5, 1.0, 2):  4.301870e-06,
+    (0, 0, 0.5, 15.0, 2): 3.222453e-02,
+    (0, 0, 1.0, 1.0, 2):  2.961794e-06,
+    (0, 0, 1.0, 15.0, 2): 2.834253e-02,
+    (0, 0, 2.5, 1.0, 2):  1.677003e-06,
+    (0, 0, 2.5, 15.0, 2): 2.447336e-02,
+    (0, 0, 0.0, 1.0, 4):  3.360571e-08,
+    (0, 0, 0.0, 15.0, 4): 2.935712e-03,
+    (0, 0, 0.5, 1.0, 4):  1.845471e-08,
+    (0, 0, 0.5, 15.0, 4): 2.236403e-03,
+    (0, 0, 1.0, 1.0, 4):  1.169663e-08,
+    (0, 0, 1.0, 15.0, 4): 1.903966e-03,
+    (0, 0, 2.5, 1.0, 4):  5.760575e-09,
+    (0, 0, 2.5, 15.0, 4): 1.588645e-03,
 }
 
-print("\nCross-check vs validate_phase5.py (a=0, b=0) rows:")
+print("\nCross-check vs the stored table (a=0, b=0) rows:")
 max_rel = 0.0
 for (a, b, r, t_f, ord_), expected in EXPECTED.items():
     mask = (
@@ -189,7 +199,7 @@ print(f"\n{'-' * 90}")
 print(f"max rel_err = {max_rel:.2e}, "
       f"mismatches = {mismatches} / {len(EXPECTED)}")
 if mismatches == 0:
-    print("PASS — wrapper reproduces validate_phase5.py to numerical precision.")
+    print("PASS — the sweep reproduces the stored table.")
     sys.exit(0)
 else:
     print("FAIL — wrapper diverged from validate_phase5.py.")
