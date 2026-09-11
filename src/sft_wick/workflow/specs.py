@@ -20,6 +20,7 @@ Design choices:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Any, Callable
 
 import numpy as np
@@ -298,8 +299,8 @@ class DiagonalA(LinearOp):
         ``gamma`` is a callable ``γ(t) -> np.ndarray(shape=(N,))``
         returning the per-component instantaneous decay rate.  In
         this case the wrapper pre-computes
-        ``Γ_a(t) = ∫_0^t γ_a(τ) dτ`` on a time grid, caches it as a
-        cubic spline, and evaluates R via::
+        ``Γ_a(t) = ∫_{t_min_cache}^t γ_a(τ) dτ`` on a time grid, caches
+        it as a cubic spline, and evaluates R via::
 
             R_{aa}(t_1, t_2) = Θ(t_1 - t_2) · exp(-(Γ_a(t_1) − Γ_a(t_2)))
 
@@ -312,15 +313,32 @@ class DiagonalA(LinearOp):
     Args:
         gamma: length-N sequence OR a callable ``γ(t) -> array(N)``.
         t_max_cache: Upper bound of the Γ-spline grid, **only used
-            in the callable case**.  Queries beyond this bound
-            extrapolate the spline (may be inaccurate — set this
-            ≥ your maximum ``lambda_f``).
+            in the callable case**.  Beyond it the spline would
+            extrapolate, so :meth:`System.propagators` refuses a
+            ``t_max`` above it.
         n_grid_cache: Number of grid points for the Γ-spline build.
+        t_min_cache: Lower bound of the Γ-spline grid (callable case
+            only).  :class:`System` extends the grid down to its own
+            ``t_min`` when that is lower, so this needs setting only
+            when the operator is used on its own.
+
+    For a callable ``gamma``, R is a scalar only if every component
+    equals component 0 at every time of the spline grid.  Up to 0.4.2
+    only ``t = 0`` and ``t = 1`` were compared, and a rate whose
+    components agreed there got component 0's rate for every component.
     """
 
     gamma: Any
     t_max_cache: float = 100.0
     n_grid_cache: int = 200
+    t_min_cache: float = 0.0
+
+    def __post_init__(self) -> None:
+        if callable(self.gamma) and not self.t_max_cache > self.t_min_cache:
+            raise ValueError(
+                f"DiagonalA: t_max_cache ({self.t_max_cache}) must exceed "
+                f"t_min_cache ({self.t_min_cache})."
+            )
 
     def build_R_callable(self) -> Callable:
         if callable(self.gamma):
@@ -333,38 +351,44 @@ class DiagonalA(LinearOp):
             return _StaticIsoR(gamma=float(gamma_arr[0]))
         return _StaticMatR(gamma_arr=gamma_arr)
 
+    @cached_property
+    def _gamma_grid(self) -> tuple[np.ndarray, np.ndarray]:
+        """``(t_grid, gamma_vals)`` for a callable ``gamma``: the spline
+        grid on ``[t_min_cache, t_max_cache]`` and ``gamma`` on it, shape
+        ``(n_grid_cache, N)``.  Computed once per instance; the spline and
+        :attr:`is_iso_R` both read it."""
+        t_grid = np.linspace(self.t_min_cache, self.t_max_cache,
+                             self.n_grid_cache)
+        gamma_vals = np.array([
+            np.atleast_1d(np.asarray(self.gamma(t), dtype=float))
+            for t in t_grid
+        ])
+        return t_grid, gamma_vals
+
     def _build_time_dependent_R(self) -> Callable:
         """Pre-compute Γ_a(t) spline, return fast O(1)-per-query R."""
         from scipy.integrate import cumulative_trapezoid
         from scipy.interpolate import CubicSpline
 
-        gamma_fn = self.gamma
-        probe = np.atleast_1d(np.asarray(gamma_fn(0.0), dtype=float))
-        N = probe.shape[0]
-
-        t_grid = np.linspace(0.0, self.t_max_cache, self.n_grid_cache)
-        gamma_vals = np.empty((self.n_grid_cache, N))
-        for i, t in enumerate(t_grid):
-            gamma_vals[i] = np.atleast_1d(
-                np.asarray(gamma_fn(t), dtype=float)
-            )
-        # Γ_a(t) = ∫_0^t γ_a(τ) dτ  (per-component cumulative integral)
+        t_grid, gamma_vals = self._gamma_grid
+        # Γ_a(t) = ∫_{t_min_cache}^t γ_a(τ) dτ per component.  R reads only
+        # differences Γ(t1) − Γ(t2), so the origin of Γ does not matter.
         Gamma_grid = cumulative_trapezoid(
             gamma_vals, t_grid, axis=0, initial=0.0,
         )
         splines = [
             CubicSpline(t_grid, Gamma_grid[:, a], extrapolate=True)
-            for a in range(N)
+            for a in range(gamma_vals.shape[1])
         ]
 
-        if self._iso_probe_time_dependent(gamma_fn):
+        if self._iso_from_grid(gamma_vals):
             return _TimeDepIsoR(gamma_spline=splines[0])
         return _TimeDepMatR(splines=splines)
 
     @property
     def is_iso_R(self) -> bool:
         if callable(self.gamma):
-            return self._iso_probe_time_dependent(self.gamma)
+            return self._iso_from_grid(self._gamma_grid[1])
         return self._iso_from_array(np.asarray(self.gamma, dtype=float))
 
     @staticmethod
@@ -373,19 +397,10 @@ class DiagonalA(LinearOp):
         return bool(arr.shape[0] == 1 or np.allclose(arr, arr[0]))
 
     @staticmethod
-    def _iso_probe_time_dependent(gamma_fn: Callable) -> bool:
-        """Iso detection for callable γ: probe at two points (0 and
-        a mid-range value).  Returns True iff all components agree
-        at both points to within numerical tolerance.
-        """
-        a0 = np.atleast_1d(np.asarray(gamma_fn(0.0), dtype=float))
-        a1 = np.atleast_1d(np.asarray(gamma_fn(1.0), dtype=float))
-        if a0.shape[0] != a1.shape[0]:
-            return False
-        return bool(
-            a0.shape[0] == 1
-            or (np.allclose(a0, a0[0]) and np.allclose(a1, a1[0]))
-        )
+    def _iso_from_grid(gamma_vals: np.ndarray) -> bool:
+        """True iff every component equals component 0 at every grid time."""
+        return bool(gamma_vals.shape[1] == 1
+                    or np.allclose(gamma_vals, gamma_vals[:, :1]))
 
 
 @dataclass(frozen=True)
