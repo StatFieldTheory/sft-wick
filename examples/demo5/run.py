@@ -14,8 +14,8 @@ integrators and where they run:
 gauss_legendre     every observable and order
 qmc_vectorized     orders ≤ 2
 qmc_scalar, qmc    order 2 of ``⟨φ_0 φ_1⟩``, order 1 of ``⟨φ_a⟩``
-nquad              order 1 of ``⟨φ_a⟩`` (adaptive quadrature is slow
-                   on the kinked white-noise integrand at order 2)
+nquad              orders 1 and 3 of ``⟨φ_a⟩``, order 2 of
+                   ``⟨φ_a φ_b⟩`` (split at the white-noise kink)
 =================  =============================================
 
 Run ``python run.py``; results go to ``results.json``.
@@ -50,10 +50,10 @@ def _plan():
     plan = []
     for a in range(2):
         plan.append((one, 1, (a,), [GL, QMC_V, *SCALAR, NQUAD]))
-        plan.append((one, 3, (a,), [GL]))
+        plan.append((one, 3, (a,), [GL, NQUAD]))
     for ab in itertools.product(range(2), repeat=2):
         plan.append((two, 0, ab, [GL]))
-        methods = [GL, QMC_V] + (SCALAR if ab == (0, 1) else [])
+        methods = [GL, QMC_V, NQUAD] + (SCALAR if ab == (0, 1) else [])
         plan.append((two, 2, ab, methods))
         plan.append((two, 4, ab, [GL]))
     for abc in [(0, 1, 1), (1, 0, 0), (1, 1, 0)]:

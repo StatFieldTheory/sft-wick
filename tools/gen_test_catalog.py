@@ -261,7 +261,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "multiplicative noise at L0 with two-psi vertices, scalar and "
         "matrix R",
         "exact Itô moment hierarchy (Markov embedding of the coloured "
-        "noise)", "1e-10 (GL, nquad) / 1e-3 - 1e-4 (QMC) / 1e-8 (order 4)"),
+        "noise)", "1e-10 (GL, nquad) / 1e-12 (nquad, order 2) / "
+        "1e-3 - 1e-4 (QMC) / 1e-8 (order 4)"),
     "tests/test_iso_c_value.py": (
         "Integrators",
         "an index-free (iso_C=True) C propagator stands for c of "
