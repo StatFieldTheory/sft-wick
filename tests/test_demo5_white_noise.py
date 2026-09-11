@@ -62,6 +62,14 @@ def test_two_point_gauss_legendre(setup, order, comps):
            1e-10, n_gauss=12)
 
 
+@pytest.mark.parametrize("comps", [(0, 1), (1, 1)])
+def test_two_point_order_2_nquad(setup, comps):
+    """nquad splits the time domain at the white-noise kink of C, as
+    Gauss-Legendre does.  Unsplit it stopped at 2.2e-8 to 1.4e-7 relative
+    on these channels; split, at round-off."""
+    _check(setup, ("phi_a(x)", "phi_b(y)"), 2, comps, "nquad", 1e-12)
+
+
 @pytest.mark.parametrize("method,rel,kw", [
     ("gauss_legendre", 1e-10, dict(n_gauss=12)),
     ("qmc_vectorized", 1e-4, dict(n_samples=2 ** 12, seed=2)),
