@@ -703,26 +703,80 @@ class LocalVertex:
     Args:
         name: symbolic coupling name (e.g. ``"F"``).  Must be unique
             per system (used as a dict key in ``coupling_values``).
-        coupling: the **bare** ``F^(n)`` tensor — the coefficient as
-            it appears in the deterministic equation of motion
+        coupling: the **bare** ``F^(n)`` — the coefficient as it
+            appears in the deterministic equation of motion
             (``dφ_a/dt = … + F^(n)_{a b_1 … b_{n−1}} φ_{b_1} … φ_{b_{n−1}}
-            + …``).  Shape ``(N,)*n``; the first axis is the ψ leg.
-            The wrapper multiplies by the MSR factor ``-i``
-            internally (so demo1's ``F_MSR = -1j * F_bare`` is
-            automated).
+            + …``).  Either a tensor of shape ``(N,)*n`` whose first
+            axis is the ψ leg, or a callable for a spacetime-dependent
+            ``F^(n)(x, t)`` with the contract of
+            :class:`NonLocalVertex` at one point:
+            ``fn(n_list, t_list) -> np.ndarray(shape=(N,)*n)``, where
+            ``n_list`` and ``t_list`` have length 1 and hold the
+            vertex's position and time.  The wrapper multiplies the
+            tensor, or the callable's output, by the MSR factor ``-i``
+            (so demo1's ``F_MSR = -1j * F_bare`` is automated).
+        rank: ``n``, the number of legs (one ψ and ``n − 1`` φ).  Read
+            off a tensor coupling (and checked against it when given);
+            required for a callable, whose rank cannot be read off.
+        coupling_vectorized: only meaningful for a callable coupling.
+            ``False`` (default): the per-sample contract above, one call
+            per integration point.  ``True``: the batched contract,
+            ``fn(n_2d, t_2d)`` with inputs of shape ``(1, n_samples)``
+            and an output of shape ``(n_samples,) + (N,)*n``, one call
+            per integrand on the batched integrators.
 
     Notes:
         Use :attr:`msr_coupling` to retrieve the MSR-factor-applied
-        tensor — that is what is forwarded to the raw
-        ``compute_moment`` / ``DiagramTerm.evaluate_coupling`` layer.
+        tensor (or wrapped callable) — that is what is forwarded to the
+        raw ``compute_moment`` / ``DiagramTerm.evaluate_coupling`` layer.
     """
 
     name: str
-    coupling: Any  # np.ndarray — bare F^(n)
+    coupling: Any  # np.ndarray or callable — bare F^(n)
+    rank: int | None = None
+    coupling_vectorized: bool = False
+
+    def __post_init__(self) -> None:
+        if callable(self.coupling):
+            if self.rank is None:
+                raise ValueError(
+                    f"LocalVertex(name={self.name!r}): a callable coupling "
+                    f"needs rank=n, the number of legs (one psi and n - 1 "
+                    f"phi); it cannot be read off a callable."
+                )
+            if isinstance(self.rank, bool) or not isinstance(
+                    self.rank, (int, np.integer)) or self.rank < 1:
+                raise ValueError(
+                    f"LocalVertex(name={self.name!r}): rank must be an "
+                    f"integer >= 1, got {self.rank!r}."
+                )
+        elif self.rank is not None:
+            ndim = np.asarray(self.coupling).ndim
+            if self.rank != ndim:
+                raise ValueError(
+                    f"LocalVertex(name={self.name!r}): rank={self.rank!r} "
+                    f"but the coupling tensor has {ndim} axes."
+                )
 
     @property
-    def msr_coupling(self) -> np.ndarray:
-        """Bare F multiplied by the MSR factor ``-i``."""
+    def n_legs(self) -> int:
+        """``n``: :attr:`rank` if given, else the coupling tensor's rank."""
+        if self.rank is not None:
+            return int(self.rank)
+        return int(np.asarray(self.coupling).ndim)
+
+    @property
+    def msr_coupling(self) -> Any:
+        """Bare F multiplied by the MSR factor ``-i``.
+
+        For a callable coupling, a wrapped callable that applies the
+        factor to each output and carries :attr:`coupling_vectorized`.
+        """
+        if callable(self.coupling):
+            return _MSRWrappedCoupling(
+                factor=-1j, bare=self.coupling,
+                vectorized=self.coupling_vectorized,
+            )
         return (-1j) * np.asarray(self.coupling)
 
 
@@ -748,10 +802,13 @@ class NonLocalVertex:
             every assignment of its legs to the fields they contract
             with; each term calls the callable with its own leg
             order, so every component index is evaluated at the
-            point of its own leg.  A diagram in which ``k`` distinct
-            leg orders occur (``k <= m!``) calls it ``k`` times per
-            sample, or ``k`` times per integrand under
-            ``coupling_vectorized=True``.  Up to 0.4.2 the callable
+            point of its own leg.  At order >= 2 the sum also holds
+            every copy of the vertex at its own points and routes
+            the legs between the copies.  A diagram in which ``k``
+            distinct leg tuples occur calls the callable ``k`` times
+            per sample, or ``k`` times per integrand under
+            ``coupling_vectorized=True`` (``k <= m!`` for a single
+            copy).  Up to 0.4.2 the callable
             was evaluated at one leg order only; that is correct
             only for a kernel symmetric under a permutation of its
             leg points at fixed component indices (see
