@@ -159,6 +159,112 @@ nonzero total.  It still passed with the positions reduced to their norms
 before they reached the callable; WF9 fails in its 12 vector cases under that
 change, and in the same 12 when the positions are zeroed.
 
+### Fixed: two R propagators between the same two points shared one set of component indices
+
+With a matrix-valued R (`iso_R=False`), the matrix-R product loop
+(`DiagramIntegrand._evaluate_r_product_general`) resolved each R factor's
+component indices by looking the factor up through its
+`(spatial_left, spatial_right)` endpoints, and `_find_r_propagator` returned
+the **first** R propagator with those endpoints.
+Endpoints do not identify an R propagator.  A local vertex with two ψ legs
+puts two of them between the same two internal points, carrying different
+indices, `R_{i₁i₃}(y₀,y₁) R_{i₂i₄}(y₀,y₁)`; both factors then read the first
+match's indices and the diagram evaluated `R[j,l] * R[j,l]` where
+`R[j,l] * R[k,m]` is required.  Wrong value, no error.
+
+Only the matrix-R path was affected: the scalar path multiplies R through
+`PropagatorCache.R_product`, which carries no indices at all.  Such a diagram
+is reachable only from the raw L0 API (`compute_moment` +
+`integrate_diagrams`), because the L1/L2 workflow cannot build a local vertex
+with two response legs.
+
+Measured on N = 2 with R = Θ·1 (so `diag_R=True` is exact and its expansion is
+the reference), a ψφφ (`F`) and a ψψφ (`G`) local vertex, seed-7 normal
+couplings, observable `<φ_a(x) φ_b(y)>` at order 2, `qmc_scalar` with 2¹⁰
+samples and seed 5.  Eleven diagrams; nine were already right, and the two
+carrying a repeated pair — 7 and 9 — were not:
+
+| quantity | 0.4.2 | now | `diag_R=True` |
+|---|---|---|---|
+| (a,b) = (0,0), diagram 7 | +6.859817e-02 | -6.059916e-03 | -6.059916e-03 |
+| (a,b) = (0,0), diagram 9 | +6.859817e-02 | -6.059916e-03 | -6.059916e-03 |
+| (a,b) = (0,0), total | +1.752026e-01 | +2.588640e-02 | +2.588640e-02 |
+| (a,b) = (0,1), diagram 7 | +1.383161e-01 | +1.159565e-01 | +1.159565e-01 |
+| (a,b) = (0,1), diagram 9 | -1.215400e-01 | +1.713376e-02 | +1.713376e-02 |
+| (a,b) = (0,1), total | -5.969186e-02 | +5.662232e-02 | +5.662232e-02 |
+
+The totals were wrong by 5.8 and 2.1 times their own magnitude, and the
+(0,1) total had the wrong sign.  Against a generic non-symmetric R
+(`[[0.7,-0.4],[0.25,1.3]]`, the matrix of the new tests) at fixed times
+t = (0.9, 0.8, 0.6, 0.3), the same two diagrams were wrong by factors of
+3.46, 3.46, 0.15 and 2.51 relative to a numpy hand contraction.
+
+`_evaluate_r_product_general` now iterates over the R `Propagator` objects
+themselves — `_kept_r_propagator_objects`, the object-level counterpart of
+`_kept_r_propagators`, which filters absorbed pairs by endpoint exactly as
+that helper does — and reads each factor's own `index_left` / `index_right`.
+`_find_r_propagator` had no other caller and is gone.  Diagrams without a
+repeated pair are unaffected, bit for bit: there the first match *is* the
+factor.
+
+Locked by `tests/test_matrix_r_index_and_zero_dim.py`: the repeated pair is
+shown to exist and to carry distinct indices, both diagrams are checked
+against a numpy contraction written from the diagram's own propagator list
+(with the old endpoint-lookup value computed alongside and required to
+differ by more than 1e-2), the nine unaffected diagrams are required to match
+*both*, and the R = 1 expansion is required to reproduce `diag_R=True` on
+every diagram.
+
+### Fixed: a callable coupling with a matrix-valued R crashed on a zero-dimensional diagram
+
+`DiagramIntegrand._evaluate_zero_dimensional` handles a diagram with no
+surviving time-integration variable, which is what an
+`already_R_contracted` vertex reaches when its absorbed R legs alias onto
+fixed external points.  Its dynamic-coupling branch multiplied
+`cache.R_time_batch`, which is scalar-only
+(`np.vectorize(model.R_time, otypes=[float])`), so a matrix-valued R raised
+
+    ValueError: setting an array element with a sequence.
+
+Nothing refused it first.  `integrate_moment_qmc_vectorized` and
+`integrate_moment_gauss_legendre` do carry an explicit `NotImplementedError`
+for matrix R, and `integrate_moment_nquad` refuses callable couplings, but
+all three checks sit *after* their `n_total == 0` early return, so none of
+them fires for a zero-dimensional integrand.
+
+Measured on N = 2 with R = Θ·1, one non-local `already_R_contracted` ψψ
+vertex, observable `<φ_a(x₁) φ_b(x₂) φ_c(x₃) ψ_d(x₄)>` at order 1 with
+`diag_R=True` (three diagrams, all zero-dimensional), fixed indices
+(a,b,c,d) = (0,1,0,0) and t_{x₄} = 0.5:
+
+| coupling | qmc_scalar | qmc_vectorized | gauss_legendre | nquad |
+|---|---|---|---|---|
+| `K = 0.5·1`, 0.4.2 and now | +2.000000 | +2.000000 | +2.000000 | +2.000000 |
+| callable `K`, 0.4.2 | +2.000000 | `ValueError` | `ValueError` | `ValueError` |
+| callable `K`, now | +2.000000 | +2.000000 | +2.000000 | +2.000000 |
+
++2 is the closed form: the δ from the ψ_d leg kills the b diagram (b = 1,
+d = 0) and leaves two diagrams of `(K + K) R[0,0] = (0.5 + 0.5) × 1 = 1`
+each, the two absorbed R factors contributing 1.
+
+For a matrix R the branch now materialises the coupling for that single
+point and goes through the index-aware `DiagramIntegrand.evaluate`, the way
+`integrate_moment_qmc`'s own `n_total == 0` branch already did.  Moving the
+refusals ahead of the early return was the alternative and is the worse one:
+it would turn a confusing exception into a clear one while leaving the value
+uncomputable on three backends out of four, when `qmc_scalar` already
+computes it — and there is nothing to refuse, since a zero-dimensional
+integrand is a single point, which is exactly what the scalar evaluation
+handles.  All four backends now agree instead of one computing and three
+raising.  The scalar-R zero-dimensional path still goes through
+`R_time_batch` and is unchanged.
+
+Locked by `tests/test_matrix_r_index_and_zero_dim.py`: the three diagrams are
+shown to be zero-dimensional, each of the four backends is checked against
+the closed form per diagram (`[1, 0, 1]`) under both coupling contracts, the
+callable is required to match the static tensor exactly, and the scalar-R
+path is checked to still agree with itself.
+
 ## 0.4.2 — 2026-09-03
 
 > **One `src/` fix, a documentation catch-up, and the test suite's tolerances
