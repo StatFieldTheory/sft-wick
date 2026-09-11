@@ -20,7 +20,7 @@ resolve. The two numerical grids it controls are:
 * ``system.linear.n_grid_cache`` — number of points along the
   cumulative-Γ spline used by :class:`DiagonalA
   <sft_wick.workflow.specs.DiagonalA>` for time-dependent linear drift.
-  Derived as ``ceil(t_max_cache / dt)``.
+  Derived as ``ceil((t_max_cache - t_min_cache) / dt)``.
 
 Specifying ``dt`` and ``n_grid_t`` (or ``dt`` and ``n_grid_cache``)
 together is rejected at parse time.

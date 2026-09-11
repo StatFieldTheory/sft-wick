@@ -2,7 +2,7 @@
 
 **Status**: **Landed 2026-05-20** on `main`. Phase 1 (schema + reference
 utility) + Phase 2 (DiagramTerm-level R-absorption dispatch) shipped
-together. Validation: 15 tests in `tests/test_R_contracted_vertex.py`
+together. Validation: 15 tests (22 now) in `tests/test_R_contracted_vertex.py`
 including a four-way machine-precision equivalence (`rtol=1e-12`)
 across {raw, `already_R_contracted=True`} × {per-sample,
 `coupling_vectorized=True`} on a constant-κ³ F+K diagram (observed
@@ -178,11 +178,13 @@ remove the leg from the diagram, just pre-evaluates its kernel.
    per κ³ vertex.
 
 The validation harness lives at
-`tests/test_R_contracted_vertex.py` — 15 tests covering schema,
+`tests/test_R_contracted_vertex.py` — 22 tests covering schema,
 YAML round-trip, raw-Vertex propagation, structural
-`r_absorbed_pairs` correctness, the brute-force reference utility,
-the **machine-precision equivalence** between raw and
-`already_R_contracted` paths on a constant-κ³ F+K diagram (the
+`r_absorbed_pairs` correctness (L1 and L0), the L0 `Vertex` guards,
+the invariance of `n_response` under absorption, the zero-dimensional
+route with a callable K on three integrators, the brute-force
+reference utility, the **machine-precision equivalence** between raw
+and `already_R_contracted` paths on a constant-κ³ F+K diagram (the
 analytically-tractable case where Fubini is term-by-term exact), and
 the four-way vectorised vs per-sample equivalence.
 
@@ -247,9 +249,12 @@ so the wobble at `n_gauss=20` would shrink further.
    machine precision. The hypothesis ("the existing
    `equal_time_aliases` dispatch handles batched `t_list` lookups
    transparently") held — no code changes beyond Phase 2 were needed.
-2. **Higher `m`** — the dispatch does not hard-code `m=3`; only the
-   brute-force reference utility carries an `order=3` default. Validate
-   the dispatch on a κ⁴ diagram when a use case appears.
+2. **Higher `m`** — **closed** by demos 3 and 4. The dispatch does not
+   hard-code `m=3`; only the brute-force reference utility carries an
+   `order=3` default. Demo 3 uses R-contracted κ⁴ and κ⁵ vertices; its
+   connected 4-point function matches Campbell's closed form to
+   6.6e-16. In demo 4 the m = 4 R-contracted route agrees with
+   Campbell's closed form to 1.8e-14 or better.
 3. **Partial / mixed-leg contraction** — explicitly out of scope per
    §5. Mixed schemes (e.g. legs 1+2 absorbed, leg 3 raw) would
    require an opt-in mask in `NonLocalVertex` and per-leg propagator

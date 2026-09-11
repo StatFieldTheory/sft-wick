@@ -248,7 +248,7 @@ demonstration reproduces in well under an hour of CPU.
 
 | step | 28 cores | single core |
 |---|---|---|
-| `pytest tests/test_demo3_*.py` (220 tests) | 9 s | 9 s |
+| `pytest tests/test_demo3_*.py` (225 tests) | 9 s | 9 s |
 | `sft-wick run config_FK.yaml` | 0.6 s | 0.6 s |
 | `sft-wick run config_F3K.yaml` (cold; includes the order-4 enumeration) | 178 s | 178 s |
 | order-4 enumeration, `κ³ + κ⁵` (cached afterwards) | 143 s | 143 s |

@@ -376,8 +376,8 @@ the scalar implementation for explicit opt-out.
 | N7  | spline-table acceleration            | `precompute_C_table` spline values vs closed form           |
 | N8  | Itô flag end-to-end                  | `compute_moment(ito=True/False)` on equal-point φψ observable |
 | N9  | off-diagonal κ² → non-diagonal C     | `PropagatorCache.C_value` with `diag_C=False` and cross-component kappa2 |
-| P1  | `scipy.nquad(make_scipy_integrand)` = N²·coupling·A² | double-tadpole fixed-time ξ, closed-form reference to 1e-6 |
-| P2  | `integrate_moment_qmc` = N²·coupling·B² | same diagram time-integrated moment, QMC within 3σ |
+| P1  | `scipy.nquad(make_scipy_integrand)` = coupling·A² | double-tadpole fixed-time ξ, closed-form reference to 1e-6 |
+| P2  | `integrate_moment_qmc` = coupling·B² | same diagram time-integrated moment, QMC within 3σ |
 | P3  | QMC convergence monotone vs n_samples | Sobol QMC regression guard |
 | C1  | `compute_moment` vs `compute_moment_numerical` | 2 independent symbolic engines produce equal integrated totals |
 | C2  | `compute_moment_numerical` parallel vs serial | joblib parallelisation preserves DiagramTerms bit-identically |
@@ -435,8 +435,9 @@ test files themselves.
   closed-form linear γ (T2), causality (T3), and end-to-end
   System round-trip (T4).
 
-Full test count post-Phase-8: **275 tests**, full suite
-~3.5 min on M-series.
+When Phase 8 landed the suite had 275 tests and ran in ~3.5 min on
+M-series.  The current per-file counts are in
+`docs/verification/catalog.rst`.
 
 ---
 

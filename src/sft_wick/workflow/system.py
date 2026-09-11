@@ -119,7 +119,11 @@ class System:
             interactions.  May be empty (linear theory).
         nonlocal_vertices: list of :class:`NonLocalVertex` — κ^(m) for
             m ≥ 3 non-Gaussian driving contributions.  May be empty.
-        t_min: lower time bound for propagator integrations.
+        t_min: lower time bound of the propagator integrals and of every
+            diagram time integral;
+            :meth:`~sft_wick.workflow.Expansion.evaluate` (and so
+            ``sweep``) refuses a propagator cache built for another
+            ``t_min``.
         explicit_R: escape hatch — if set, overrides ``linear``.  The
             structured alternative is the :class:`ExplicitR` LinearOp
             variant; both work, but ``ExplicitR`` is preferred for
@@ -355,6 +359,17 @@ class System:
             progress: progress-bar setting for the per-order expansion
                 (``True`` / ``False`` / callable / ``None`` = inherit);
                 see :mod:`sft_wick.progress`.
+
+        Raises:
+            ValueError: with ``diag_R=True`` and a non-scalar R
+                (``iso_R`` false), when R has off-diagonal component
+                entries (a dense drift, e.g. ``ExplicitR(iso_R=False)``);
+                with ``diag_C=True``, when C has them (a dense R, a
+                component-mixing κ² such as ``GeneralKappa2``, or a
+                matrix σ²).  Callable kernels are probed at a few time
+                and position pairs, and one that cannot be evaluated
+                there is not refused.  Also raised when two external
+                operators share a spatial label at an interacting order.
         """
         from sft_wick.perturbation import compute_moment
         from sft_wick.progress import progress as _progress_scope
@@ -522,12 +537,12 @@ class System:
                 for ``'auto'`` (default 20). Cost ``c_n_gauss²`` per
                 sub-region.
             diag_C: when ``True`` (default), the numerical C propagator is
-                represented as a diagonal vector ``(n, N)`` -- the
-                bit-identical behaviour for every pre-existing caller.
+                represented as a diagonal vector ``(n, N)``, and a C with
+                off-diagonal entries is refused (see :meth:`expand`).
                 When ``False``, the full ``(n, N, N)`` matrix is preserved
                 so observables can read off-diagonal entries
                 ``C[a, b]`` with ``a != b`` (e.g. the lensing
-                κ-γ₊ cross-correlation). Only meaningful with
+                κ-γ₊ cross-correlation). Requires
                 ``c_closed_form_only=True``: spline-table paths build
                 diagonal entries only.
             progress: ``True`` / ``False`` / a ``(desc, done, total)``
@@ -535,6 +550,14 @@ class System:
                 environment variable, else on only when stderr is a
                 terminal).  Controls the table-build progress bar; see
                 :mod:`sft_wick.progress`.  Never affects results.
+
+        Raises:
+            ValueError: when ``t_max`` exceeds ``t_max_cache`` of a
+                :class:`DiagonalA` with a callable rate (the
+                cumulative-rate spline behind R would be extrapolated);
+                with ``diag_C=True``, when C has off-diagonal entries
+                (see :meth:`expand`); with ``diag_C=False`` and
+                ``c_closed_form_only=False``.
         """
         from sft_wick.progress import progress as _progress_scope
 

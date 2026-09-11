@@ -244,11 +244,14 @@ class Expansion:
                      - Best for
                      - Trade-off
                    * - ``'qmc_vectorized'`` (default)
-                     - ``d >= 6`` / non-smooth integrand
+                     - ``d >= 6`` / kinks inside coupling callables
                      - ``~ 1/sqrt(n_samples)`` bias
                    * - ``'gauss_legendre'``
-                     - ``d <= 5`` smooth (the typical sft-wick case)
-                     - exponential convergence in ``n_gauss``; cost ``n_gauss^d``
+                     - ``d <= 5`` smooth (the typical sft-wick case), or
+                       kinked by white noise or a vertex with several ψ
+                       legs (split out)
+                     - exponential convergence in ``n_gauss``; cost
+                       ``n_gauss^d`` per consistent order of kinked pairs
                    * - ``'nquad'``
                      - Adaptive 1-3D fallback
                      - slow; raises ``NotImplementedError`` on dynamic-coupling
@@ -262,8 +265,9 @@ class Expansion:
             n_samples, seed: forwarded to the integrator (QMC only).
             n_gauss: nodes per dimension for ``method='gauss_legendre'``
                 (default 8 — exact for polynomials up to degree 15).
-                Cost scales as ``n_gauss^d``; bump to 12-20 for
-                stiff integrands at large ``t_final``.
+                Cost scales as ``n_gauss^d`` per consistent order of
+                kinked time pairs; bump to 12-20 for stiff integrands
+                at large ``t_final``.
         """
         from .result import Result
 

@@ -28,7 +28,7 @@ Running Tests
    pytest tests/test_wick.py -v
 
    # Single test by name
-   pytest tests/test_wick.py::test_generate_valid_pairings -v
+   pytest tests/test_wick.py::test_valid_pairings_equals_filtered_all -v
 
 The test suite has **two tiers**:
 
@@ -167,16 +167,16 @@ of these before the tag is pushed:
 - ``CITATION.cff`` — the ``version`` field.  This is what GitHub's
   *Cite this repository* widget shows; a missed bump ships stale
   citation metadata on the release.
-- ``CHANGELOG.md`` — turn the ``## X.Y.Z (unreleased)`` heading into a
-  dated one, ``## X.Y.Z — YYYY-MM-DD``.
+- ``CHANGELOG.md`` — turn the ``## Unreleased`` heading into a dated
+  one, ``## X.Y.Z — YYYY-MM-DD``.
 - ``docs/changelog.rst`` — the Sphinx page is a hand-maintained summary
   of ``CHANGELOG.md`` (which stays authoritative); add the new release's
   section so the published docs do not fall behind.
 
-``docs/conf.py`` does **not** need editing: it reads the installed
-package's metadata (``importlib.metadata.version("sft-wick")``), and the
-version literal in its ``except`` branch is only a fallback for a build
-where the package is not installed.
+``docs/conf.py`` does **not** need editing: it reads the version from
+``pyproject.toml``, and falls back to the installed package's metadata
+(``importlib.metadata.version("sft-wick")``) and then to
+``0.0.0+unknown``.
 
 The pipeline then has two stages:
 

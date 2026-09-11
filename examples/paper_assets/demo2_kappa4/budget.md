@@ -8,7 +8,7 @@ Parameters: alpha = 0.6, lambda = 0.05, sigma_t = 0.3, sigma_x = 1.0, gamma = 1.
 
 **Channels.** 0 = order 0 with the exact two-kernel C_eff; FF = order 2 F·F (exact C_eff); FK = order 2 F·κ³ (R-contracted, GL32); FFK4 = order 3 F·F·κ⁴ (R-contracted, GL12); **FFFK = order 4 F³·κ³ (R-contracted, GL10) — computed exactly for the first time in this revision; it was an equal-time estimate before, and was assumed to vanish for xi_00 / xi_11, which it does not**; FFFF = order 4 F⁴ (exact C_eff, Gauss-Legendre GL10 — it was 32768-sample Sobol QMC, which scattered 46 % across seeds).  FFFK and FFFF are computed on r_sub = [0.0, 0.4, 0.5, 0.6] only.
 
-Theory wall-clock, 28 workers: ff_exact 74 s, ff_lameff 52 s, fk_rc 18 s, fk_rc64 3 s, fk_raw8 1 s, ffk4_rc 1029 s, ffk4_rc16 35 s, ffff 101 s, ffff14 252 s, ffff_qmc 230 s, fffk_rc 757 s, fffk_rc8 356 s, fffk_rc14 158 s, fk_eq 0 s, fffk_eq 2 s.
+Theory wall-clock, 28 workers, measured before the leg-order fix of 0.5.0 (which took ffk4_rc16 from 35 s to 323 s): ff_exact 74 s, ff_lameff 52 s, fk_rc 18 s, fk_rc64 3 s, fk_raw8 1 s, ffk4_rc 1029 s, ffk4_rc16 35 s, ffff 101 s, ffff14 252 s, ffff_qmc 230 s, fffk_rc 757 s, fffk_rc8 356 s, fffk_rc14 158 s, fk_eq 0 s, fffk_eq 2 s.
 
 ## xi_01 at r = 0.0
 

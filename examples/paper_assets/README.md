@@ -157,8 +157,11 @@ at large t.
 
 ### Timings (28 workers unless stated)
 
-Theory: 0 + FF 9 s, FK (R-contracted, GL32, all 648 grid points) 7 s,
-FFK4 (R-contracted, GL12, 108 points) 224 s, FFFF 35 s.  Simulation:
+Theory, measured on the 0.3.0 release candidate, before the leg-order
+fix of 0.5.0: 0 + FF 9 s, FK (R-contracted, GL32, all 648 grid points)
+7 s, FFK4 (R-contracted, GL12, 108 points) 224 s, FFFF 35 s.  The fix
+made the `ffk4_rc16` stage of `run_budget.py` 9 times slower (35 s to
+323 s).  Simulation:
 100 000 realisations take 100 s at Δt = 0.02 and 195 s at Δt = 0.01 on
 one core (`sim_dt_study.py`); the 40 runs were done in parallel.
 `examples/demo2/L2/reproduce_figures.py` on the corrected configs: 39 s
@@ -181,7 +184,7 @@ it is.  Wall-clock 4.6 min (28 workers) on the release candidate.
 |---|---|---|
 | `sft-wick quickstart` | 2 s | 10 s |
 | `examples/demo1_config.yaml` (= README v1 quick start, orders 0–4, 8192 samples) | 50 s | 5.2 min |
-| `examples/demo1/L2/config.yaml` | 4.6 min (28 workers) | — |
+| `examples/demo1/L2/config.yaml` | ~15 min (28 workers); 4.6 min on 0.3.0, when it used 32768 QMC samples | — |
 | `examples/demo2/L2/*.yaml` + figures | 39 s (28 workers) | — |
 
 For comparison, v0.2.0 on the README v1 quick start: dblquad C table

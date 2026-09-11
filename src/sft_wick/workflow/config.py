@@ -313,11 +313,12 @@ def _resolve_linear(
             Sachs-saddle ``2 theta^(sa)(lambda)``.
 
         Discretization: the spline cache uses ``n_grid_cache`` points
-        uniformly on ``[0, t_max_cache]``. When the user provides ``dt``
-        (here or via ``propagators.dt``), it is converted to
-        ``n_grid_cache = ceil(t_max_cache / dt)`` so a single ``dt``
-        controls every grid in the workflow. Providing both ``dt`` and
-        ``n_grid_cache`` is rejected to avoid ambiguity.
+        uniformly on ``[t_min_cache, t_max_cache]`` (defaults 0 and
+        100). When the user provides ``dt`` (here or via
+        ``propagators.dt``), it is converted to
+        ``n_grid_cache = ceil((t_max_cache - t_min_cache) / dt)`` so a
+        single ``dt`` controls every grid in the workflow. Providing both
+        ``dt`` and ``n_grid_cache`` is rejected to avoid ambiguity.
 
     ``type: explicit`` -> :class:`sft_wick.workflow.specs.ExplicitR`
 
@@ -337,9 +338,9 @@ def _resolve_linear(
             scalar-R only.
 
         γ-spline cache knobs (``gamma``, ``gamma_module``, ``dt``,
-        ``n_grid_cache``, ``t_max_cache``) do not apply under this
-        type and raise if specified -- the propagator is the user's
-        callable, not a derived spline.
+        ``n_grid_cache``, ``t_max_cache``, ``t_min_cache``) do not apply
+        under this type and raise if specified -- the propagator is the
+        user's callable, not a derived spline.
     """
     lt = lin.get("type", "diagonal")
     if lt == "explicit":

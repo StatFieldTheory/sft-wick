@@ -228,8 +228,11 @@ floats (constant γ) or a callable ``γ(t) → np.ndarray(shape=(N,))``:
    )
 
 Internally the wrapper pre-computes
-:math:`\Gamma_a(t) = \int_0^t \gamma_a(\tau) d\tau` on the grid and
-caches it as a cubic spline for O(1) R lookups.  Scalar closed-form
+:math:`\Gamma_a(t) = \int_{t_c}^t \gamma_a(\tau) d\tau` on a grid from
+:math:`t_c` = ``t_min_cache`` (default 0; ``System`` extends it down to
+its ``t_min``) to ``t_max_cache`` (default 100) and caches it as a cubic
+spline for O(1) R lookups; ``System.propagators`` refuses a ``t_max``
+above ``t_max_cache``.  Scalar closed-form
 ``R(t_1, t_2)`` callables that the spline-cache lowering cannot
 express are supported via :class:`~sft_wick.workflow.ExplicitR`.
 From YAML this is the ``linear.type: explicit`` route::
@@ -580,8 +583,9 @@ fields must be present.
        gamma: [1.0, 1.0]     # length-N constant rates  -- OR
        # gamma_module: ./drift.py        # dotted path to callable γ(t)→array(N)
        # gamma_attr: gamma_fn            # default 'gamma_fn'
-       # t_max_cache: 20.0               # γ-spline cache horizon (default = propagators.t_max)
-       # n_grid_cache: 400               # γ-spline node count (default ceil(t_max_cache/dt))
+       # t_max_cache: 20.0               # γ-spline upper end (default 100.0); propagators.t_max may not exceed it
+       # t_min_cache: 0.0                # γ-spline lower end (default 0.0); System extends it down to t_min
+       # n_grid_cache: 400               # γ-spline node count (default ceil((t_max_cache - t_min_cache)/dt), else 200)
        # ---- type: explicit -- user-supplied scalar R(t1, t2) ----
        # R_time_module: ./R_time.py      # path to a .py exporting R_time(t1, t2) -> float
        # R_time_attr:   R_time           # default 'R_time'
@@ -630,10 +634,10 @@ fields must be present.
      response_phase:    true     # multiply by (-i)^n_response (MSR)
      ito:               true     # Itô prescription (R(x,x) = 0)
      collect_topology:  true     # spatial-level Wick contraction (faster, default)
-     diag_R:            true     # diagonal-R simplification
-     diag_C:            true     # diagonal-C simplification
-     iso_R:             null     # null = same as diag_R; true = also strip indices
-     iso_C:             false
+     diag_R:            true     # diagonal-R simplification; raises if R has off-diagonal entries
+     diag_C:            true     # diagonal-C simplification; raises if C has off-diagonal entries
+     iso_R:             null     # null = inferred from the linear operator; true = also strip indices
+     iso_C:             false    # true needs C_ab = δ_ab c (contributes c; raises otherwise)
      cache_path:        null     # optional dir/file for joblib expansion cache
      n_jobs:            1        # parallel diagrams per grid point (>1 forbids sweep.n_jobs>1)
 
@@ -662,6 +666,8 @@ fields must be present.
      c_closed_form_attr:      C_fn   # callable name in the module
      c_closed_form_only:      false  # skip spline cache entirely
      c_closed_form_vectorized:false  # c_fn accepts (n,) arrays, returns (n, N, N)
+     diag_C:             true         # false keeps off-diagonal C; needs c_closed_form_only: true
+                                      # and a closed form returning the full (N, N) C
 
      # quadrature for the inner ∫ R κ² R when no closed form is given
      c_method:           auto         # 'auto' | 'dblquad' | 'gauss_legendre'
@@ -748,12 +754,16 @@ Section reference: ``system``
      - Attribute name in ``gamma_module``
    * - ``linear.t_max_cache``
      - ``float``
-     - ``propagators.t_max``
-     - (``type: diagonal``) horizon for the :math:`\Gamma_a(t) = \int_0^t \gamma_a` cumulative-integral spline
+     - ``100.0``
+     - (``type: diagonal``) upper end of the cumulative-integral spline :math:`\Gamma_a(t) = \int_{t_c}^t \gamma_a`, :math:`t_c` = ``t_min_cache``.  ``System.propagators`` refuses a ``t_max`` above it
+   * - ``linear.t_min_cache``
+     - ``float``
+     - ``0.0``
+     - (``type: diagonal``) lower end of the Γ spline; ``System`` extends it down to ``system.t_min``
    * - ``linear.n_grid_cache``
      - ``int``
-     - derived from ``dt``
-     - (``type: diagonal``) spline node count for cumulative Γ
+     - derived from ``dt``, else ``200``
+     - (``type: diagonal``) spline node count for cumulative Γ, ``ceil((t_max_cache - t_min_cache) / dt)`` when ``dt`` is set
    * - ``linear.R_time_module``
      - ``str`` (path)
      - **required when** ``type: explicit``
@@ -880,11 +890,11 @@ Section reference: ``expand``
    * - ``diag_R`` / ``diag_C``
      - ``bool``
      - ``true``
-     - Apply diagonal-propagator simplification (collapses index sums where R/C is component-diagonal)
+     - Apply diagonal-propagator simplification (collapses index sums where R/C is component-diagonal).  Raises ``ValueError`` when R or C has off-diagonal entries (from a dense R, a component-mixing κ² or a white-noise matrix); for C, set ``propagators.diag_C: false`` instead
    * - ``iso_R`` / ``iso_C``
      - ``bool`` or ``null``
      - ``null`` / ``false``
-     - Strip equal component indices from R/C entirely (treats diagonal entries as a single scalar)
+     - Strip equal component indices from R/C entirely (treats diagonal entries as a single scalar).  ``iso_R: null`` is inferred from the linear operator.  ``iso_C: true`` requires ``C_ab = δ_ab c``, contributes ``c`` per C propagator, and raises ``ValueError`` otherwise
    * - ``cache_path``
      - ``str`` or ``null``
      - ``null``
@@ -994,6 +1004,10 @@ Section reference: ``propagators``
      - ``bool``
      - ``false``
      - ``C_fn`` accepts ``(n,)``-shaped time/position arrays and returns ``(n, N, N)`` (only with ``c_closed_form_only: true``)
+   * - ``diag_C``
+     - ``bool``
+     - ``true``
+     - ``false`` keeps the off-diagonal entries of C and sets ``expand.diag_C: false`` with it.  Requires ``c_closed_form_only: true`` and a closed form returning the full ``(N, N)`` C (``c_closed_form: auto`` supplies one for ``DiagonalA`` + ``SeparableTranslation(ExponentialTemporal)`` + ``ConstantImpulse``); the quadrature tables hold :math:`C_{aa}` only
    * - ``c_method``
      - ``str``
      - ``"auto"``
@@ -1072,7 +1086,7 @@ Section reference: ``sweep``
    * - ``n_gauss``
      - ``int``
      - ``8``
-     - GL nodes per dimension (``method: gauss_legendre`` only). Cost scales as ``n_gauss^d``
+     - GL nodes per dimension (``method: gauss_legendre`` only). Cost scales as ``n_gauss^d`` per consistent order of the kinked time pairs (2 for one pair, up to ``k!`` for ``k`` mutually unordered times; see :ref:`integrator-choice`)
    * - ``n_jobs``
      - ``int``
      - ``1``
@@ -1125,7 +1139,14 @@ speed** (``gauss_legendre``).
    ``|λ1 − λ2|`` cusp on the diagonal of κ²), splitting the
    domain along the non-smooth boundary recovers full GL
    convergence on each piece. The package's
-   ``c_method='gauss_legendre'`` does this split automatically.
+   ``c_method='gauss_legendre'`` does this split automatically for
+   the C table.  ``sweep.method='gauss_legendre'`` does it for the
+   diagram's time domain, where a white-noise C (or a closed-form C
+   that declares ``has_diagonal_kink``) or a vertex with several ψ
+   legs at one time kinks the integrand, and keeps exponential
+   convergence.  A kink inside a coupling callable, such as a ``min``
+   over partner times in an R-contracted cumulant, is not detected
+   and keeps the algebraic rate.
 
    GL is **not** the right tool for: (a) discontinuous
    integrands, (b) high-frequency oscillations (need Filon or
@@ -1173,12 +1194,12 @@ Decision matrix:
        74-245 ms and only ~2e-6 accurate)
    * - ``sweep.method``
      - ``qmc_vectorized`` (default)
-     - High-d diagrams (``d ≥ 6``), non-smooth integrands, or when stochastic error bars are wanted
+     - High-d diagrams (``d ≥ 6``), kinks inside coupling callables, or when stochastic error bars are wanted
      - ``~ 1/√n_samples`` bias decay; can severely under-resolve narrow peaks at large ``t_final``
    * -
      - ``gauss_legendre``
-     - Smooth integrands at ``d ≤ 5`` (the typical sft-wick case)
-     - **Exponential convergence** in ``n_gauss``; deterministic; cost scales as ``n_gauss^d``
+     - Smooth integrands at ``d ≤ 5`` (the typical sft-wick case), and white-noise or several-ψ-leg kinks, which it splits out
+     - **Exponential convergence** in ``n_gauss``; deterministic; cost ``n_gauss^d`` per consistent order of the kinked pairs (2 for one pair, up to ``k!`` for ``k`` mutually unordered times)
    * -
      - ``nquad``
      - Adaptive 1-3D fallback when GL nodes are insufficient
@@ -1191,7 +1212,7 @@ Decision matrix:
 User-Python hooks
 ~~~~~~~~~~~~~~~~~
 
-The YAML block can defer to user Python in six places — each
+The YAML block can defer to user Python in seven places — each
 loads a callable from a ``.py`` module relative to the YAML file
 and registers it for joblib's worker-safe by-value module
 loading (so it composes cleanly with any of the

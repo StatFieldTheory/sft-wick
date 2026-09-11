@@ -8,10 +8,11 @@ sft-wick's correctness rests on two complementary layers of evidence:
    listed in the generated :doc:`catalog`) that pits each elementary
    transformation in the package against an independent reference —
    any failure points at a specific module.
-2. Three **inductive** end-to-end demos (Gaussian driving, and two
-   independent kinds of non-Gaussian driving) that compare the
-   package's full pipeline to direct simulation of the same
-   stochastic equation over a large parameter grid.
+2. Five end-to-end demos.  Three are **inductive** (Gaussian driving,
+   and two independent kinds of non-Gaussian driving): they compare the
+   package's full pipeline to direct simulation of the same stochastic
+   equation over a large parameter grid.  Demos 4 and 5 compare it to
+   an exact reference instead.
 
 Both layers are necessary: the deductive suite proves the machinery
 is right *per step*; the demos confirm the output matches physics
@@ -124,9 +125,10 @@ For the double-tadpole diagram (where the time integral factorises
 into two independent 1-D integrals, each evaluable to machine
 precision via ``scipy.quad``), QMC and ``scipy.nquad`` are compared
 to the closed-form reference to 1e-6 relative (P1).  The QMC path
-is also compared to the moment closed-form :math:`N^2 \times B^2`
-within its self-reported 3σ error band (P2), and the Sobol
-convergence rate is checked across a scan of ``n_samples`` (P3).
+is also compared to the closed-form moment :math:`B^2` (a product of
+two order-1 tadpoles, with no factor :math:`N^2`) within its
+self-reported 3σ error band (P2), and the Sobol convergence rate is
+checked across a scan of ``n_samples`` (P3).
 
 Phase 4 — Alternative-path consistency
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -237,8 +239,10 @@ Phase 8 — Time-dependent linear operator
 *``tests/test_diagonal_A_time_dependent.py``, T1–T4.*
 
 ``DiagonalA(gamma=callable)`` accepts a time-dependent γ(t) and
-pre-computes :math:`\Gamma_a(t) = \int_0^t \gamma_a(\tau) d\tau` on a
-grid as a cubic spline.  Phase 8 checks:
+pre-computes :math:`\Gamma_a(t) = \int_{t_c}^t \gamma_a(\tau) d\tau` on a
+grid as a cubic spline, from :math:`t_c` = ``t_min_cache`` (which
+:class:`~sft_wick.workflow.System` extends down to its ``t_min``) to
+``t_max_cache``.  Phase 8 checks:
 
 - callable-constant γ matches the static list input (T1, T1b);
 - linear γ(t) = g₀ + g₁·t agrees with its closed-form Γ(t) (T2);
@@ -269,9 +273,10 @@ errors.
 What the deductive suite buys you
 ---------------------------------
 
-275 passing deductive tests do **not** prove that every physical
-observable is computed correctly in every regime — that is an
-infinite claim no test suite can make.  But they do prove:
+The deductive tests (per-file counts in :doc:`catalog`) do **not**
+prove that every physical observable is computed correctly in every
+regime — that is an infinite claim no test suite can make.  But they
+do prove:
 
 - Every known failure mode at the tested scale has a specific test
   catching it, so a future bug cannot silently pass through.
@@ -409,7 +414,7 @@ Running the tests
    pytest tests/test_workflow.py tests/test_workflow_config.py \
           tests/test_diagonal_A_time_dependent.py -v
 
-   # Everything (275 tests, ~3.5 min on M-series)
+   # Everything (per-file test counts: docs/verification/catalog.rst)
    pytest tests/ -v
 
    # Demo notebooks (minutes)
