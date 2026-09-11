@@ -1192,8 +1192,12 @@ def test_CF16_explicit_rejects_gamma_keys(tmp_path: Path) -> None:
         load_workflow_config(_write(tmp_path, "c.yaml", body))
 
 
-def test_CF16_explicit_rejects_matrix_R_in_yaml(tmp_path: Path) -> None:
-    """L2 YAML explicit-R is scalar-only until matrix-R integrators exist."""
+def test_CF16_explicit_R_shape_must_match_iso_R(tmp_path: Path) -> None:
+    """``iso_R: false`` declares an ``(N, N)`` matrix, and this module's
+    ``R_time`` returns a scalar, so the load-time probe refuses it.  The
+    YAML layer used to refuse every matrix R, whatever the callable
+    returned; see ``tests/test_yaml_spec_coverage.py`` for a dense R that
+    it now accepts."""
     (tmp_path / "R_time.py").write_text(_EXPLICIT_R_MODULE)
     body = textwrap.dedent("""
         system:
