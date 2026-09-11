@@ -386,6 +386,25 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "System / Expansion / Propagators / SweepResult surface; end-to-end "
         "vs the raw API; two-time sweeps",
         "raw L0 pipeline (validate_phase5); closed forms", "1e-6"),
+    "tests/test_sweep_component_tuples.py": (
+        "Workflow and YAML",
+        "n-point sweeps: Expansion.sweep, the YAML sweep block and the CLI "
+        "over component tuples of the observable's length; demo 4 level A "
+        "from two shipped configs; the refusals (tuple length, index range, "
+        "a repeated tuple or grid value, colliding columns)",
+        "the Campbell closed form K_R of examples/demo4; a numpy einsum for "
+        "a static kappa^3 under component-dependent rates; "
+        "Expansion.evaluate at the same point",
+        "exact (sweep vs evaluate) / 1e-12 / 5e-3 (QMC)"),
+    "tests/test_yaml_spec_coverage.py": (
+        "Workflow and YAML",
+        "the L1 specs YAML could not express: custom temporal / spatial / "
+        "angular kernels, a matrix-valued explicit R, a matrix "
+        "ConstantImpulse; validation of the vertex, kernel and sigma2 "
+        "blocks; overrides into list entries",
+        "the equivalent L1 System; scipy quadrature of the defining C "
+        "integrals; demo 3's Campbell closed form",
+        "exact (YAML vs L1) / 1e-9 - 1e-6"),
     "tests/test_workflow_config.py": (
         "Workflow and YAML",
         "YAML → System lowering, run_workflow, overrides, dt, parallel "

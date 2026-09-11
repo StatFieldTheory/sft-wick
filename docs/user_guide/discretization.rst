@@ -121,7 +121,7 @@ Mechanics
   ``DiagramTerm`` to a worker. Sequential fallback when
   ``len(diagrams) <= 2`` to avoid the ~1 s loky startup overhead.
 * ``sweep.n_jobs`` parallelises the Cartesian product of
-  ``positions × t_final × component_pairs`` in :meth:`Expansion.sweep`,
+  ``positions × t_final × component_tuples`` in :meth:`Expansion.sweep`,
   one grid point per worker. Each worker calls ``evaluate`` with
   ``n_jobs=1`` (no nested pool).
 * User-supplied callable modules (``noise.kappa2.callable_module``,

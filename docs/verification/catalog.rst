@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1777 tests** in 60 files (parametrised
+The suite has **1868 tests** in 62 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -346,7 +346,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*243 tests in 8 files.*
+*334 tests in 10 files.*
 
 .. list-table::
    :header-rows: 1
@@ -382,6 +382,11 @@ Workflow and YAML
      - exact moment hierarchy in Hörmander form (no noise-induced drift formed); finite differences of g
      - 1e-9 (GL) / 2e-3 (qmc_scalar)
      - 44
+   * - ``test_sweep_component_tuples.py``
+     - n-point sweeps: Expansion.sweep, the YAML sweep block and the CLI over component tuples of the observable's length; demo 4 level A from two shipped configs; the refusals (tuple length, index range, a repeated tuple or grid value, colliding columns)
+     - the Campbell closed form K_R of examples/demo4; a numpy einsum for a static kappa^3 under component-dependent rates; Expansion.evaluate at the same point
+     - exact (sweep vs evaluate) / 1e-12 / 5e-3 (QMC)
+     - 45
    * - ``test_system_t_min.py``
      - System.t_min reaches the integrators through Expansion.evaluate and sweep; a cache built for another t_min is refused
      - time-translation invariance (stationary noise, constant drift)
@@ -397,6 +402,11 @@ Workflow and YAML
      - L1 flow on the same physics
      - 1e-6 / 2e-2 (spline vs exact C)
      - 32
+   * - ``test_yaml_spec_coverage.py``
+     - the L1 specs YAML could not express: custom temporal / spatial / angular kernels, a matrix-valued explicit R, a matrix ConstantImpulse; validation of the vertex, kernel and sigma2 blocks; overrides into list entries
+     - the equivalent L1 System; scipy quadrature of the defining C integrals; demo 3's Campbell closed form
+     - exact (YAML vs L1) / 1e-9 - 1e-6
+     - 46
 
 Drawing and LaTeX
 -----------------

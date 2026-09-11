@@ -8,6 +8,8 @@ draw, render LaTeX, integrate point-by-point or as a sweep.
 from __future__ import annotations
 
 import itertools
+import numbers
+import string
 import warnings
 from collections import defaultdict
 from dataclasses import dataclass
@@ -226,7 +228,7 @@ class Expansion:
         *,
         positions: dict[str, Any],
         t_final: float,
-        component_pair: tuple = (0, 0),
+        component_pair: tuple | None = None,
         orders: Iterable[int] | None = None,
         vertex_types: Iterable[str] | None = None,
         integrate_over: Any = None,
@@ -248,9 +250,12 @@ class Expansion:
                 ``{"x": 0.0, "y": 0.5}``.
             t_final: upper time bound for external-time integration
                 (``lambda_f``).
-            component_pair: ``(a, b)`` component indices for the
-                observable (e.g. ``(1, 1)``).  For scalar
-                observables use ``(0, 0)``.
+            component_pair: component indices of the observable, one
+                per operator in order: ``(a, b)`` for
+                ``<phi_a(x) phi_b(y)>``, ``(a, b, c)`` for a 3-point
+                observable.  ``None`` (default) is ``(0, ..., 0)``.  A
+                tuple of the wrong length, or with an index outside
+                ``0..N-1``, raises ``ValueError``.
             orders: subset of the expansion's orders; ``None`` uses
                 all.
             vertex_types: subset of the vertex-composition labels
@@ -324,6 +329,10 @@ class Expansion:
             None if vertex_types is None else set(vertex_types)
         )
         coupling_values = self.system.build_coupling_values()
+        component_pair = _component_tuple(
+            component_pair, self.observable_repr, self.system.n_components,
+            "Expansion.evaluate",
+        )
         fi = _component_indices(component_pair, self.observable_repr)
 
         # Collect tasks (diagram_term + metadata) up-front, in stable order,
@@ -426,7 +435,8 @@ class Expansion:
         positions_grid: dict[str, list],
         t_final_grid: list,
         external_times_grid: dict[str, list] | None = None,
-        component_pairs: Iterable[tuple] = ((0, 0),),
+        component_pairs: Iterable[tuple] | None = None,
+        component_tuples: Iterable[tuple] | None = None,
         orders: Iterable[int] | None = None,
         vertex_types: Iterable[str] | None = None,
         integrate_over: Any = None,
@@ -438,8 +448,8 @@ class Expansion:
         n_gauss: int = 8,
         progress: Any = None,
     ):
-        """Cartesian-product sweep over positions, t_final, and
-        component pairs.
+        """Cartesian-product sweep over positions, t_final, external
+        times and component tuples.
 
         Args:
             positions_grid: ``{spatial_arg: [list of values]}``.
@@ -456,14 +466,26 @@ class Expansion:
                 identically 0.  Each named point adds a ``t_<point>`` column
                 to the result rows.  Omit to pin everything at ``t_final``,
                 which reproduces the pre-existing rows exactly.
-            component_pairs: list of ``(a, b)`` component index
-                tuples.
+            component_pairs: the older name of ``component_tuples``,
+                kept for 2-point observables; give one or the other.
+            component_tuples: list of component-index tuples, one index
+                per observable operator in order: ``(a, b, c)`` for
+                ``<phi_a(x) phi_b(y) phi_c(z)>``.  The tuples are a
+                further Cartesian axis, and each fills the component
+                columns of the result rows, named by position: ``a``,
+                ``b``, ``c``, ... whatever index letters the observable
+                uses (a 2-point sweep keeps its ``a``, ``b`` columns).
+                ``None`` for both arguments sweeps the single tuple
+                ``(0, ..., 0)``.  A tuple of the wrong length, an index
+                outside ``0..N-1`` or a repeated tuple raises
+                ``ValueError``.
             vertex_types: optional filter — same semantics as in
                 :meth:`evaluate`; only diagrams whose
                 :meth:`_vertex_type_label` lies in this set are
                 integrated.  ``None`` ⇒ all channels.
             n_jobs: parallelise over Cartesian-product grid points
-                (``positions × t_final × component_pairs``).
+                (``positions × t_final × external times × component
+                tuples``).
                 ``1`` (default) preserves the original sequential
                 behaviour — bit-identical when seed is fixed.
                 ``-1`` uses all CPU cores via joblib loky.
@@ -499,6 +521,7 @@ class Expansion:
                 t_final_grid=t_final_grid,
                 external_times_grid=external_times_grid,
                 component_pairs=component_pairs,
+                component_tuples=component_tuples,
                 orders=orders,
                 vertex_types=vertex_types,
                 integrate_over=integrate_over,
@@ -518,6 +541,7 @@ class Expansion:
         t_final_grid,
         external_times_grid,
         component_pairs,
+        component_tuples,
         orders,
         vertex_types,
         integrate_over,
@@ -545,6 +569,15 @@ class Expansion:
         pos_keys = list(positions_grid.keys())
         pos_values = [positions_grid[k] for k in pos_keys]
 
+        # The component axis: one index per observable operator, so a 3- or
+        # 4-point observable sweeps triples or quadruples.  Up to 0.4.x the
+        # grid loop unpacked every entry as a pair.
+        comp_tuples = _resolve_component_tuples(
+            component_pairs, component_tuples, self.observable_repr,
+            self.system.n_components, "Expansion.sweep",
+        )
+        comp_cols = component_columns(len(self.observable_repr))
+
         # ``external_times_grid`` mirrors ``positions_grid``: one list per
         # external point, swept as a further Cartesian axis.  This is what
         # makes two-time observables -- R(t, t') and C(t, t'), the DMFT order
@@ -560,20 +593,36 @@ class Expansion:
                 f"Cartesian product would be empty and the sweep would return "
                 f"no rows."
             )
-        # The row dict is flat, so a `t_<point>` column that coincides with an
-        # existing key would silently OVERWRITE it -- e.g. an external named
-        # `final` shadowing the sweep's own `t_final`, or a spatial point
-        # literally named `t_x`.
-        _reserved = set(pos_keys) | {
-            "t_final", "a", "b", "order", "diagram_idx", "vertex_type",
-            "n_cross_C", "value", "error",
-        }
-        _clash = {f"t_{k}" for k in et_keys} & _reserved
+        # A value listed twice on one axis puts the same grid point in the
+        # sweep twice, and `totals()` then adds the two copies together; an
+        # empty axis gives no rows.
+        _check_axis("t_final_grid", t_final_grid)
+        for k, v in zip(pos_keys, pos_values):
+            _check_axis(f"positions_grid[{k!r}]", v)
+        for k, v in zip(et_keys, et_values):
+            _check_axis(f"external_times_grid[{k!r}]", v)
+
+        # The row dict is flat, so a column that coincides with another
+        # would silently OVERWRITE it -- e.g. an external named `final`
+        # shadowing the sweep's own `t_final`, a spatial point literally
+        # named `t_x`, or a spatial label `c` in a 3-point sweep, whose
+        # third component column is `c`.
+        _fixed = {"t_final", *comp_cols, *_DIAGRAM_COLUMNS}
+        _clash = {f"t_{k}" for k in et_keys} & (set(pos_keys) | _fixed)
         if _clash:
             raise ValueError(
                 f"external_times_grid would emit column(s) {sorted(_clash)}, "
                 f"which collide with existing sweep columns and would "
                 f"silently overwrite them.  Rename the affected point(s)."
+            )
+        _clash = set(pos_keys) & _fixed
+        if _clash:
+            raise ValueError(
+                f"positions_grid key(s) {sorted(_clash)} coincide with sweep "
+                f"column(s) of the same name (t_final, the component columns "
+                f"{list(comp_cols)}, or a per-diagram column) and would be "
+                f"silently overwritten in the result rows.  Rename the "
+                f"spatial label(s) in the observable."
             )
 
         # Flatten the Cartesian product to a list of grid-point tasks.
@@ -584,8 +633,8 @@ class Expansion:
                 for et_tuple in (itertools.product(*et_values)
                                  if et_keys else [()]):
                     ext_times = dict(zip(et_keys, et_tuple)) or None
-                    for (a, b) in component_pairs:
-                        grid_tasks.append((positions, t_f, ext_times, (a, b)))
+                    for comp in comp_tuples:
+                        grid_tasks.append((positions, t_f, ext_times, comp))
 
         # Warn once per distinct external-times combination rather than once
         # per grid point, which would bury the message.
@@ -670,7 +719,7 @@ class Expansion:
                     tick(n_diag)
 
         rows = []
-        for positions, t_f, ext_times, (a, b), res in results:
+        for positions, t_f, ext_times, comp, res in results:
             # Hashable normalisation: d-dim vector positions arrive as
             # ``list`` or ``np.ndarray``; pandas ``groupby`` (used in
             # :meth:`SweepResult.totals`) factorises group keys via a
@@ -679,11 +728,10 @@ class Expansion:
             # downstream aggregation works for both scalar and d-dim
             # positions.
             hashable_positions = {
-                k: (tuple(v.tolist()) if hasattr(v, "tolist")
-                    else (tuple(v) if isinstance(v, (list, tuple))
-                          else v))
-                for k, v in positions.items()
+                k: _hashable_position(v) for k, v in positions.items()
             }
+            # One column per observable operator, named by position.
+            comp_fields = dict(zip(comp_cols, comp))
             for pd_row in res.per_diagram:
                 rows.append({
                     **hashable_positions,
@@ -691,12 +739,13 @@ class Expansion:
                     # ``t_<point>`` rather than the bare name, which is
                     # already taken by that point's spatial position.
                     **{f"t_{k}": (ext_times or {}).get(k) for k in et_keys},
-                    "a": a, "b": b,
+                    **comp_fields,
                     **pd_row,
                 })
         return SweepResult(
             rows=rows, position_keys=tuple(pos_keys),
             external_time_keys=tuple(f"t_{k}" for k in et_keys),
+            component_keys=comp_cols,
         )
 
     # --------------------------------------------------------------- #
@@ -776,3 +825,171 @@ def _component_indices(component_pair, observable_repr):
         if comp is not None and i < len(component_pair):
             fi[comp] = int(component_pair[i])
     return fi
+
+
+#: Per-diagram columns of a sweep row (the keys of ``Result.per_diagram``).
+_DIAGRAM_COLUMNS = ("order", "diagram_idx", "vertex_type", "n_cross_C",
+                    "value", "error")
+
+
+def component_columns(n_operators: int) -> tuple[str, ...]:
+    """Sweep-row names of the component columns of an ``n``-operator
+    observable: ``a`` for the first operator, ``b`` for the second, and so
+    on, whatever index letters the observable itself uses.  A 2-point sweep
+    therefore keeps its ``a``, ``b`` columns."""
+    letters = string.ascii_lowercase
+    if n_operators > len(letters):
+        raise ValueError(
+            f"an observable of {n_operators} operators needs more component "
+            f"columns than the {len(letters)} letters a-z."
+        )
+    return tuple(letters[:n_operators])
+
+
+def _observable_text(observable) -> str:
+    """``<phi_a(x) phi_b(y)>`` from an observable repr, or from the
+    operator strings themselves."""
+    parts = []
+    for op in observable:
+        if isinstance(op, str):
+            parts.append(op)
+            continue
+        name, comp, spatial = op
+        if comp is None:
+            parts.append(f"{name}({spatial})")
+        elif isinstance(comp, str):
+            parts.append(f"{name}_{comp}({spatial})")
+        else:
+            parts.append(f"{name}_{''.join(map(str, comp))}({spatial})")
+    return "<" + " ".join(parts) + ">"
+
+
+def _component_tuple(component, observable, n_components, label):
+    """``component`` as a tuple of ints, one per observable operator;
+    ``(0, ..., 0)`` for ``None``.
+
+    ``observable`` is the expansion's ``observable_repr`` or the operator
+    strings; only its length and its text are used.
+    """
+    n_ops = len(observable)
+    zeros = (0,) * n_ops
+    if component is None:
+        return zeros
+    if (isinstance(component, (str, bytes))
+            or not hasattr(component, "__len__")):
+        raise ValueError(
+            f"{label}: component tuple {component!r} is not a sequence of "
+            f"component indices; write e.g. {zeros}."
+        )
+    entries = tuple(component)
+    if len(entries) != n_ops:
+        raise ValueError(
+            f"{label}: component tuple {entries} has {len(entries)} "
+            f"{'entry' if len(entries) == 1 else 'entries'}, but the "
+            f"observable {_observable_text(observable)} has {n_ops} "
+            f"{'operator' if n_ops == 1 else 'operators'}; give one "
+            f"component index per operator, e.g. {zeros}."
+        )
+    n = int(n_components)
+    for c in entries:
+        if (isinstance(c, (bool, np.bool_))
+                or not isinstance(c, numbers.Integral)):
+            raise ValueError(
+                f"{label}: component index {c!r} in {entries} is not an "
+                f"integer."
+            )
+        if not 0 <= int(c) < n:
+            raise ValueError(
+                f"{label}: component index {int(c)} in {entries} is outside "
+                f"0..{n - 1} (n_components = {n})."
+            )
+    return tuple(int(c) for c in entries)
+
+
+def _resolve_component_tuples(component_pairs, component_tuples, observable,
+                              n_components, label):
+    """The component axis of a sweep, as a list of validated tuples.
+
+    ``component_pairs`` is the older name of ``component_tuples``; ``None``
+    for both gives the single tuple ``(0, ..., 0)``.
+    """
+    if component_pairs is not None and component_tuples is not None:
+        raise ValueError(
+            f"{label}: pass component_tuples or component_pairs, not both "
+            f"(component_pairs is the older name of the same axis)."
+        )
+    given = (component_tuples if component_tuples is not None
+             else component_pairs)
+    zeros = (0,) * len(observable)
+    if given is None:
+        return [zeros]
+    if isinstance(given, (str, bytes)) or not hasattr(given, "__iter__"):
+        raise ValueError(
+            f"{label}: the component axis must be a list of component "
+            f"tuples, e.g. [{zeros}]; got {given!r}."
+        )
+    given = list(given)
+    if not given:
+        raise ValueError(
+            f"{label}: the component axis is an empty list; the sweep would "
+            f"return no rows."
+        )
+    out: list[tuple[int, ...]] = []
+    for comp in given:
+        if isinstance(comp, (str, bytes)) or not hasattr(comp, "__len__"):
+            raise ValueError(
+                f"{label}: the component axis must be a list of component "
+                f"tuples, one index per observable operator, e.g. "
+                f"[{zeros}]; got the entry {comp!r}."
+            )
+        t = _component_tuple(comp, observable, n_components, label)
+        if t in out:
+            raise ValueError(
+                f"{label}: the component tuple {t} is listed twice; "
+                f"totals() would add the repeated rows together."
+            )
+        out.append(t)
+    return out
+
+
+def _axis_key(value):
+    """A hashable stand-in for one value of a sweep axis (a scalar or
+    vector position, or a time)."""
+    try:
+        arr = np.asarray(value, dtype=float)
+    except (TypeError, ValueError):
+        return repr(value)
+    return tuple(arr.ravel().tolist()) if arr.ndim else float(arr)
+
+
+def _check_axis(name, values) -> None:
+    """Refuse an empty sweep axis (no rows) and a repeated value (the same
+    grid point twice, which ``totals()`` adds together)."""
+    values = list(values)
+    if not values:
+        raise ValueError(
+            f"Expansion.sweep: {name} is an empty list; the Cartesian "
+            f"product would be empty and the sweep would return no rows."
+        )
+    seen = set()
+    for v in values:
+        key = _axis_key(v)
+        if key in seen:
+            raise ValueError(
+                f"Expansion.sweep: {name} lists the value {v!r} twice; the "
+                f"sweep would evaluate that grid point twice and totals() "
+                f"would add the two copies together."
+            )
+        seen.add(key)
+
+
+def _hashable_position(value):
+    """A position as a hashable row cell: a vector (a list, tuple or array
+    of ndim >= 1) becomes a tuple, a scalar is kept.  A numpy scalar has a
+    ``tolist`` method too, so testing for that method alone turned
+    ``np.float64(0.5)`` into ``tuple(0.5)``, which raises."""
+    if isinstance(value, (list, tuple)):
+        return tuple(value)
+    if np.ndim(value) > 0:
+        return tuple(np.asarray(value).tolist())
+    return value

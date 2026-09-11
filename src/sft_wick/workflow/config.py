@@ -21,8 +21,10 @@ from __future__ import annotations
 import importlib.util
 import math
 import os
+import re
 import sys
 from dataclasses import dataclass, field
+from dataclasses import fields as _dc_fields
 from pathlib import Path
 from typing import Any
 
@@ -116,13 +118,18 @@ class PropagatorsConfig:
 class SweepConfig:
     positions_grid: dict
     t_final_grid: list
+    #: The component axis: tuples of component indices, one per observable
+    #: operator, from YAML ``component_tuples`` or its older 2-point name
+    #: ``component_pairs``.  Read it as :attr:`component_tuples`; the field
+    #: keeps its old name so existing construction sites keep working.
     component_pairs: list
     orders: Any = None
     vertex_types: Any = None
     integrate_over: Any = None
     method: str = "qmc_vectorized"
     n_samples: int = 2 ** 13
-    seed: int = 42
+    #: Sobol seed; ``None`` (YAML ``null``) draws an unseeded sequence.
+    seed: int | None = 42
     n_jobs: int = 1
     n_gauss: int = 8  # used only when method='gauss_legendre'
     #: ``{point: [times]}`` pinning externals at UNEQUAL times, swept as a
@@ -131,6 +138,11 @@ class SweepConfig:
     #: which makes any observable with a response leg identically 0, since
     #: Theta kills the R joining two externals at the same time.
     external_times_grid: dict | None = None
+
+    @property
+    def component_tuples(self) -> list:
+        """The component axis (one index per observable operator)."""
+        return self.component_pairs
 
 
 @dataclass(frozen=True)
@@ -183,21 +195,51 @@ def load_workflow_config(
     return _parse_workflow(data, base_dir=path.parent)
 
 
-def _apply_override(data: dict, dotted_key: str, value: Any) -> None:
-    """Apply a ``"a.b.c": value`` override to a nested dict."""
-    parts = dotted_key.split(".")
-    cur = data
-    for p in parts[:-1]:
-        if not isinstance(cur, dict) or p not in cur:
+_OVERRIDE_SEGMENT = re.compile(r"^(?P<name>[^.\[\]]+)(?P<idx>(?:\[\d+\])*)$")
+
+
+def _override_path(dotted_key: str) -> list:
+    """``"output[0].path"`` -> ``["output", 0, "path"]``.
+
+    List indices are part of the documented ``--override`` syntax
+    (``--override "output[0].path=results.md"``); before, the whole
+    segment was looked up as a dict key and every such override raised.
+    """
+    path: list = []
+    for part in dotted_key.split("."):
+        m = _OVERRIDE_SEGMENT.match(part)
+        if m is None:
+            raise KeyError(
+                f"override key '{dotted_key}': cannot read the segment "
+                f"'{part}'; write name, or name[index] for a list entry."
+            )
+        path.append(m.group("name"))
+        path.extend(int(i) for i in re.findall(r"\[(\d+)\]", m.group("idx")))
+    return path
+
+
+def _override_step(cur: Any, step: Any, dotted_key: str):
+    """One step along an override path; raises if it does not exist."""
+    if isinstance(step, int):
+        if not isinstance(cur, list) or not 0 <= step < len(cur):
             raise KeyError(
                 f"override key '{dotted_key}' does not exist in config"
             )
-        cur = cur[p]
-    leaf = parts[-1]
-    if not isinstance(cur, dict) or leaf not in cur:
+    elif not isinstance(cur, dict) or step not in cur:
         raise KeyError(
             f"override key '{dotted_key}' does not exist in config"
         )
+    return cur[step]
+
+
+def _apply_override(data: dict, dotted_key: str, value: Any) -> None:
+    """Apply an ``"a.b.c"`` (or ``"a[0].b"``) override to a parsed config."""
+    path = _override_path(dotted_key)
+    cur: Any = data
+    for step in path[:-1]:
+        cur = _override_step(cur, step, dotted_key)
+    leaf = path[-1]
+    _override_step(cur, leaf, dotted_key)      # must already exist
     cur[leaf] = value
 
 
@@ -214,7 +256,8 @@ def _parse_workflow(data: dict, base_dir: Path) -> WorkflowConfig:
     if default_dt is not None:
         default_dt = float(default_dt)
 
-    system_cfg = _parse_system(system_d, base_dir, default_dt=default_dt)
+    system_cfg = _parse_system(system_d, base_dir, default_dt=default_dt,
+                               t_max=props_d.get("t_max"))
     expand_cfg = _parse_expand(expand_d)
     props_cfg = _parse_propagators(props_d, base_dir)
     sweep_cfg = _parse_sweep(sweep_d)
@@ -238,67 +281,198 @@ def _require_dict(d: dict, key: str) -> dict:
 
 
 def _parse_system(
-    d: dict, base_dir: Path, *, default_dt: float | None = None
+    d: dict, base_dir: Path, *, default_dt: float | None = None,
+    t_max: Any = None,
 ) -> SystemConfig:
     fld = d.get("field", {}) or {}
     name = fld.get("name", "phi")
     nc = int(fld.get("n_components", 1))
+    t_min = float(d.get("t_min", 0.0))
 
     linear = d.get("linear")
     if linear is None:
         raise ValueError("system.linear is required")
-    linear = _resolve_linear(dict(linear), base_dir, default_dt=default_dt)
+    if not isinstance(linear, dict):
+        raise ValueError(f"system.linear must be a mapping; got {linear!r}.")
+    linear = _resolve_linear(dict(linear), base_dir, default_dt=default_dt,
+                             n_components=nc, t_min=t_min, t_max=t_max)
 
     noise = d.get("noise")
     if noise is None:
         raise ValueError("system.noise is required")
 
-    vertices = d.get("vertices", []) or []
-    nonlocal_vertices = d.get("nonlocal_vertices", []) or []
-
-    # Resolve coupling tensor file paths relative to the YAML file.
-    vertices = [_resolve_coupling(v, base_dir) for v in vertices]
-    nonlocal_vertices = [
-        _resolve_coupling(v, base_dir) for v in nonlocal_vertices
+    # Validate each vertex block and resolve its coupling (file paths are
+    # relative to the YAML file).
+    vertices = [
+        _parse_vertex(v, base_dir, kind="local", index=i, n_components=nc)
+        for i, v in enumerate(d.get("vertices", []) or [])
     ]
+    nonlocal_vertices = [
+        _parse_vertex(v, base_dir, kind="nonlocal", index=i, n_components=nc)
+        for i, v in enumerate(d.get("nonlocal_vertices", []) or [])
+    ]
+    names = [v["name"] for v in vertices + nonlocal_vertices]
+    repeated = sorted({n for n in names if names.count(n) > 1})
+    if repeated:
+        raise ValueError(
+            f"system: vertex name(s) {repeated} used more than once.  The "
+            f"coupling values are keyed by vertex name, so names must be "
+            f"unique across vertices and nonlocal_vertices."
+        )
 
     return SystemConfig(
         field_name=name, n_components=nc,
         linear=linear, noise=noise,
         vertices=vertices, nonlocal_vertices=nonlocal_vertices,
-        t_min=float(d.get("t_min", 0.0)),
+        t_min=t_min,
         base_dir=base_dir,
     )
 
 
-def _resolve_coupling(v: dict, base_dir: Path) -> dict:
-    """Resolve the vertex spec's ``coupling`` to either an inline
-    numpy array or a callable loaded from a user module.
+#: The three ways a vertex block can give its coupling.
+_COUPLING_SOURCES = ("coupling", "coupling_path", "coupling_module")
+_VERTEX_FLAGS = ("coupling_vectorized", "equal_time", "already_R_contracted")
 
-    Priority order:
+
+def _vertex_keys(cls) -> set:
+    """The keys of a vertex block: every field of ``cls`` -- so a field
+    added to :class:`LocalVertex` / :class:`NonLocalVertex` is accepted
+    without a change here -- plus the coupling sources."""
+    return ({f.name for f in _dc_fields(cls)} | set(_COUPLING_SOURCES)
+            | {"coupling_attr"})
+
+
+def _parse_vertex(v: Any, base_dir: Path, *, kind: str, index: int,
+                  n_components: int) -> dict:
+    """Validate one ``system.vertices[]`` (``kind='local'``) or
+    ``system.nonlocal_vertices[]`` (``kind='nonlocal'``) entry and resolve
+    its coupling to an array or a callable.
+
+    Exactly one coupling source:
       ``coupling``          — inline tensor (nested YAML lists).
       ``coupling_path``     — path to an ``.npy`` file, loaded as a
                               numpy array.
       ``coupling_module``   — path to a ``.py`` module exporting an
-                              attribute (default ``coupling_fn``)
-                              used as a callable ``fn(n_list,
-                              t_list) -> tensor``.  Required for
-                              spacetime-dependent non-local vertices
-                              like demo2's ``κ^{(3)}``.
+                              attribute (``coupling_attr``, default
+                              ``coupling_fn``) used as a callable
+                              ``fn(n_list, t_list) -> tensor``.
+                              Required for spacetime-dependent
+                              non-local vertices like demo2's ``κ^{(3)}``.
+
+    A tensor coupling must have every axis of length ``N``: shape
+    ``(N,)*order`` for a non-local vertex, ``(N,)*n`` (``n >= 1``, the
+    first axis the ψ leg) for a local one.  A tensor of another shape used
+    to be indexed without an error.
     """
+    from . import specs as sp
+
+    block = "vertices" if kind == "local" else "nonlocal_vertices"
+    cls = sp.LocalVertex if kind == "local" else sp.NonLocalVertex
+    where = f"system.{block}[{index}]"
+    if not isinstance(v, dict):
+        raise ValueError(
+            f"{where} must be a mapping with 'name' and a coupling; "
+            f"got {v!r}."
+        )
+    _reject_unknown_keys(v, _vertex_keys(cls), where)
     out = dict(v)
-    if "coupling_path" in out and "coupling" not in out:
-        p = (base_dir / out.pop("coupling_path")).resolve()
-        out["coupling"] = np.load(p)
-    elif "coupling_module" in out and "coupling" not in out:
-        mod_path = (base_dir / out.pop("coupling_module")).resolve()
-        attr = out.pop("coupling_attr", "coupling_fn")
+    name = out.get("name")
+    if not isinstance(name, str) or not name:
+        raise ValueError(f"{where}: 'name' (a non-empty string) is required.")
+    where = f"{where} ({name!r})"
+    sources = [k for k in _COUPLING_SOURCES if k in out]
+    if len(sources) != 1:
+        raise ValueError(
+            f"{where}: give exactly one of {list(_COUPLING_SOURCES)}; "
+            f"got {sources or 'none'}."
+        )
+    if "coupling_attr" in out and sources[0] != "coupling_module":
+        raise ValueError(
+            f"{where}: 'coupling_attr' names the callable in "
+            f"'coupling_module' and does nothing with {sources[0]!r}."
+        )
+    if kind == "nonlocal":
+        order = out.get("order")
+        if (isinstance(order, bool) or not isinstance(order, (int, np.integer))
+                or order < 1):
+            raise ValueError(
+                f"{where}: 'order' (m, the number of psi legs, an integer "
+                f">= 1) is required; got {order!r}."
+            )
+        out["order"] = int(order)
+    for flag in _VERTEX_FLAGS:
+        if flag in out:
+            out[flag] = _as_bool(out[flag], f"{where}.{flag}")
+
+    if sources[0] == "coupling_path":
+        out["coupling"] = np.load(
+            (base_dir / str(out.pop("coupling_path"))).resolve())
+    elif sources[0] == "coupling_module":
+        mod_path = (base_dir / str(out.pop("coupling_module"))).resolve()
+        attr = str(out.pop("coupling_attr", "coupling_fn"))
         out["coupling"] = _load_callable_from_module(mod_path, attr)
+    if callable(out["coupling"]):
+        return out
+
+    if out.get("coupling_vectorized"):
+        raise ValueError(
+            f"{where}: coupling_vectorized applies to a callable coupling "
+            f"(coupling_module), not to a tensor."
+        )
+    try:
+        arr = np.asarray(out["coupling"])
+    except ValueError:
+        arr = np.asarray(None)
+    if not (np.issubdtype(arr.dtype, np.number)
+            and np.all(np.isfinite(arr))):
+        raise ValueError(
+            f"{where}: the coupling must be a tensor of finite numbers."
+        )
+    n = int(n_components)
+    if kind == "nonlocal":
+        want = (n,) * out["order"]
+    else:
+        if arr.ndim == 0:
+            raise ValueError(
+                f"{where}: a local coupling F^(n) is a tensor with n >= 1 "
+                f"axes, the first the psi leg; got a scalar."
+            )
+        want = (n,) * arr.ndim
+    if arr.shape != want:
+        raise ValueError(
+            f"{where}: the coupling has shape {arr.shape}; with "
+            f"n_components = {n} it must be {want}."
+        )
+    out["coupling"] = arr
     return out
 
 
+def _build_vertex(cls, v: dict):
+    """A :class:`LocalVertex` / :class:`NonLocalVertex` from a parsed vertex
+    block.  Every dataclass field the block names is passed on, so no field
+    of the class is out of reach from YAML."""
+    c = v["coupling"]
+    kwargs = {"coupling": c if callable(c) else np.asarray(c)}
+    for f in _dc_fields(cls):
+        if f.name != "coupling" and f.name in v:
+            kwargs[f.name] = v[f.name]
+    if "order" in kwargs:
+        kwargs["order"] = int(kwargs["order"])
+    for flag in _VERTEX_FLAGS:
+        if flag in kwargs:
+            kwargs[flag] = _as_bool(kwargs[flag], flag)
+    return cls(**kwargs)
+
+
+#: Keys of each ``system.linear`` type.
+_LINEAR_DIAGONAL_KEYS = ("type", "gamma", "gamma_module", "gamma_attr", "dt",
+                         "n_grid_cache", "t_max_cache", "t_min_cache")
+_LINEAR_EXPLICIT_KEYS = ("type", "R_time_module", "R_time_attr", "iso_R")
+
+
 def _resolve_linear(
-    lin: dict, base_dir: Path, *, default_dt: float | None = None
+    lin: dict, base_dir: Path, *, default_dt: float | None = None,
+    n_components: int | None = None, t_min: float = 0.0, t_max: Any = None,
 ) -> dict:
     """Resolve ``system.linear`` based on its ``type`` field.
 
@@ -322,20 +496,24 @@ def _resolve_linear(
 
     ``type: explicit`` -> :class:`sft_wick.workflow.specs.ExplicitR`
 
-        Escape hatch for scalar closed-form R: the user supplies
+        Escape hatch for a closed-form R: the user supplies
         ``R(t1, t2)`` directly, so the wrapper bypasses the
         gamma-spline cache entirely. This unlocks YAML use cases the
-        diagonal lowering can't express -- e.g. causal kernels with
-        non-exponential decay, or pre-computed spline callables loaded
-        from disk.
+        diagonal lowering can't express -- e.g. a dense drift matrix,
+        causal kernels with non-exponential decay, or pre-computed
+        spline callables loaded from disk.
 
         ``R_time_module``: path to a ``.py`` module exporting an
             attribute (default ``R_time``) used as a callable
-            ``R_time(t1, t2) -> float``. Must enforce causality
-            (return 0 when ``t1 < t2``).
-        ``iso_R``: must be ``True`` (default). Matrix-valued R remains
-            an L0/L1 escape hatch; the L2 YAML numerical wrappers are
-            scalar-R only.
+            ``R_time(t1, t2) -> float | (N, N)``. Must enforce
+            causality (return 0 when ``t1 < t2``).
+        ``iso_R``: ``true`` (default) for a scalar R, ``false`` for an
+            ``(N, N)`` matrix.  The callable is called once at a causal
+            and once at an acausal time pair inside ``[t_min, t_max]``:
+            the value must have the declared shape and vanish for
+            ``t1 < t2``.  A matrix R with off-diagonal entries also
+            needs ``expand.diag_R: false`` and ``expand.diag_C: false``
+            (``System.expand`` refuses it otherwise).
 
         γ-spline cache knobs (``gamma``, ``gamma_module``, ``dt``,
         ``n_grid_cache``, ``t_max_cache``, ``t_min_cache``) do not apply
@@ -344,27 +522,64 @@ def _resolve_linear(
     """
     lt = lin.get("type", "diagonal")
     if lt == "explicit":
-        return _resolve_linear_explicit(lin, base_dir)
+        return _resolve_linear_explicit(lin, base_dir,
+                                        n_components=n_components,
+                                        t_min=t_min, t_max=t_max)
     if lt == "diagonal":
-        return _resolve_linear_diagonal(lin, base_dir, default_dt=default_dt)
+        return _resolve_linear_diagonal(lin, base_dir, default_dt=default_dt,
+                                        n_components=n_components)
     raise ValueError(
         f"Unsupported linear operator type {lt!r}.  "
         f"Supported: 'diagonal', 'explicit'."
     )
 
 
+def _decay_rates(gamma: Any, n_components: int | None) -> list:
+    """``system.linear.gamma``: one decay rate per component, or one for
+    all (a single number, as ``--override system.linear.gamma=1.5``
+    writes it, counts as one for all)."""
+    where = "system.linear.gamma"
+    if not isinstance(gamma, list):
+        return [_yaml_number(gamma, where)]
+    if not gamma:
+        raise ValueError(f"{where} is an empty list.")
+    rates = [_yaml_number(g, f"{where}[{i}]") for i, g in enumerate(gamma)]
+    if n_components is not None and len(rates) not in (1, int(n_components)):
+        raise ValueError(
+            f"{where} has {len(rates)} rates; with n_components = "
+            f"{n_components} give {n_components}, or one for all."
+        )
+    return rates
+
+
 def _resolve_linear_diagonal(
-    lin: dict, base_dir: Path, *, default_dt: float | None = None
+    lin: dict, base_dir: Path, *, default_dt: float | None = None,
+    n_components: int | None = None,
 ) -> dict:
     """Parse-time resolver for ``type: diagonal``."""
+    _reject_unknown_keys(lin, _LINEAR_DIAGONAL_KEYS,
+                         "system.linear (type 'diagonal')")
     if "gamma" in lin and "gamma_module" in lin:
         raise ValueError(
             "system.linear: provide exactly one of {'gamma', 'gamma_module'}"
         )
-    if "gamma_module" in lin and "gamma" not in lin:
+    if "gamma_module" in lin:
         mod_path = (base_dir / lin.pop("gamma_module")).resolve()
         attr = lin.pop("gamma_attr", "gamma")
         lin["gamma"] = _load_callable_from_module(mod_path, attr)
+    elif "gamma" not in lin:
+        raise ValueError(
+            "system.linear (type 'diagonal') requires 'gamma', a list of "
+            "decay rates (one per component, or one for all), or "
+            "'gamma_module' for a time-dependent rate."
+        )
+    elif "gamma_attr" in lin:
+        raise ValueError(
+            "system.linear: 'gamma_attr' names the callable in "
+            "'gamma_module' and does nothing with 'gamma'."
+        )
+    else:
+        lin["gamma"] = _decay_rates(lin["gamma"], n_components)
 
     # dt -> n_grid_cache derivation. linear.dt overrides propagators.dt.
     linear_dt = lin.pop("dt", None)
@@ -387,7 +602,10 @@ def _resolve_linear_diagonal(
     return lin
 
 
-def _resolve_linear_explicit(lin: dict, base_dir: Path) -> dict:
+def _resolve_linear_explicit(
+    lin: dict, base_dir: Path, *, n_components: int | None = None,
+    t_min: float = 0.0, t_max: Any = None,
+) -> dict:
     """Parse-time resolver for ``type: explicit``.
 
     Loads ``R_time`` from a user module and rejects fields that only
@@ -396,6 +614,9 @@ def _resolve_linear_explicit(lin: dict, base_dir: Path) -> dict:
     :func:`_load_callable_from_module`, so the loaded callable composes
     with ``propagators.n_jobs > 1`` / ``sweep.n_jobs > 1`` even when
     joblib reuses a worker pool across calls.
+
+    ``iso_R: false`` declares an ``(N, N)`` matrix R (a dense drift); the
+    callable is probed once for its shape and once for causality.
     """
     forbidden = (
         "gamma", "gamma_module", "gamma_attr",
@@ -414,27 +635,67 @@ def _resolve_linear_explicit(lin: dict, base_dir: Path) -> dict:
             "'R_time' (a callable cannot be expressed in YAML).  Use "
             "'R_time_module' + 'R_time_attr' instead."
         )
+    _reject_unknown_keys(lin, _LINEAR_EXPLICIT_KEYS,
+                         "system.linear (type 'explicit')")
     if "R_time_module" not in lin:
         raise ValueError(
             "system.linear.type='explicit' requires "
             "'R_time_module: <relative path to .py file>'."
         )
-    iso_r = lin.get("iso_R", True)
-    if isinstance(iso_r, str):
-        iso_r = iso_r.strip().lower() not in {"0", "false", "no", "off"}
-    else:
-        iso_r = bool(iso_r)
-    if not iso_r:
-        raise ValueError(
-            "system.linear.type='explicit' currently supports only scalar "
-            "R_time callables; set iso_R: true. Matrix-valued R is "
-            "available from the L0/L1 Python APIs, but not from L2 YAML."
-        )
-    lin["iso_R"] = True
+    iso_r = _as_bool(lin.get("iso_R", True), "system.linear.iso_R")
+    lin["iso_R"] = iso_r
     mod_path = (base_dir / lin.pop("R_time_module")).resolve()
     attr = lin.pop("R_time_attr", "R_time")
     lin["R_time"] = _load_callable_from_module(mod_path, attr)
+    _probe_R_time(lin["R_time"], iso_r, n_components, t_min, t_max)
     return lin
+
+
+def _probe_R_time(R, iso_R: bool, n_components: int | None,
+                  t_min: float, t_max: Any) -> None:
+    """Call the user's R once at a causal and once at an acausal time pair
+    inside ``[t_min, t_max]``: the value must have the shape ``iso_R``
+    declares and must vanish when ``t1 < t2``.  A scalar returned where a
+    matrix was declared (or the reverse) surfaced much later and as
+    something else; an R written without the Heaviside surfaced not at
+    all."""
+    where = "system.linear.R_time_module"
+    try:
+        hi = float(t_max)
+    except (TypeError, ValueError):
+        hi = float("nan")
+    span = (hi - t_min) if (math.isfinite(hi) and hi > t_min) else 1.0
+    t1, t2 = t_min + 0.7 * span, t_min + 0.2 * span
+    try:
+        fwd = np.asarray(R(t1, t2), dtype=float)
+        bwd = np.asarray(R(t2, t1), dtype=float)
+    except Exception as e:  # noqa: BLE001 -- a user callable
+        raise ValueError(
+            f"{where}: R_time({t1:g}, {t2:g}) raised "
+            f"{type(e).__name__}: {e}"
+        ) from e
+    if iso_R:
+        ok, want = fwd.shape == (), "a scalar"
+    elif n_components is None:
+        ok = fwd.ndim == 2 and fwd.shape[0] == fwd.shape[1]
+        want = "a square matrix"
+    else:
+        n = int(n_components)
+        ok, want = fwd.shape == (n, n), f"an ({n}, {n}) matrix"
+    if not ok:
+        raise ValueError(
+            f"{where}: R_time({t1:g}, {t2:g}) has shape {fwd.shape}, but "
+            f"iso_R: {str(iso_R).lower()} declares {want}."
+        )
+    if not np.all(np.isfinite(fwd)):
+        raise ValueError(
+            f"{where}: R_time({t1:g}, {t2:g}) is not finite: {fwd.tolist()}."
+        )
+    if bwd.shape != fwd.shape or np.any(bwd != 0.0):
+        raise ValueError(
+            f"{where}: R_time({t2:g}, {t1:g}) = {bwd.tolist()}, but the "
+            f"response function is causal: R(t1, t2) = 0 for t1 < t2."
+        )
 
 
 def _load_callable_from_module(path: Path, attr: str):
@@ -597,14 +858,54 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
     )
 
 
+def _parse_component_axis(d: dict) -> list:
+    """``sweep.component_tuples`` (or its older 2-point name
+    ``sweep.component_pairs``) as a list of tuples.
+
+    Only the shape of the YAML is checked here; the length of each tuple
+    against the observable, and the index range against ``n_components``,
+    are checked by :meth:`Expansion.sweep` (and before the expansion runs,
+    by :func:`run_workflow` and the ``--dry-run`` estimate).
+    """
+    given = [k for k in ("component_tuples", "component_pairs")
+             if d.get(k) is not None]
+    if len(given) == 2:
+        raise ValueError(
+            "sweep: give component_tuples or component_pairs, not both "
+            "(component_pairs is the older name of the same axis)."
+        )
+    if not given:
+        raise ValueError(
+            "sweep.component_tuples is required: a list of component-index "
+            "tuples, one index per observable operator, e.g. [[0, 1, 1]] "
+            "for a 3-point observable (component_pairs, e.g. [[0, 1]], is "
+            "the older 2-point spelling)."
+        )
+    key = given[0]
+    raw = d[key]
+    if not isinstance(raw, list) or not raw:
+        raise ValueError(
+            f"sweep.{key} must be a non-empty list of component tuples, "
+            f"e.g. [[0, 1]]; got {raw!r}."
+        )
+    tuples = []
+    for entry in raw:
+        if not isinstance(entry, (list, tuple)):
+            raise ValueError(
+                f"sweep.{key}: each entry is a list of component indices, "
+                f"one per observable operator, e.g. [0, 1]; got {entry!r}."
+            )
+        tuples.append(tuple(entry))
+    return tuples
+
+
 def _parse_sweep(d: dict) -> SweepConfig:
     if "positions_grid" not in d:
         raise ValueError("sweep.positions_grid is required")
     if "t_final_grid" not in d:
         raise ValueError("sweep.t_final_grid is required")
-    if "component_pairs" not in d:
-        raise ValueError("sweep.component_pairs is required")
-    cps = [tuple(pair) for pair in d["component_pairs"]]
+    cps = _parse_component_axis(d)
+    seed = d.get("seed", 42)
     return SweepConfig(
         positions_grid={k: list(v) for k, v in d["positions_grid"].items()},
         t_final_grid=list(d["t_final_grid"]),
@@ -618,7 +919,7 @@ def _parse_sweep(d: dict) -> SweepConfig:
         integrate_over=d.get("integrate_over"),
         method=str(d.get("method", "qmc_vectorized")),
         n_samples=int(d.get("n_samples", 2 ** 13)),
-        seed=int(d.get("seed", 42)),
+        seed=None if seed is None else int(seed),
         n_jobs=int(d.get("n_jobs", 1)),
         n_gauss=int(d.get("n_gauss", 8)),
     )
@@ -669,19 +970,10 @@ def build_system(cfg: SystemConfig):
         linear = sp.DiagonalA(**diag_kwargs)
     elif lt == "explicit":
         # User-supplied R(t1, t2): bypass the gamma-spline cache entirely.
-        iso_r = lin_d.get("iso_R", True)
-        if isinstance(iso_r, str):
-            iso_r = iso_r.strip().lower() not in {"0", "false", "no", "off"}
-        else:
-            iso_r = bool(iso_r)
-        if not iso_r:
-            raise ValueError(
-                "system.linear.type='explicit' currently supports only scalar "
-                "R_time callables; set iso_R: true."
-            )
+        # A scalar R (iso_R: true) or an N x N matrix (iso_R: false).
         linear = sp.ExplicitR(
             R_time=lin_d["R_time"],
-            iso_R=True,
+            iso_R=_as_bool(lin_d.get("iso_R", True), "system.linear.iso_R"),
         )
     else:
         raise ValueError(
@@ -690,31 +982,12 @@ def build_system(cfg: SystemConfig):
         )
 
     # Noise
-    noise = _build_noise(cfg.noise, base_dir=cfg.base_dir)
+    noise = _build_noise(cfg.noise, base_dir=cfg.base_dir,
+                         n_components=cfg.n_components)
 
-    def _coupling_value(v: dict):
-        c = v["coupling"]
-        # If already a callable (from coupling_module), pass through.
-        return c if callable(c) else np.asarray(c)
-
-    vertices = [
-        sp.LocalVertex(
-            name=v["name"], coupling=_coupling_value(v),
-            rank=None if v.get("rank") is None else int(v["rank"]),
-            coupling_vectorized=bool(v.get("coupling_vectorized", False)),
-        )
-        for v in cfg.vertices
-    ]
-    nonlocal_vertices = [
-        sp.NonLocalVertex(
-            name=v["name"], order=int(v["order"]),
-            coupling=_coupling_value(v),
-            coupling_vectorized=bool(v.get("coupling_vectorized", False)),
-            equal_time=bool(v.get("equal_time", False)),
-            already_R_contracted=bool(v.get("already_R_contracted", False)),
-        )
-        for v in cfg.nonlocal_vertices
-    ]
+    vertices = [_build_vertex(sp.LocalVertex, v) for v in cfg.vertices]
+    nonlocal_vertices = [_build_vertex(sp.NonLocalVertex, v)
+                         for v in cfg.nonlocal_vertices]
 
     return System(
         field=sp.FieldSpec(cfg.field_name, n_components=cfg.n_components),
@@ -726,20 +999,45 @@ def build_system(cfg: SystemConfig):
     )
 
 
-def _build_noise(d: dict, base_dir: Path | None = None):
+#: Kernel blocks of each separable κ² type, and the axis each is built on.
+_SEPARABLE_KAPPA2 = {
+    "separable_translation": (("temporal", "time"), ("spatial", "space")),
+    "separable_rotation": (("temporal", "time"), ("angular", "angular")),
+}
+
+
+def _build_noise(d: dict, base_dir: Path | None = None,
+                 n_components: int | None = None):
     from . import specs as sp
 
+    if not isinstance(d, dict) or not isinstance(d.get("kappa2"), dict):
+        raise ValueError(
+            "system.noise must be a mapping with a 'kappa2' block and an "
+            "optional 'sigma2' block."
+        )
     k2_d = dict(d["kappa2"])
-    kt = k2_d.pop("type")
-    if kt == "separable_translation":
-        temporal = _build_kernel(k2_d["temporal"], axis="time")
-        spatial = _build_kernel(k2_d["spatial"], axis="space")
-        kappa2 = sp.SeparableTranslation(temporal=temporal, spatial=spatial)
-    elif kt == "separable_rotation":
-        temporal = _build_kernel(k2_d["temporal"], axis="time")
-        angular = _build_kernel(k2_d["angular"], axis="angular")
-        kappa2 = sp.SeparableRotation(temporal=temporal, angular=angular)
+    kt = k2_d.pop("type", None)
+    if kt in _SEPARABLE_KAPPA2:
+        blocks = _SEPARABLE_KAPPA2[kt]
+        _reject_unknown_keys(k2_d, [b for b, _ in blocks],
+                             f"system.noise.kappa2 (type {kt!r})")
+        missing = [b for b, _ in blocks if b not in k2_d]
+        if missing:
+            raise ValueError(
+                f"system.noise.kappa2 of type {kt!r} requires the kernel "
+                f"block(s) {missing}."
+            )
+        kernels = [_build_kernel(k2_d[b], axis=ax, base_dir=base_dir)
+                   for b, ax in blocks]
+        if kt == "separable_translation":
+            kappa2 = sp.SeparableTranslation(temporal=kernels[0],
+                                             spatial=kernels[1])
+        else:
+            kappa2 = sp.SeparableRotation(temporal=kernels[0],
+                                          angular=kernels[1])
     elif kt == "callable_module":
+        _reject_unknown_keys(k2_d, ("module", "attr"),
+                             "system.noise.kappa2 (type 'callable_module')")
         if base_dir is None:
             raise ValueError(
                 "noise.kappa2.type='callable_module' requires base_dir; "
@@ -760,76 +1058,246 @@ def _build_noise(d: dict, base_dir: Path | None = None):
             f"'separable_translation', 'separable_rotation', 'callable_module'."
         )
 
-    sigma2 = None
-    sig_d = d.get("sigma2")
-    if sig_d is not None:
-        st = dict(sig_d).pop("type", "constant")
-        if st == "constant":
-            sigma2 = sp.ConstantImpulse(
-                amplitude=sig_d.get("amplitude", 0.0)
-            )
-        elif st == "callable_module":
-            if base_dir is None:
-                raise ValueError(
-                    "noise.sigma2.type='callable_module' requires base_dir; "
-                    "the workflow loader should pass it through."
-                )
-            if "module" not in sig_d:
-                raise ValueError(
-                    "noise.sigma2.type='callable_module' requires "
-                    "'module: <relative path to .py file>'."
-                )
-            mod_path = (base_dir / sig_d["module"]).resolve()
-            attr = sig_d.get("attr", "sigma2")
-            fn = _load_callable_from_module(mod_path, attr)
-            sigma2 = sp.CustomImpulse(fn=fn)
-        elif st == "multiplicative":
-            # White noise with amplitude g(phi) = g0 + g1 phi; see
-            # MultiplicativeImpulse.  D0 = g0 g0^T enters C, the rest lowers
-            # to local vertices.
-            missing = [k for k in ("g0", "g1") if k not in sig_d]
-            if missing:
-                raise ValueError(
-                    f"noise.sigma2.type='multiplicative' requires {missing}: "
-                    f"g0 as an N x M nested list, g1 as N x M x N."
-                )
-            names = {k: tuple(sig_d[k]) for k in ("vertex_names", "drift_names")
-                     if k in sig_d}
-            sigma2 = sp.MultiplicativeImpulse(
-                g0=np.asarray(sig_d["g0"], dtype=float),
-                g1=np.asarray(sig_d["g1"], dtype=float),
-                interpretation=str(sig_d.get("interpretation", "ito")),
-                **names,
-            )
-        else:
-            raise ValueError(
-                f"Unsupported sigma2.type {st!r}.  Supported: "
-                f"'constant', 'callable_module', 'multiplicative'."
-            )
-
+    sigma2 = _build_sigma2(d.get("sigma2"), base_dir, n_components)
     return sp.GaussianNoise(kappa2=kappa2, sigma2=sigma2)
 
 
-def _build_kernel(d: dict, axis: str):
+def _build_sigma2(sig_d: Any, base_dir: Path | None,
+                  n_components: int | None):
+    """``system.noise.sigma2``: ``null``, ``{type: constant, amplitude}``
+    with a number or an N x N matrix, ``{type: callable_module}``, or
+    ``{type: multiplicative, g0, g1, interpretation}``."""
     from . import specs as sp
 
-    kt = d.get("type", "exponential")
-    if axis == "time":
-        if kt == "exponential":
-            return sp.ExponentialTemporal(lam=d["lam"], sigma_t=d["sigma_t"])
-        if kt == "gaussian":
-            return sp.GaussianTemporal(lam=d["lam"], sigma_t=d["sigma_t"])
-    elif axis == "space":
-        if kt == "exponential":
-            return sp.ExponentialSpatial(sigma_x=d["sigma_x"])
-        if kt == "gaussian":
-            return sp.GaussianSpatial(sigma_x=d["sigma_x"])
-    elif axis == "angular":
-        if kt == "legendre":
-            return sp.LegendreAngular(coeffs=list(d["coeffs"]))
+    if sig_d is None:
+        return None
+    where = "system.noise.sigma2"
+    if not isinstance(sig_d, dict):
+        raise ValueError(
+            f"{where} must be null or a mapping such as "
+            f"{{type: constant, amplitude: 0.01}}; got {sig_d!r}."
+        )
+    st = sig_d.get("type", "constant")
+    if st == "constant":
+        _reject_unknown_keys(sig_d, ("type", "amplitude"), where)
+        if "amplitude" not in sig_d:
+            raise ValueError(
+                f"{where}: type 'constant' requires 'amplitude': a number "
+                f"(amplitude * I_N) or an N x N matrix as nested lists."
+            )
+        return sp.ConstantImpulse(amplitude=_sigma2_amplitude(
+            sig_d["amplitude"], n_components, f"{where}.amplitude"))
+    if st == "callable_module":
+        _reject_unknown_keys(sig_d, ("type", "module", "attr"), where)
+        if base_dir is None:
+            raise ValueError(
+                "noise.sigma2.type='callable_module' requires base_dir; "
+                "the workflow loader should pass it through."
+            )
+        if "module" not in sig_d:
+            raise ValueError(
+                "noise.sigma2.type='callable_module' requires "
+                "'module: <relative path to .py file>'."
+            )
+        mod_path = (base_dir / sig_d["module"]).resolve()
+        attr = sig_d.get("attr", "sigma2")
+        fn = _load_callable_from_module(mod_path, attr)
+        return sp.CustomImpulse(fn=fn)
+    if st == "multiplicative":
+        # White noise with amplitude g(phi) = g0 + g1 phi; see
+        # MultiplicativeImpulse.  D0 = g0 g0^T enters C, the rest lowers to
+        # local vertices.
+        _reject_unknown_keys(
+            sig_d, ("type", "g0", "g1", "interpretation", "vertex_names",
+                    "drift_names"), where)
+        missing = [k for k in ("g0", "g1") if k not in sig_d]
+        if missing:
+            raise ValueError(
+                f"{where}: type 'multiplicative' requires {missing}: "
+                f"g0 as an N x M nested list, g1 as N x M x N."
+            )
+        names = {k: tuple(sig_d[k]) for k in ("vertex_names", "drift_names")
+                 if k in sig_d}
+        return sp.MultiplicativeImpulse(
+            g0=np.asarray(sig_d["g0"], dtype=float),
+            g1=np.asarray(sig_d["g1"], dtype=float),
+            interpretation=str(sig_d.get("interpretation", "ito")),
+            **names,
+        )
     raise ValueError(
-        f"Unsupported {axis}-kernel type {kt!r}."
+        f"Unsupported sigma2.type {st!r}.  Supported: "
+        f"'constant', 'callable_module', 'multiplicative'."
     )
+
+
+def _sigma2_amplitude(raw: Any, n_components: int | None, where: str):
+    """A white-noise amplitude: a number, or a symmetric N x N matrix."""
+    if isinstance(raw, list):
+        try:
+            amp = np.asarray(raw, dtype=float)
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"{where} must be a number or an N x N matrix of numbers; "
+                f"got {raw!r}."
+            ) from None
+    else:
+        return _yaml_number(raw, where)
+    n = n_components
+    if (amp.ndim != 2 or amp.shape[0] != amp.shape[1]
+            or (n is not None and amp.shape != (n, n))):
+        size = f"{n} x {n}" if n is not None else "N x N"
+        raise ValueError(
+            f"{where} has shape {amp.shape}; a matrix amplitude must be "
+            f"{size} (n_components = {n})."
+        )
+    if not np.all(np.isfinite(amp)):
+        raise ValueError(f"{where} has a non-finite entry: {raw!r}.")
+    scale = float(np.abs(amp).max())
+    if float(np.abs(amp - amp.T).max()) > 1e-12 * scale:
+        raise ValueError(
+            f"{where} must be symmetric: it is the covariance of the white "
+            f"noise, and the action term psi sigma2 psi / 2 reads only its "
+            f"symmetric part.  Got {raw!r}."
+        )
+    return amp
+
+
+#: Parameters of each built-in kernel of a separable κ², by (axis, type).
+_KERNEL_PARAMS = {
+    ("time", "exponential"): ("lam", "sigma_t"),
+    ("time", "gaussian"): ("lam", "sigma_t"),
+    ("space", "exponential"): ("sigma_x",),
+    ("space", "gaussian"): ("sigma_x",),
+    ("angular", "legendre"): ("coeffs",),
+}
+#: YAML block of each kernel axis; also the default ``attr`` of a
+#: ``type: custom`` kernel.
+_KERNEL_BLOCK = {"time": "temporal", "space": "spatial", "angular": "angular"}
+
+
+def _reject_unknown_keys(d: dict, allowed, where: str) -> None:
+    """Refuse a key the block does not read: a misspelt key is otherwise
+    ignored without a word, and its default used instead."""
+    unknown = sorted(str(k) for k in d if k not in set(allowed))
+    if unknown:
+        raise ValueError(
+            f"{where}: unknown key(s) {unknown}; allowed: "
+            f"{sorted(allowed)}."
+        )
+
+
+def _yaml_number(value: Any, where: str):
+    """A finite real number from YAML.
+
+    PyYAML reads ``1e-3`` (no decimal point) as a string, so a numeric
+    string is converted; any other non-number raises.  A number is
+    returned unchanged, so existing specs keep their ``repr``.
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"{where} must be a number; got {value!r}.")
+    if isinstance(value, str):
+        try:
+            value = float(value)
+        except ValueError:
+            raise ValueError(
+                f"{where} must be a number; got {value!r}."
+            ) from None
+    if not isinstance(value, (int, float, np.integer, np.floating)):
+        raise ValueError(f"{where} must be a number; got {value!r}.")
+    if not math.isfinite(float(value)):
+        raise ValueError(f"{where} must be finite; got {value!r}.")
+    return value
+
+
+_TRUE_WORDS = {"true", "yes", "on", "1"}
+_FALSE_WORDS = {"false", "no", "off", "0"}
+
+
+def _as_bool(value: Any, where: str) -> bool:
+    """A YAML flag as a bool.
+
+    ``bool("false")`` is ``True``, so a quoted ``"false"`` used to switch a
+    flag on; the words true/false, yes/no, on/off and 1/0 are read, and
+    anything else raises.
+    """
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, (int, np.integer)) and int(value) in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        word = value.strip().lower()
+        if word in _TRUE_WORDS:
+            return True
+        if word in _FALSE_WORDS:
+            return False
+    raise ValueError(f"{where} must be true or false; got {value!r}.")
+
+
+def _build_kernel(d: dict, axis: str, base_dir: Path | None = None):
+    """One kernel of a separable κ²: a built-in family, or ``type: custom``
+    with ``module`` (+ ``attr``) naming a user callable, which becomes a
+    :class:`~sft_wick.workflow.specs.CustomKernel`."""
+    from . import specs as sp
+
+    where = f"system.noise.kappa2.{_KERNEL_BLOCK[axis]}"
+    if not isinstance(d, dict):
+        raise ValueError(
+            f"{where} must be a mapping such as {{type: exponential, ...}}; "
+            f"got {d!r}."
+        )
+    kt = d.get("type", "exponential")
+    if kt == "custom":
+        _reject_unknown_keys(d, ("type", "module", "attr"), where)
+        if "module" not in d:
+            raise ValueError(
+                f"{where}: type 'custom' requires 'module: <path to a .py "
+                f"file, relative to the YAML file>' exporting the kernel "
+                f"callable as 'attr' (default {_KERNEL_BLOCK[axis]!r})."
+            )
+        if base_dir is None:
+            raise ValueError(
+                f"{where}: type 'custom' needs the YAML file's directory to "
+                f"resolve 'module'; the workflow loader passes it."
+            )
+        fn = _load_callable_from_module(
+            (base_dir / str(d["module"])).resolve(),
+            str(d.get("attr", _KERNEL_BLOCK[axis])),
+        )
+        return sp.CustomKernel(fn=fn)
+
+    params = _KERNEL_PARAMS.get((axis, kt))
+    if params is None:
+        supported = sorted(t for (a, t) in _KERNEL_PARAMS if a == axis)
+        raise ValueError(
+            f"Unsupported {axis}-kernel type {kt!r} at {where}.  "
+            f"Supported: {supported + ['custom']}."
+        )
+    _reject_unknown_keys(d, ("type",) + params, where)
+    missing = [p for p in params if p not in d]
+    if missing:
+        raise ValueError(f"{where}: type {kt!r} requires {missing}.")
+    if kt == "legendre":
+        coeffs = d["coeffs"]
+        if not isinstance(coeffs, list) or not coeffs:
+            raise ValueError(
+                f"{where}.coeffs must be a non-empty list [C_0, C_1, ...]; "
+                f"got {coeffs!r}."
+            )
+        return sp.LegendreAngular(coeffs=[
+            _yaml_number(c, f"{where}.coeffs[{i}]")
+            for i, c in enumerate(coeffs)
+        ])
+    vals = {p: _yaml_number(d[p], f"{where}.{p}") for p in params}
+    for p in ("sigma_t", "sigma_x"):
+        if p in vals and not float(vals[p]) > 0.0:
+            raise ValueError(f"{where}.{p} must be positive; got {vals[p]!r}.")
+    cls = {
+        ("time", "exponential"): sp.ExponentialTemporal,
+        ("time", "gaussian"): sp.GaussianTemporal,
+        ("space", "exponential"): sp.ExponentialSpatial,
+        ("space", "gaussian"): sp.GaussianSpatial,
+    }[(axis, kt)]
+    return cls(**vals)
 
 
 # =========================================================================
@@ -856,6 +1324,16 @@ def run_workflow(cfg: WorkflowConfig, progress: Any = None):
 
 def _run_workflow(cfg: WorkflowConfig, stage):
     system = build_system(cfg.system)
+
+    # Check the component axis against the observable before the expensive
+    # stages run; Expansion.sweep checks it again, but only after the
+    # expansion and the propagator table have been built.
+    from .expansion import _resolve_component_tuples
+
+    _resolve_component_tuples(
+        None, cfg.sweep.component_tuples, tuple(cfg.expand.observable),
+        system.n_components, "sweep.component_tuples",
+    )
 
     # ``propagators.diag_C`` is the user-facing knob (the single
     # source of truth for "is C diagonal?"). The symbolic-side
@@ -944,7 +1422,7 @@ def _run_workflow(cfg: WorkflowConfig, stage):
             positions_grid=cfg.sweep.positions_grid,
             t_final_grid=cfg.sweep.t_final_grid,
             external_times_grid=cfg.sweep.external_times_grid,
-            component_pairs=cfg.sweep.component_pairs,
+            component_tuples=cfg.sweep.component_tuples,
             orders=cfg.sweep.orders,
             vertex_types=cfg.sweep.vertex_types,
             integrate_over=cfg.sweep.integrate_over,
