@@ -1580,9 +1580,18 @@ def compute_moment(
                     for vi in vertex_instances:
                         internal_indices.update(vi.component_indices)
 
+                    # The legs of an equal_time vertex share one time; two
+                    # contractions that group them differently are
+                    # different diagrams (see _canonical_diagram_form).
+                    same_time_groups = tuple(
+                        tuple(vi.spatial_variables)
+                        for vi in vertex_instances
+                        if vi.equal_time_aliases
+                    )
                     inner = _collect_grouped_wick(
                         groups, pure_coupling,
                         internal_indices, integration_vars,
+                        same_time_groups=same_time_groups,
                     )
                     if _is_zero(inner):
                         continue
@@ -1702,6 +1711,7 @@ def _collect_grouped_wick(
     pure_coupling: Expr,
     internal_indices: set[str],
     integration_vars: frozenset[str],
+    same_time_groups: tuple[tuple[str, ...], ...] = (),
 ) -> Expr:
     """Pre-collect Wick contraction results grouped by spatial signature.
 
@@ -1716,6 +1726,13 @@ def _collect_grouped_wick(
     The ``pure_coupling`` should be the coupling expression **without**
     the rational prefactor (so that ``_extract_diagram_records`` can
     cleanly separate coupling from prefactor).
+
+    ``same_time_groups`` holds the legs of each ``equal_time`` vertex
+    instance.  A merged diagram keeps the propagators and the
+    ``equal_time_aliases`` of its first contraction, so a relabeling that
+    moved a leg from one equal-time group to another would evaluate the
+    other contractions with the wrong time structure; the canonical form
+    therefore keeps the groups (see :func:`_canonical_diagram_form`).
     """
     from collections import defaultdict
 
@@ -1750,7 +1767,9 @@ def _collect_grouped_wick(
     ] = defaultdict(list)
 
     for ref_props, perms in spatial_collected:
-        canon, mapping = _canonical_diagram_form(ref_props, integration_vars)
+        canon, mapping = _canonical_diagram_form(
+            ref_props, integration_vars, same_time_groups,
+        )
         canonical_groups[canon].append((ref_props, perms, mapping))
 
     # --- Phase 3: Merge and build expression ---
