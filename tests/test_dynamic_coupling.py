@@ -49,6 +49,9 @@ Currently locked here:
   scalar, 2-D and 3-D positions on qmc_vectorized, gauss_legendre and
   qmc_scalar, and the agreement of the FK total across contracts and
   position kinds.
+* **WF10** -- a per-sample callable is called once per sample and leg
+  order on qmc_vectorized and gauss_legendre, also when the batched
+  contraction falls back to the per-sample loop, and on qmc_scalar.
 * **DC3** -- a single-component (N = 1) field with a constant callable
   coupling matches the static tensor on gauss_legendre and
   qmc_vectorized.
@@ -811,10 +814,14 @@ _WF9_METHODS = {
 }
 
 
-def _wf9_fk_total(*, vectorized: bool, positions: dict, method: str):
+def _wf9_fk_total(
+    *, vectorized: bool, positions: dict, method: str,
+    seen: list | None = None,
+):
     """Order-2 FK total with the recording κ^(3), and the ``(n, t)``
-    shapes of every call the integration made."""
-    seen: list = []
+    shapes of every call the integration made.  Pass ``seen`` to follow
+    the calls while the integration runs."""
+    seen = [] if seen is None else seen
     system = _make_kappa3_system_with_K(
         _wf9_recording_kappa3(vectorized=vectorized, seen=seen),
         coupling_vectorized=vectorized,
@@ -893,6 +900,120 @@ def test_WF9_callable_coupling_argument_shapes(vectorized, pos_kind, method):
     # 1e-13 and the default 1e-12 floor would loosen the check to more than
     # 1e-11 relative.
     assert total == pytest.approx(reference, rel=1e-12, abs=0.0)
+
+
+# =====================================================================
+# WF10 -- how often a per-sample callable coupling is called
+# =====================================================================
+
+
+#: (method, force ``evaluate_at_batch`` onto its per-sample fallback loop)
+_WF10_CASES = [
+    ("qmc_vectorized", False),
+    ("gauss_legendre", False),
+    ("qmc_vectorized", True),
+    ("gauss_legendre", True),
+    ("qmc_scalar", False),
+]
+
+
+@pytest.mark.parametrize(
+    "method, fallback", _WF10_CASES,
+    ids=[m + ("-fallback" if f else "") for m, f in _WF10_CASES],
+)
+def test_WF10_per_sample_callable_called_once_per_sample(
+    method, fallback, monkeypatch,
+):
+    """A per-sample callable κ^(3) is called once per sample and leg
+    order.
+
+    On qmc_vectorized and gauss_legendre, ``evaluate_at_batch`` builds
+    each leg order's tensor stack from one call per sample, and its
+    sample-0 shape probe and per-sample fallback loop read that stack.
+    The fallback runs when ``DiagramTerm.evaluate_coupling_batched``
+    raises ``NotImplementedError``; the ``fallback`` cases force it.
+    qmc_scalar calls the callable through ``evaluate_at``, also once
+    per sample and leg order.
+
+    Calls are counted per call of the promise method, with the leg
+    orders read off the promise.  Both routes give the same count, so
+    each case also checks which route ran.  On the fallback the FK
+    total must equal the batched total to 1e-12, which a loop reading
+    the wrong sample would fail.
+    """
+    reference = None
+    batched_attempts: list = []
+    if fallback:
+        # The batched contraction's total, before it is disabled.
+        reference, _ = _wf9_fk_total(
+            vectorized=False, positions=_WF9_POSITIONS["scalar"],
+            method=method,
+        )
+
+        def refuse_batched(self, *args, **kwargs):
+            batched_attempts.append(1)
+            raise NotImplementedError("WF10: forced per-sample fallback")
+
+        monkeypatch.setattr(
+            DiagramTerm, "evaluate_coupling_batched", refuse_batched,
+        )
+
+    seen: list = []
+    # Per promise call: (method, leg orders, samples, callable calls).
+    log: list = []
+    batch_fn = DynamicCouplingPromise.evaluate_at_batch
+    at_fn = DynamicCouplingPromise.evaluate_at
+
+    def evaluate_at_batch(self, label_t, label_x, n_samples):
+        first = len(seen)
+        out = batch_fn(self, label_t, label_x, n_samples)
+        log.append(("evaluate_at_batch", len(self.dynamic_values),
+                    n_samples, len(seen) - first))
+        return out
+
+    def evaluate_at(self, times, positions):
+        first = len(seen)
+        out = at_fn(self, times, positions)
+        log.append(("evaluate_at", len(self.dynamic_values), 1,
+                    len(seen) - first))
+        return out
+
+    monkeypatch.setattr(
+        DynamicCouplingPromise, "evaluate_at_batch", evaluate_at_batch,
+    )
+    monkeypatch.setattr(DynamicCouplingPromise, "evaluate_at", evaluate_at)
+
+    total, _ = _wf9_fk_total(
+        vectorized=False, positions=_WF9_POSITIONS["scalar"],
+        method=method, seen=seen,
+    )
+
+    route = "evaluate_at" if method == "qmc_scalar" else "evaluate_at_batch"
+    assert log, "the integration never reached DynamicCouplingPromise"
+    assert {entry for entry, *_ in log} == {route}, (
+        f"method={method!r} called {sorted({e for e, *_ in log})}, "
+        f"expected {route}"
+    )
+    # Samples per promise call: all of them, or one for evaluate_at.
+    n_batch = _WF9_METHODS[method][1]
+    for entry, n_orders, n_samples, n_calls in log:
+        assert n_samples == n_batch
+        assert n_calls == n_orders * n_samples, (
+            f"{entry} with {n_orders} leg orders and {n_samples} samples "
+            f"called the callable {n_calls} times, expected "
+            f"{n_orders * n_samples}"
+        )
+    assert len(seen) == sum(n_calls for *_, n_calls in log), (
+        "the callable was called outside DynamicCouplingPromise"
+    )
+
+    if fallback:
+        assert len(batched_attempts) == len(log)
+        assert reference != 0.0, (
+            "test is vacuous if the reference total is zero"
+        )
+        # abs=0.0 for the reason given in WF9.
+        assert total == pytest.approx(reference, rel=1e-12, abs=0.0)
 
 
 def _scalar_field_system(coupling):

@@ -3154,11 +3154,9 @@ class DynamicCouplingPromise:
         ``(m_legs, n_samples, d)`` for d-dim positions — in a single
         call and returns a tensor of shape
         ``(n_samples,) + (N,)*order``. Otherwise the callable is
-        called directly, once per sample and once more at sample 0
-        to learn the shape of the contracted coupling:
-        ``n_samples + 1`` calls per leg order, or ``2 * n_samples``
-        if the contraction falls back to the per-sample loop
-        described next.
+        called directly, once per sample: ``n_samples`` calls per leg
+        order, whether or not the contraction falls back to the
+        per-sample loop described next.
 
         Either way, the symbolic contraction itself runs once over
         the whole sample axis via
@@ -3221,13 +3219,16 @@ class DynamicCouplingPromise:
             # d-dim legs  -> (m, n_samples, *vec_shape)
             per_symbol_legs[name] = (n_arr, t_2d)
 
-        # Vectorised symbols: single fn call yields per-sample tensor
-        # stack of shape (n_samples, *kappa_shape). For the rest, we
-        # fall back to the per-sample call inside the loop.
+        # Build each dynamic symbol's per-sample tensors once, as a stack
+        # of shape (n_samples, *kappa_shape): one call for a vectorised
+        # callable, one call per sample for any other.  The sample-0
+        # probe, the batched contraction and the per-sample fallback
+        # loop below all read these stacks, so no sample is evaluated
+        # twice.
         per_sample_tensors: dict = {}
         for name, fn in self.dynamic_values.items():
+            n_arr, t_2d = per_symbol_legs[name]
             if getattr(fn, "vectorized", False):
-                n_arr, t_2d = per_symbol_legs[name]
                 stacked = np.asarray(fn(n_arr, t_2d))
                 if stacked.shape[0] != n_samples:
                     raise ValueError(
@@ -3235,19 +3236,23 @@ class DynamicCouplingPromise:
                         f"{stacked.shape}; expected leading axis of "
                         f"length n_samples={n_samples}."
                     )
-                per_sample_tensors[name] = stacked
+            else:
+                sample0 = np.asarray(fn(n_arr[:, 0], t_2d[:, 0]))
+                stacked = np.empty(
+                    (n_samples,) + sample0.shape, dtype=sample0.dtype,
+                )
+                stacked[0] = sample0
+                for s in range(1, n_samples):
+                    stacked[s] = np.asarray(fn(n_arr[:, s], t_2d[:, s]))
+            per_sample_tensors[name] = stacked
 
         # Probe sample 0 to learn the contracted coupling's shape --
         # ``()`` for a fully scalar contraction, or the diagram's
         # surviving propagator-index shape.  It also seeds the
         # per-sample fallback loop below.
         sample_cv0 = dict(self.static_values)
-        for name, fn in self.dynamic_values.items():
-            if name in per_sample_tensors:
-                sample_cv0[name] = per_sample_tensors[name][0]
-            else:
-                n_arr, t_2d = per_symbol_legs[name]
-                sample_cv0[name] = np.asarray(fn(n_arr[:, 0], t_2d[:, 0]))
+        for name, stacked in per_sample_tensors.items():
+            sample_cv0[name] = stacked[0]
         coup0 = np.asarray(
             self.diagram_term.evaluate_coupling(
                 sample_cv0, self.fixed_indices,
@@ -3258,10 +3263,9 @@ class DynamicCouplingPromise:
         # ------------------------------------------------------------
         # Vectorised fast path (default).
         # ------------------------------------------------------------
-        # Materialise every dynamic symbol's per-sample tensor stack as
-        # a single ``(n_samples, *kappa_shape)`` array, then call
-        # ``DiagramTerm.evaluate_coupling_batched`` once -- replacing
-        # the inner ``n_samples`` calls to ``_eval_symbolic`` with one
+        # Contract the stacks with one call to
+        # ``DiagramTerm.evaluate_coupling_batched``, replacing the
+        # inner ``n_samples`` calls to ``_eval_symbolic`` with one
         # vectorised pass.
         #
         # If the symbolic ``coupling_sum`` contains a node type the
@@ -3271,30 +3275,8 @@ class DynamicCouplingPromise:
         # back to the original per-sample loop below.  This mirrors
         # the safety net documented in
         # :func:`sft_wick.perturbation._eval_symbolic_batched`.
+        batched_cv = {**self.static_values, **per_sample_tensors}
         try:
-            batched_cv: dict = dict(self.static_values)
-            for name, fn in self.dynamic_values.items():
-                if name in per_sample_tensors:
-                    batched_cv[name] = per_sample_tensors[name]
-                else:
-                    n_arr, t_2d = per_symbol_legs[name]
-                    # Per-sample callable: build the (n_samples, ...)
-                    # stack ourselves so the contraction is then
-                    # a single ufunc pass.  This still pays one
-                    # callable invocation per sample (unavoidable
-                    # without ``vectorized=True``), but the symbolic
-                    # contraction cost is amortised away.
-                    sample0 = np.asarray(fn(n_arr[:, 0], t_2d[:, 0]))
-                    stack = np.empty(
-                        (n_samples,) + sample0.shape,
-                        dtype=sample0.dtype,
-                    )
-                    stack[0] = sample0
-                    for s in range(1, n_samples):
-                        stack[s] = np.asarray(
-                            fn(n_arr[:, s], t_2d[:, s])
-                        )
-                    batched_cv[name] = stack
             couplings = self.diagram_term.evaluate_coupling_batched(
                 batched_cv,
                 n_samples=n_samples,
@@ -3319,12 +3301,8 @@ class DynamicCouplingPromise:
         couplings[0] = coup0
         for s in range(1, n_samples):
             sample_cv = dict(self.static_values)
-            for name, fn in self.dynamic_values.items():
-                if name in per_sample_tensors:
-                    sample_cv[name] = per_sample_tensors[name][s]
-                else:
-                    n_arr, t_2d = per_symbol_legs[name]
-                    sample_cv[name] = np.asarray(fn(n_arr[:, s], t_2d[:, s]))
+            for name, stacked in per_sample_tensors.items():
+                sample_cv[name] = stacked[s]
             couplings[s] = np.asarray(
                 self.diagram_term.evaluate_coupling(
                     sample_cv, self.fixed_indices,
