@@ -284,12 +284,12 @@ infinite claim no test suite can make.  But they do prove:
   depend on Phase 2 passing and vice versa, so a numerical bug
   cannot mask a symbolic bug or vice versa.
 
-End-to-end validation — the three demos
----------------------------------------
+End-to-end validation — the demos
+---------------------------------
 
 For full **inductive** validation against direct simulation on
-physically non-trivial problems, see the three demos in
-``examples/``:
+physically non-trivial problems, see demos 1-3 in ``examples/``;
+demos 4 and 5 are checked against an exact reference instead:
 
 **examples/demo1** — Gaussian driving
   Two-component Langevin system with quadratic self-interactions,
@@ -358,6 +358,42 @@ physically non-trivial problems, see the three demos in
   ``examples/demo3/config_FK.yaml`` (order 2) and
   ``examples/demo3/config_F3K.yaml`` (order 4).
 
+**examples/demo4** — compound-Poisson noise asymmetric in points and components
+  Events drive both components with their own amplitude, width and
+  time profile (white or exponential pulses), so every cumulant is
+  symmetric only under joint permutations of (component, point)
+  pairs, and the drift tensor has no index symmetry.  In demos 1-3
+  every cumulant was :math:`\delta_{a\ldots}` times a function
+  symmetric in its points, the configuration in which the leg-order
+  defect of 0.4.2 gave the right answer; on the code before that fix
+  demo 4 is 46.8 % off.  Level A (:math:`F = 0`) compares the 3- and
+  4-point functions, for every component tuple at distinct points
+  and at unequal times, with Campbell's closed form (1.4e-16 to
+  1.8e-14).  Level B compares each channel of
+  :math:`\langle\phi_a\phi_b\rangle` (order 0, FK3, FF, FFK4) with the
+  exact moment hierarchy of the process at the observation points
+  (at most 5.6e-15, except 4.0e-9 for FFK4 with exponential pulses).
+  Open: ``examples/demo4/README.md``.
+
+**examples/demo5** — white noise on every integrator, additive and multiplicative
+  White noise from a ``ConstantImpulse`` matrix plus coloured noise,
+  ``t_min = 0.5``, in three variants that take the ``diag_C=False``,
+  ``diag_C=True`` and ``iso_C=True`` paths, against the moment
+  hierarchy of the Markov embedding: Gauss-Legendre agrees to 1.4e-15
+  at every order up to 4, ``nquad`` to 4.3e-16, the QMC routes to
+  their sampling error.  Part B adds
+  multiplicative white noise at L0 (local vertices with two ψ legs),
+  on scalar and matrix R.  On the code before the fixes of
+  2026-09-11 the same scripts fail where each fix says they should:
+  ``iso_C`` by factors 2 to 8, the diag-C fast path by 64 %, the
+  repeated R pair by up to 6.7 %.  Open: ``examples/demo5/README.md``.
+
+Demos 4 and 5 use ``examples/reference/ito_moments.py``: the moment
+hierarchy of a finite-dimensional polynomial Itô SDE with jumps,
+solved order by order in the couplings.  It imports nothing from
+sft-wick, and ``tests/test_ito_moments_reference.py`` pins it against
+closed forms.
+
 Running the tests
 -----------------
 
@@ -385,6 +421,10 @@ Running the tests
 
    # Demo 3 — scripts, not a notebook (~3 min + ~6 min)
    cd examples/demo3 && python level_a.py && python level_b.py
+
+   # Demos 4 and 5 — exact references, no simulation
+   cd examples/demo4 && python level_a.py && python level_b.py
+   cd examples/demo5 && python run.py && python multiplicative.py
 
 For the detailed per-test matrix, tolerances, and design rationale,
 see :download:`deductive_verification.md <../deductive_verification.md>`
