@@ -923,6 +923,10 @@ fields must be present.
      c_method:           auto         # 'auto' | 'dblquad' | 'gauss_legendre'
      c_n_gauss:          20           # GL nodes/dim under c_method='gauss_legendre'
 
+     diag_C:             true         # false: tabulate every C_ab, for a C with
+                                      # off-diagonal entries (dense R, mixing
+                                      # kappa2, matrix sigma2); sets expand.diag_C
+
      interp_method:      linear       # 'linear' | 'cubic'
      n_jobs:             1
      cache_path:         null         # dir for joblib cache
@@ -1144,7 +1148,7 @@ Section reference: ``expand``
    * - ``diag_R`` / ``diag_C``
      - ``bool``
      - ``true``
-     - Apply diagonal-propagator simplification (collapses index sums where R/C is component-diagonal).  Raises ``ValueError`` when R or C has off-diagonal entries (from a dense R, a component-mixing κ² or a white-noise matrix); for C, set ``propagators.diag_C: false`` instead
+     - Apply diagonal-propagator simplification (collapses index sums where R/C is component-diagonal).  Raises ``ValueError`` when R or C has off-diagonal entries (from a dense R, a component-mixing κ² or a white-noise matrix); for C, set ``propagators.diag_C: false``, which sets this flag with it and tabulates every ``C_ab``
    * - ``iso_R`` / ``iso_C``
      - ``bool`` or ``null``
      - ``null`` / ``false``
@@ -1305,6 +1309,10 @@ Section reference: ``propagators``
      - ``int``
      - ``20``
      - GL nodes per dimension when ``c_method: gauss_legendre`` (cost ``c_n_gauss²`` per sub-region)
+   * - ``diag_C``
+     - ``bool``
+     - ``true``
+     - ``false`` keeps the off-diagonal entries of C: every table holds all :math:`N^2` entries :math:`C_{ab}` and every lookup returns them. Needed when C is not component-diagonal — a dense R, a component-mixing :math:`\kappa^2`, a matrix :math:`\sigma^2` — for which ``true`` is refused. No closed form is required: a Gauss-Legendre cell costs what a diagonal one costs, a ``dblquad`` cell :math:`N^2` adaptive integrals instead of :math:`N`. Sets ``expand.diag_C`` to ``false`` with it
    * - ``interp_method``
      - ``str``
      - ``"linear"``

@@ -852,11 +852,15 @@ class _LazyTimeSplineCache:
           four-point moment, 12×+ in a positions sweep.
         * **Time symmetry** (``κ_t`` even, diagonal C): the grid is
           symmetric in ``(t1, t2)``, so only the upper triangle is
-          evaluated and mirrored.
+          evaluated and mirrored.  A full table (``diag_C=False``) is
+          mirrored with its component pair transposed,
+          ``C_ab(t1, t2) = C_ba(t2, t1)``, when the kernel passes
+          :func:`_probe_c_transpose` at the table's positions; in general
+          mode the same relation also files the table at ``(x2, x1)``.
 
         Whether either applies is decided by the parent cache
         (:meth:`PropagatorCache._lazy_spatial_factor` /
-        :meth:`PropagatorCache._c_time_symmetric`); a user-supplied
+        :meth:`PropagatorCache._c_half_grid`); a user-supplied
         closed form or C callable gets neither, since nothing is known
         about its structure.
 
@@ -872,7 +876,30 @@ class _LazyTimeSplineCache:
                 grids = self._grids_from_base(x1_arr, x2_arr, factor_fn)
         if grids is None:
             grids = self._grids_by_quadrature(x1_arr, x2_arr)
+            self._file_swapped(x1_arr, x2_arr, grids)
         return self._splines_from_grids(grids)
+
+    def _file_swapped(self, x1_arr, x2_arr, grids: list) -> None:
+        """General mode, full C: file the table at ``(x2, x1)`` as well.
+
+        ``C(x2, t1; x1, t2) = C(x1, t2; x2, t1)ᵀ`` for a covariance (see
+        :func:`_probe_c_transpose`), so its grids are these, transposed in
+        time and in the component pair.  Translation and rotation keys do
+        not tell the two orders apart, and diagonal tables keep their own
+        builds.
+        """
+        parent = self.parent
+        if self.mode != "general" or parent.model.diag_C:
+            return
+        key = self._make_key(x2_arr, x1_arr)
+        if key == self._make_key(x1_arr, x2_arr) or key in self._splines_by_key:
+            return
+        if not parent._c_transpose_ok(x1_arr, x2_arr, self.t_max, swap=True):
+            return
+        entries = parent._c_table_entries()
+        where = {e: k for k, e in enumerate(entries)}
+        swapped = [grids[where[(b, a)]].T.copy() for a, b in entries]
+        self._splines_by_key[key] = self._splines_from_grids(swapped)
 
     def _grids_from_base(self, x1_arr, x2_arr, factor_fn) -> list | None:
         """Rescale the zero-separation grids by ``κ_x(r) / κ_x(0)``.
@@ -895,28 +922,35 @@ class _LazyTimeSplineCache:
         return [f_r * g for g in self._base_grids]
 
     def _grids_by_quadrature(self, x1_arr, x2_arr) -> list:
-        """The per-component ``(n_t, n_t)`` grids from ``_C_value_direct``."""
+        """One ``(n_t, n_t)`` grid per stored entry from ``_C_value_direct``:
+        ``C_aa`` under ``diag_C``, every ``C_ab`` otherwise (see
+        :meth:`PropagatorCache._c_table_entries`).  When
+        :meth:`PropagatorCache._c_half_grid` allows it, only the cells with
+        ``j ≥ i`` are evaluated and cell ``(j, i)`` of ``C_ba`` is copied
+        from cell ``(i, j)`` of ``C_ab``."""
         from .progress import progress_map
 
         parent = self.parent
-        N = parent.model.n_components
+        entries = parent._c_table_entries()
+        where = {e: k for k, e in enumerate(entries)}
         ts = self.ts
         n_t = self.n_grid_t
-        symmetric = parent._c_time_symmetric()
+        half = parent._c_half_grid(x1_arr, x2_arr, self.t_max)
 
         tasks = [
             (i, j, ts[i], ts[j])
             for i in range(n_t)
             for j in range(n_t)
-            if (not symmetric) or j >= i
+            if (not half) or j >= i
         ]
 
         direct_kwargs = self.direct_kwargs
 
         def _point(args):
             i, j, t1, t2 = args
-            C_mat = parent._C_value_direct(x1_arr, t1, x2_arr, t2, **direct_kwargs)
-            return i, j, np.array([C_mat[a, a] for a in range(N)])
+            C_mat = np.asarray(
+                parent._C_value_direct(x1_arr, t1, x2_arr, t2, **direct_kwargs))
+            return i, j, np.array([C_mat[a, b] for a, b in entries])
 
         label = parent._c_source_label()
         results = progress_map(
@@ -925,12 +959,12 @@ class _LazyTimeSplineCache:
         )
         self.n_grid_builds += 1
 
-        grids = [np.zeros((n_t, n_t)) for _ in range(N)]
+        grids = [np.zeros((n_t, n_t)) for _ in entries]
         for i, j, cvec in results:
-            for a in range(N):
-                grids[a][i, j] = cvec[a]
-                if symmetric:
-                    grids[a][j, i] = cvec[a]
+            for k, (a, b) in enumerate(entries):
+                grids[k][i, j] = cvec[k]
+                if half and j != i:
+                    grids[where[(b, a)]][j, i] = cvec[k]
         return grids
 
     def _splines_from_grids(self, grids: list) -> list:
@@ -1355,6 +1389,83 @@ def _probe_diagonal_cusp(model: "PropagatorModel", positions: tuple) -> bool:
     if j_h4 < 1e-9:
         return False
     return bool(j_h4 > 0.5 * j_h)
+
+
+def _c_table_entries(n_components: int, diag_C: bool) -> tuple:
+    """``(a, b)`` component pairs a C table stores, in storage order.
+
+    Under ``diag_C`` the diagonal ``C_aa`` only; otherwise every ``C_ab``,
+    row-major, which is what an off-diagonal C (a dense R, a
+    component-mixing κ², a matrix σ²) needs.
+    """
+    n = int(n_components)
+    if diag_C:
+        return tuple((a, a) for a in range(n))
+    return tuple((a, b) for a in range(n) for b in range(n))
+
+
+def _probe_subset(values) -> tuple:
+    """First, middle and last entries of a grid axis, without repeats."""
+    v = list(values)
+    return tuple(dict.fromkeys((v[0], v[len(v) // 2], v[-1])))
+
+
+#: Times, as fractions of a table's span ``[t_min, t_max]``, at which κ² and
+#: σ² are probed by :func:`_probe_c_transpose`.  Irregular, with one
+#: equal-time pair.
+_TRANSPOSE_PROBE_TIMES = ((0.37, 0.0), (0.83, 0.21), (0.95, 0.56),
+                          (0.12, 0.74), (0.61, 0.61))
+
+
+def _probe_c_transpose(model: "PropagatorModel", x1: Any, x2: Any,
+                       t_max: float, *, swap: bool) -> bool:
+    """Whether a transposition fixes C at the positions ``(x1, x2)``.
+
+    ``C_ab(x1, t1; x2, t2) = Σ ∫∫ R_ai(t1, s1) κ_ij(x1, s1; x2, s2) R_bj(t2, s2)``
+    plus the σ² term.  Renaming the integration variables shows, for any R:
+
+    * ``swap=False``: ``C(x1, t1; x2, t2) = C(x1, t2; x2, t1)ᵀ`` when
+      ``κ(x1, s1; x2, s2) = κ(x1, s2; x2, s1)ᵀ`` and ``σ²(x1, s, x2)`` is
+      symmetric.  The ``(t1, t2)`` table at ``(x1, x2)`` is then fixed by
+      its cells with ``t2 ≥ t1``.
+    * ``swap=True``: ``C(x2, t1; x1, t2) = C(x1, t2; x2, t1)ᵀ`` when
+      ``κ(x2, s2; x1, s1) = κ(x1, s1; x2, s2)ᵀ`` and
+      ``σ²(x2, s, x1) = σ²(x1, s, x2)ᵀ``, the symmetry of a covariance.
+      The table at ``(x2, x1)`` is then the one at ``(x1, x2)`` transposed.
+
+    Checked at :data:`_TRANSPOSE_PROBE_TIMES` to 1e-12 relative.  A kernel
+    that fails the check, or raises, gets every cell evaluated.
+    """
+    t0 = float(model.t_min)
+    span = float(t_max) - t0
+    if not span > 0:
+        span = 1.0
+    ya, yb = (x2, x1) if swap else (x1, x2)
+
+    def _same(u, v) -> bool:
+        u = np.asarray(u, dtype=float)
+        v = np.asarray(v, dtype=float)
+        if u.shape != v.shape:
+            return False
+        scale = max(float(np.max(np.abs(u))), float(np.max(np.abs(v))),
+                    1e-300)
+        return bool(np.all(np.abs(u - v) <= 1e-12 * scale))
+
+    try:
+        for f1, f2 in _TRANSPOSE_PROBE_TIMES:
+            s1, s2 = t0 + f1 * span, t0 + f2 * span
+            k12 = model.kappa2(x1, s1, x2, s2)
+            k21 = np.asarray(model.kappa2(ya, s2, yb, s1), dtype=float).T
+            if not _same(k12, k21):
+                return False
+            if model.sigma2 is not None:
+                w12 = model.sigma2(x1, s1, x2)
+                w21 = np.asarray(model.sigma2(ya, s1, yb), dtype=float).T
+                if not _same(w12, w21):
+                    return False
+    except Exception:  # noqa: BLE001 -- a user callable; see the docstring
+        return False
+    return True
 
 
 def select_gl_node_count(
@@ -2044,7 +2155,7 @@ class PropagatorCache:
             or self._c_general_interpolators is not None
             or self._lazy_general is not None
         )
-        if has_spatial_table and self.model.diag_C:
+        if has_spatial_table:
             N = self.model.n_components
             t1_arr = np.array([t1], dtype=float)
             t2_arr = np.array([t2], dtype=float)
@@ -2058,14 +2169,17 @@ class PropagatorCache:
             if x1_arr.ndim == 2 and x1_arr.shape[-1] == 1:
                 x1_arr = x1_arr.ravel()
                 x2_arr = x2_arr.ravel()
-            c_diag = self.C_at_batch(t1_arr, t2_arr, x1_arr, x2_arr)[0]
+            c_tab = self.C_at_batch(t1_arr, t2_arr, x1_arr, x2_arr)[0]
+            if c_tab.ndim == 2:
+                # Full table (diag_C=False): every C_ab is stored.
+                return np.array(c_tab, dtype=float)
             C_mat = np.zeros((N, N))
             for a in range(N):
-                C_mat[a, a] = c_diag[a]
+                C_mat[a, a] = c_tab[a]
             return C_mat
 
         # Fast path (legacy time-only): 2-D spline table
-        if self._c_splines is not None and self.model.diag_C:
+        if self._c_splines is not None and self._legacy_table_serves_model():
             lo, hi = self._c_table_range  # type: ignore[misc]
             if lo <= t1 <= hi and lo <= t2 <= hi:
                 return self._C_value_from_table(t1, t2)
@@ -2185,6 +2299,7 @@ class PropagatorCache:
         """Clear the C value cache and spline table."""
         self._c_cache.clear()
         self._c_splines = None
+        self._c_splines_entries = None
         self._c_diag_splines = None
         self._c_table_range = None
 
@@ -2200,7 +2315,8 @@ class PropagatorCache:
         ``C_{aa}(t1, t2)`` depends only on ``(t1, t2)``.  This method
         evaluates C on an ``n_grid × n_grid`` grid via ``dblquad``,
         then builds a :class:`~scipy.interpolate.RectBivariateSpline`
-        for each diagonal component.
+        for each diagonal component -- for every ``C_ab`` when the model
+        has ``diag_C=False``.
 
         After calling this, :meth:`C_value` and :meth:`C_diagonal`
         use fast spline interpolation instead of ``dblquad``.
@@ -2213,23 +2329,21 @@ class PropagatorCache:
         from scipy.interpolate import RectBivariateSpline
 
         m = self.model
-        N = m.n_components
         t_min = m.t_min
         ts = np.linspace(t_min, t_max, n_grid)
+        entries = self._c_table_entries()
 
-        # Build grid for each diagonal component
-        grids = [np.zeros((n_grid, n_grid)) for _ in range(N)]
+        # One grid per stored entry: C_aa, or every C_ab under diag_C=False.
+        grids = [np.zeros((n_grid, n_grid)) for _ in entries]
 
         for i in range(n_grid):
             for j in range(n_grid):
                 C_mat = self.C_value(direction, ts[i], direction, ts[j])
-                for a in range(N):
-                    grids[a][i, j] = C_mat[a, a]
+                for k, (a, b) in enumerate(entries):
+                    grids[k][i, j] = C_mat[a, b]
 
-        self._c_splines = [
-            RectBivariateSpline(ts, ts, grids[a])
-            for a in range(N)
-        ]
+        self._c_splines = [RectBivariateSpline(ts, ts, g) for g in grids]
+        self._c_splines_entries = entries
         # Harvest the i == j entries into a separate 1-D spline.  Zero extra
         # quadrature -- they are already in ``grids``.
         #
@@ -2245,9 +2359,7 @@ class PropagatorCache:
         #
         # Along the diagonal itself ``t -> C(t,t)`` is smooth, so a 1-D cubic
         # spline restores O(h^4).
-        self._c_diag_splines = [
-            _diag_line_interp(ts, np.diag(grids[a])) for a in range(N)
-        ]
+        self._c_diag_splines = [_diag_line_interp(ts, np.diag(g)) for g in grids]
         self._c_table_range = (t_min, t_max)
 
     @property
@@ -2262,34 +2374,70 @@ class PropagatorCache:
             1.0, np.maximum(np.abs(np.asarray(t1)), np.abs(np.asarray(t2)))
         )
 
+    def _legacy_entries(self) -> tuple:
+        """The ``(a, b)`` pairs the legacy table stores, in storage order.
+
+        A table pickled before the pairs were recorded holds ``C_aa``.
+        """
+        entries = getattr(self, "_c_splines_entries", None)
+        if entries is None:
+            return _c_table_entries(self.model.n_components, True)
+        return entries
+
+    def _legacy_table_serves_model(self) -> bool:
+        """Whether the legacy table holds every entry :meth:`C_value`
+        returns: ``C_aa`` under ``diag_C``, every ``C_ab`` otherwise."""
+        if self.model.diag_C:
+            return True
+        return len(self._legacy_entries()) == self.model.n_components ** 2
+
+    def _legacy_diag_ks(self) -> list:
+        """Positions of ``C_00, C_11, …`` among the legacy table's entries."""
+        where = {e: k for k, e in enumerate(self._legacy_entries())}
+        return [where[(a, a)] for a in range(self.model.n_components)]
+
     def _C_diagonal_from_table(self, t1: float, t2: float) -> np.ndarray:
         """Look up C diagonal from spline table.
 
         Routes equal times through the 1-D diagonal spline: the 2-D spline
         cannot represent the kink there (see ``precompute_C_table``).
         """
+        ks = self._legacy_diag_ks()
         if self._c_diag_splines is not None and self._on_diagonal(t1, t2):
             t = 0.5 * (float(t1) + float(t2))
-            return np.array([float(_diag_line_eval(s, t)[0])
-                             for s in self._c_diag_splines])
+            return np.array([float(_diag_line_eval(self._c_diag_splines[k], t)[0])
+                             for k in ks])
         # ``np.squeeze`` keeps this robust across SciPy versions: newer
         # SciPy returns a 1-element 1-D array from a scalar ``grid=False``
         # call, and ``float()`` on a non-0-D array raises under NumPy >= 2.
         return np.array([
-            float(np.squeeze(s(t1, t2, grid=False))) for s in self._c_splines  # type: ignore[union-attr]
+            float(np.squeeze(self._c_splines[k](t1, t2, grid=False)))  # type: ignore[index]
+            for k in ks
         ])
 
     def _C_value_from_table(self, t1: float, t2: float) -> np.ndarray:
-        """Look up C matrix from spline table (diagonal only).
+        """Look up C matrix from spline table: every stored entry, zeros
+        elsewhere (the off-diagonal of a ``diag_C`` table).
 
         Shares :meth:`_C_diagonal_from_table`'s diagonal-kink routing so the
         two accessors cannot disagree about C(t, t).
         """
         N = self.model.n_components
         C_mat = np.zeros((N, N))
-        diag = self._C_diagonal_from_table(t1, t2)
-        for a in range(N):
-            C_mat[a, a] = diag[a]
+        entries = self._legacy_entries()
+        if all(a == b for a, b in entries):
+            diag = self._C_diagonal_from_table(t1, t2)
+            for a in range(N):
+                C_mat[a, a] = diag[a]
+            return C_mat
+        on = self._c_diag_splines is not None and self._on_diagonal(t1, t2)
+        t = 0.5 * (float(t1) + float(t2))
+        for k, (a, b) in enumerate(entries):
+            if on:
+                C_mat[a, b] = float(_diag_line_eval(self._c_diag_splines[k], t)[0])
+            else:
+                C_mat[a, b] = float(np.squeeze(
+                    self._c_splines[k](t1, t2, grid=False)))  # type: ignore[index]
         return C_mat
 
     # --- Vectorized methods for batch evaluation ---
@@ -2315,9 +2463,10 @@ class PropagatorCache:
             )
         n = len(t1)
         N = self.model.n_components
+        ks = self._legacy_diag_ks()
         result = np.empty((n, N))
-        for a, s in enumerate(self._c_splines):
-            result[:, a] = s(t1, t2, grid=False)
+        for a, k in enumerate(ks):
+            result[:, a] = self._c_splines[k](t1, t2, grid=False)
         if self._c_diag_splines is not None:
             # Tadpoles evaluate C(s, s): both legs are the SAME sampled time,
             # so this mask is hit exactly, not approximately.
@@ -2325,8 +2474,38 @@ class PropagatorCache:
             if np.any(on_diag):
                 td = 0.5 * (np.asarray(t1, dtype=float)[on_diag]
                             + np.asarray(t2, dtype=float)[on_diag])
-                for a, sd in enumerate(self._c_diag_splines):
-                    result[on_diag, a] = _diag_line_eval(sd, td)
+                for a, k in enumerate(ks):
+                    result[on_diag, a] = _diag_line_eval(self._c_diag_splines[k], td)
+        return result
+
+    def C_matrix_batch(
+        self, t1: np.ndarray, t2: np.ndarray,
+    ) -> np.ndarray:
+        """Evaluate the full C matrix at arrays of time pairs.
+
+        The ``(n, N, N)`` counterpart of :meth:`C_diagonal_batch`, from the
+        same :meth:`precompute_C_table` table: every ``C_ab`` when it was
+        built for ``diag_C=False``, the diagonal (zeros elsewhere) for a
+        ``diag_C`` table.  The batched integrators call it in place of
+        :meth:`C_diagonal_batch` when ``model.diag_C`` is False.
+        """
+        if not isinstance(self._c_splines, (list, tuple)):
+            raise RuntimeError(
+                "C_matrix_batch requires precompute_C_table()"
+            )
+        t1a = np.atleast_1d(np.asarray(t1, dtype=float))
+        t2a = np.atleast_1d(np.asarray(t2, dtype=float))
+        n = len(t1a)
+        N = self.model.n_components
+        result = np.zeros((n, N, N))
+        on_diag = (self._on_diagonal(t1a, t2a)
+                   if self._c_diag_splines is not None else np.zeros(n, bool))
+        td = 0.5 * (t1a[on_diag] + t2a[on_diag])
+        for k, (a, b) in enumerate(self._legacy_entries()):
+            col = np.array(self._c_splines[k](t1a, t2a, grid=False), dtype=float)
+            if np.any(on_diag):
+                col[on_diag] = _diag_line_eval(self._c_diag_splines[k], td)
+            result[:, a, b] = col
         return result
 
     def R_time_batch(self, t1: np.ndarray, t2: np.ndarray) -> np.ndarray:
@@ -2620,6 +2799,88 @@ class PropagatorCache:
         return bool(getattr(self.model.kappa2, "symmetric_in_time", False))
 
     # ------------------------------------------------------------------ #
+    # Table layout: C_aa under diag_C, every C_ab otherwise
+    # ------------------------------------------------------------------ #
+
+    def _c_table_entries(self) -> tuple:
+        """``(a, b)`` pairs every table of this cache stores: ``C_aa`` under
+        ``model.diag_C``, every ``C_ab`` otherwise (see
+        :func:`_c_table_entries`)."""
+        return _c_table_entries(self.model.n_components, self.model.diag_C)
+
+    def _c_transpose_ok(self, x1: Any, x2: Any, t_max: float, *,
+                        swap: bool) -> bool:
+        """:func:`_probe_c_transpose` for this cache's κ² and σ².  ``False``
+        for a user C (``c_value_fn`` or an overridden ``_C_value_direct``),
+        whose structure is unknown."""
+        if self.c_value_fn is not None or self._direct_is_overridden():
+            return False
+        return _probe_c_transpose(self.model, x1, x2, t_max, swap=swap)
+
+    def _c_half_grid(self, x1: Any, x2: Any, t_max: float) -> bool:
+        """Whether the ``(t1, t2)`` table at positions ``(x1, x2)`` is fixed
+        by its cells with ``t2 ≥ t1``.
+
+        A diagonal table asks :meth:`_c_time_symmetric`.  A full table
+        (``diag_C=False``) uses ``C_ab(t1, t2) = C_ba(t2, t1)``, which holds
+        when κ² and σ² pass :func:`_probe_c_transpose` at these positions;
+        the mirrored cells then cost nothing.
+        """
+        if self.model.diag_C:
+            return self._c_time_symmetric()
+        return self._c_transpose_ok(x1, x2, t_max, swap=False)
+
+    def _assemble_C(self, columns: list, n: int) -> np.ndarray:
+        """One ``(n,)`` column per stored entry → ``(n, N)`` diagonals under
+        ``diag_C``, ``(n, N, N)`` matrices otherwise."""
+        N = self.model.n_components
+        entries = self._c_table_entries()
+        if self.model.diag_C:
+            out = np.empty((n, N))
+            for (a, _b), col in zip(entries, columns):
+                out[:, a] = col
+            return out
+        out = np.empty((n, N, N))
+        for (a, b), col in zip(entries, columns):
+            out[:, a, b] = col
+        return out
+
+    def _tabulate(self, shape: tuple, cells: list, mirror_index,
+                  direct_kwargs: dict, desc: str, n_jobs: int) -> list:
+        """Evaluate ``_C_value_direct`` at ``cells``; one grid of ``shape``
+        per stored entry.
+
+        Args:
+            cells: ``(index, x1, t1, x2, t2)`` per evaluated cell.
+            mirror_index: ``None``, or ``index ↦`` the cell whose C is this
+                cell's transposed (see :meth:`_c_half_grid`).  That cell is
+                filled from this one, ``C_ab`` into ``C_ba``, and should be
+                absent from ``cells``.
+        """
+        from .progress import progress_map
+
+        entries = self._c_table_entries()
+        where = {e: k for k, e in enumerate(entries)}
+
+        def _point(args):
+            idx, x1, t1, x2, t2 = args
+            C_mat = np.asarray(
+                self._C_value_direct(x1, t1, x2, t2, **direct_kwargs))
+            return idx, np.array([C_mat[a, b] for a, b in entries])
+
+        results = progress_map(_point, cells, desc, n_jobs=n_jobs, unit="cell")
+        grids = [np.zeros(shape) for _ in entries]
+        for idx, cvec in results:
+            for k in range(len(entries)):
+                grids[k][idx] = cvec[k]
+            if mirror_index is not None:
+                midx = mirror_index(idx)
+                if midx != idx:
+                    for k, (a, b) in enumerate(entries):
+                        grids[where[(b, a)]][midx] = cvec[k]
+        return grids
+
+    # ------------------------------------------------------------------ #
     # Spatial-aware extension: (t, x) coordinates via homogeneity modes
     # ------------------------------------------------------------------ #
 
@@ -2712,41 +2973,34 @@ class PropagatorCache:
 
         # Full-grid mode: build the 3-D (t1, t2, r) spline now.
         from scipy.interpolate import RegularGridInterpolator
-        from .progress import progress_map
 
-        N = m.n_components
         ts = np.linspace(t_min, t_max, n_grid_t)
         rs = np.linspace(0.0, r_max, n_grid_r)
-
-        tasks = [
-            (i, j, k, ts[i], ts[j], rs[k])
+        # A full table (diag_C=False) is filled from its t2 >= t1 half when
+        # C_ab(t1, t2; r) = C_ba(t2, t1; r) holds (probed at the first,
+        # middle and last r); a diagonal table evaluates every cell.
+        half = (not m.diag_C) and all(
+            self._c_half_grid(np.asarray(0.0), np.asarray(r), t_max)
+            for r in _probe_subset(rs))
+        # TODO(d-dim): replace scalar r with np.ndarray x_diff
+        cells = [
+            ((i, j, k), np.asarray(0.0), ts[i], np.asarray(rs[k]), ts[j])
             for i in range(n_grid_t)
             for j in range(n_grid_t)
             for k in range(n_grid_r)
+            if (not half) or j >= i
         ]
-
-        def _point(args):
-            i, j, k, t1, t2, r = args
-            # TODO(d-dim): replace scalar r with np.ndarray x_diff
-            C_mat = self._C_value_direct(
-                np.asarray(0.0), t1, np.asarray(r), t2, **direct_kwargs,
-            )
-            return i, j, k, np.array([C_mat[a, a] for a in range(N)])
-
-        results = progress_map(
-            _point, tasks, f"C table ({self._c_source_label()}, full r-grid)",
-            n_jobs=n_jobs, unit="cell",
+        grids = self._tabulate(
+            (n_grid_t, n_grid_t, n_grid_r), cells,
+            (lambda idx: (idx[1], idx[0], idx[2])) if half else None,
+            direct_kwargs,
+            f"C table ({self._c_source_label()}, full r-grid)", n_jobs,
         )
-
-        grids = [np.zeros((n_grid_t, n_grid_t, n_grid_r)) for _ in range(N)]
-        for i, j, k, cvec in results:
-            for a in range(N):
-                grids[a][i, j, k] = cvec[a]
 
         self._c_translation_splines = [
             _DiagAwareGridInterp(
                 RegularGridInterpolator(
-                (ts, ts, rs), grids[a],
+                (ts, ts, rs), g,
                 bounds_error=False, fill_value=None,
                 # Default 'linear' (set in PropagatorCache.__init__):
                 # tensor-product cubic on a steeply decaying C produces
@@ -2757,10 +3011,10 @@ class PropagatorCache:
                 method=self.interp_method,
                 ),
                 _diag_grid_interp(
-                    (ts, ts, rs), grids[a], self.interp_method,
+                    (ts, ts, rs), g, self.interp_method,
                 ),
             )
-            for a in range(N)
+            for g in grids
         ]
         self._c_translation_r_range = (0.0, r_max)
 
@@ -2834,9 +3088,7 @@ class PropagatorCache:
             return
 
         from scipy.interpolate import RegularGridInterpolator
-        from .progress import progress_map
 
-        N = m.n_components
         ts = np.linspace(t_min, t_max, n_grid_t)
         coses = np.linspace(-1.0, 1.0, n_grid_cos)
 
@@ -2854,33 +3106,31 @@ class PropagatorCache:
             s = float(np.sqrt(max(0.0, 1.0 - c * c)))
             return np.array([1.0, 0.0]), np.array([c, s])
 
-        tasks = [
-            (i, j, k, ts[i], ts[j], coses[k])
+        reps = [_rep_vectors(c) for c in coses]
+        # A full table (diag_C=False) is filled from its t2 >= t1 half when
+        # C_ab(t1, t2; cos) = C_ba(t2, t1; cos) holds (probed at the first,
+        # middle and last cos); a diagonal table evaluates every cell.
+        half = (not m.diag_C) and all(
+            self._c_half_grid(*_rep_vectors(c), t_max)
+            for c in _probe_subset(coses))
+        cells = [
+            ((i, j, k), reps[k][0], ts[i], reps[k][1], ts[j])
             for i in range(n_grid_t)
             for j in range(n_grid_t)
             for k in range(n_grid_cos)
+            if (not half) or j >= i
         ]
-
-        def _point(args):
-            i, j, k, t1, t2, cos_val = args
-            e1, e2 = _rep_vectors(cos_val)
-            C_mat = self._C_value_direct(e1, t1, e2, t2, **direct_kwargs)
-            return i, j, k, np.array([C_mat[a, a] for a in range(N)])
-
-        results = progress_map(
-            _point, tasks, f"C table ({self._c_source_label()}, full cos-grid)",
-            n_jobs=n_jobs, unit="cell",
+        grids = self._tabulate(
+            (n_grid_t, n_grid_t, n_grid_cos), cells,
+            (lambda idx: (idx[1], idx[0], idx[2])) if half else None,
+            direct_kwargs,
+            f"C table ({self._c_source_label()}, full cos-grid)", n_jobs,
         )
-
-        grids = [np.zeros((n_grid_t, n_grid_t, n_grid_cos)) for _ in range(N)]
-        for i, j, k, cvec in results:
-            for a in range(N):
-                grids[a][i, j, k] = cvec[a]
 
         self._c_rotation_splines = [
             _DiagAwareGridInterp(
                 RegularGridInterpolator(
-                (ts, ts, coses), grids[a],
+                (ts, ts, coses), g,
                 bounds_error=False, fill_value=None,
                 # Default 'linear' (set in PropagatorCache.__init__):
                 # tensor-product cubic on a steeply decaying C produces
@@ -2891,10 +3141,10 @@ class PropagatorCache:
                 method=self.interp_method,
                 ),
                 _diag_grid_interp(
-                    (ts, ts, coses), grids[a], self.interp_method,
+                    (ts, ts, coses), g, self.interp_method,
                 ),
             )
-            for a in range(N)
+            for g in grids
         ]
 
     def precompute_C_table_general(
@@ -2955,45 +3205,40 @@ class PropagatorCache:
             return
 
         from scipy.interpolate import RegularGridInterpolator
-        from .progress import progress_map
 
-        N = m.n_components
         ts = np.linspace(t_min, t_max, n_grid_t)
         xs = np.linspace(-x_max, x_max, n_grid_x)
-
-        tasks = [
-            (i, j, p, q, ts[i], ts[j], xs[p], xs[q])
+        n_x = n_grid_x
+        # A full table (diag_C=False): cell (i, j, p, q) is cell (j, i, q, p)
+        # transposed when kappa2 and sigma2 have the covariance symmetry
+        # (probed at three position pairs), so each unordered pair of (t, x)
+        # grid points is evaluated once.  A diagonal table evaluates every
+        # cell.
+        swap = (not m.diag_C) and all(
+            self._c_transpose_ok(np.asarray(xa), np.asarray(xb), t_max,
+                                 swap=True)
+            for xa, xb in ((xs[0], xs[-1]), (xs[n_x // 2], xs[0]),
+                           (xs[-1], xs[n_x // 2])))
+        # TODO(d-dim): x1, x2 would be vectors
+        cells = [
+            ((i, j, p, q), np.asarray(xs[p]), ts[i], np.asarray(xs[q]), ts[j])
             for i in range(n_grid_t)
             for j in range(n_grid_t)
-            for p in range(n_grid_x)
-            for q in range(n_grid_x)
+            for p in range(n_x)
+            for q in range(n_x)
+            if (not swap) or i * n_x + p <= j * n_x + q
         ]
-
-        def _point(args):
-            i, j, p, q, t1, t2, x1, x2 = args
-            # TODO(d-dim): x1, x2 would be vectors
-            C_mat = self._C_value_direct(
-                np.asarray(x1), t1, np.asarray(x2), t2, **direct_kwargs,
-            )
-            return i, j, p, q, np.array([C_mat[a, a] for a in range(N)])
-
-        results = progress_map(
-            _point, tasks, f"C table ({self._c_source_label()}, full x-grid)",
-            n_jobs=n_jobs, unit="cell",
+        grids = self._tabulate(
+            (n_grid_t, n_grid_t, n_x, n_x), cells,
+            (lambda idx: (idx[1], idx[0], idx[3], idx[2])) if swap else None,
+            direct_kwargs,
+            f"C table ({self._c_source_label()}, full x-grid)", n_jobs,
         )
-
-        grids = [
-            np.zeros((n_grid_t, n_grid_t, n_grid_x, n_grid_x))
-            for _ in range(N)
-        ]
-        for i, j, p, q, cvec in results:
-            for a in range(N):
-                grids[a][i, j, p, q] = cvec[a]
 
         self._c_general_interpolators = [
             _DiagAwareGridInterp(
                 RegularGridInterpolator(
-                (ts, ts, xs, xs), grids[a],
+                (ts, ts, xs, xs), g,
                 bounds_error=False, fill_value=None,
                 # Default 'linear' (set in PropagatorCache.__init__):
                 # tensor-product cubic on a steeply decaying C produces
@@ -3004,10 +3249,10 @@ class PropagatorCache:
                 method=self.interp_method,
                 ),
                 _diag_grid_interp(
-                    (ts, ts, xs, xs), grids[a], self.interp_method,
+                    (ts, ts, xs, xs), g, self.interp_method,
                 ),
             )
-            for a in range(N)
+            for g in grids
         ]
         self._c_general_axes = (ts, ts, xs, xs)
 
@@ -3206,8 +3451,8 @@ class PropagatorCache:
                 # TODO(d-dim): support (n, d).
 
         Returns:
-            Array of shape ``(n, N)`` — diagonal C values per
-            component.
+            ``(n, N)``, the diagonal C values per component, when
+            ``model.diag_C``; ``(n, N, N)``, every entry, otherwise.
         """
         t1 = np.atleast_1d(np.asarray(t1))
         t2 = np.atleast_1d(np.asarray(t2))
@@ -3253,10 +3498,8 @@ class PropagatorCache:
             if self._c_translation_splines is not None:
                 r = _r_batch(x1_b, x2_b)
                 pts = np.stack([t1, t2, r], axis=-1)
-                result = np.empty((n, N))
-                for a, itp in enumerate(self._c_translation_splines):
-                    result[:, a] = itp(pts)
-                return result
+                return self._assemble_C(
+                    [itp(pts) for itp in self._c_translation_splines], n)
             if self._lazy_translation is not None:
                 return self._lazy_lookup(
                     self._lazy_translation, t1, t2, x1_b, x2_b, N,
@@ -3265,7 +3508,7 @@ class PropagatorCache:
             # effectively ignored (r=0 assumed).  Matches behaviour
             # of users who only called the legacy
             # :meth:`precompute_C_table`.
-            return self.C_diagonal_batch(t1, t2)
+            return _time_table_C_batch(self, t1, t2)
 
         if self.homogeneity == "rotation":
             if self._c_rotation_splines is not None:
@@ -3274,10 +3517,8 @@ class PropagatorCache:
                 for k in range(n):
                     cosv[k] = _rotation_cos(x1_b[k], x2_b[k])
                 pts = np.stack([t1, t2, cosv], axis=-1)
-                result = np.empty((n, N))
-                for a, itp in enumerate(self._c_rotation_splines):
-                    result[:, a] = itp(pts)
-                return result
+                return self._assemble_C(
+                    [itp(pts) for itp in self._c_rotation_splines], n)
             if self._lazy_rotation is not None:
                 return self._lazy_lookup(
                     self._lazy_rotation, t1, t2, x1_b, x2_b, N,
@@ -3306,10 +3547,8 @@ class PropagatorCache:
                     "precompute_C_table_general) for d-dim inputs."
                 )
             pts = np.stack([t1, t2, x1_b, x2_b], axis=-1)
-            result = np.empty((n, N))
-            for a, itp in enumerate(self._c_general_interpolators):
-                result[:, a] = itp(pts)
-            return result
+            return self._assemble_C(
+                [itp(pts) for itp in self._c_general_interpolators], n)
         if self._lazy_general is not None:
             return self._lazy_lookup(
                 self._lazy_general, t1, t2, x1_b, x2_b, N,
@@ -3403,9 +3642,10 @@ class PropagatorCache:
     ) -> np.ndarray:
         """Look up C via per-parameter 2-D lazy splines, grouping
         samples by memoization key so each distinct parameter value
-        triggers at most one spline build."""
+        triggers at most one spline build.  ``(n, N)`` under ``diag_C``,
+        ``(n, N, N)`` otherwise (see :meth:`_assemble_C`)."""
         n = len(t1)
-        result = np.empty((n, N))
+        columns = [np.empty(n) for _ in self._c_table_entries()]
         keys = [lazy._make_key(x1[k], x2[k]) for k in range(n)]
         seen: dict = {}
         for k, key in enumerate(keys):
@@ -3416,9 +3656,9 @@ class PropagatorCache:
             sel = np.array(idxs)
             t1_sel = t1[sel]
             t2_sel = t2[sel]
-            for a in range(N):
-                result[sel, a] = splines[a](t1_sel, t2_sel, grid=False)
-        return result
+            for e, col in enumerate(columns):
+                col[sel] = splines[e](t1_sel, t2_sel, grid=False)
+        return self._assemble_C(columns, n)
 
 
 # ---------------------------------------------------------------------------
@@ -4540,7 +4780,7 @@ class DiagramIntegrand:
 
         def _lookup_C(sp_l, sp_r, t_l, t_r):
             if not spatial_aware:
-                return cache.C_diagonal_batch(t_l, t_r)
+                return _time_table_C_batch(cache, t_l, t_r)
             x_l = group_x[spatial.direction_map[sp_l]]  # type: ignore[index]
             x_r = group_x[spatial.direction_map[sp_r]]  # type: ignore[index]
             return cache.C_at_batch(t_l, t_r, x_l, x_r)
@@ -5152,7 +5392,7 @@ class DiagramIntegrand:
             the appropriate x-coordinate when the cache is
             spatial-aware."""
             if not spatial_aware:
-                return cache.C_diagonal_batch(t_l, t_r)
+                return _time_table_C_batch(cache, t_l, t_r)
             x_l = group_x[spatial.direction_map[sp_l]]  # type: ignore[index]
             x_r = group_x[spatial.direction_map[sp_r]]  # type: ignore[index]
             return cache.C_at_batch(t_l, t_r, x_l, x_r)
@@ -5466,7 +5706,7 @@ class DiagramIntegrand:
 
         def _lookup_C(sp_l, sp_r, t_l, t_r):
             if not spatial_aware:
-                return cache.C_diagonal_batch(t_l, t_r)
+                return _time_table_C_batch(cache, t_l, t_r)
             x_l = group_x[spatial.direction_map[sp_l]]  # type: ignore[index]
             x_r = group_x[spatial.direction_map[sp_r]]  # type: ignore[index]
             return cache.C_at_batch(t_l, t_r, x_l, x_r)
@@ -5752,6 +5992,30 @@ def _cache_has_spatial_table(cache: "PropagatorCache") -> bool:
         "_lazy_general",
     )
     return any(getattr(cache, n, None) is not None for n in names)
+
+
+def _time_table_C_batch(cache: Any, t_l: np.ndarray,
+                        t_r: np.ndarray) -> np.ndarray:
+    """C from a cache without a spatial table: ``(n, N)`` diagonals from
+    ``C_diagonal_batch``, or ``(n, N, N)`` from ``C_matrix_batch`` when the
+    model keeps the off-diagonal entries (``diag_C=False``).
+
+    Raises:
+        ValueError: if the model keeps off-diagonal entries but the cache
+            has no ``C_matrix_batch``; ``C_diagonal_batch`` would drop them.
+    """
+    model = getattr(cache, "model", None)
+    if getattr(model, "diag_C", True):
+        return cache.C_diagonal_batch(t_l, t_r)
+    full = getattr(cache, "C_matrix_batch", None)
+    if full is None:
+        raise ValueError(
+            f"{type(cache).__name__}: the propagator model keeps off-diagonal "
+            f"C entries (diag_C=False), but the cache has no C_matrix_batch, "
+            f"and C_diagonal_batch returns C_aa only, so C_ab with a != b "
+            f"would be dropped.  Give the cache a C_matrix_batch(t1, t2) -> "
+            f"(n, N, N), or a spatial table.")
+    return full(t_l, t_r)
 
 
 def integrate_moment(
@@ -6138,6 +6402,12 @@ def integrate_two_point_qmc(
             n_r = directions.get(dir_r, 0.0)
             if abs(n_l - n_r) < 1e-15:
                 c_spatial_factors.append(np.ones(model.n_components))
+            elif not getattr(model, "diag_C", True):
+                # The ratio below is per diagonal component and has no
+                # counterpart for C_ab with a != b (a dense R mixes the
+                # components even when kappa2 is diagonal).  Refused in
+                # _lookup_C when it would be used.
+                c_spatial_factors.append(None)
             else:
                 kappa_sep = model.kappa2(
                     np.array([n_l]), t_ref, np.array([n_r]), t_ref
@@ -6174,8 +6444,19 @@ def integrate_two_point_qmc(
                 x_l = group_x[sp.direction_map[sp_l]]
                 x_r = group_x[sp.direction_map[sp_r]]
                 return cache.C_at_batch(t_l, t_r, x_l, x_r)
-            return (cache.C_diagonal_batch(t_l, t_r)
-                    * c_spatial_factors[ci][np.newaxis, :])
+            factor = c_spatial_factors[ci]
+            if factor is None:
+                raise ValueError(
+                    "integrate_two_point_qmc: the cache keeps off-diagonal C "
+                    "entries (model.diag_C is False) but has no spatial "
+                    "table, and the kappa2 ratio that carries a time-only "
+                    "table to distinct positions is defined for diagonal "
+                    "components only.  Build a spatial table first "
+                    "(precompute_C_table_translation / _rotation / _general).")
+            C_t = _time_table_C_batch(cache, t_l, t_r)
+            if C_t.ndim == 3:
+                return C_t        # coincident positions: the ratio is 1
+            return C_t * factor[np.newaxis, :]
 
         # --- Zero integration variables ---
         #

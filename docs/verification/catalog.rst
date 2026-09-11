@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1868 tests** in 62 files (parametrised
+The suite has **1912 tests** in 63 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -126,7 +126,7 @@ Multiplicities and canonical forms
 Propagator numerics
 -------------------
 
-*313 tests in 10 files.*
+*355 tests in 11 files.*
 
 .. list-table::
    :header-rows: 1
@@ -182,6 +182,11 @@ Propagator numerics
      - closed form
      - recorded bounds
      - 4
+   * - ``test_offdiagonal_c_tables.py``
+     - full N x N C tables by quadrature (no closed form): every entry at r != 0 and at both time orders, convergence with the grid, the transposition that fills half of each table and a kernel that forbids it, and every C lookup (scalar loop, batched QMC and Gauss-Legendre, integrate_over, external_times, integrate_two_point_qmc, the legacy time table)
+     - Lyapunov equation of the Markov embedding (scipy only); the built-in closed form, checked against it; direct quadrature
+     - 1e-8 (embedding) / 1e-4 - 1e-3 (tables)
+     - 42
    * - ``test_propagator_dispatch.py``
      - separable-kernel shared temporal table, time-symmetric build, auto node-count selection, progress reporting
      - per-r full build; dblquad
@@ -191,7 +196,7 @@ Propagator numerics
 Integrators
 -----------
 
-*833 tests in 28 files.*
+*835 tests in 28 files.*
 
 .. list-table::
    :header-rows: 1
@@ -226,7 +231,7 @@ Integrators
      - demo 4: compound-Poisson noise asymmetric in points and in components; level A 3- and 4-point functions for every component tuple (raw on Gauss-Legendre split at declared kinks, R-contracted, unequal times); level B channels FK3, FF, FFK4 of <phi_a phi_b>
      - direct quadrature; Campbell closed form; exact Itô moment hierarchy
      - 1e-12 (levels A and B) / 1e-3 (raw QMC)
-     - 23
+     - 24
    * - ``test_demo4_order4_channel.py``
      - demo 4 at order 4: the F^3 kappa^3 channel of <phi_a phi_b> (30 diagrams), white and exponential pulses
      - exact Itô moment hierarchy at tag F^3 mu^1
@@ -236,7 +241,7 @@ Integrators
      - demo 5: white noise (ConstantImpulse matrix) with coloured noise, t_min = 0.5, the diag_C=False, diag_C=True and iso_C=True paths, orders 0-4 and 1-, 2-, 3-point functions on every integrator; multiplicative noise at L0 with two-psi vertices, scalar and matrix R
      - exact Itô moment hierarchy (Markov embedding of the coloured noise)
      - 1e-10 (GL, nquad) / 1e-12 (nquad, order 2) / 1e-3 - 1e-4 (QMC) / 1e-8 (order 4)
-     - 46
+     - 47
    * - ``test_demo6_cubic_quartic.py``
      - demo 6: a quartic (psi phi phi phi) and a cubic local vertex in one system, orders 2-3 of <phi_a> and <phi_a phi_b>, channel by channel
      - exact Itô moment hierarchy with a cubic drift term

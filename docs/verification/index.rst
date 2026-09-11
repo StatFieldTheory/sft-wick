@@ -186,6 +186,19 @@ backend.  Phase 5 verifies that:
   configurations (DD1), and is rotation-isotropic for
   translation-invariant noise (DD2).
 
+``tests/test_offdiagonal_c_tables.py`` adds the case where C is not
+component-diagonal — a dense R, a component-mixing :math:`\kappa^2`, a
+matrix :math:`\sigma^2`.  Every table then holds all :math:`N^2` entries
+:math:`C_{ab}`, filled from its ``t2 >= t1`` half through
+:math:`C_{ab}(t_1, t_2) = C_{ba}(t_2, t_1)` where the kernel admits it and
+cell by cell where it does not.  The tables are checked against the
+Lyapunov equation of the Markov embedding of the same noise, which shares
+no code with the package, at :math:`a \neq b`, at :math:`r \neq 0` and at
+both orders of the two times, together with every C lookup: the scalar
+loop, the batched QMC and Gauss-Legendre products, ``integrate_over``,
+``external_times``, ``integrate_two_point_qmc``, and the legacy time-only
+table.
+
 Phase 6 — White-noise component
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

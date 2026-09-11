@@ -61,10 +61,12 @@ def _plan():
     return plan
 
 
-def run(p):
+def run(p, quadrature: bool = False):
     system = m5.make_system(p)
     t_final = p.t_min + T
-    props = m5.propagators_for(system, p, t_max=t_final + 0.5)
+    props = (m5.quadrature_propagators_for(system, p, t_max=t_final + 0.5)
+             if quadrature else
+             m5.propagators_for(system, p, t_max=t_final + 0.5))
     flags = m5.expand_flags(p)
     labels = ("x", "y", "z")
     hier = {n: Hierarchy(p, [POS[l] for l in labels[:n]], m5.F_TENSOR)
@@ -94,12 +96,16 @@ def run(p):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", default="results.json")
+    ap.add_argument("--c-quadrature", action="store_true",
+                    help="take C from quadrature tables instead of the "
+                         "closed form (the mixing variant then tabulates "
+                         "every C_ab); accuracy is the table's")
     args = ap.parse_args()
     out = {}
     for name in m5.VARIANTS:
         p = m5.variant(name)
         t0 = time.perf_counter()
-        rows = run(p)
+        rows = run(p, quadrature=args.c_quadrature)
         secs = time.perf_counter() - t0
         worst: dict = {}
         for r in rows:

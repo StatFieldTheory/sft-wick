@@ -104,8 +104,9 @@ class PropagatorsConfig:
     c_method: str = "auto"
     c_n_gauss: int = 20  # nodes per dim under c_method='gauss_legendre'
     diag_C: bool = True  # set False to preserve off-diagonal C entries
-    #                       (e.g. lensing kappa-gamma_+ cross). Requires
-    #                       c_closed_form_only=True. When False, also
+    #                       (e.g. lensing kappa-gamma_+ cross, a dense R,
+    #                       a mixing noise); the C tables then hold every
+    #                       C_ab. When False, also
     #                       sets expand.diag_C=False so the symbolic
     #                       simplification keeps the (a, b) observable
     #                       indices distinct -- without that step the

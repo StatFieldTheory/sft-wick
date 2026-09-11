@@ -47,7 +47,11 @@ package.  It uses no sft-wick code.
 
 The noise mixes the components, so C has off-diagonal entries; the
 propagators come from the closed form (`c_closed_form_only=True`,
-`diag_C=False`), which is `K_R` at `m = 2`.
+`diag_C=False`), which is `K_R` at `m = 2`.  `level_b.py --c-quadrature`
+runs the same channels with C tabulated by quadrature instead, which needs
+no closed form: order 0 and FF then land within 2.0e-07 and 3.4e-03 of the
+hierarchy (white pulses, 21 time points) and within 2.4e-07 and 1.2e-05
+(exponential pulses, 17 points).
 
 ## Results
 

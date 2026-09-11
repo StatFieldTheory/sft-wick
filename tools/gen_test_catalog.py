@@ -133,6 +133,17 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Propagator numerics",
         "off-diagonal C entries with diag_C=false",
         "closed-form cross-correlation", "1e-8"),
+    "tests/test_offdiagonal_c_tables.py": (
+        "Propagator numerics",
+        "full N x N C tables by quadrature (no closed form): every entry "
+        "at r != 0 and at both time orders, convergence with the grid, the "
+        "transposition that fills half of each table and a kernel that "
+        "forbids it, and every C lookup (scalar loop, batched QMC and "
+        "Gauss-Legendre, integrate_over, external_times, "
+        "integrate_two_point_qmc, the legacy time table)",
+        "Lyapunov equation of the Markov embedding (scipy only); the "
+        "built-in closed form, checked against it; direct quadrature",
+        "1e-8 (embedding) / 1e-4 - 1e-3 (tables)"),
     "tests/test_spectral.py": (
         "Spectral propagators",
         "disorder-averaged R*, C* from a spectral density; averaging; "
