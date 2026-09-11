@@ -2,82 +2,6 @@
 
 ## Unreleased
 
-### Fixed: a pinned observable component label was ignored in the diag_C fast path
-
-`DiagramIntegrand.evaluate` routes to `_evaluate_diag_fast` when the cache
-model is `iso_R` + `diag_C` and the diagram carries propagator summation
-indices.  That path resolved a C propagator's component label with
-`_resolve_component(idx_name, {})` -- an empty map -- whenever the label was
-not one of those summation indices.  An observable label pinned through
-`fixed_indices` (the `a`, `b` of `<φ_a(x) φ_b(y)>`) therefore resolved to
-`None`, and the propagator contributed `c_diag.sum()`, every component,
-instead of `c_diag[fixed_indices[label]]`.  `_evaluate_general` and the
-batched backends merge `fixed_indices` into the index map and were right.
-
-Only the scalar loop reached it: `method='qmc_scalar'`; `method='qmc'`,
-because `integrate_moment` auto-selects the scalar loop whenever
-`_cache_supports_batch_c(cache)` is false, as it is for a cache holding only
-spatial (rotation / translation / general) tables and no legacy `_c_splines`;
-`method='nquad'`; a direct `DiagramIntegrand.evaluate`; and
-`make_scipy_integrand`.  The L1 `Expansion.evaluate` and YAML `sweep.method`
-default is `qmc_vectorized`, which is correct.
-
-Order-2 `<φ_a(x) φ_b(y)>` for a 2-component field with one cubic local vertex
-and rotation-homogeneous noise -- 4 of its 6 diagram terms carry `a` or `b`
-on a C propagator alongside a summation index.  `t_final = 1`, `n_samples =
-2**10`, `seed = 3`, the fixture of `tests/test_diag_fast_component_labels.py`:
-
-| (a, b) | `qmc_scalar` / `qmc`, 0.4.2 | all backends, now | 0.4.2 error |
-|---|---|---|---|
-| (0, 0) | 2.834850e-02 | 2.416321e-02 | 17.3% |
-| (0, 1) | 2.809094e-02 | 1.581779e-02 | 77.6% |
-| (1, 1) | 9.275227e-03 | 7.065476e-03 | 31.3% |
-
-`qmc_vectorized` and `gauss_legendre` returned the right column on 0.4.2 and
-are unchanged.  The scalar loop now agrees with `qmc_vectorized` to round-off
-at the same seed (at most 1 ulp, 1.4e-16 relative, across the three pairs);
-`gauss_legendre` and `nquad`, different rules, agree to 1.3e-05 and 9.4e-05
-relative.
-
-The same loop read `il` and ignored `ir`.  Under `diag_C`,
-`C_{ab} = δ_{ab} c_diag[a]`, so the two legs are tied by a Kronecker delta.
-`apply_diagonal(diag_C=True)` merges them into one name, so the L1 pipeline
-never exposed this, but a term expanded without `diag_C` and evaluated
-against a `diag_C` cache still arrives with `il != ir`, and dropping the
-delta keeps a cross-component term that `_evaluate_general` and
-`_select_C_batch` both set to zero.  The fast path now resolves both legs and
-carries the delta across all four leg classes: two summation axes (equal or
-distinct), a summation axis and a pinned label, and two pinned labels.  Of 66
-leg pairings on the fixture's terms, 39 disagreed with `_evaluate_general` on
-0.4.2 and none do now.
-
-**No published number changes.**  Every script, notebook and YAML under
-`examples/` was checked.  The L2 configs use `gauss_legendre` or
-`qmc_vectorized` (or omit `method:`, whose default is `qmc_vectorized`);
-`examples/demo1/validate_phase5.py` passes `method='qmc_vectorized'`;
-`demo3/level_a.py` and `level_b.py` pass `method='gauss_legendre'`;
-`paper_assets/demo2_kappa4/run_budget.py` passes `gauss_legendre` at every
-call site; `paper_assets/table1/generate_table1.py` is symbolic and
-integrates nothing; and every `expansion.evaluate` / `expansion.sweep` call
-in `examples/` omits `method`, taking the `qmc_vectorized` default.  The
-hand-written `integrate_gl` in `demo1/analysis.ipynb` and
-`demo2/analysis.ipynb` is the only caller of `DiagramIntegrand.evaluate`, and
-only in its `d == 0` branch: across the 106 (demo 1, orders 2 and 4) and 112
-(demo 2, FF orders 2 and 4, FK order 2) integrands those notebooks feed it,
-none has zero time-integration variables, so the branch never fires.  The
-`method='qmc'` in `demo1/analysis.ipynb` is that notebook's own switch onto
-the batched `integrate_two_point_qmc`.
-
-`integrate_moment(method='qmc')` still treats a spatial-table cache as not
-batch-capable, so it keeps routing such a cache to the scalar loop.  That is
-now a cost in speed only -- measured at 125x on the fixture above (7.59 s vs
-0.06 s), with a bit-identical result.  `_cache_supports_batch_c` is a
-deliberate handshake on `_c_splines` that custom caches opt into and out of,
-and widening it would silently override an explicit opt-out and change which
-backend every existing `method='qmc'` caller runs on.  The limitation is
-documented on `integrate_moment` instead; pass `method='qmc_vectorized'`
-explicitly for spatial caches.
-
 ### Fixed: a callable non-local coupling was evaluated at one leg order
 
 A non-local vertex enters a diagram through a coupling sum with one term per
@@ -159,6 +83,82 @@ differ from the correct one by more than 1e-2.  On 0.4.2, 42 cases fail; the
 29 that pass are the two point-symmetric controls, the kernel-symmetry checks
 and the static-coupling control.
 
+### Fixed: a pinned observable component label was ignored in the diag_C fast path
+
+`DiagramIntegrand.evaluate` routes to `_evaluate_diag_fast` when the cache
+model is `iso_R` + `diag_C` and the diagram carries propagator summation
+indices.  That path resolved a C propagator's component label with
+`_resolve_component(idx_name, {})` -- an empty map -- whenever the label was
+not one of those summation indices.  An observable label pinned through
+`fixed_indices` (the `a`, `b` of `<φ_a(x) φ_b(y)>`) therefore resolved to
+`None`, and the propagator contributed `c_diag.sum()`, every component,
+instead of `c_diag[fixed_indices[label]]`.  `_evaluate_general` and the
+batched backends merge `fixed_indices` into the index map and were right.
+
+Only the scalar loop reached it: `method='qmc_scalar'`; `method='qmc'`,
+because `integrate_moment` auto-selects the scalar loop whenever
+`_cache_supports_batch_c(cache)` is false, as it is for a cache holding only
+spatial (rotation / translation / general) tables and no legacy `_c_splines`;
+`method='nquad'`; a direct `DiagramIntegrand.evaluate`; and
+`make_scipy_integrand`.  The L1 `Expansion.evaluate` and YAML `sweep.method`
+default is `qmc_vectorized`, which is correct.
+
+Order-2 `<φ_a(x) φ_b(y)>` for a 2-component field with one cubic local vertex
+and rotation-homogeneous noise -- 4 of its 6 diagram terms carry `a` or `b`
+on a C propagator alongside a summation index.  `t_final = 1`, `n_samples =
+2**10`, `seed = 3`, the fixture of `tests/test_diag_fast_component_labels.py`:
+
+| (a, b) | `qmc_scalar` / `qmc`, 0.4.2 | all backends, now | 0.4.2 error |
+|---|---|---|---|
+| (0, 0) | 2.834850e-02 | 2.416321e-02 | 17.3% |
+| (0, 1) | 2.809094e-02 | 1.581779e-02 | 77.6% |
+| (1, 1) | 9.275227e-03 | 7.065476e-03 | 31.3% |
+
+`qmc_vectorized` and `gauss_legendre` returned the right column on 0.4.2 and
+are unchanged.  The scalar loop now agrees with `qmc_vectorized` to round-off
+at the same seed (at most 1 ulp, 1.4e-16 relative, across the three pairs);
+`gauss_legendre` and `nquad`, different rules, agree to 1.3e-05 and 9.4e-05
+relative.
+
+The same loop read `il` and ignored `ir`.  Under `diag_C`,
+`C_{ab} = δ_{ab} c_diag[a]`, so the two legs are tied by a Kronecker delta.
+`apply_diagonal(diag_C=True)` merges them into one name, so the L1 pipeline
+never exposed this, but a term expanded without `diag_C` and evaluated
+against a `diag_C` cache still arrives with `il != ir`, and dropping the
+delta keeps a cross-component term that `_evaluate_general` and
+`_select_C_batch` both set to zero.  The fast path now resolves both legs and
+carries the delta across all four leg classes: two summation axes (equal or
+distinct), a summation axis and a pinned label, and two pinned labels.  Of 66
+leg pairings on the fixture's terms, 39 disagreed with `_evaluate_general` on
+0.4.2 and none do now.
+
+**No published number changes.**  Every script, notebook and YAML under
+`examples/` was checked.  The L2 configs use `gauss_legendre` or
+`qmc_vectorized` (or omit `method:`, whose default is `qmc_vectorized`);
+`examples/demo1/validate_phase5.py` passes `method='qmc_vectorized'`;
+`demo3/level_a.py` and `level_b.py` pass `method='gauss_legendre'`;
+`paper_assets/demo2_kappa4/run_budget.py` passes `gauss_legendre` at every
+call site; `paper_assets/table1/generate_table1.py` is symbolic and
+integrates nothing; and every `expansion.evaluate` / `expansion.sweep` call
+in `examples/` omits `method`, taking the `qmc_vectorized` default.  The
+hand-written `integrate_gl` in `demo1/analysis.ipynb` and
+`demo2/analysis.ipynb` is the only caller of `DiagramIntegrand.evaluate`, and
+only in its `d == 0` branch: across the 106 (demo 1, orders 2 and 4) and 112
+(demo 2, FF orders 2 and 4, FK order 2) integrands those notebooks feed it,
+none has zero time-integration variables, so the branch never fires.  The
+`method='qmc'` in `demo1/analysis.ipynb` is that notebook's own switch onto
+the batched `integrate_two_point_qmc`.
+
+`integrate_moment(method='qmc')` still treats a spatial-table cache as not
+batch-capable, so it keeps routing such a cache to the scalar loop.  That is
+now a cost in speed only -- measured at 125x on the fixture above (7.59 s vs
+0.06 s), with a bit-identical result.  `_cache_supports_batch_c` is a
+deliberate handshake on `_c_splines` that custom caches opt into and out of,
+and widening it would silently override an explicit opt-out and change which
+backend every existing `method='qmc'` caller runs on.  The limitation is
+documented on `integrate_moment` instead; pass `method='qmc_vectorized'`
+explicitly for spatial caches.
+
 ### Fixed: L0 terms evaluated against a cache with the other kind of R
 
 `compute_moment` writes an R propagator with two component indices, `R_{a i}`
@@ -217,23 +217,6 @@ Locked by `tests/test_r_cache_mismatch.py` (80 cases): the correct value for
 matching pairs on every backend and entry point, each refusal above, the
 order-0 response function `<φ_a ψ_b> = δ_ab`, N = 1, the L1 overrides, and a
 refusal on the `n_jobs` path before any joblib worker starts.
-
-### Tests: the argument shapes a callable coupling receives
-
-`tests/test_dynamic_coupling.py` gains WF9 (18 cases), which records the
-arguments a callable non-local coupling receives and checks their shapes on
-`gauss_legendre`, `qmc_vectorized` and `qmc_scalar`, for scalar, 2-D and 3-D
-leg positions under both contracts.  Positions arrive as `(m,)` or `(m, d)`
-per sample and as `(m, n_samples)` or `(m, n_samples, d)` under
-`coupling_vectorized=True`; times as `(m,)` or `(m, n_samples)`.
-`qmc_scalar` passes a vectorised callable one sample at a time, so there
-`n_samples` is 1.  Each case also requires the FK total to equal the
-per-sample, scalar-position total of the same method to 1e-12.
-
-WF8, which runs the same system with 3-D positions, checks only for a finite
-nonzero total.  It still passed with the positions reduced to their norms
-before they reached the callable; WF9 fails in its 12 vector cases under that
-change, and in the same 12 when the positions are zeroed.
 
 ### Fixed: two R propagators between the same two points shared one set of component indices
 
@@ -372,6 +355,23 @@ on the forced fallback, the FK total against the batched one to 1e-12.  On
 the previous code the four `evaluate_at_batch` cases fail and the
 `qmc_scalar` case passes; with the fallback loop reading sample `s - 1` for
 sample `s`, the two fallback cases fail.
+
+### Tests: the argument shapes a callable coupling receives
+
+`tests/test_dynamic_coupling.py` gains WF9 (18 cases), which records the
+arguments a callable non-local coupling receives and checks their shapes on
+`gauss_legendre`, `qmc_vectorized` and `qmc_scalar`, for scalar, 2-D and 3-D
+leg positions under both contracts.  Positions arrive as `(m,)` or `(m, d)`
+per sample and as `(m, n_samples)` or `(m, n_samples, d)` under
+`coupling_vectorized=True`; times as `(m,)` or `(m, n_samples)`.
+`qmc_scalar` passes a vectorised callable one sample at a time, so there
+`n_samples` is 1.  Each case also requires the FK total to equal the
+per-sample, scalar-position total of the same method to 1e-12.
+
+WF8, which runs the same system with 3-D positions, checks only for a finite
+nonzero total.  It still passed with the positions reduced to their norms
+before they reached the callable; WF9 fails in its 12 vector cases under that
+change, and in the same 12 when the positions are zeroed.
 
 ## 0.4.2 — 2026-09-03
 
