@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1391 tests** in 50 files (parametrised
+The suite has **1392 tests** in 50 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -191,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*593 tests in 20 files.*
+*594 tests in 20 files.*
 
 .. list-table::
    :header-rows: 1
@@ -218,10 +218,10 @@ Integrators
      - 1e-6 - 2e-2 (measured per configuration)
      - 16
    * - ``test_demo4_asymmetric_noise.py``
-     - demo 4: compound-Poisson noise asymmetric in points and in components; level A 3- and 4-point functions for every component tuple (raw, R-contracted, unequal times); level B channels FK3, FF, FFK4 of <phi_a phi_b>
+     - demo 4: compound-Poisson noise asymmetric in points and in components; level A 3- and 4-point functions for every component tuple (raw on Gauss-Legendre split at declared kinks, R-contracted, unequal times); level B channels FK3, FF, FFK4 of <phi_a phi_b>
      - direct quadrature; Campbell closed form; exact Itô moment hierarchy
-     - 1e-12 (level A) / 1e-7 (level B) / 1e-3 (raw QMC)
-     - 22
+     - 1e-12 (levels A and B) / 1e-3 (raw QMC)
+     - 23
    * - ``test_demo5_white_noise.py``
      - demo 5: white noise (ConstantImpulse matrix) with coloured noise, t_min = 0.5, the diag_C=False, diag_C=True and iso_C=True paths, orders 0-4 and 1-, 2-, 3-point functions on every integrator; multiplicative noise at L0 with two-psi vertices, scalar and matrix R
      - exact Itô moment hierarchy (Markov embedding of the coloured noise)

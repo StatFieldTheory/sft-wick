@@ -248,10 +248,11 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Integrators",
         "demo 4: compound-Poisson noise asymmetric in points and in "
         "components; level A 3- and 4-point functions for every component "
-        "tuple (raw, R-contracted, unequal times); level B channels FK3, "
-        "FF, FFK4 of <phi_a phi_b>",
+        "tuple (raw on Gauss-Legendre split at declared kinks, "
+        "R-contracted, unequal times); level B channels FK3, FF, FFK4 of "
+        "<phi_a phi_b>",
         "direct quadrature; Campbell closed form; exact Itô moment "
-        "hierarchy", "1e-12 (level A) / 1e-7 (level B) / 1e-3 (raw QMC)"),
+        "hierarchy", "1e-12 (levels A and B) / 1e-3 (raw QMC)"),
     "tests/test_demo5_white_noise.py": (
         "Integrators",
         "demo 5: white noise (ConstantImpulse matrix) with coloured noise, "

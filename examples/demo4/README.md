@@ -57,7 +57,7 @@ Maximum relative difference over the component tuples (`level_a.py`,
 | level A | white pulses | exponential pulses |
 |---|---|---|
 | 3-point, R-contracted vs closed form | 1.4e-16 | 4.7e-15 |
-| 3-point, raw vs closed form | 6.6e-16 (GL 16) | 2.9e-5 (QMC 2¹⁸) |
+| 3-point, raw vs closed form | 6.6e-16 (GL 16) | 2.2e-14 (GL 16) |
 | 3-point, hierarchy vs closed form | 5.0e-16 | 2.3e-14 |
 | 3-point at unequal times, R-contracted | 2.3e-16 | 3.7e-16 |
 | connected 4-point, R-contracted | 4.4e-16 | 1.8e-14 |
@@ -68,24 +68,45 @@ Maximum relative difference over the component tuples (`level_a.py`,
 | order 0 | 1.1e-16 | 4.2e-16 |
 | FK3 | 4.5e-16 | 2.8e-15 |
 | FF | 7.4e-16 | 5.6e-15 |
-| FFK4 | 1.3e-15 | 4.0e-9 |
+| FFK4 | 1.3e-15 | 8.3e-15 |
 | tadpole `⟨φ_a⟩` | 2.1e-16 | 1.9e-15 |
 
 On `817375f` (0.4.2 plus documentation, before the leg-order fix) level A is
 46.8 % off on every route: the R-contracted and raw white-pulse routes and
 the R-contracted exponential route.
 
+## Kinks
+
+The raw exponential kernel `G_a(t)` depends on the smallest leg time, and
+`K_R` on the smallest partner time, so both are kinked where two of their
+time arguments cross.  `RawKappa` and `RContractedKappa` declare
+`has_coincident_time_kinks = True`, and Gauss-Legendre splits the time
+domain at every pair of those times that a diagram leaves unordered: the
+three leg times of the raw level-A diagram (6 pieces), and the two F-vertex
+partners in the FFK4 diagrams that have them (2 pieces).  Maximum relative
+difference over the component tuples, exponential pulses:
+
+| channel | nodes | not split | split |
+|---|---|---|---|
+| level A, raw | 16 / 32 | 5.7e-2 / 1.5e-2 | 2.2e-14 / 3.2e-14 |
+| level B, FFK4 | 16 / 24 / 32 | 4.3e-8 / 4.0e-9 / 7.4e-10 | 6.3e-15 / 8.3e-15 / 4.4e-15 |
+
+Before the split the raw exponential route was checked on QMC only
+(8.3e-4 at 2¹⁴ samples, 2.9e-5 at 2¹⁸); QMC is not split.  The declaration
+changes no other number: the white-pulse routes, level A's R-contracted
+route, and level B's order 0, FK3, FF and tadpole are bit-identical.  For
+white pulses the raw vertex is `equal_time`, its legs share one time, and
+the declaration has no effect.
+
 ## Limits, measured
 
-- The raw exponential kernel `G_a(t)` depends on the smallest leg time, so
-  its integrand is kinked where two leg times cross.  Gauss-Legendre
-  converges as `n^-2` on it: 5.7e-2, 1.5e-2, 3.7e-3, 1.7e-3 at 16, 32,
-  64, 96 nodes; QMC reaches 8.3e-4 at 2¹⁴ samples and 2.9e-5 at 2¹⁸.  The
-  R-contracted route is exact.
-- The R-contracted `K_R` also depends on the smallest partner time.  In
-  FFK4 two partners are F-vertex times, so that channel keeps an algebraic
-  rate (3.1e-8 at 16 nodes, 5.4e-10 at 32) for exponential pulses; for
-  white pulses level B uses the raw `equal_time` vertex, which is smooth.
+- The split pairs integration times only.  At unequal external times a
+  leg time in a piece is bounded above by the smaller of its own external
+  time and the next leg time, and that bound is kinked where the next leg
+  time crosses the external time.  The raw exponential 3-point function at
+  external times (1.7, 1.2, 0.6) is 1.4e-3 off at 16 nodes and 2.1e-4 at
+  64, so level A checks the raw route at equal times; the R-contracted
+  route has no time integral and is exact at unequal times.
 - White noise kinks C on its time diagonal.  Gauss-Legendre splits the
   domain there (see the CHANGELOG); without the split, white-pulse FF was
   7.9e-5 off at 64 nodes.
@@ -102,7 +123,7 @@ the R-contracted exponential route.
 ```bash
 conda activate sft-wick
 cd examples/demo4
-python level_a.py      # ~5 s
+python level_a.py      # ~1 s
 python level_b.py      # ~2 s
 pytest ../../tests/test_demo4_asymmetric_noise.py -q
 ```
