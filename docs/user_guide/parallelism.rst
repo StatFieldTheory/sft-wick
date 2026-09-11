@@ -22,7 +22,7 @@ Layer                                       YAML knob                      What 
                                                                           ``integrate_diagrams``
 **L3 — sweep grid points**                  ``sweep.n_jobs``              Cartesian product of
                                                                           ``positions × t_final ×
-                                                                          component_pairs``
+                                                                          component_tuples``
 **L4 — topology canonicalisation**          (no YAML key yet)             Inside
                                                                           ``compute_moment_numerical``
                                                                           when the topology list is

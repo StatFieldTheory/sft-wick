@@ -68,7 +68,7 @@ class CostEstimate:
             + ", ".join(f"order {o}: {n}" for o, n in self.diagrams_per_order.items())
             + f"  (total {n_diag})",
             f"[sft-wick]   grid points: {self.n_grid_points} "
-            f"(positions x t_final x external times x component pairs); "
+            f"(positions x t_final x external times x component tuples); "
             f"distinct separations: {self.n_distinct_separations}",
             f"[sft-wick]   integrator: {self.sweep_method}, "
             + (f"n_samples={self.n_samples} per diagram per grid point"
@@ -156,10 +156,18 @@ def _estimate(cfg, bench_seconds, build_system, load_c) -> CostEstimate:
                if vt is None or expansion._vertex_type_label(dt) in vt)
         for o in orders
     }
+    # The component axis, checked against the observable exactly as the
+    # sweep will check it, so a dry run reports a wrong tuple length.
+    from .expansion import _resolve_component_tuples
+
+    comps = _resolve_component_tuples(
+        None, sw.component_tuples, expansion.observable_repr,
+        system.n_components, "sweep.component_tuples",
+    )
     n_pos = int(np.prod([len(v) for v in sw.positions_grid.values()]))
     n_et = int(np.prod([len(v) for v in (sw.external_times_grid or {}).values()])) \
         if sw.external_times_grid else 1
-    n_grid = n_pos * len(sw.t_final_grid) * n_et * len(sw.component_pairs)
+    n_grid = n_pos * len(sw.t_final_grid) * n_et * len(comps)
     n_sep = _distinct_separations(sw.positions_grid)
 
     # Resolve the C path exactly as the run would (lazy mode builds
@@ -224,7 +232,7 @@ def _estimate(cfg, bench_seconds, build_system, load_c) -> CostEstimate:
     def _evaluate(o, n):
         return expansion.evaluate(
             bench_props, positions=pos, t_final=t_f, external_times=et,
-            component_pair=tuple(sw.component_pairs[0]), orders=[o],
+            component_pair=comps[0], orders=[o],
             vertex_types=sw.vertex_types, integrate_over=sw.integrate_over,
             method=sw.method, n_samples=n, seed=sw.seed, n_gauss=sw.n_gauss,
         )

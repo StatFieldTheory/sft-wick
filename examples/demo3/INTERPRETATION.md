@@ -195,10 +195,13 @@ behaviour, so nothing needs editing at the rebase.
    `_sum_coupling_batched`.  Demo 3 uses `N = 2` throughout (level B needs
    it anyway).  Fixed in `b737bf3`; verified against the merged tree, where
    the `N = 1` level-A 3-point function reproduces the closed form exactly.
-3. **`Expansion.sweep` is 2-point only** (`for (a, b) in
-   component_pairs`), so level A cannot be driven from the L2 CLI even
-   though `Expansion.evaluate` accepts a triple.  Both YAML configs are
-   therefore level B.
+3. **`Expansion.sweep` was 2-point only** (`for (a, b) in
+   component_pairs`), so level A could not be driven from the L2 CLI even
+   though `Expansion.evaluate` accepts a triple.  Both YAML configs here
+   are therefore level B.  The sweep now takes `component_tuples`, one
+   index per observable operator, and
+   `tests/test_yaml_spec_coverage.py::test_YC2_custom_spatial_kernel_runs_demo3_level_a_from_yaml`
+   runs level A from a YAML config.
 4. **`to_feynman_diagram()` UID collision** for the 3-point / order-1 /
    `K3`-only expansion: observable operators and the vertex instance are
    both allocated uids 0,1,2.  Affects *rendering only* — the level-A
