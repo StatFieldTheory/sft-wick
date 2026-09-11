@@ -452,6 +452,31 @@ cumulant, is invisible to the package and keeps the algebraic rate
 the orientations are the linear extensions of the causal order, and
 white-noise order 2 matches the hierarchy to 1e-11 at 16 nodes.
 
+### Added: demo 4, cumulants asymmetric in points and in components
+
+`examples/demo4/`: compound-Poisson noise whose events drive both
+components with their own amplitude (one negative), width and time profile
+(white or exponential pulses), so every cumulant is symmetric only under
+joint permutations of (component, point) pairs; `F` has no index symmetry.
+In demos 1-3 every cumulant was `δ_{a…}` times a point-symmetric function,
+the configuration in which the leg-order defect of 0.4.2 gave the right
+answer.
+
+- Level A (`F = 0`): the package's 3- and 4-point functions, for every
+  component tuple at distinct points and also at unequal times, against
+  Campbell's closed form: 1.4e-16 to 1.8e-14 on the R-contracted routes and
+  the white-pulse raw route; the raw exponential kernel is kinked where two
+  leg times cross, and QMC at 2^18 samples reaches 2.9e-5.
+- Level B (`F ≠ 0`): `⟨φ_a(x) φ_b(y)⟩` channel by channel (order 0, FK3, FF,
+  FFK4) and the tadpole, against an exact moment hierarchy of the Markov
+  process at the observation points (`examples/demo4/reference.py` on
+  `examples/reference/ito_moments.py`, no sft-wick code): at most 1.3e-15
+  for white pulses and 5.6e-15 for exponential pulses, except FFK4 at
+  4.0e-9 (a kink inside the R-contracted callable).
+
+On `817375f`, before the leg-order fix, level A is 46.8 % off on every route.
+Locked by `tests/test_demo4_asymmetric_noise.py`.
+
 ### Performance: a per-sample callable coupling is called once per sample
 
 `DynamicCouplingPromise.evaluate_at_batch`, which `qmc_vectorized` and
