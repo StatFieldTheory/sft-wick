@@ -192,15 +192,18 @@ equal points :math:`R(x,x) = 0`, and causal R-loops are eliminated.
 .. note::
 
    ``ito=False`` is a **symbolic** switch.  It keeps the equal-point R
-   terms in the expression tree, but it does not change any *number*:
-   the numerical layer applies :math:`\Theta(0)=0` everywhere, and
-   sft-wick does not generate the Stratonovich functional Jacobian
-   :math:`-\tfrac{1}{2}\int\mathrm{d}s\,\partial F/\partial\phi`.
-   Those two omissions cancel, and for additive noise the Itô and
-   Stratonovich answers coincide, so ``ito=False`` evaluates to the same
-   — correct — value as ``ito=True``.  Setting :math:`\Theta(0)=1/2`
-   without also emitting the Jacobian would inject an error growing
-   without bound in the final time.
+   terms in the expression tree; the numerical layer applies
+   :math:`\Theta(0)=0` everywhere, so it computes the Itô SDE.  On a
+   vertex with one ψ leg that is exact — sft-wick emits neither the
+   equal-point term nor the Stratonovich functional Jacobian
+   :math:`-\tfrac{1}{2}\int\mathrm{d}s\,\partial F/\partial\phi` that
+   cancels it, and the number equals the ``ito=True`` one.  On a vertex
+   with two or more ψ legs (multiplicative noise), or between two
+   external operators, the two readings differ and the numerical layer
+   raises instead of returning the Itô value; see
+   :doc:`user_guide/perturbative_expansion`.  Setting
+   :math:`\Theta(0)=1/2` without also emitting the Jacobian would inject
+   an error growing without bound in the final time.
 
 **Response phase** (``response_phase=True``): each term is multiplied by
 :math:`(-\mathrm{i})^n` where *n* counts response propagators,
