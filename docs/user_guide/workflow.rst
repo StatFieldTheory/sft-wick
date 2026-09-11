@@ -275,8 +275,9 @@ are supported.
        ],
    )
 
-The runtime calls ``k3_coupling`` once per QMC sample and leg order
-(see *Leg order* below).
+The runtime calls ``k3_coupling`` for every integration point (a
+QMC sample or a Gauss-Legendre node) and leg order (see *Leg
+order* below).
 
 **Vectorised contract** (opt-in, fast for heavy callables)::
 
