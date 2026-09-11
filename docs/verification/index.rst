@@ -202,8 +202,10 @@ Phase 7 — Dynamic non-local coupling
 and demo2 validation.*
 
 Non-local vertices with callable coupling tensors are routed
-through :class:`~sft_wick.evaluate.DynamicCouplingPromise` inside
-``integrate_moment_qmc_vectorized``. Two contracts are supported:
+through :class:`~sft_wick.evaluate.DynamicCouplingPromise` by
+``integrate_moment_qmc_vectorized``, ``integrate_moment_gauss_legendre``,
+``integrate_moment_qmc`` and the zero-dimensional path (no time
+variable left to integrate). Two contracts are supported:
 
 * ``fn(n_list, t_list) → tensor`` -- per-sample call (default).
 * ``fn(n_2d, t_2d) → (n_samples, ...)`` when the user opts in via
@@ -212,8 +214,9 @@ through :class:`~sft_wick.evaluate.DynamicCouplingPromise` inside
 
 Locked invariants:
 
-* **DC1** -- prop-indexed dynamic coupling raises
-  ``NotImplementedError`` (the v1 limitation).
+* **DC1** -- a constant callable κ^(3) and the same constant tensor
+  agree on every order-4 FK diagram, including the propagator-indexed
+  ones (rel 1e-12).
 * **WF6** -- a constant callable κ^(3) routed through the dynamic
   path produces the same FK total as the same constant tensor on
   the static fast path (rtol 1e-10).
