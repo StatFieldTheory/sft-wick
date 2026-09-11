@@ -3674,29 +3674,83 @@ class DiagramIntegrand:
             n_r = directions.get(dir_r, directions.get(sp_r))
             c_diag = cache.C_diagonal(n_l, times[sp_l], n_r, times[sp_r])
 
-            # Diagonal: il == ir (after apply_diagonal).  Find the axis.
-            idx_name = il  # = ir for diagonal propagators
-            if idx_name is None:
-                # Isotropic C (iso_C): no index → scalar trace
+            ax_l, val_l = self._diag_c_leg(il, idx_name_to_axis)
+            ax_r, val_r = self._diag_c_leg(ir, idx_name_to_axis)
+
+            # A leg that is neither a summation axis nor a pinned component
+            # — ``None`` under iso_C, or a name nothing resolves — makes the
+            # propagator contract to its trace, matching the ``C_mat.trace()``
+            # fallback in :meth:`_evaluate_general` and the ``a is None``
+            # branch of :func:`_select_C_batch`.
+            if (ax_l is None and val_l is None) \
+                    or (ax_r is None and val_r is None):
                 contracted = contracted * c_diag.sum()
                 continue
-            axis = idx_name_to_axis.get(idx_name)
-            if axis is None:
-                # Literal index (e.g. '1') not in summation — resolve directly
-                a = DiagramIntegrand._resolve_component(idx_name, {})
-                if a is not None:
-                    contracted = contracted * c_diag[a]
-                else:
-                    contracted = contracted * c_diag.sum()
-                continue
 
-            # Broadcast c_diag along the correct axis
+            # ``diag_C`` ⇒ ``C_{ab} = δ_{ab} c_diag[a]``, so the two legs are
+            # tied by a Kronecker delta.  ``apply_diagonal(diag_C=True)``
+            # merges them into one name, but a term expanded WITHOUT diag_C
+            # and evaluated against a diag_C cache still arrives with
+            # ``il != ir``; using ``il`` alone then keeps a cross-component
+            # term that every other backend sets to zero.
             shape = [1] * n_axes
-            shape[axis] = len(c_diag)
-            contracted = contracted * c_diag.reshape(shape)
+            if ax_l is not None and ax_r is not None:
+                if ax_l == ax_r:
+                    shape[ax_l] = len(c_diag)
+                    factor = c_diag.reshape(shape)
+                else:
+                    # δ across two distinct summation axes.  ``np.diag`` is
+                    # symmetric, so the axis order of the reshape is
+                    # immaterial.
+                    shape[ax_l] = shape[ax_r] = len(c_diag)
+                    factor = np.diag(c_diag).reshape(shape)
+            elif ax_l is not None or ax_r is not None:
+                # One summed leg, one pinned: δ collapses the sum to the
+                # single assignment where the summation index equals the pin.
+                axis = ax_l if ax_l is not None else ax_r
+                pinned = val_r if ax_l is not None else val_l
+                one_hot = np.zeros_like(c_diag)
+                one_hot[pinned] = c_diag[pinned]
+                shape[axis] = len(c_diag)
+                factor = one_hot.reshape(shape)
+            else:
+                # Both legs pinned (observable labels like ``a``/``b``, or
+                # 1-indexed literals).
+                factor = c_diag[val_l] if val_l == val_r else 0.0
+            contracted = contracted * factor
 
         total = contracted.sum()
         return complex(r_val * total)
+
+    def _diag_c_leg(
+        self,
+        idx_name: str | None,
+        idx_name_to_axis: dict[str, int],
+    ) -> tuple[int | None, int | None]:
+        """Classify one leg of a diagonal C propagator.
+
+        Returns ``(axis, value)`` with at most one of them set:
+
+        * ``(axis, None)`` — the label is a propagator summation index and
+          names an axis of the coupling array, to be contracted over.
+        * ``(None, value)`` — the label is pinned to a definite component,
+          either by :attr:`fixed_indices` (an observable label such as
+          ``a``) or as a 1-indexed literal.
+        * ``(None, None)`` — no component information; the caller falls back
+          to the trace.
+
+        Resolving against :attr:`fixed_indices` rather than an empty map is
+        what keeps this path agreeing with :meth:`_evaluate_general` and the
+        batched backends for observables like ``⟨φ_a(x) φ_b(y)⟩``.
+        """
+        if idx_name is None:
+            return None, None
+        axis = idx_name_to_axis.get(idx_name)
+        if axis is not None:
+            return axis, None
+        return None, DiagramIntegrand._resolve_component(
+            idx_name, self.fixed_indices
+        )
 
     def _evaluate_general(
         self,
@@ -5307,6 +5361,21 @@ def integrate_moment(
     For best performance, call
     :meth:`PropagatorCache.precompute_C_table` before integrating so
     the vectorised path is selected automatically.
+
+    .. note::
+
+       "Batch-capable" is a deliberate handshake on ``_c_splines``, so
+       a cache carrying only a **spatial** table (rotation /
+       translation / general — built by
+       ``precompute_C_table_rotation`` and friends) reports False and
+       ``method='qmc'`` routes it to the scalar loop, even though
+       :meth:`integrate_moment_qmc_vectorized` accepts such a cache
+       perfectly well via ``C_at_batch``.  The two paths agree, so this
+       costs speed only — but it costs a lot of it (~125× on the
+       two-point order-2 rotation workload in
+       ``tests/test_diag_fast_component_labels.py``).  Pass
+       ``method='qmc_vectorized'`` explicitly for spatial caches; the
+       L1 :meth:`Expansion.evaluate` API already defaults to it.
 
     Args:
         integrand: A :class:`DiagramIntegrand` built from a

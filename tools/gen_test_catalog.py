@@ -213,6 +213,14 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "closed form for the zero-dimensional diagrams; the four backends "
         "against each other",
         "1e-12"),
+    "tests/test_diag_fast_component_labels.py": (
+        "Integrators",
+        "observable component labels pinned through fixed_indices on a C "
+        "propagator in the iso_R + diag_C scalar fast path; the Kronecker "
+        "delta between C legs when il != ir",
+        "numpy hand contraction over the full C matrices; all five backends "
+        "against each other; the label-blind value shown to differ",
+        "1e-12 (backends) / 1e-3 (quadrature vs QMC)"),
     "tests/test_demo3_shot_noise.py": (
         "Propagator numerics",
         "demo 3 filtered-Poisson cumulants, the R-contracted kernel K_R, and "

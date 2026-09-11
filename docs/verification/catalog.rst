@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1235 tests** in 41 files (parametrised
+The suite has **1251 tests** in 42 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -191,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*466 tests in 13 files.*
+*482 tests in 14 files.*
 
 .. list-table::
    :header-rows: 1
@@ -216,6 +216,11 @@ Integrators
      - demo2's hand-written R-contracted κ³ / κ⁴ kernels, the raw-vs-R-contracted route on a NON-constant kernel, the already_R_contracted contract, pinned FK and order-0 values, the single-site cumulant ladder
      - cusp-aware adaptive quadrature and randomised-Sobol QMC of the raw leg integrals; the cumulant generating function
      - 1e-6 - 2e-2 (measured per configuration)
+     - 16
+   * - ``test_diag_fast_component_labels.py``
+     - observable component labels pinned through fixed_indices on a C propagator in the iso_R + diag_C scalar fast path; the Kronecker delta between C legs when il != ir
+     - numpy hand contraction over the full C matrices; all five backends against each other; the label-blind value shown to differ
+     - 1e-12 (backends) / 1e-3 (quadrature vs QMC)
      - 16
    * - ``test_dynamic_coupling.py``
      - spacetime-dependent (callable) κ^(m) couplings, per-sample and vectorised contracts, propagator-indexed contraction
