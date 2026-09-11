@@ -1,10 +1,11 @@
 # Configuration file for the Sphinx documentation builder.
 
-from importlib.metadata import version as get_version
+from importlib.metadata import PackageNotFoundError, version as get_version
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_ROOT / "src"))
 
 # -- Project information -----------------------------------------------------
 
@@ -12,10 +13,34 @@ project = "sft-wick"
 copyright = "2026-present, Zheng Zhang"
 author = "Zheng Zhang"
 
-try:
-    release = get_version("sft-wick")
-except Exception:
-    release = "0.4.2"
+
+def _release() -> str:
+    """Version of the tree autodoc is about to read.
+
+    ``sys.path`` above points autodoc at ``src/``, so the stamped version
+    has to come from the same tree.  Reading it from installed metadata
+    instead lets the two diverge: an editable install whose metadata has
+    gone stale labels the build with whatever release it was installed at.
+    Installed metadata is the fallback, for a build run from outside a
+    checkout.
+    """
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # Python 3.10
+        pass
+    else:
+        try:
+            with open(_ROOT / "pyproject.toml", "rb") as fh:
+                return tomllib.load(fh)["project"]["version"]
+        except (OSError, tomllib.TOMLDecodeError, KeyError):
+            pass
+    try:
+        return get_version("sft-wick")
+    except PackageNotFoundError:
+        return "0.0.0+unknown"
+
+
+release = _release()
 version = release
 
 # -- General configuration ---------------------------------------------------
