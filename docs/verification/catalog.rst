@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **281 tests** in 54 files (parametrised
+The suite has **1726 tests** in 58 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -51,7 +51,7 @@ this page is out of date.
 Symbolic engine
 ---------------
 
-*0 tests in 7 files.*
+*137 tests in 7 files.*
 
 .. list-table::
    :header-rows: 1
@@ -66,42 +66,42 @@ Symbolic engine
      - batched symbolic evaluator of coupling sums
      - scalar evaluator on the same expressions
      - exact / 1e-12
-     - 0
+     - 15
    * - ``test_expressions.py``
      - expression tree: hashing, equality, rational arithmetic, LaTeX
      - specification
      - exact
-     - 0
+     - 21
    * - ``test_fields.py``
      - Field / FieldOperator construction, unique UIDs, component indices
      - specification (exact structural assertions)
      - exact
-     - 0
+     - 8
    * - ``test_perturbation.py``
      - compute_moment orders, DiagramTerm structure, coupling evaluation, response phase
      - hand-derived expansions
      - exact
-     - 0
+     - 24
    * - ``test_propagators.py``
      - pairing rules: φφ→C, φψ→R, ψψ→0; Itô R(x,x)=0
      - MSR contraction rules
      - exact
-     - 0
+     - 10
    * - ``test_simplify.py``
      - simplification passes, diagonal / isotropic index collapse, collection by diagram
      - hand-simplified forms; idempotence
      - exact
-     - 0
+     - 35
    * - ``test_wick.py``
      - operator-level and spatial-level Wick contraction of small products
      - hand-enumerated pairings; the two engines against each other
      - exact
-     - 0
+     - 24
 
 Multiplicities and canonical forms
 ----------------------------------
 
-*0 tests in 2 files.*
+*90 tests in 2 files.*
 
 .. list-table::
    :header-rows: 1
@@ -116,17 +116,17 @@ Multiplicities and canonical forms
      - every pairing at order ≤ 2 classified by vanishing reason; topology multiplicities; canonical-form deduplication
      - brute-force Wick reference (tests/brute_wick.py, no sft-wick imports)
      - exact
-     - 0
+     - 79
    * - ``test_diagrams.py``
      - FeynmanDiagram canonical form and isomorphism deduplication
      - isomorphic relabellings hash-compare equal
      - exact
-     - 0
+     - 11
 
 Propagator numerics
 -------------------
 
-*220 tests in 10 files.*
+*313 tests in 10 files.*
 
 .. list-table::
    :header-rows: 1
@@ -146,17 +146,17 @@ Propagator numerics
      - built-in closed form vs Gauss-Legendre vs dblquad at the dispatch boundary cells (ridge, t→t_min, t_max, γ=1/σ_t, r=0, r_max, per-component γ, t_min≠0, white noise); dispatcher choices
      - each method against the others; analytic stationary limit
      - 1e-10 (GL) / 1e-8 (dblquad)
-     - 0
+     - 21
    * - ``test_d_dim_spatial.py``
      - vector positions through the L1 evaluate path
      - scalar-separation equivalent
      - 1e-10
-     - 0
+     - 3
    * - ``test_deductive_numerics.py``
      - C from ∫∫RκR: closed form vs dblquad, spline tables, spatial homogeneity modes, white noise, QMC vs nquad, parallel vs serial
      - closed-form OU C; domain-split dblquad at 1e-12; alternative backends
      - 1e-8 (quadrature) / 1e-2 (spline, QMC)
-     - 0
+     - 46
    * - ``test_demo3_shot_noise.py``
      - demo 3 filtered-Poisson cumulants, the R-contracted kernel K_R, and the t_tilde branch dispatch
      - Campbell's theorem vs Monte Carlo of the event process; m-dimensional quadrature of the raw leg integral; the package's own ClosedFormC; 60-digit mpmath at the branch boundary
@@ -166,17 +166,17 @@ Propagator numerics
      - off-diagonal C entries with diag_C=false
      - closed-form cross-correlation
      - 1e-8
-     - 0
+     - 5
    * - ``test_diagonal_A_time_dependent.py``
      - time-dependent γ(t) via cumulative-Γ spline
      - constant-γ closed form; explicit R
      - 1e-6
-     - 0
+     - 5
    * - ``test_dt_discretization.py``
      - the propagators.dt knob converges the spline table
      - finer grid
      - convergence order
-     - 0
+     - 2
    * - ``test_evaluate_interpolation_accuracy.py``
      - linear vs cubic C-table interpolation on steep tails
      - closed form
@@ -186,12 +186,12 @@ Propagator numerics
      - separable-kernel shared temporal table, time-symmetric build, auto node-count selection, progress reporting
      - per-r full build; dblquad
      - 1e-12 / 1e-6
-     - 0
+     - 11
 
 Integrators
 -----------
 
-*16 tests in 23 files.*
+*826 tests in 27 files.*
 
 .. list-table::
    :header-rows: 1
@@ -206,52 +206,72 @@ Integrators
      - already_R_contracted non-local vertices across L0/L1/L2
      - raw-κ³ evaluation of the same diagram
      - 1e-12
-     - 0
+     - 22
    * - ``test_callable_vertex_copies.py``
      - a callable non-local coupling at several sets of points (two copies of one vertex at order 2), and the leg structure of equal_time / already_R_contracted copies, which the coupling sum routes term by term
      - numpy hand contraction of the order-2 six-point function (sum over the 10 partitions into triples); demo 4's Campbell closed form; the old per-instance measure shown to differ
      - 1e-12 / 1e-3 (QMC)
-     - 0
+     - 55
    * - ``test_coincident_external_labels.py``
      - external operators sharing a spatial label are refused at L1 and L0 rather than silently mis-counted
      - the distinct-label spelling of the same observable
      - exact
-     - 0
+     - 14
    * - ``test_demo2_kernels.py``
      - demo2's hand-written R-contracted κ³ / κ⁴ kernels, the raw-vs-R-contracted route on a NON-constant kernel, the already_R_contracted contract, pinned FK and order-0 values, the single-site cumulant ladder
      - cusp-aware adaptive quadrature and randomised-Sobol QMC of the raw leg integrals; the cumulant generating function
      - 1e-6 - 2e-2 (measured per configuration)
-     - 0
+     - 16
    * - ``test_demo4_asymmetric_noise.py``
      - demo 4: compound-Poisson noise asymmetric in points and in components; level A 3- and 4-point functions for every component tuple (raw on Gauss-Legendre split at declared kinks, R-contracted, unequal times); level B channels FK3, FF, FFK4 of <phi_a phi_b>
      - direct quadrature; Campbell closed form; exact Itô moment hierarchy
      - 1e-12 (levels A and B) / 1e-3 (raw QMC)
-     - 0
+     - 23
+   * - ``test_demo4_order4_channel.py``
+     - demo 4 at order 4: the F^3 kappa^3 channel of <phi_a phi_b> (30 diagrams), white and exponential pulses
+     - exact Itô moment hierarchy at tag F^3 mu^1
+     - 1e-9 / 1e-6
+     - 6
    * - ``test_demo5_white_noise.py``
      - demo 5: white noise (ConstantImpulse matrix) with coloured noise, t_min = 0.5, the diag_C=False, diag_C=True and iso_C=True paths, orders 0-4 and 1-, 2-, 3-point functions on every integrator; multiplicative noise at L0 with two-psi vertices, scalar and matrix R
      - exact Itô moment hierarchy (Markov embedding of the coloured noise)
      - 1e-10 (GL, nquad) / 1e-12 (nquad, order 2) / 1e-3 - 1e-4 (QMC) / 1e-8 (order 4)
-     - 0
+     - 46
+   * - ``test_demo6_cubic_quartic.py``
+     - demo 6: a quartic (psi phi phi phi) and a cubic local vertex in one system, orders 2-3 of <phi_a> and <phi_a phi_b>, channel by channel
+     - exact Itô moment hierarchy with a cubic drift term
+     - 1e-10 / 1e-8
+     - 8
+   * - ``test_demo6_high_cumulants.py``
+     - demo 6: m = 4 and m = 5 non-local vertices on every route (R-contracted callable, raw callable, static, static equal_time), at equal and distinct external times, matrix R on nquad
+     - Campbell's theorem for compound-Poisson noise; the static closed form; both demos' Itô moment hierarchies
+     - 1e-12 / 1e-2 (raw QMC)
+     - 16
+   * - ``test_demo6_static_vertices.py``
+     - demo 6: two copies of one non-local vertex (the order-2 six-point function, static and equal_time), static cumulants with F (channels F X3, F F X4), and an m = 2 vertex, whose order-1 contribution is the C of that noise
+     - closed form (sum over the ten splits; C of the same noise); exact Itô moment hierarchy at several observation times
+     - 1e-12 / 1e-10
+     - 18
    * - ``test_diag_fast_component_labels.py``
      - observable component labels pinned through fixed_indices on a C propagator in the iso_R + diag_C scalar fast path; the Kronecker delta between C legs when il != ir
      - numpy hand contraction over the full C matrices; all five backends against each other; the label-blind value shown to differ
      - 1e-12 (backends) / 1e-3 (quadrature vs QMC)
-     - 0
+     - 16
    * - ``test_dynamic_coupling.py``
      - spacetime-dependent (callable) κ^(m) couplings, per-sample and vectorised contracts, propagator-indexed contraction
      - static tensor at the same point; two contracts against each other
      - 1e-12
-     - 0
+     - 37
    * - ``test_equal_time_nonlocal.py``
      - equal_time non-local vertices (single time integral)
      - explicit δ-function reduction
      - 1e-8
-     - 0
+     - 26
    * - ``test_evaluate_pipeline.py``
      - spatial analysis, causal orderings, integrand assembly
      - specification
      - exact
-     - 0
+     - 5
    * - ``test_gauss_legendre_integrator.py``
      - tensor-product Gauss-Legendre time integration on the causal simplex
      - hand-derived quadrature; QMC
@@ -261,17 +281,17 @@ Integrators
      - Gauss-Legendre splits the domain at kinks: unordered ends of a white-noise C, unordered parents of a multi-psi vertex; the orientations are the consistent total orders
      - linear extensions of the causal order; the exact Itô moment hierarchy
      - exact / 1e-11
-     - 0
+     - 7
    * - ``test_higher_cumulants.py``
      - non-Gaussian driving at cumulant order m ≥ 4 (κ⁴, κ⁵)
      - brute-force Wick counting; MSR prefactors
      - exact / 1e-10
-     - 0
+     - 19
    * - ``test_iso_c_value.py``
      - an index-free (iso_C=True) C propagator stands for c of C_ab = δ_ab c, not the trace N c: orders 0-2 at N = 2 on four backends; a non-isotropic C is refused
      - the iso_C=False expansion of the same system
      - 1e-10
-     - 0
+     - 25
    * - ``test_ito_moments_reference.py``
      - the exact Itô moment-hierarchy reference used by demos 4 and 5 (examples/reference/ito_moments.py; no sft-wick code): OU variance, quadratic-drift correction, shot-noise cumulants, multiplicative noise, a non-normal linear system
      - closed forms; Campbell's theorem; Lyapunov equation
@@ -281,47 +301,47 @@ Integrators
      - nquad splits the time domain at kinks as Gauss-Legendre does (white-noise C, matrix R); a coupling callable declaring has_coincident_time_kinks contributes its leg times (raw vertex) or partner times (already_R_contracted), read through the MSR wrapper; equal_time vertices contribute none
      - exact Itô moment hierarchy; the pairs by construction
      - exact / 1e-12
-     - 0
+     - 8
    * - ``test_matrix_r_batched.py``
      - matrix-valued R (DiagonalA with distinct rates, a non-normal dense ExplicitR) on gauss_legendre, qmc_vectorized, integrate_two_point_qmc and the method='qmc' dispatch: static, callable, equal_time and already_R_contracted vertices, integrate_over, unequal external times; absorbed-R leg indices pinned to their partners'
      - exact Itô moment hierarchy (Markov embedding; a constant random source for κ³), closed form Σ κ M M M, scipy expm + quad_vec hand contractions; the scalar loop on the same Sobol points; nquad
      - 1e-10 (vs exact) / 1e-12 (same points, GL vs nquad)
-     - 0
+     - 53
    * - ``test_matrix_r_evaluation.py``
      - matrix-valued R with callable couplings in the scalar loop
      - qmc_vectorized where legal; closed-form 1-D integrals
      - 1e-6
-     - 0
+     - 1
    * - ``test_matrix_r_index_and_zero_dim.py``
      - matrix-valued R component indices when two R propagators share one pair of points; the zero-dimensional dynamic-coupling branch under matrix R; its two-index absorbed-R variant is refused
      - numpy hand contraction of the same diagram, with the old endpoint-lookup value shown to differ; diag_R=True at R = 1; closed form for the zero-dimensional diagrams; the four backends against each other
      - 1e-12
-     - 0
+     - 29
    * - ``test_msr_numerics_regressions.py``
      - causal lower bounds from external response legs, two-time observables, C-table diagonal ridge, reality projection, external_times through every backend
      - closed forms; all five backends against each other
      - 1e-6 - 1e-10
-     - 0
+     - 151
    * - ``test_nonlocal_leg_order.py``
      - leg order of a callable κ^(m): every coupling-sum term evaluated at its own legs, on each integration route and the order-2 FK channel
      - numpy hand contraction; the old leg-order-blind value shown to differ
      - 1e-12
-     - 0
+     - 81
    * - ``test_nquad_callable_coupling.py``
      - callable (spacetime-dependent) couplings on adaptive quadrature, which used to refuse them: plain, equal_time and already_R_contracted vertices, both contracts, matrix R, and make_scipy_integrand
      - gauss_legendre on the same diagrams; demo 4's closed form and exact moment hierarchy; numpy hand contraction
      - 1e-10 - 1e-12
-     - 0
+     - 38
    * - ``test_r_cache_mismatch.py``
      - R-propagator indices vs the cache's R type: two-index R with a scalar-R cache, index-free R with a matrix-R cache and a two-index absorbed R raise at every entry point; matching pairs on every backend, N = 1, and L1 flag overrides
      - numpy hand contraction of the coupling (R = Θ is 1 on the domain)
      - 1e-12
-     - 0
+     - 90
 
 Workflow and YAML
 -----------------
 
-*3 tests in 7 files.*
+*199 tests in 7 files.*
 
 .. list-table::
    :header-rows: 1
@@ -341,37 +361,37 @@ Workflow and YAML
      - demo 3 level A: the free-field m-point function through the package, and the R-contracted vertex against the raw one
      - closed form (level A is a single diagram, hence exact); QMC on the raw-vertex path
      - exact / 2e-4
-     - 0
+     - 18
    * - ``test_l1_structure_guards.py``
      - callable-γ scalar/matrix R decided on the whole spline grid; the Γ spline reaches a negative t_min; t_max beyond t_max_cache refused; diag_R / diag_C refused when R or C has off-diagonal entries (dense R, mixing κ² or σ²), diagonal structures accepted
      - scipy quad of the rate; Lyapunov equation of the Markov embedding
      - 1e-5 (spline) / 1e-10
-     - 0
+     - 19
    * - ``test_local_callable_coupling.py``
      - a callable local coupling at L1 and in YAML: the rank contract, the MSR factor, the argument shapes, and a drift F0 (1 + beta x) exp(-lambda t) at orders 1-2 with t_min = 0.5 on every integrator
      - exact Itô moment hierarchy of a Markov embedding with a deterministic state u = exp(-lambda t)
      - 1e-12 (GL) / 1e-10 (nquad) / 1e-4 (QMC)
-     - 0
+     - 102
    * - ``test_system_t_min.py``
      - System.t_min reaches the integrators through Expansion.evaluate and sweep; a cache built for another t_min is refused
      - time-translation invariance (stationary noise, constant drift)
      - 1e-10
-     - 0
+     - 10
    * - ``test_workflow.py``
      - System / Expansion / Propagators / SweepResult surface; end-to-end vs the raw API; two-time sweeps
      - raw L0 pipeline (validate_phase5); closed forms
      - 1e-6
-     - 0
+     - 15
    * - ``test_workflow_config.py``
      - YAML → System lowering, run_workflow, overrides, dt, parallel layers, closed-form-only path, explicit R, callable modules
      - L1 flow on the same physics
      - 1e-6 / 2e-2 (spline vs exact C)
-     - 0
+     - 32
 
 Drawing and LaTeX
 -----------------
 
-*0 tests in 3 files.*
+*62 tests in 3 files.*
 
 .. list-table::
    :header-rows: 1
@@ -386,22 +406,22 @@ Drawing and LaTeX
      - matplotlib renderer, style abstractions, labels, layout
      - specification
      - exact
-     - 0
+     - 36
    * - ``test_drawing_tikz.py``
      - TikZ backend output structure and styles
      - specification
      - exact
-     - 0
+     - 25
    * - ``test_latex_local_coupling.py``
      - local couplings render without a spurious spacetime argument
      - regression (referee-reported rendering)
      - exact
-     - 0
+     - 1
 
 Spectral propagators
 --------------------
 
-*0 tests in 1 files.*
+*57 tests in 1 files.*
 
 .. list-table::
    :header-rows: 1
@@ -416,7 +436,7 @@ Spectral propagators
      - disorder-averaged R*, C* from a spectral density; averaging; delta-density reduction to OU
      - OU closed form at a delta density; Marchenko-Pastur convergence
      - 1e-12 (delta) / recorded
-     - 0
+     - 57
 
 Self-consistency
 ----------------

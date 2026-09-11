@@ -14,9 +14,14 @@ Failure modes guarded against:
        on an aliased label that's absent from the per-sample ``times``
        dict.
     4. Existing ``equal_time=False`` (default) behaviour is unchanged.
+    5. Two copies of one equal-time vertex: contractions that group the legs
+       differently (which external points meet which copy) are different
+       diagrams.  Up to 7034888 ``compute_moment`` merged them into one
+       diagram with the time structure of the first contraction.
 """
 from __future__ import annotations
 
+import itertools
 from types import SimpleNamespace
 
 import numpy as np
@@ -501,3 +506,149 @@ def test_external_psi_leg_gives_empty_causal_domain():
             lambda_f=span, cache=cache, t_min=0.0, **kw
         )
         assert val == 0.0, f"{method} integrated an empty causal domain"
+
+
+# ----------------------------------------------------------------------
+# Two copies of one equal-time vertex (failure mode 5)
+# ----------------------------------------------------------------------
+#
+# F = 0, N = 2, a static equal-time kappa3 (white jumps), the order-2
+# six-point function at distinct times.  Its value is the sum over the ten
+# splits of the six points into two triples of kappa_A kappa_B E_A E_B, where
+# E_B is the integral over the one time the three legs of a copy share.  On
+# 7034888 the ten splits were one diagram whose legs shared the times of the
+# first split: 34.8 % off at the times below.
+
+_TC_T_MIN = 0.4
+_TC_GAMMA = 1.05
+_TC_LABELS = ("x1", "x2", "x3", "x4", "x5", "x6")
+_TC_TIMES = dict(zip(_TC_LABELS, (1.9, 1.4, 2.3, 0.9, 1.6, 2.1)))
+_TC_POS = dict(zip(_TC_LABELS, (0.0, 0.7, -0.4, 1.1, -0.9, 0.3)))
+
+
+def _tc_kappa3() -> np.ndarray:
+    """Symmetric, as a cumulant is, with distinct entries of both signs."""
+    vals = (-0.5, 0.3, 0.7, -0.4)
+    K = np.empty((2, 2, 2))
+    for idx in np.ndindex(2, 2, 2):
+        K[idx] = vals[sum(idx)]
+    return K
+
+
+def _tc_block(times) -> float:
+    """``∫_{t_min}^{min t} ds Π_j e^{-γ (t_j - s)}``."""
+    m = min(times)
+    g = _TC_GAMMA
+    return float(np.exp(-g * sum(t - m for t in times))
+                 * -np.expm1(-3 * g * (m - _TC_T_MIN)) / (3 * g))
+
+
+def _tc_closed_form(comps) -> float:
+    K = _tc_kappa3()
+    total = 0.0
+    for rest in itertools.combinations(range(1, 6), 2):
+        first = (0,) + rest
+        second = tuple(i for i in range(6) if i not in first)
+        term = 1.0
+        for block in (first, second):
+            term *= K[tuple(comps[i] for i in block)]
+            term *= _tc_block([_TC_TIMES[_TC_LABELS[i]] for i in block])
+        total += term
+    return total
+
+
+@pytest.fixture(scope="module")
+def _two_copies():
+    import sft_wick as sw
+
+    system = sw.System(
+        field=sw.FieldSpec("phi", 2),
+        linear=sw.DiagonalA(gamma=[_TC_GAMMA] * 2),
+        nonlocal_vertices=[sw.NonLocalVertex(
+            "K", order=3, coupling=_tc_kappa3(), equal_time=True)],
+        noise=sw.GaussianNoise(kappa2=sw.SeparableTranslation(
+            temporal=sw.ExponentialTemporal(lam=0.2, sigma_t=0.5),
+            spatial=sw.GaussianSpatial(sigma_x=0.8))),
+        t_min=_TC_T_MIN,
+    )
+    obs = tuple(f"phi_{c}({lab})" for c, lab in zip("abcdef", _TC_LABELS))
+    exp = system.expand(obs, orders=[2])
+    props = system.propagators(t_max=3.0, progress=False)
+    return system, exp, props
+
+
+def test_two_equal_time_copies_are_one_diagram_per_split(_two_copies):
+    _system, exp, _props = _two_copies
+    assert len(exp.diagrams(2)) == 10
+
+
+@pytest.mark.parametrize("comps", [(0, 1, 1, 0, 1, 0), (1, 1, 0, 0, 0, 1),
+                                   (1, 0, 1, 1, 0, 1)])
+@pytest.mark.parametrize("method,kw", [
+    ("gauss_legendre", {"n_gauss": 12}),
+    ("nquad", {}),
+])
+def test_two_equal_time_copies_at_distinct_times_match_the_closed_form(
+        _two_copies, comps, method, kw):
+    _system, exp, props = _two_copies
+    got = exp.evaluate(props, positions=_TC_POS, t_final=2.3,
+                       component_pair=comps, orders=[2],
+                       external_times=_TC_TIMES, method=method, **kw).total
+    assert got == pytest.approx(_tc_closed_form(comps), rel=1e-12, abs=0.0)
+
+
+def test_two_equal_time_copies_agree_between_the_l0_engines(_two_copies):
+    """``compute_moment_numerical`` keeps every contraction as its own term
+    and was right before the fix; ``compute_moment`` must agree with it."""
+    from sft_wick.evaluate import integrate_diagrams
+    from sft_wick.perturbation import compute_moment, compute_moment_numerical
+
+    system, _exp, props = _two_copies
+    phi, _psi = system.build_fields()
+    cv = system.build_coupling_values()
+    comps = (0, 1, 1, 0, 1, 0)
+    totals = []
+    for engine in (compute_moment, compute_moment_numerical):
+        reset_uid_counter()
+        obs = [phi(c, lab) for c, lab in zip("abcdef", _TC_LABELS)]
+        flags = dict(diag_R=True, diag_C=True, iso_R=True)
+        if engine is compute_moment:
+            dts = engine(obs, system.build_action(), order=2,
+                         **flags).diagram_terms(2)
+        else:
+            dts = engine(obs, system.build_action(), 2, cv, **flags)[2]
+        total, _ = integrate_diagrams(
+            dts, cv, lambda_f=2.3, cache=props.cache, t_min=_TC_T_MIN,
+            method="gauss_legendre", n_gauss=12,
+            fixed_indices=dict(zip("abcdef", comps)), positions=_TC_POS,
+            external_times=_TC_TIMES)
+        totals.append(total)
+    assert totals[0] == pytest.approx(totals[1], rel=1e-12, abs=0.0)
+    assert totals[0] == pytest.approx(_tc_closed_form(comps), rel=1e-12,
+                                      abs=0.0)
+
+
+def test_canonical_form_keeps_equal_time_groups():
+    """The propagator graphs of two splits are isomorphic; with the groups
+    they are not.  Relabeling inside a group, or exchanging the two groups,
+    is still the same diagram."""
+    from sft_wick.simplify import _canonical_diagram_form
+
+    def props(pairs):
+        return [Propagator("R", None, None, x, y) for x, y in pairs]
+
+    legs = frozenset(f"y_{k}" for k in range(6))
+    groups = (("y_0", "y_1", "y_2"), ("y_3", "y_4", "y_5"))
+    first = props([("x1", "y_0"), ("x2", "y_1"), ("x3", "y_2"),
+                   ("x4", "y_3"), ("x5", "y_4"), ("x6", "y_5")])
+    other = props([("x1", "y_0"), ("x2", "y_1"), ("x4", "y_2"),
+                   ("x3", "y_3"), ("x5", "y_4"), ("x6", "y_5")])
+    same = props([("x1", "y_4"), ("x2", "y_3"), ("x3", "y_5"),
+                  ("x4", "y_1"), ("x5", "y_0"), ("x6", "y_2")])
+
+    def form(pr, grp=()):
+        return _canonical_diagram_form(pr, legs, grp)[0]
+
+    assert form(first) == form(other)
+    assert form(first, groups) != form(other, groups)
+    assert form(first, groups) == form(same, groups)
