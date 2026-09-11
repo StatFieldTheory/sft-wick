@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1126 tests** in 39 files (parametrised
+The suite has **1206 tests** in 40 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -191,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*357 tests in 11 files.*
+*437 tests in 12 files.*
 
 .. list-table::
    :header-rows: 1
@@ -257,6 +257,11 @@ Integrators
      - numpy hand contraction; the old leg-order-blind value shown to differ
      - 1e-12
      - 71
+   * - ``test_r_cache_mismatch.py``
+     - R-propagator indices vs the cache's R type: two-index R with a scalar-R cache, index-free R with a matrix-R cache and a two-index absorbed R raise at every entry point; matching pairs on every backend, N = 1, and L1 flag overrides
+     - numpy hand contraction of the coupling (R = Θ is 1 on the domain)
+     - 1e-12
+     - 80
 
 Workflow and YAML
 -----------------

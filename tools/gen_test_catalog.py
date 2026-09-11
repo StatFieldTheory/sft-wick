@@ -195,6 +195,14 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Integrators",
         "matrix-valued R with callable couplings in the scalar loop",
         "qmc_vectorized where legal; closed-form 1-D integrals", "1e-6"),
+    "tests/test_r_cache_mismatch.py": (
+        "Integrators",
+        "R-propagator indices vs the cache's R type: two-index R with a "
+        "scalar-R cache, index-free R with a matrix-R cache and a two-index "
+        "absorbed R raise at every entry point; matching pairs on every "
+        "backend, N = 1, and L1 flag overrides",
+        "numpy hand contraction of the coupling (R = Θ is 1 on the domain)",
+        "1e-12"),
     "tests/test_demo3_shot_noise.py": (
         "Propagator numerics",
         "demo 3 filtered-Poisson cumulants, the R-contracted kernel K_R, and "
