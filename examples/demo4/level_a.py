@@ -124,9 +124,12 @@ def main():
     ap.add_argument("--out", default="level_a_results.json")
     args = ap.parse_args()
     summary = {}
+    # The raw exponential kernel is kinked where two leg times cross;
+    # RawKappa declares has_coincident_time_kinks and Gauss-Legendre splits
+    # the three leg times into their six orders.
     for p, raw_method, raw_kw in [
         (nz.PARAMS_WHITE, "gauss_legendre", dict(n_gauss=16)),
-        (nz.PARAMS_EXP, "qmc_vectorized", dict(n_samples=2 ** 18, seed=1)),
+        (nz.PARAMS_EXP, "gauss_legendre", dict(n_gauss=16)),
     ]:
         t0 = time.perf_counter()
         rows3 = three_point(p, raw_method=raw_method, raw_kw=raw_kw)

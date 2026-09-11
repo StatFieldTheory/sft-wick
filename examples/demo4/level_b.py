@@ -17,16 +17,17 @@ tag       package   diagrams
 plus ``⟨φ_a(x, T)⟩`` at ``(1, 0)``, the F tadpole.  No other diagram
 contributes to these tags.
 
-The non-local vertices are the ones whose integrands are smooth, so that
-Gauss-Legendre converges exponentially:
+Gauss-Legendre converges exponentially on every channel because
+``integrate_moment_gauss_legendre`` splits the time domain where the
+integrand is kinked:
 
-* exponential pulses: ``already_R_contracted`` (``K_R``); the raw kernel is
-  kinked where two leg times cross;
-* white pulses: the raw ``equal_time`` vertex, whose time is bounded by its
-  partners through the causal mapping; ``K_R`` depends on the smallest
-  partner time and is kinked where two F-vertex times cross.  White noise
-  also kinks C on its time diagonal; ``integrate_moment_gauss_legendre``
-  splits the domain there.
+* exponential pulses use the ``already_R_contracted`` vertex (``K_R``).
+  ``K_R`` depends on the smallest partner time; ``RContractedKappa``
+  declares ``has_coincident_time_kinks``, and in FFK4, where two partners
+  are F-vertex times, the domain is split where they cross;
+* white pulses use the raw ``equal_time`` vertex, whose time is bounded by
+  its partners through the causal mapping.  White noise kinks C on its
+  time diagonal, and the domain is split there.
 
 Run ``python level_b.py``; results go to ``level_b_results.json``.
 """

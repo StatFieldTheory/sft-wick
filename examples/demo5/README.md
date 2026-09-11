@@ -26,7 +26,8 @@ part keeps distinct points distinct.  Three variants take three code paths:
 Observables: `⟨φ_a(x)⟩` at orders 1 and 3; `⟨φ_a(x) φ_b(y)⟩` at orders 0,
 2, 4 for all four pairs; `⟨φ_a(x) φ_b(y) φ_c(z)⟩` at order 1.  Gauss-Legendre
 runs everything; `qmc_vectorized` orders ≤ 2; `qmc_scalar` and `qmc` order 2
-of `⟨φ_0 φ_1⟩` and the tadpole; `nquad` the tadpole.
+of `⟨φ_0 φ_1⟩` and the tadpole; `nquad` the tadpole at orders 1 and 3 and
+`⟨φ_a φ_b⟩` at order 2.
 
 Reference: the moment hierarchy of the Markov embedding `(φ, η)` at the
 observation points, with `η` an Ornstein-Uhlenbeck process started in its
@@ -39,7 +40,7 @@ Worst relative difference over the component tuples (`results.json`):
 |---|---|---|---|
 | Gauss-Legendre, orders 0-3 (12 nodes) | 6.6e-16 | 9.2e-16 | 5.6e-16 |
 | Gauss-Legendre, order 4 (12 nodes) | 9.0e-16 | 1.4e-15 | 1.3e-15 |
-| `nquad`, order 1 | 4.3e-16 | 1.9e-16 | 4.0e-16 |
+| `nquad`, orders 1 / 2 / 3 | 4.3e-16 / 8.3e-16 / 2.0e-16 | 1.9e-16 / 3.2e-16 / 3.7e-16 | 4.0e-16 / 1.7e-16 / 5.0e-16 |
 | `qmc_vectorized` (2¹⁴), orders 1 / 2 | 2.5e-7 / 9.4e-7 | 1.1e-7 / 1.0e-6 | 1.1e-7 / 9.6e-7 |
 | `qmc_scalar`, `qmc` (2¹¹), orders 1 / 2 | 2.5e-7 / 2.7e-6 | 1.1e-7 / 6.7e-6 | 1.1e-7 / 6.7e-6 |
 
@@ -49,6 +50,7 @@ The same script on older code:
 |---|---|
 | `facf556` (the merged branches, before the fixes of 40a9288 and b1495bb) | isotropic variant: 1.0, 3.0 and 7.0 relative (factors 2, 4, 8) on every integrator (`iso_C`); Gauss-Legendre at orders 1-4: 5.8e-4 to 3.5e-3 (`t_min` not passed on, and the white-noise kink) |
 | `3cc7115` (before the diag-C fast-path fix) | diagonal variant, `qmc_scalar` and `qmc` at order 2: 64 % |
+| `7034888` (before `nquad` split at kinks) | `nquad` at order 2, every variant and pair: 2.2e-8 to 1.4e-7, in 1.0-2.7 s per pair (now 0.4-0.6 s); the order-3 tadpole (mixing): 6.9e-8, in 16 s (now 5.2 s) |
 
 ## Part B: multiplicative white noise, L0 (`multiplicative.py`)
 
@@ -89,9 +91,11 @@ columns are unchanged.
 
 ## Limits, measured
 
-- `nquad` on the order-2 white-noise integrand did not finish one
-  evaluation in 10 minutes; adaptive quadrature meets the kink everywhere.
-  It runs the tadpole only.
+- `nquad` at order 4 (64 four-dimensional diagrams) does not finish one
+  evaluation of `⟨φ_0 φ_1⟩` in 600 s, split or not, so order 4 runs on
+  Gauss-Legendre only.  An earlier version of this README said that order
+  2 did not finish in 10 minutes; on `7034888` it finishes in 1.0-2.7 s
+  (the `7034888` row of the table above).
 - A matrix R runs on every integrator.  At the same Sobol points the
   batched loop is 11 times faster than the scalar one here (2.2 s vs
   20.5 s at 2¹³), and Gauss-Legendre reaches 6.6e-16 in 0.1 s.
