@@ -8,11 +8,12 @@ sft-wick's correctness rests on two complementary layers of evidence:
    listed in the generated :doc:`catalog`) that pits each elementary
    transformation in the package against an independent reference —
    any failure points at a specific module.
-2. Five end-to-end demos.  Three are **inductive** (Gaussian driving,
+2. Eight end-to-end demos.  Three are **inductive** (Gaussian driving,
    and two independent kinds of non-Gaussian driving): they compare the
    package's full pipeline to direct simulation of the same stochastic
-   equation over a large parameter grid.  Demos 4 and 5 compare it to
-   an exact reference instead.
+   equation over a large parameter grid.  Demos 4 to 8 compare it to an
+   exact reference instead — the moment hierarchy of the same process,
+   which shares no code with the package.
 
 Both layers are necessary: the deductive suite proves the machinery
 is right *per step*; the demos confirm the output matches physics
@@ -406,6 +407,41 @@ demos 4, 5 and 8 are checked against an exact reference instead:
   ``iso_C`` by factors 2 to 8, the diag-C fast path by 64 %, the
   repeated R pair by up to 6.7 %.  Open: ``examples/demo5/README.md``.
 
+**examples/demo6** — repeated and static non-local vertices, cubic plus quartic drift
+  Five structures the package supports and no test had evaluated: two
+  copies of one non-local vertex (the order-2 six-point function, static
+  and ``equal_time``), a static (ndarray) non-local coupling, ``m = 5``,
+  ``m = 2``, and a quartic local vertex next to a cubic one.  The
+  references are the closed form of the model (the sum over the ten
+  splits of six points into two triples), Campbell's theorem through
+  demo 4, and a moment hierarchy that observes at several times by
+  freezing each point after its own time.  Worst relative difference
+  5.9e-16 (static copies, Gauss-Legendre), 9.7e-16 (``equal_time``
+  copies), 1.0e-15 (quartic next to cubic) and 2.9e-16 (the ``m = 2``
+  vertex, whose order-1 contribution is the C of that noise).  Two
+  copies of an ``equal_time`` vertex are 40 % off on the code before
+  this demo found the merge defect.  Open: ``examples/demo6/README.md``.
+
+**examples/demo7** — observables in space, angle and time
+  R is local in space and the local vertices act at one point, so an
+  n-point function at the observation points reduces to a
+  finite-dimensional Itô SDE there whose noise covariance is the
+  spatial kernel at their separations: one reference covers
+  translation, rotation and general homogeneity, any spatial kernel and
+  any dimension.  It checks the two-time
+  :math:`\langle \phi_a(x, t) \phi_b(y, t') \rangle` at
+  :math:`a \neq b`, :math:`r \neq 0`, :math:`t \neq t'`;
+  ``LegendreAngular`` with four coefficients at three angles (every
+  earlier test used one, where C does not depend on direction);
+  ``CustomKernel`` and ``GeneralKappa2`` through the package's own C
+  tables; 3-D positions with a callable ``κ³``; ``integrate_over``; and
+  the three-point function at order 2.  Worst relative difference
+  3.9e-08 (two-time, Gauss-Legendre), 2.6e-07 (four Legendre
+  coefficients), 6.5e-08 (Gaussian tables) and 4.2e-16 (3-D shot
+  noise).  No route it accepts returned a wrong number; it measured the
+  QMC bias floor and the Gauss-Legendre rate at a fixed external time.
+  Open: ``examples/demo7/README.md``.
+
 **examples/demo8** — time-dependent coefficients and non-exponential dynamics
   The four routes that leave the constant-drift, exponential-kernel
   family: a callable ``DiagonalA.gamma``
@@ -427,7 +463,7 @@ demos 4, 5 and 8 are checked against an exact reference instead:
   ``C`` table costs in accuracy where the kernel kinks ``C``.  Open:
   ``examples/demo8/README.md``.
 
-Demos 4, 5 and 8 use ``examples/reference/ito_moments.py``: the moment
+Demos 4 to 8 use ``examples/reference/ito_moments.py``: the moment
 hierarchy of a finite-dimensional polynomial Itô SDE with jumps,
 solved order by order in the couplings.  It imports nothing from
 sft-wick, and ``tests/test_ito_moments_reference.py`` pins it against

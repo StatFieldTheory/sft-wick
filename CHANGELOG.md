@@ -1,5 +1,373 @@
 # Changelog
 
+## Unreleased
+
+> **Five limitations removed, seven more defects that returned a wrong
+> number without an error, and three demos built to look for them.**  Each
+> limitation was removed with the demo that exercises it, and every demo is
+> checked against a reference that shares no code with the package.
+
+### Fixed: two copies of an `equal_time` vertex shared one contraction's time structure
+
+`compute_moment` (`collect_topology=True`, the path `System.expand` takes)
+merges contractions whose propagator graphs are isomorphic under a
+relabeling of the internal points.  Every leg of a non-local vertex is its
+own point, so such a relabeling could move a leg from one equal-time copy of
+a vertex to another, and the merged diagram keeps the propagators and the
+`equal_time_aliases` of its first contraction: every other contraction was
+integrated with the legs of the first one sharing a time.
+
+Measured on two copies of a static `equal_time` κ³ (N = 2, F = 0,
+`t_min = 0.4`, one rate), the order-2 six-point function at six distinct
+points and six distinct times, against the closed form (the sum over the ten
+splits of the six points into two triples):
+
+| (a…f) | 0.5.0 | now | error |
+|---|---|---|---|
+| (0,1,1,0,1,0) | 4.999688e-03 | 8.392107e-03 | 40.4 % |
+| (1,0,1,1,0,1) | 5.884800e-03 | 7.960211e-03 | 26.1 % |
+
+`gauss_legendre`, `nquad` and QMC agreed with each other on the wrong value.
+At equal external times with one rate every split has the same integral, so
+the defect did not show there; `compute_moment_numerical`, which keeps every
+contraction as its own term, was right.
+
+`_canonical_diagram_form` now takes the equal-time leg groups and adds a
+clique of `("E", u, v)` edges per group, so only relabelings that map groups
+onto groups merge contractions.  Expansions with at most one equal-time copy
+are unchanged (demo 4's white-pulse expansions keep 8/3/94, 7/3 and 100
+diagrams); the six-point expansion splits into 10 diagrams, one per split.
+Locked by 9 cases in `tests/test_equal_time_nonlocal.py`, all of which fail
+on 0.5.0.
+
+### Fixed: the copies of one vertex shared a leg structure
+
+The same family, one level down and not limited to `equal_time`.  The
+coupling sum of a merged diagram routes the legs between the copies term by
+term — the order-2 six-point function with two κ³ vertices is one
+`DiagramTerm` whose 360 terms spread six leg labels over 10 partitions and
+36 leg orders — while the leg structure of an `equal_time` vertex (its legs
+share a time) and of an `already_R_contracted` one (its legs take their
+partners' times and drop their R factors) was read off the vertex instances.
+Every term was integrated with the measure of one routing.  `compute_moment`
+now splits such a record by leg structure, one `DiagramTerm` per structure
+with its own aliases and absorbed pairs
+(`perturbation._split_by_instance_structure`); with no such vertex it returns
+its input, so existing diagrams are bit-identical.
+
+Order-2 six-point function at distinct external times, N = 3, static
+couplings, `gauss_legendre`, against a numpy hand contraction:
+
+| vertices | before | now | error |
+|---|---|---|---|
+| two `equal_time` copies | 1.4618e-03 | 3.6838e-03 | 60 % |
+| `already_R_contracted` + plain | −9.8994e-03 | 2.5995e-01 | 104 % |
+| `equal_time` + plain | −4.2364e-04 | 9.7227e-03 | 104 % |
+
+The two fixes are complementary rather than redundant: the canonical form
+keeps the equal-time copies apart at the merge, and the split covers what it
+does not describe.  Instrumented over both suites, the split is called 160
+times and separates structures once, into 20 of them — the
+`already_R_contracted` case.  Locked by `tests/test_callable_vertex_copies.py`
+(55 cases, VC0-VC4); 44 fail on 0.5.0.
+
+### Fixed: an off-diagonal C was truncated to its diagonal in the batched lookups
+
+At L0 a model with `diag_C=False` and a spatial table returned the diagonal
+from every batched C lookup, while the scalar loop fell back to direct
+quadrature per sample and was right.  Measured on an order-1 tadpole
+`⟨φ_0⟩ = F_0bc ∫ R C_bc`, which reads C at `b ≠ c`:
+
+| backend | before | now |
+|---|---|---|
+| `gauss_legendre` | 1.34778e-01 | 1.53391e-01 |
+| `qmc_vectorized` | 1.34779e-01 | 1.53391e-01 |
+| `qmc_scalar` | 1.53391e-01 | 1.53391e-01 |
+
+1.53391e-01 is the closed form.  Three backends, two answers, no error.  A
+cache that keeps off-diagonal entries while offering only
+`C_diagonal_batch` is now refused rather than truncated.
+
+### Added: an off-diagonal C by quadrature, without a user closed form
+
+`C = ∫∫ R κ² R + ∫ R σ² R` has off-diagonal component entries when R is
+dense (`ExplicitR(iso_R=False)`), when κ² mixes components (`GeneralKappa2`)
+or when σ² is a matrix; the tables held `C_aa` only, so
+`System.propagators(diag_C=False)` was refused unless the caller supplied a
+closed form.  Every table now stores the pairs its model needs, across the
+lazy and full-grid builders and the white-noise impulse, and half of each is
+filled by `C_ab(t1, t2) = C_ba(t2, t1)` where a numerical check says κ² and
+σ² allow it.
+
+Against the exact C, away from the time diagonal: 3.3e-05, 1.8e-07, 1.6e-08,
+1.4e-09 at 11, 21, 41 and 81 time points.  Within one grid spacing of the
+diagonal the white-noise kink limits it to 5.3e-02 … 3.5e-03, digit for
+digit what a diagonal table gives on the same system.  Build cost per table
+(N = 2, cells and seconds, diagonal → full): built-in kernels 861/8.1 s →
+861/6.4 s under Gauss-Legendre; a user callable κ² 1681/14.2 s → 861/5.7 s.
+Locked by `tests/test_offdiagonal_c_tables.py` (42 cases) against the
+Lyapunov equation of the Markov embedding.
+
+### Added: the batched integrators evaluate a matrix-valued R
+
+`gauss_legendre` and `qmc_vectorized` raised `NotImplementedError` for a
+matrix-valued R (`DiagonalA` with component-dependent rates,
+`ExplicitR(iso_R=False)`), so those systems had neither the batched speed nor
+Gauss-Legendre's convergence.  Each kept R propagator now becomes one
+`(n_samples, N, N)` batch (`PropagatorCache.R_matrix_batch`), whose entries
+are selected per component assignment exactly as C's are; the selection, the
+C product and the sum over assignments live in one static and one dynamic
+helper shared by `qmc_vectorized`, `gauss_legendre` and
+`integrate_two_point_qmc`, so the paths cannot drift.  Scalar-R values are
+unchanged bit for bit (28 recorded cases).
+
+| case | Gauss-Legendre | `nquad` | `qmc_vectorized` |
+|---|---|---|---|
+| `DiagonalA` (0.6, 1.6), orders 0-2, 1-, 2-, 3-point | 1.2e-15 | 1e-12 (vs GL) | 2.4e-16 (vs `qmc_scalar`) |
+| non-normal dense R, same set | 6.8e-15 | 1e-12 (vs GL) | " |
+| demo 5 part B, all channels | 6.6e-16 | 6.2e-16 | 2.6e-5 (2¹³) |
+
+Speed at equal accuracy: demo 5 part B 20.5 s → 1.9 s (`qmc_scalar` →
+`qmc_vectorized`, same points), 0.07 s on Gauss-Legendre; a dense-R order-2
+two-point channel 4.03 s → 0.05 s.  `integrate_two_point_qmc` also raised on
+a matrix R and **returned 0** for a callable coupling, whose
+`coupling_array` is a zeros placeholder; both are fixed.  Locked by
+`tests/test_matrix_r_batched.py` (53 cases), 47 of which fail on 0.5.0.
+
+### Fixed: an absorbed R with a matrix R
+
+An R absorbed into an `already_R_contracted` vertex stands in for the
+Kronecker delta between its partner's component and its leg's.  Only
+`diag_R=True` / `iso_R=True` applied that delta, and they apply it to every
+R, which zeroes a non-diagonal R's off-diagonal entries; without them the
+R-cache guard refused the terms.  On the FK channel of `⟨φ_aφ_b⟩` with a
+non-normal drift, `diag_R=True` gives −2.905200629e-02 against the exact
+−7.663980261e-03, 280 % off.  `compute_moment` now writes the partner's
+index on the absorbed leg, on the absorbed R alone, so
+`already_R_contracted` works with a matrix R on every backend (raw versus
+absorbed versus closed form agree to 1.6e-15).
+
+### Fixed: `ito=False` returned the Itô value for multiplicative noise
+
+The numerical layer evaluates every R at equal times as 0, so it computes the
+Itô SDE whatever `ito=` says.  That is exact for an equal-point R on a local
+vertex with one ψ leg — it and the Stratonovich functional Jacobian cancel,
+and the package emits neither — but on a vertex with two or more ψ legs the
+term is the drift `Θ(0) ∂_b D_ab(φ)`, which no Jacobian cancels and whose
+Stratonovich value needs `g`, not `D`.  Both that case and an equal-point R
+between two external operators now raise.  Measured on `⟨φ_a⟩` at order 1
+with a ψψφ vertex on four integrators: 0.4.x returned 0 on all four, where
+the Stratonovich coefficient of that tag is +6.886e-02 and −5.325e-02.
+
+### Added: multiplicative white noise at L1, Itô and Stratonovich
+
+The L1 workflow could not build a local vertex with two response legs, so
+multiplicative noise existed only at L0.
+`GaussianNoise(sigma2=MultiplicativeImpulse(g0, g1, interpretation))` now
+declares white noise with amplitude `g_ak(φ) = g0_ak + g1_akb φ_b`;
+`D = g gᵀ` splits into the white noise of C (`D0`), the ψψφ and ψψφφ
+vertices (MSR factor `−i²/2! = ½`), and, under `interpretation='stratonovich'`,
+the noise-induced drift as a ψ source and a ψφ vertex (factor `−i`), so R and
+C stay those of the Itô part and every integrator runs it.  YAML:
+`noise.sigma2.type: multiplicative`.  Checked per bookkeeping tag against the
+moment hierarchy of the same embedding with the generator in Hörmander form
+(`examples/reference/hormander_moments.py`, which never forms the drift):
+9.0e-16 on Gauss-Legendre at orders 0-4, 1.0e-6 on `qmc_vectorized`,
+2.3e-7 on `nquad` with a matrix R.  Mutating the lowering moves the checked
+values by 0.29 to 1.0.
+
+### Added: `nquad` evaluates callable couplings
+
+`method='nquad'` refused a spacetime-dependent coupling.  It and
+`make_scipy_integrand` now materialise the coupling at every point the
+quadrature visits, as the scalar QMC loop does.  Locked by
+`tests/test_nquad_callable_coupling.py` (38 cases): against `gauss_legendre`
+to 1e-10 on plain, `equal_time` and `already_R_contracted` κ³ with both
+contracts, and demo 4's level A against Campbell's closed form to 1.1e-15.
+
+### Fixed: a callable coupling at two sets of points was refused
+
+`DiagramTerm.build_integrand` raised "a callable coupling at more than one
+point set is not supported yet" for two copies of one callable vertex.  Each
+`(name, spatial_args)` pair already gets its own symbol, so each copy is now
+evaluated at its own points, on every backend.
+
+### Added: callable local couplings at L1 and in YAML
+
+`LocalVertex` took only a tensor; a callable raised `TypeError` from
+`System.build_coupling_values`, although L0 has evaluated one since F6.
+`LocalVertex(coupling=fn, rank=n)` lowers `fn` with the MSR factor `−i`
+applied to its output, under both calling contracts, and YAML takes `rank`
+and `coupling_vectorized`.  Checked against the exact hierarchy of a Markov
+embedding with a deterministic state `u = e^{−λt}` for
+`F_abc(x, t) = F0_abc (1 + βx) e^{−λt}` at N = 2: 1e-15 on `gauss_legendre`,
+9e-16 on `nquad`, 3.4e-7 on `qmc_vectorized`.  On 0.5.0, 89 of the 100 cases
+fail.
+
+### Improved: `nquad` splits at kinks, and coupling callables can declare kinks
+
+`integrate_moment_nquad` now splits the time domain where the integrand is
+kinked, with the recursion `integrate_moment_gauss_legendre` uses.  Adaptive
+quadrature used to stop short of its tolerance along a kink:
+
+| `nquad`, demo 5 part A | before | now |
+|---|---|---|
+| `⟨φ_a φ_b⟩` order 2, three variants, four pairs | 2.2e-8 to 1.4e-7, 1.0-2.7 s | ≤ 8.3e-16, 0.4-0.6 s |
+| `⟨φ_0⟩` order 3, mixing | 6.9e-8, 16 s | 2.0e-16, 5.2 s |
+
+A coupling callable can set `has_coincident_time_kinks = True`: it is kinked
+wherever two of its time arguments coincide (a `min` over them).
+Gauss-Legendre and `nquad` then also split at the pairs of those arguments
+the causal structure leaves unordered — the leg times of a raw vertex, the
+partner times of an `already_R_contracted` one.  The attribute is read
+through `__wrapped__`, so the MSR factor wrapper passes it on.  Demo 4's
+kernels declare it; against Campbell's closed form and the hierarchy:
+
+| channel | before, 16 / 32 nodes | now, 12 / 16 nodes | pieces |
+|---|---|---|---|
+| raw κ³, 3-point function | 5.7e-2 / 1.5e-2 | 2.2e-14 / 2.2e-14 | 6 |
+| R-contracted κ⁴, FFK4 | 4.3e-8 / 7.4e-10 | 2.6e-15 / 6.3e-15 | 2 |
+
+QMC is not split: at equal cost the split did not reduce the RMS error over
+16 seeds for 2^10 to 2^16 samples.  Values without a declaration are
+bit-identical.
+
+### Added: sweeps over n-point observables, and the L1 specs YAML could not express
+
+`Expansion.sweep` unpacked every entry of `component_pairs` as a pair, so a
+3- or 4-point observable could be evaluated one tuple at a time and neither
+swept nor run from YAML.  The component axis now takes one index per
+observable operator, as `component_tuples`; a 2-point sweep's rows and
+columns are unchanged.  Demo 4 ships `config_level_a.yaml` and
+`config_level_a_4pt.yaml`, which reproduce `level_a.py` for every component
+triple and quadruple (4.7e-15 against Campbell's `K_R`, and every sweep row
+equals `Expansion.evaluate` exactly).
+
+Four L1 specs had no YAML spelling: a `CustomKernel` on the temporal,
+spatial or angular axis, a matrix-valued `ExplicitR`, and a symmetric
+`N × N` `ConstantImpulse`.  Each was checked against the equivalent L1
+`System` (identical to the last bit) and against an independent reference
+(1.3e-15 to 8.4e-16).  What used to pass silently now raises: a component
+tuple longer than the observable returned the truncated value, a repeated
+tuple or grid value doubled its `totals()` row, a 1-D σ² amplitude was
+accepted, a non-symmetric one gave ⟨φ₀(x)φ₁(y)⟩ ≠ ⟨φ₁(x)φ₀(y)⟩,
+`already_R_contracted: "false"` was read as `True`, a (3,3,3) coupling at
+N = 2 used its (2,2,2) corner, and a second vertex named `F` was dropped.
+
+### Fixed: the Sobol samplers used scipy's 30-bit points
+
+`scipy.stats.qmc.Sobol` defaults to `bits=30`, so its points are multiples of
+2⁻³⁰ and the sample mean of a smooth integrand carries a left-Riemann bias
+`−(f(1) − f(0)) / 2³¹`: the same value for every seed and every sample
+count, a floor rather than a rate.  Demo 7 measured it at 1.38e-9 relative on
+the order-1 channel of `⟨φ_0(x,t) φ_1(y,t′)⟩`, where `nquad`,
+Gauss-Legendre and the exact hierarchy agree to 3.6e-16; both QMC backends
+returned the same wrong digits from 2¹² to 2¹⁸ samples.  The three samplers
+in `evaluate.py` now pass `bits=64`, and on that channel both QMC routes
+agree with the hierarchy to better than 1e-11.  Every QMC number moves by
+about 1e-9.  Locked by `tests/test_qmc_sobol_bits.py` (SB1-SB3), including
+an AST guard that requires `bits=64` at every `Sobol` construction in
+`src/`.
+
+### Added: demo 6, repeated and static non-local vertices, cubic plus quartic drift
+
+`examples/demo6/`: five structures the package supports and no test had
+evaluated — two copies of one non-local vertex, a static (ndarray) non-local
+coupling, `m = 5`, `m = 2`, and a quartic local vertex next to a cubic one.
+References: the closed form of the model, Campbell's theorem through demo 4,
+and a moment hierarchy that observes at several times by freezing each point
+after its own time (`solve_multitime`).
+
+| part | worst relative difference |
+|---|---|
+| two copies, 6-point order 2, all 64 component tuples | 5.9e-16 (static, GL), 9.7e-16 (`equal_time`, GL), 1.2e-05 to 2.6e-05 (QMC) |
+| static cumulants with F | 4.3e-16; `F X3 X3` of the five-point function 1.6e-15 |
+| quartic `G ψφφφ` next to cubic `F`, orders 2-3 | 1.0e-15 (one external point), 1.4e-13 (equal times) |
+| `m = 4`, `m = 5` on four routes | 5.4e-16 to 8.8e-13 |
+| an `m = 2` vertex: order 1 reproduces the C of that noise | 0.0 to 2.9e-16 |
+
+`examples/demo4/poisson_level_b_order4.py` adds demo 4's order-4 `F³κ³`
+channel (30 diagrams), which demo 2 could only estimate: 7.5e-16 (white
+pulses, GL 12) and 2.2e-09 (exponential, GL 24) against the hierarchy at tag
+`F³ μ¹`.
+
+### Added: demo 7, observables in space, angle and time
+
+R is local in space and the local vertices act at one point, so an n-point
+function at the observation points reduces to a finite-dimensional Itô SDE
+there whose noise covariance is the spatial kernel at their separations.  One
+reference therefore covers translation, rotation and general homogeneity, any
+spatial kernel and any dimension; it adds two-time propagation and integrated
+fields for `integrate_over`, both checked against quadrature.
+
+What had no exact check before: the two-time `⟨φ_a(x, t) φ_b(y, t′)⟩` at
+`a ≠ b`, `r ≠ 0`, `t ≠ t′`; `LegendreAngular` with more than one coefficient
+(every earlier test used `coeffs=[1.0]`, where C does not depend on
+direction); `CustomKernel` and `GeneralKappa2` through the package's own C
+tables; 3-D positions with a callable κ³; `integrate_over` at N = 2 with
+`a ≠ b`; the three-point function at order 2.  Worst relative difference from
+the hierarchy: 3.9e-08 (two-time, GL), 2.6e-07 (four Legendre coefficients),
+6.5e-08 (Gaussian tables), 4.2e-16 (3-D shot noise, GL), 2.2e-09
+(`integrate_over`), 1.1e-07 (three-point at order 2).  No route the package
+accepts returned a wrong number.
+
+### Fixed: a callable `DiagonalA` rate was integrated to O(h²)
+
+`DiagonalA(gamma=callable)` builds `R_aa(t1, t2) = exp(-(Γ_a(t1) − Γ_a(t2)))`
+from `Γ_a` sampled on the cache grid, and `Γ_a` was the cumulative trapezoid
+rule of `γ_a`: second order in the node spacing, where everything around it is
+fourth order or exact.  At the default grid (200 nodes on [0, 100], spacing
+0.50) and `γ(t) = [1 + 0.5 sin t, 0.6 + 0.3 cos 2t]`, R was 2.0e-2 off, and
+the error fell by 4.0 per halving of the spacing.
+
+`Γ_a` is now the exact integral of the cubic-spline interpolant of `γ_a`
+(`CubicSpline(...).antiderivative()`, a piecewise quartic): 4.2e-4 at the
+default grid, 3.3e-5 at spacing 0.25, 1.3e-6 at 0.12.  A constant or linear
+rate is still integrated exactly.  Locked by T5 and T5b in
+`tests/test_diagonal_A_time_dependent.py`, which fail on the previous code
+(2.0e-2 against a bound of 1e-3, and a halving ratio of 4.0 against a bound
+of 8).
+
+### Added: demo 8, time-dependent coefficients and non-exponential dynamics
+
+`examples/demo8/`: the four routes that leave the constant-diagonal-drift,
+exponential-kernel family every earlier demo stays in — a callable `γ(t)`
+with unequal, time-varying components and `t_min` of either sign; the
+response of a damped oscillator through `ExplicitR`, which oscillates and
+changes sign; Matérn-3/2, damped-cosine and Gaussian temporal kernels through
+`CustomKernel`; and a white-noise amplitude varying in time through
+`CustomImpulse`.  The reference is the moment hierarchy of a finite Markov
+embedding whose generator depends on time, integrated with `solve_ivp`
+(DOP853, `rtol = 1e-12`), sharing no code with the package.  The Gaussian
+kernel has no finite embedding, so it is checked against a closed-form C
+(`erf`, against `dblquad` to 1e-11), a hand contraction of the order-1 and
+order-2 diagrams, and time-translation invariance.
+
+| route | worst relative difference |
+|---|---|
+| callable `γ(t)`, exact C, `gauss_legendre` 12 (scalar R) | 2.3e-13 |
+| the same on `nquad`, matrix R | 5.9e-09 |
+| the same through quadrature tables, `n_grid_t` = 21 / 41 | 9.7e-06 / 1.9e-07 |
+| damped-oscillator `ExplicitR`, `gauss_legendre` 12 / 16 / 20 | 6.5e-08 / 5.7e-10 / 1.9e-15 |
+| the same at unequal external times, `qmc_vectorized` 2¹⁶ | 3.2e-12 (orders 0-1), 6.2e-08 (order 2) |
+
+The Γ-spline entry above is what this demo found: at the `DiagonalA` default
+spacing the callable-rate route was 6.1e-06 off where it is now 1.3e-13 at
+spacing 0.0036, and 1.3e-03 with the trapezoid rule it replaced.
+
+### Limitation: Gauss-Legendre does not split a kink at a fixed external time
+
+`_kink_pairs` requires both ends of a kink to be integration variables.  A
+white-noise C propagator, or an equal-time vertex with two parents, can put
+the kink between an internal time and an external point held at its own time:
+with every external at one time the kink lies outside the domain, and at
+distinct external times the convergence falls to algebraic.  Measured on the
+two-time channel of demo 7's matrix-R configuration against the exact
+hierarchy — 4.0e-3, 1.0e-3, 2.6e-4, 6.6e-5, 3.0e-5 at 8, 16, 32, 64 and 96
+nodes, exactly `n^-2`, against 4.5e-16 for `nquad` on the same channel.  The
+values are right; only the rate changes.  `tests/test_demo7_space.py` pins
+the rate, and demo 6 records the same on its `F F` channel.
+
 ## 0.5.0 — 2026-09-11
 
 > **Eight defects that returned a wrong number without an error, one crash,

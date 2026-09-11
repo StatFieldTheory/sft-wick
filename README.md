@@ -654,7 +654,7 @@ reference figures are committed, so a reviewer can re-run the scripts and
 diff against the shipped outputs. See also
 `examples/nonlocal_vertex_2pt.ipynb` for a non-local-vertex tutorial.
 
-Demos 4 and 5 have an exact reference instead of a simulation: the moment
+Demos 4 to 8 have an exact reference instead of a simulation: the moment
 hierarchy of the Itô process at the observation points
 (`examples/reference/ito_moments.py`, which imports nothing from
 sft-wick), solved order by order in the couplings, so each package channel
@@ -670,14 +670,18 @@ cd examples/demo4 && python level_a.py && python level_b.py     # ~10 s
 # demo5 — white noise on every integrator; multiplicative noise at L0 and L1
 cd examples/demo5 && python run.py && python multiplicative.py
 cd examples/demo5 && python white_l1_multiplicative.py   # Itô and Stratonovich
+# demo6 — repeated and static non-local vertices, m = 5, quartic plus cubic drift
+cd examples/demo6 && python vertex6_repeated.py && python vertex6_interacting.py
+# demo7 — two-time, angular and 3-D observables
+cd examples/demo7 && python space7_run.py && python space7_shot3d.py
 # demo8 — a rate varying in time, a damped-oscillator R, custom kernels, sigma^2(t)
 cd examples/demo8 && python time8_run.py
 ```
 
-Each README (`examples/demo4/README.md`, `examples/demo5/README.md`,
+Each README (`examples/demo4/README.md` through
 `examples/demo8/README.md`) lists the agreement per channel and
 integrator, and what the same scripts report on the code before each fix
-of 2026-09-11.
+they cover.
 
 ## Documentation
 
