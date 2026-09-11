@@ -312,12 +312,10 @@ no permutation symmetry of its own.
 
 .. note::
 
-   Spacetime-dependent callables currently support only **scalar**
-   leg positions (1-D translation, or sphere-direction unit vectors
-   reduced to ``cos θ``).  d-dim vector positions on the legs raise
-   ``NotImplementedError`` from inside the dynamic-coupling QMC
-   path; use a constant-tensor coupling for that vertex if you need
-   d-dim spatial coordinates.
+   With scalar positions, ``n_list`` has shape ``(m,)`` and ``n_2d``
+   has shape ``(m, n_samples)``.  With d-dim vector positions they
+   gain a trailing axis, ``(m, d)`` and ``(m, n_samples, d)``; the
+   shapes of ``t_list`` and ``t_2d`` do not change.
 
 Equal-time (single-shell) cumulants
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
