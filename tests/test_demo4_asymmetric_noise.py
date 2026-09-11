@@ -4,10 +4,10 @@ The noise cumulants are symmetric only under joint permutations of
 (component, point) pairs, the structure that exposed the leg-order defect
 of 0.4.2 (demo 4's level A is 47 % off on that code).  Checked here:
 
-* the closed forms of ``examples/demo4/noise.py`` against direct quadrature;
+* the closed forms of ``examples/demo4/poisson_noise.py`` against direct quadrature;
 * that the kernel is really asymmetric in points and in components, so the
   package checks below are not vacuous;
-* the moment hierarchy (``examples/demo4/reference.py``) against the closed
+* the moment hierarchy (``examples/demo4/poisson_reference.py``) against the closed
   forms at ``F = 0``;
 * level A: the package's 3- and 4-point functions, R-contracted and raw,
   against the closed form, at distinct points, for every component tuple;
@@ -26,9 +26,9 @@ from scipy.integrate import quad
 
 DEMO = Path(__file__).resolve().parents[1] / "examples" / "demo4"
 sys.path.insert(0, str(DEMO))
-import noise as nz  # noqa: E402
-import system as dsys  # noqa: E402
-from reference import Hierarchy  # noqa: E402
+import poisson_noise as nz  # noqa: E402
+import poisson_system as dsys  # noqa: E402
+from poisson_reference import Hierarchy  # noqa: E402
 
 T = 1.7
 POS = {"x": 0.0, "y": 0.8, "z": -0.5, "w": 1.3}

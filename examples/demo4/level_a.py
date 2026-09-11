@@ -8,10 +8,10 @@ equals the R-contracted cumulant exactly:
 
 Three references for the same numbers, independent of one another:
 
-1. the closed form ``ν Π h · X · T̃`` (:mod:`noise`), itself checked against
+1. the closed form ``ν Π h · X · T̃`` (:mod:`poisson_noise`), itself checked against
    direct quadrature in ``tests/test_demo4_asymmetric_noise.py``;
 2. the exact moment hierarchy of the process at the observation points
-   (:mod:`reference`), at equal times;
+   (:mod:`poisson_reference`), at equal times;
 3. for the raw route, the package's own leg integrals.
 
 Every component tuple is evaluated, at distinct points, so a coupling
@@ -33,9 +33,9 @@ import numpy as np
 
 os.environ.setdefault("SFT_WICK_QUIET_CACHE", "1")
 
-import noise as nz  # noqa: E402
-import system as dsys  # noqa: E402
-from reference import Hierarchy  # noqa: E402
+import poisson_noise as nz  # noqa: E402
+import poisson_system as dsys  # noqa: E402
+from poisson_reference import Hierarchy  # noqa: E402
 
 T = 1.7
 LABELS = ("x", "y", "z", "w")

@@ -34,10 +34,10 @@ together.  `F` has no index symmetry either.
 
 | tier | package route | reference |
 |---|---|---|
-| level A, `F = 0` | the order-1 `κ^(m)` diagram, `m = 3, 4`, for every component tuple: R-contracted callable, raw callable (leg integrals done by the package; `equal_time` for white pulses), unequal external times | the closed form `K_R = ν Π h · X · T̃` (`noise.py`; `T̃` checked against direct quadrature to 1e-12), and the moment hierarchy |
+| level A, `F = 0` | the order-1 `κ^(m)` diagram, `m = 3, 4`, for every component tuple: R-contracted callable, raw callable (leg integrals done by the package; `equal_time` for white pulses), unequal external times | the closed form `K_R = ν Π h · X · T̃` (`poisson_noise.py`; `T̃` checked against direct quadrature to 1e-12), and the moment hierarchy |
 | level B, `F ≠ 0` | `⟨φ_a(x) φ_b(y)⟩` for all four pairs, channel by channel (order 0, FK3, FF, FFK4), and the tadpole `⟨φ_a(x)⟩` | the moment hierarchy |
 
-The moment hierarchy (`reference.py`, built on
+The moment hierarchy (`poisson_reference.py`, built on
 `examples/reference/ito_moments.py`) is the exact generator of the Markov
 process at the observation points: the fields for white pulses, the fields
 and the pulses (a Poisson-driven Ornstein-Uhlenbeck process, started in its
@@ -94,9 +94,9 @@ the R-contracted exponential route.
 
 | file | contents |
 |---|---|
-| `noise.py` | parameters, the closed forms (`K_R`, `T̃`, C), the hierarchy's jump moments; numpy only |
-| `system.py` | the sft-wick `System`, the coupling callables and the closed-form C |
-| `reference.py` | the moment hierarchy at the observation points |
+| `poisson_noise.py` | parameters, the closed forms (`K_R`, `T̃`, C), the hierarchy's jump moments; numpy only |
+| `poisson_system.py` | the sft-wick `System`, the coupling callables and the closed-form C |
+| `poisson_reference.py` | the moment hierarchy at the observation points |
 | `level_a.py`, `level_b.py` | the two tiers |
 
 ```bash
