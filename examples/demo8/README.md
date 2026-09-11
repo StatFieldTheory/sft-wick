@@ -132,7 +132,7 @@ but the integrator (see "Limits").  The Gaussian rows are measured against
 the hand contraction, the others against the hierarchy.
 
 Time-translation invariance (`GaussianTemporal`, table C, `t_min` shifted by
-−1.1, 0 and +0.9 with the observation time): 3.3e-16 at orders 0 and 2.
+−1.1, 0 and +0.9 with the observation time): 4.3e-16 at orders 0 and 2.
 
 ### (d) a white-noise amplitude varying in time
 
@@ -195,8 +195,8 @@ relative departure from the exact C over `t ∈ [0.6, 2.1]`):
   `qmc_vectorized` reaches 2.4e-12 at 2¹⁶ on the same integrand and `nquad`
   2.7e-08, so the value is right and only the rate is lost.  The same
   integral written out by hand converges once its domain is split at the
-  crossing (5.9e-15 at 60 nodes, 6.8e-15 at 120) and not otherwise
-  (1.0e-07 at 60, 6.3e-10 at 240); `time8_run.py` prints both.
+  crossing (1.3e-14 at 60 nodes, 1.4e-14 at 120) and not otherwise
+  (1.4e-07 at 60, 8.7e-10 at 240); `time8_run.py` prints both.
 - **A κ² with a `|Δt|` cusp is not declared as kinking C.**
   `_c_has_diagonal_kink` is true when the model carries `sigma2`, or when a
   closed-form C says so; a quadrature-table cache whose κ² has a cusp (the
@@ -243,7 +243,7 @@ relative departure from the exact C over `t ∈ [0.6, 2.1]`):
 ```bash
 conda activate sft-wick
 cd examples/demo8
-python time8_run.py               # ~12 min
+python time8_run.py               # 580 comparisons, ~25 min
 python time8_run.py --items ad --quick
 pytest ../../tests/test_demo8_reference.py \
        ../../tests/test_demo8_time_dependent_rate.py \

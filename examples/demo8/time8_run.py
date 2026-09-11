@@ -4,7 +4,7 @@ Every row compares one package route with the moment hierarchy of
 :mod:`time8_reference` (or, for the Gaussian kernel, with the hand
 contraction), and is written to ``time8_results.json``::
 
-    python time8_run.py            # ~10 min
+    python time8_run.py            # 580 comparisons, ~25 min
     python time8_run.py --items ad # only the models named
 
 Routes.  ``exact C`` gives the package the defining integrals of C
