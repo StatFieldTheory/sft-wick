@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1383 tests** in 49 files (parametrised
+The suite has **1385 tests** in 49 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -126,7 +126,7 @@ Multiplicities and canonical forms
 Propagator numerics
 -------------------
 
-*313 tests in 10 files.*
+*315 tests in 10 files.*
 
 .. list-table::
    :header-rows: 1
@@ -168,10 +168,10 @@ Propagator numerics
      - 1e-8
      - 5
    * - ``test_diagonal_A_time_dependent.py``
-     - time-dependent γ(t) via cumulative-Γ spline
-     - constant-γ closed form; explicit R
-     - 1e-6
-     - 5
+     - time-dependent γ(t) via the integral of its cubic spline; R at the default cache grid and O(h⁴) convergence of Γ
+     - constant-γ closed form; explicit R; analytic Γ of a sinusoidal rate
+     - 1e-6 / 1e-3 (default grid)
+     - 7
    * - ``test_dt_discretization.py``
      - the propagators.dt knob converges the spline table
      - finer grid

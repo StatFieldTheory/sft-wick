@@ -123,8 +123,10 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "finer grid", "convergence order"),
     "tests/test_diagonal_A_time_dependent.py": (
         "Propagator numerics",
-        "time-dependent γ(t) via cumulative-Γ spline",
-        "constant-γ closed form; explicit R", "1e-6"),
+        "time-dependent γ(t) via the integral of its cubic spline; R at the "
+        "default cache grid and O(h⁴) convergence of Γ",
+        "constant-γ closed form; explicit R; analytic Γ of a sinusoidal rate",
+        "1e-6 / 1e-3 (default grid)"),
     "tests/test_d_dim_spatial.py": (
         "Propagator numerics",
         "vector positions through the L1 evaluate path",
