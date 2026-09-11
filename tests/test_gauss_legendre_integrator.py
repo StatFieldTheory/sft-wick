@@ -15,6 +15,12 @@ the notebook's hand-derived ``_fk_spatial_integral`` (verbatim from
 should agree to floating-point because they evaluate the same
 4D integral with the same nodes -- only the orchestration
 differs (the L2 path enumerates diagrams symbolically).
+
+Up to 0.5.0 this file also locked ``method='nquad'`` refusing a callable
+coupling.  nquad evaluates one now; that contract lives in
+``tests/test_nquad_callable_coupling.py``, on diagrams of one to three
+dimensions (adaptive quadrature of this file's 4D FK integrand would take
+minutes).
 """
 from __future__ import annotations
 
@@ -211,44 +217,6 @@ def test_FK_gauss_legendre_matches_notebook(t_f, n_gauss):
         err_msg=f"L2 GL vs notebook GL mismatch at t_f={t_f}, "
                 f"n_gauss={n_gauss}: actual={actual!r}, ref={reference!r}",
     )
-
-
-def test_nquad_with_dynamic_coupling_raises():
-    """Regression: ``method='nquad'`` previously silently returned 0
-    on diagrams with a callable (spacetime-dependent) coupling
-    because ``integrate_moment_nquad`` multiplied by the placeholder
-    ``coupling_array=zeros`` instead of materialising the dynamic
-    coupling per-call.
-
-    Rather than fix the silent-zero bug by routing per-call through
-    the dynamic-coupling promise (which works but is dramatically
-    slower than tensor-product GL on the same 4D smooth integrand),
-    we surface the limitation explicitly and direct users to
-    ``method='gauss_legendre'``.  This test locks the contract.
-    """
-    system = _build_demo2_FK_system()
-    expansion = system.expand(
-        observable=("phi_a(x)", "phi_b(y)"),
-        orders=(2,),
-    )
-    propagators = system.propagators(
-        t_max=1.0,
-        n_grid_t=10,
-        c_closed_form=_C_fn_bare,
-        c_closed_form_only=True,
-        c_closed_form_vectorized=True,
-    )
-
-    with pytest.raises(NotImplementedError, match="gauss_legendre"):
-        expansion.evaluate(
-            propagators,
-            positions={"x": 0.0, "y": 0.0},
-            t_final=1.0,
-            component_pair=(0, 1),
-            orders=(2,),
-            vertex_types={"FK"},
-            method="nquad",
-        )
 
 
 def test_gauss_legendre_n_gauss_convergence():
