@@ -83,6 +83,23 @@ differ from the correct one by more than 1e-2.  On 0.4.2, 42 cases fail; the
 29 that pass are the two point-symmetric controls, the kernel-symmetry checks
 and the static-coupling control.
 
+### Tests: the argument shapes a callable coupling receives
+
+`tests/test_dynamic_coupling.py` gains WF9 (18 cases), which records the
+arguments a callable non-local coupling receives and checks their shapes on
+`gauss_legendre`, `qmc_vectorized` and `qmc_scalar`, for scalar, 2-D and 3-D
+leg positions under both contracts.  Positions arrive as `(m,)` or `(m, d)`
+per sample and as `(m, n_samples)` or `(m, n_samples, d)` under
+`coupling_vectorized=True`; times as `(m,)` or `(m, n_samples)`.
+`qmc_scalar` passes a vectorised callable one sample at a time, so there
+`n_samples` is 1.  Each case also requires the FK total to equal the
+per-sample, scalar-position total of the same method to 1e-12.
+
+WF8, which runs the same system with 3-D positions, checks only for a finite
+nonzero total.  It still passed with the positions reduced to their norms
+before they reached the callable; WF9 fails in its 12 vector cases under that
+change, and in the same 12 when the positions are zeroed.
+
 ## 0.4.2 — 2026-09-03
 
 > **One `src/` fix, a documentation catch-up, and the test suite's tolerances
