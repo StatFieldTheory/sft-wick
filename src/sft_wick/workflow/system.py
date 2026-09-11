@@ -53,11 +53,9 @@ _DIAG_C_REFUSAL = (
     "C of this system has off-diagonal component entries (from a dense R, "
     "a component-mixing κ² such as GeneralKappa2, or a matrix σ²), and "
     "diag_C=True keeps only C_aa, which would give a wrong result without "
-    "an error.  Pass diag_C=False to System.expand, and build the "
-    "propagators with diag_C=False, c_closed_form_only=True and a closed "
-    "form returning the full (N, N) C (c_closed_form='auto' supplies one "
-    "for DiagonalA + SeparableTranslation(ExponentialTemporal) + "
-    "ConstantImpulse); the quadrature tables hold C_aa only."
+    "an error.  Pass diag_C=False to System.expand and to "
+    "System.propagators: the propagator tables then hold every C_ab, by "
+    "quadrature or from a closed form that returns the full (N, N) C."
 )
 
 
@@ -270,10 +268,10 @@ class System:
                 represented as a diagonal vector ``(n, N)``. When ``False``,
                 the full ``(n, N, N)`` matrix is preserved -- required for
                 observables that probe cross-component C entries
-                (e.g. lensing kappa-gamma cross-correlation). Off-diagonal
-                support is only meaningful in combination with
-                ``Propagators.build(c_closed_form_only=True)`` because the
-                spline-table paths build only diagonal entries.
+                (e.g. lensing kappa-gamma cross-correlation) and for any
+                system whose C has off-diagonal entries.  Every C table
+                and lookup built on the model then carries all ``N²``
+                entries.
         """
         R_time = (
             self.explicit_R
@@ -585,9 +583,12 @@ class System:
                 When ``False``, the full ``(n, N, N)`` matrix is preserved
                 so observables can read off-diagonal entries
                 ``C[a, b]`` with ``a != b`` (e.g. the lensing
-                κ-γ₊ cross-correlation). Requires
-                ``c_closed_form_only=True``: spline-table paths build
-                diagonal entries only.
+                κ-γ₊ cross-correlation).  The quadrature tables then hold
+                every ``C_ab`` (build cost in :meth:`Propagators.build`),
+                and a closed form must return the full matrix.  Required
+                when C has off-diagonal entries (a dense R, a
+                component-mixing κ², a matrix σ²); ``diag_C=True`` is
+                refused for such a system.
             progress: ``True`` / ``False`` / a ``(desc, done, total)``
                 callable / ``None`` (inherit: the ``SFT_WICK_PROGRESS``
                 environment variable, else on only when stderr is a

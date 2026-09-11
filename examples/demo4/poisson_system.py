@@ -168,3 +168,25 @@ def propagators_for(system: sw.System, p: nz.Params, t_max: float):
     return system.propagators(
         t_max=t_max, c_closed_form=ClosedFormC(p), c_closed_form_only=True,
         c_closed_form_vectorized=True, diag_C=False, progress=False)
+
+
+def quadrature_propagators_for(system: sw.System, p: nz.Params, t_max: float,
+                               n_grid_t: int = 21, n_gauss: int = 16):
+    """Propagators whose full ``(N, N)`` C comes from quadrature tables.
+
+    The same physics as :func:`propagators_for` without its closed form:
+    ``c_closed_form=None`` tabulates ``C = ∫∫ R κ² R`` (plus the white
+    impulse for ``pulse="white"``) at every component pair.  The
+    ``homogeneity="translation"`` override applies because the spatial
+    overlap ``X_ab`` of :mod:`poisson_noise` depends on ``|x1 − x2|``
+    alone, while a ``GeneralKappa2`` would otherwise be tabulated per
+    ordered pair of points.  Accuracy is the table's: at ``n_grid_t=21``
+    (white) and 17 (exponential) the level-B channels land within 2.0e-07
+    and 3.4e-03 (white, order 0 and FF) and 2.4e-07 and 1.2e-05
+    (exponential) of the hierarchy.  Reached by
+    ``level_b.py --c-quadrature``.
+    """
+    return system.propagators(
+        t_max=t_max, n_grid_t=n_grid_t, c_closed_form=None, diag_C=False,
+        homogeneity="translation", c_method="gauss_legendre",
+        c_n_gauss=n_gauss, progress=False)
