@@ -308,7 +308,7 @@ def _kernel_family_is_structured(system) -> bool:
     families (so its smoothness is known and Gauss-Legendre is safe)."""
     from .specs import (
         ConstantImpulse, CustomImpulse, CustomKernel, DiagonalA,
-        SeparableRotation, SeparableTranslation,
+        MultiplicativeImpulse, SeparableRotation, SeparableTranslation,
     )
     if getattr(system, "explicit_R", None) is not None:
         return False
@@ -324,8 +324,10 @@ def _kernel_family_is_structured(system) -> bool:
     if any(isinstance(piece, CustomKernel) for piece in pieces):
         return False
     s2 = system.noise.sigma2
+    # MultiplicativeImpulse enters C through its constant part D0 only.
     if s2 is not None and (isinstance(s2, CustomImpulse)
-                           or not isinstance(s2, ConstantImpulse)):
+                           or not isinstance(s2, (ConstantImpulse,
+                                                  MultiplicativeImpulse))):
         return False
     return True
 

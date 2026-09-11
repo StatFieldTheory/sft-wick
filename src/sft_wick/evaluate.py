@@ -178,6 +178,75 @@ def _cache_r_type(cache: Any) -> bool | None:
     return bool(iso_R)
 
 
+#: ``ValueError`` text for each kind of :func:`_interpretation_dependent_r`.
+_EQUAL_POINT_R = {
+    "external": (
+        "R({y}, {y}) joins two external operators at the point '{y}': it is "
+        "the equal-time response, whose value Theta(0) is 0 in the Ito "
+        "reading and 1/2 in the Stratonovich one.  Only compute_moment(..., "
+        "ito=False) keeps it, and the numerical layer evaluates every R at "
+        "equal times as 0, the Ito value.  Expand with ito=True, or give the "
+        "two operators distinct labels and separate their times through "
+        "external_times."
+    ),
+    "multi_psi": (
+        "R({y}, {y}) contracts a psi leg of the local vertex at '{y}' with a "
+        "phi leg of the same vertex, and that vertex has {n} psi legs (a "
+        "phi-dependent noise covariance: multiplicative noise).  Only "
+        "compute_moment(..., ito=False) keeps this term.  Its value is fixed "
+        "by the stochastic interpretation (Theta(0) = 0 for Ito, 1/2 for "
+        "Stratonovich), the Ito and Stratonovich moments differ, and the "
+        "numerical layer, which evaluates every R at equal times as 0, would "
+        "return the Ito value.  Expand with ito=True for the Ito SDE.  For a "
+        "Stratonovich SDE, convert it to Ito form first: at L1, "
+        "MultiplicativeImpulse(interpretation='stratonovich') adds the "
+        "noise-induced drift."
+    ),
+}
+
+
+def _interpretation_dependent_r(dt: "DiagramTerm") -> str | None:
+    """Why ``dt`` has no value independent of the Itô/Stratonovich reading,
+    or ``None``.
+
+    An R propagator whose two ends carry one spatial label, ``R(y, y)``,
+    occurs only in terms built with ``compute_moment(..., ito=False)``;
+    ``ito=True`` drops it.  Its value is ``Θ(0)``: 0 in the Itô reading,
+    1/2 in the Stratonovich one.  The numerical layer evaluates every R at
+    equal times as 0, so it computes the Itô SDE.  Whether that is also the
+    answer ``ito=False`` asks for depends on where the R sits:
+
+    * on a local vertex with **one** ψ leg (a drift term ``ψ_a f_a(φ)``) it
+      turns the vertex into ``Θ(0) ∂_a f_a``, the term that the Jacobian of
+      the Stratonovich path integral cancels.  The package emits neither,
+      which is exact, so the term is evaluated (it gives 0);
+    * on a local vertex with **two or more** ψ legs (a φ-dependent noise
+      covariance ``D(φ)``) it gives the drift ``Θ(0) ∂_b D_ab(φ)``, which
+      no drift Jacobian cancels, and the Stratonovich moments need the noise
+      amplitude ``g`` of ``D = g gᵀ``, which the diagram does not carry.
+      Refused;
+    * between two **external** operators at one label it is the equal-time
+      response ``Θ(0)`` itself.  Refused.
+
+    The ψ legs of the vertex at ``y`` are counted as the R propagators
+    whose right (ψ) end is ``y``: every ψ leg contracts into exactly one.
+    """
+    internal = set(dt.integration_vars)
+    psi_legs: dict[str, int] = defaultdict(int)
+    for p in dt.propagators:
+        if p.kind == "R":
+            psi_legs[p.spatial_right] += 1
+    for p in dt.propagators:
+        if p.kind != "R" or p.spatial_left != p.spatial_right:
+            continue
+        y = p.spatial_left
+        if y not in internal:
+            return _EQUAL_POINT_R["external"].format(y=y)
+        if psi_legs[y] >= 2:
+            return _EQUAL_POINT_R["multi_psi"].format(y=y, n=psi_legs[y])
+    return None
+
+
 def _select_C_batch(
     C_batch: np.ndarray,
     a: int | None,
@@ -5724,6 +5793,11 @@ def integrate_diagrams(
             (``iso_R=True``) against a matrix-R cache, or two different
             indices on an R absorbed into an ``already_R_contracted``
             vertex.  The message names the flags that match the cache.
+            Also if a term built with ``compute_moment(..., ito=False)``
+            has an equal-point R whose value depends on the Itô or
+            Stratonovich reading: on a local vertex with two or more ψ
+            legs, or between two external operators (see
+            ``_interpretation_dependent_r``).
     """
     if not diagram_terms:
         return (0.0, [])
@@ -5736,6 +5810,11 @@ def integrate_diagrams(
             problem = _r_index_mismatch(dt, iso_R)
             if problem:
                 raise ValueError(problem)
+    # Also checked by DiagramTerm.build_integrand.
+    for dt in diagram_terms:
+        problem = _interpretation_dependent_r(dt)
+        if problem:
+            raise ValueError(problem)
 
     tick = progress_tick or (lambda n=1: None)
 

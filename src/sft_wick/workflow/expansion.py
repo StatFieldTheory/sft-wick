@@ -69,6 +69,50 @@ def _guard_external_times(expansion, propagators, ext_times, label):
             )
 
 
+def _guard_single_site(expansion, diagram_terms, positions) -> None:
+    """Refuse external points at different positions that a diagram of a
+    multiplicative-noise system joins through response propagators.
+
+    R carries ``δ(n − n')``, so the points of one R-connected group share a
+    position.  A group holds two external points only through a vertex with
+    two ψ legs (or an external ψ), and a :class:`MultiplicativeImpulse`
+    brings such vertices.  They are local: they describe one SDE per point,
+    and say nothing about how the noise at two points is correlated.  The
+    evaluators take one position per group, whichever external point they
+    meet first, so the value would depend on that choice.
+    """
+    from .specs import MultiplicativeImpulse
+
+    if not positions or not isinstance(expansion.system.noise.sigma2,
+                                       MultiplicativeImpulse):
+        return
+    values = [np.asarray(v) for v in positions.values()]
+    if all(np.array_equal(v, values[0]) for v in values[1:]):
+        return
+    for dt in diagram_terms:
+        spatial = dt.analyze_spatial()
+        external = set(spatial.external_points)
+        for group in spatial.direction_groups:
+            pts = sorted(p for p in group if p in external and p in positions)
+            for p in pts[1:]:
+                if not np.array_equal(np.asarray(positions[p]),
+                                      np.asarray(positions[pts[0]])):
+                    raise ValueError(
+                        f"Expansion.evaluate: the external points "
+                        f"'{pts[0]}' and '{p}' are at different positions "
+                        f"({positions[pts[0]]!r} and {positions[p]!r}), and "
+                        f"a chain of response propagators joins them in a "
+                        f"diagram of this system.  A MultiplicativeImpulse "
+                        f"lowers to local vertices, so it describes one SDE "
+                        f"per spatial point; the value at two positions "
+                        f"would depend on how the noise at different points "
+                        f"is correlated, which those vertices do not "
+                        f"describe.  Put the external points at one position "
+                        f"(distinct labels and distinct external_times are "
+                        f"fine)."
+                    )
+
+
 @dataclass(frozen=True)
 class Expansion:
     """Result of :meth:`System.expand`.  Opaque to construct; use the
@@ -322,6 +366,7 @@ class Expansion:
         _guard_external_times(
             self, propagators, external_times, "Expansion.evaluate",
         )
+        _guard_single_site(self, diagram_terms, positions)
 
         _total, details = integrate_diagrams(
             diagram_terms,

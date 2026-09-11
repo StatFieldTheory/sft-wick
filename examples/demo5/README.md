@@ -81,16 +81,97 @@ off by 2.7e-3 to 9.1e-3 in the FG channel and 2.3e-2 to 6.7e-2 in FH (the
 ψψφφ vertex's two ψ legs meet the F vertex's two φ legs); the other
 columns are unchanged.
 
+## Part C: multiplicative white noise at L1, Itô and Stratonovich (`white_l1_multiplicative.py`)
+
+```
+dφ_a = (−γ_a φ_a + η_a + F_abc φ_b φ_c) dt + g_ak(φ) (∘) dW_k,  k = 0, 1, 2
+g_ak(φ) = g0_ak + g1_akb φ_b,   one point,  t ≥ t_min = 0.4,  φ(t_min) = 0
+η: the coloured noise of part A (λ = 0.3, σ_t = 0.7)
+```
+
+Two components, three Wiener processes, no symmetry in `F`, `g0` or `g1`.
+The L1 system declares the white noise as
+`MultiplicativeImpulse(g0, g1, interpretation)`: `D0 = g0 g0ᵀ` is the white
+noise of C (dense, so `diag_C=False`), the rest of `D(φ) = g(φ) g(φ)ᵀ`
+becomes the local vertices `G` (ψψφ) and `H` (ψψφφ) with the MSR factor
+`−i²/2! = ½`, and `interpretation='stratonovich'` adds the noise-induced
+drift `½ Σ_jk g_jk ∂_j g_ik = b + Lφ` as a source `B` (ψ) and a linear
+vertex `L` (ψφ) with the factor `−i`.
+
+Tags `(k_F, k_g)` count powers of `F` and `g1`: `F` (1, 0), `G` and `B`
+(0, 1), `H` and `L` (0, 2).  Every vertex has weight ≥ 1, so a tag of
+weight `w` collects vertex orders up to `w`; the script sums the package's
+diagrams of each tag and compares with that tag's coefficient in the exact
+hierarchy.  `⟨φ φ⟩` vanishes at odd weight and `⟨φ⟩`, `⟨φ φ φ⟩` at even
+weight, so the three observables together cover vertex orders 0-4.
+
+Reference: the moment hierarchy of the same Markov embedding, with the
+generator in Hörmander form `L = f·∇ + ½ Σ_k (g_k·∇)(g_k·∇)`
+(`white_hormander_reference.py` on `examples/reference/hormander_moments.py`;
+no sft-wick code).  The noise-induced drift is never formed there, so the
+package's conversion is not checked against itself.
+
+Worst relative difference over the tags, component tuples and observables
+(`white_l1_multiplicative_results.json`); the same table for both
+interpretations:
+
+| run | vertex orders | worst |
+|---|---|---|
+| scalar R, Gauss-Legendre (12 nodes) | 0-3 (`⟨φ⟩`, `⟨φφφ⟩`), 0-4 (`⟨φφ⟩`) | 9.0e-16 |
+| scalar R, `qmc_vectorized` (2¹⁴) | 0-2 | 1.0e-6 |
+| matrix R, `qmc_scalar` (2¹²) | 0-2 (`⟨φφ⟩`), 0-3 (`⟨φ⟩`) | 1.4e-5 (order 2), 1.1e-3 (order 3) |
+| matrix R, `nquad` | 0-2 | 2.3e-7 |
+
+Distinct times at one point, `⟨φ_a(t_min + 0.9) φ_b(t_min + 1.5)⟩`, orders
+0-3:
+
+| integrator | worst |
+|---|---|
+| `nquad` | 5.2e-8 |
+| `qmc_vectorized` (2¹⁶) | 2.0e-7 |
+| Gauss-Legendre (12 nodes) | 2.0e-3 |
+
+Gauss-Legendre is algebraic on the two-time integrand: an internal time
+crosses the earlier external time inside the domain, where C is kinked, and
+the GL kink split pairs internal variables only.  Measured on the FG
+channel: 2.0e-3 at 12 nodes, 1.1e-3 at 24, 1.8e-4 at 48, 5.4e-5 at 80.  The
+FF channel behaves the same way, so this is a property of two external
+times with white noise, not of the noise vertices.
+
+What the run would have shown on older code:
+
+| code | what fails |
+|---|---|
+| `7034888` (this branch's base) | `MultiplicativeImpulse` does not exist; the L0 route can express the Itô model only, and `ito=False` returns the Itô value in silence — for the ψψφ vertex at order 1 it returns 0 on all four integrators, while the Stratonovich coefficient of that tag is +6.886e-02 (a = 0) and −5.325e-02 (a = 1) |
+
+Margins of the comparison, measured by mutating the lowering (worst
+relative difference the Gauss-Legendre check then sees, tolerance 1e-9):
+
+| mutation | Itô | Stratonovich |
+|---|---|---|
+| noise-induced drift dropped | 4e-16 | 1.0 |
+| drift factor 1 instead of ½ | 4e-16 | 1.0 |
+| drift contracted on the wrong `g1` slot | 4e-16 | 2.9e-1 |
+| MSR factor 1 instead of ½ on the `D(φ)` vertices | 1.0 | 6.6e-1 |
+| MSR factor `−i` instead of ½ | raises (the reality check) | raises |
+
 ## Limits, measured
 
 - `nquad` on the order-2 white-noise integrand did not finish one
   evaluation in 10 minutes; adaptive quadrature meets the kink everywhere.
   It runs the tadpole only.
 - A matrix R runs on the scalar loops only (`qmc_scalar`, `qmc`, `nquad`).
-- The package is Itô numerically whatever `ito=` says: with `ito=False` the
-  extra equal-time terms are kept but evaluate to 0, because the retarded
-  R vanishes at equal times.  A Stratonovich model needs its noise-induced
-  drift written into `F`.
+- The numerical layer evaluates every R at equal times as 0, so it computes
+  the Itô SDE whatever `ito=` says.  Under `ito=False` the extra
+  equal-point R on a vertex with one ψ leg is still evaluated (it gives 0,
+  which is exact: it and the Stratonovich Jacobian cancel, and the package
+  emits neither); on a vertex with two or more ψ legs, or between two
+  external operators, it now raises instead of returning the Itô value.  A
+  Stratonovich model is computed in its Itô form — part C.
+- Gauss-Legendre converges algebraically when the two external points are
+  at different times (part C); `nquad` and QMC do not.
+- Part C is one SDE per point: `Expansion.evaluate` refuses external points
+  at different positions that a response chain joins.
 
 ## Files
 
@@ -100,11 +181,15 @@ columns are unchanged.
 | `white_reference.py` | the moment hierarchy of the Markov embedding |
 | `run.py` | part A |
 | `multiplicative.py` | part B |
+| `white_l1_multiplicative.py` | part C: the L1 system, the per-tag comparison |
+| `white_hormander_reference.py` | part C's reference: the generator in Hörmander form |
 
 ```bash
 conda activate sft-wick
 cd examples/demo5
-python run.py              # ~12 min, 10 of them the mixing variant's order 4
-python multiplicative.py   # ~30 s
+python run.py                      # ~12 min, 10 of them the mixing variant's order 4
+python multiplicative.py           # ~30 s
+python white_l1_multiplicative.py  # ~20 min, 17 of them the two Gauss-Legendre runs
 pytest ../../tests/test_demo5_white_noise.py -q
+pytest ../../tests/test_multiplicative_noise_l1.py -q
 ```

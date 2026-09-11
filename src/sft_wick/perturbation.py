@@ -914,8 +914,15 @@ class DiagramTerm:
         from .evaluate import (
             DiagramIntegrand,
             DynamicCouplingPromise,
+            _interpretation_dependent_r,
             analyze_spatial,
         )
+        # An equal-point R kept by ito=False whose value depends on the
+        # Ito/Stratonovich reading: the numerical layer can only give the Ito
+        # value, so refuse instead of returning it under the other name.
+        problem = _interpretation_dependent_r(self)
+        if problem:
+            raise ValueError(problem)
         spatial = analyze_spatial(self)
 
         fi = dict(fixed_indices) if fixed_indices else {}
@@ -1410,15 +1417,21 @@ def compute_moment(
 
             ``ito=False`` is a **symbolic** switch.  It keeps those
             terms in the expression tree so they can be inspected or
-            rendered, but it does not change any *number*: the
-            numerical layer applies :math:`\Theta(0)=0` at every R
-            evaluation, and this package does not generate the
-            Stratonovich functional Jacobian
-            :math:`-\tfrac{1}{2}\int\mathrm{d}s\,\partial F/\partial\phi`.
-            Those two omissions cancel exactly, and for additive noise
-            the Itô and Stratonovich answers coincide anyway, so
-            ``ito=False`` evaluates to the correct physical value — the
-            same one ``ito=True`` gives.
+            rendered.  The numerical layer applies :math:`\Theta(0)=0`
+            at every R evaluation, so it computes the Itô SDE.  For an
+            equal-point R on a local vertex with **one** ψ leg that is
+            exact under either reading: the Stratonovich functional
+            Jacobian :math:`-\tfrac{1}{2}\int\mathrm{d}s\,\partial
+            F/\partial\phi` cancels it, and the package emits neither,
+            so such terms evaluate to the ``ito=True`` value.  For an
+            equal-point R on a local vertex with **two or more** ψ legs
+            (multiplicative noise), or between two external operators
+            at one label, the Itô and Stratonovich values differ, and
+            :meth:`DiagramTerm.build_integrand` and
+            :func:`~sft_wick.evaluate.integrate_diagrams` raise
+            ``ValueError`` rather than return the Itô value.  A
+            Stratonovich SDE is computed in its Itô form (at L1,
+            ``MultiplicativeImpulse(interpretation='stratonovich')``).
 
             Do **not** "fix" this by setting
             :math:`\Theta(0)=\tfrac{1}{2}` without also emitting the

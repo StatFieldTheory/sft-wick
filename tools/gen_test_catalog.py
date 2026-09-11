@@ -221,6 +221,25 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "numpy hand contraction over the full C matrices; all five backends "
         "against each other; the label-blind value shown to differ",
         "1e-12 (backends) / 1e-3 (quadrature vs QMC)"),
+    "tests/test_hormander_moments_reference.py": (
+        "Integrators",
+        "the vector-field (Hörmander-form) moment reference used by demo 5 "
+        "part C (examples/reference/hormander_moments.py; no sft-wick code): "
+        "Stratonovich and Itô moments of affine noise in one and two "
+        "dimensions, the Itô branch against ito_moments, the tag expansion, "
+        "two-time moments",
+        "closed forms; the linear moment equations of the Itô form "
+        "(solve_ivp); ito_moments.PolySDE", "1e-9 - 1e-13"),
+    "tests/test_multiplicative_noise_l1.py": (
+        "Workflow and YAML",
+        "multiplicative white noise at L1 (MultiplicativeImpulse): D = g gᵀ "
+        "and the noise-induced drift, the vertices and their MSR factors, "
+        "⟨φ_a⟩ and ⟨φ_a φ_b⟩ per bookkeeping tag at vertex orders 0-3 (Itô "
+        "and Stratonovich, scalar and matrix R, two times), the YAML route, "
+        "the one-site and ito=False refusals",
+        "exact moment hierarchy in Hörmander form (no noise-induced drift "
+        "formed); finite differences of g",
+        "1e-9 (GL) / 2e-3 (qmc_scalar)"),
     "tests/test_ito_moments_reference.py": (
         "Integrators",
         "the exact Itô moment-hierarchy reference used by demos 4 and 5 "

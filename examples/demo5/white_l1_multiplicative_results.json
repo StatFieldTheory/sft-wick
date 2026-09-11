@@ -1,0 +1,7836 @@
+{
+ "ito, scalar R, gauss_legendre": {
+  "rows": [
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.066569584345849,
+    "hierarchy": 0.06656958434584898,
+    "rel": 4.1694079793904624e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.003448041182501646,
+    "hierarchy": 0.003448041182501645,
+    "rel": 2.5155202391147474e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.008047735844909459,
+    "hierarchy": 0.008047735844909459,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.005415015163675648,
+    "hierarchy": 0.00541501516367565,
+    "rel": 3.2035431546221134e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": -0.04877352960435167,
+    "hierarchy": -0.04877352960435164,
+    "rel": 5.690704741030783e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": -0.004978949097628025,
+    "hierarchy": -0.004978949097628023,
+    "rel": 5.226173561816182e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": -0.013076452376504307,
+    "hierarchy": -0.013076452376504306,
+    "rel": 1.326600996990398e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": -0.008340071566399987,
+    "hierarchy": -0.008340071566399992,
+    "rel": 6.239958957782435e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.24783290413772838,
+    "hierarchy": 0.24783290413772832,
+    "rel": 2.239862032218635e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.01249865782343134,
+    "hierarchy": 0.012498657823431335,
+    "rel": 4.163783424948334e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.03284481612296017,
+    "hierarchy": 0.03284481612296018,
+    "rel": 4.225259704868064e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.024374640187738574,
+    "hierarchy": 0.024374640187738567,
+    "rel": 2.846767726810496e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.009850058515214593,
+    "hierarchy": -0.009850058515214592,
+    "rel": 1.7611301225239623e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.008538949551139369,
+    "hierarchy": -0.008538949551139367,
+    "rel": 2.031542012969663e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.029552636400637378,
+    "hierarchy": -0.02955263640063737,
+    "rel": 2.3479779637384824e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.020931240927594075,
+    "hierarchy": -0.020931240927594078,
+    "rel": 1.657544798206289e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.009850058515214593,
+    "hierarchy": -0.009850058515214592,
+    "rel": 1.7611301225239623e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.008538949551139369,
+    "hierarchy": -0.008538949551139367,
+    "rel": 2.031542012969663e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.029552636400637378,
+    "hierarchy": -0.02955263640063737,
+    "rel": 2.3479779637384824e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.02093124092759407,
+    "hierarchy": -0.020931240927594078,
+    "rel": 3.315089596412578e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.2007715134539253,
+    "hierarchy": 0.20077151345392524,
+    "rel": 2.764891805430206e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.011603973360878192,
+    "hierarchy": 0.011603973360878189,
+    "rel": 2.98987841841361e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.03163654044075733,
+    "hierarchy": 0.03163654044075734,
+    "rel": 2.193316275179019e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0303164331387969,
+    "hierarchy": 0.030316433138796894,
+    "rel": 2.2888226567218776e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.009850058515214593,
+    "hierarchy": -0.009850058515214593,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.008538949551139369,
+    "hierarchy": -0.008538949551139366,
+    "rel": 4.063084025939327e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     4
+    ],
+    "package": -0.0006726193429371798,
+    "hierarchy": -0.0006726193429371797,
+    "rel": 1.6119104867710668e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.029552636400637378,
+    "hierarchy": -0.029552636400637385,
+    "rel": 2.347977963738481e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     3
+    ],
+    "package": -0.007215088781056598,
+    "hierarchy": -0.007215088781056596,
+    "rel": 2.404299556966463e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.020931240927594075,
+    "hierarchy": -0.020931240927594068,
+    "rel": 3.3150895964125794e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     2
+    ],
+    "package": -0.019977303948680736,
+    "hierarchy": -0.019977303948680723,
+    "rel": 6.946777124413192e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     3,
+     1
+    ],
+    "package": -0.019451503660749818,
+    "hierarchy": -0.01945150366074981,
+    "rel": 3.5672789234843913e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     4,
+     0
+    ],
+    "package": -0.007551011599684713,
+    "hierarchy": -0.007551011599684713,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.2007715134539253,
+    "hierarchy": 0.20077151345392524,
+    "rel": 2.764891805430206e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.011603973360878192,
+    "hierarchy": 0.011603973360878187,
+    "rel": 4.484817627620416e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     4
+    ],
+    "package": 0.0007844416103374267,
+    "hierarchy": 0.0007844416103374264,
+    "rel": 4.146397226502823e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.03163654044075733,
+    "hierarchy": 0.031636540440757324,
+    "rel": 2.19331627517902e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     3
+    ],
+    "package": 0.008102359375580365,
+    "hierarchy": 0.008102359375580367,
+    "rel": 2.1410102854794068e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0303164331387969,
+    "hierarchy": 0.03031643313879689,
+    "rel": 3.433233985082817e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     2
+    ],
+    "package": 0.023541668852607393,
+    "hierarchy": 0.02354166885260739,
+    "rel": 1.4737472409775023e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     3,
+     1
+    ],
+    "package": 0.02423505206526491,
+    "hierarchy": 0.02423505206526491,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     4,
+     0
+    ],
+    "package": 0.010488828168189997,
+    "hierarchy": 0.010488828168189992,
+    "rel": 4.961631885355293e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.039348196030668456,
+    "hierarchy": 0.039348196030668456,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.008807660625857658,
+    "hierarchy": 0.008807660625857656,
+    "rel": 1.969562122868337e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.04512974545481789,
+    "hierarchy": 0.045129745454817904,
+    "rel": 3.075086656916411e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.03629286935445048,
+    "hierarchy": 0.03629286935445048,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.04375532668679078,
+    "hierarchy": 0.0437553266867908,
+    "rel": 4.757519435457898e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.021063569910814473,
+    "hierarchy": 0.021063569910814477,
+    "rel": 1.647131500806199e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.039348196030668456,
+    "hierarchy": 0.039348196030668456,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.008807660625857658,
+    "hierarchy": 0.008807660625857656,
+    "rel": 1.969562122868337e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.04512974545481789,
+    "hierarchy": 0.045129745454817904,
+    "rel": 3.075086656916411e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.036292869354450454,
+    "hierarchy": 0.03629286935445048,
+    "rel": 7.647666362380172e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0437553266867908,
+    "hierarchy": 0.0437553266867908,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.021063569910814477,
+    "hierarchy": 0.021063569910814477,
+    "rel": 0.0
+   }
+  ],
+  "seconds": 498.1
+ },
+ "ito, scalar R, qmc_vectorized": {
+  "rows": [
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.06656957703375632,
+    "hierarchy": 0.06656958434584898,
+    "rel": 1.0984134459365178e-07
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": -0.04877352437130829,
+    "hierarchy": -0.04877352960435166,
+    "rel": 1.0729269372304142e-07
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.24783290413772838,
+    "hierarchy": 0.24783290413772832,
+    "rel": 2.239862032218635e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.012498646998121032,
+    "hierarchy": 0.012498657823431335,
+    "rel": 8.661178228580767e-07
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.032844816491733,
+    "hierarchy": 0.032844816122960176,
+    "rel": 1.1227732966944376e-08
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.02437462638987758,
+    "hierarchy": 0.02437464018773857,
+    "rel": 5.660744479879363e-07
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.009850058515214593,
+    "hierarchy": -0.009850058515214592,
+    "rel": 1.7611301225239623e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.008538942196988543,
+    "hierarchy": -0.008538949551139369,
+    "rel": 8.612477193431676e-07
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.02955263681635531,
+    "hierarchy": -0.02955263640063737,
+    "rel": 1.4067033939160847e-08
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.02093122693244561,
+    "hierarchy": -0.020931240927594078,
+    "rel": 6.686248806562414e-07
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.009850058515214593,
+    "hierarchy": -0.009850058515214592,
+    "rel": 1.7611301225239623e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.008538942196988543,
+    "hierarchy": -0.008538949551139369,
+    "rel": 8.612477193431676e-07
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.029552636816355313,
+    "hierarchy": -0.02955263640063737,
+    "rel": 1.4067034056559744e-08
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.02093122693242235,
+    "hierarchy": -0.020931240927594078,
+    "rel": 6.686259920400285e-07
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.2007715134539253,
+    "hierarchy": 0.20077151345392533,
+    "rel": 1.3824459027151024e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.011603963371760433,
+    "hierarchy": 0.011603973360878195,
+    "rel": 8.608359784587984e-07
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.03163654089785041,
+    "hierarchy": 0.031636540440757324,
+    "rel": 1.4448263913685417e-08
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.03031640293698483,
+    "hierarchy": 0.030316433138796905,
+    "rel": 9.96219177146633e-07
+   }
+  ],
+  "seconds": 4.7
+ },
+ "ito, matrix R, qmc_scalar": {
+  "rows": [
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.09035939239945487,
+    "hierarchy": 0.09035939820144248,
+    "rel": 6.421011790760416e-08
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0043938487598441526,
+    "hierarchy": 0.004393855824294866,
+    "rel": 1.607802120995116e-06
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.01106013983887075,
+    "hierarchy": 0.011067778872337791,
+    "rel": 0.0006902047425371633
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.007694799040055996,
+    "hierarchy": 0.007700388442230721,
+    "rel": 0.0007258597688489046
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": -0.040907058455417825,
+    "hierarchy": -0.04090707153220735,
+    "rel": 3.1967063484188026e-07
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": -0.004441989459766219,
+    "hierarchy": -0.004442003908795064,
+    "rel": 3.252817679047382e-06
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": -0.012426021602650947,
+    "hierarchy": -0.012440203032850193,
+    "rel": 0.0011399677450438807
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": -0.008357290885871293,
+    "hierarchy": -0.008366763780492231,
+    "rel": 0.0011322053388222633
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.3661456861998921,
+    "hierarchy": 0.3661456861998921,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.01643502281299694,
+    "hierarchy": 0.016435026253193662,
+    "rel": 2.0932103595364493e-07
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.056523156568435644,
+    "hierarchy": 0.056523235123148566,
+    "rel": 1.389777367676471e-06
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.05000350695452274,
+    "hierarchy": 0.050003310096101934,
+    "rel": 3.936907785289274e-06
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.009472053557171078,
+    "hierarchy": -0.009472053557171073,
+    "rel": 5.49423670011923e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.00929076950182011,
+    "hierarchy": -0.009290779893065974,
+    "rel": 1.1184471038354498e-06
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.03319800631731263,
+    "hierarchy": -0.033198155783423396,
+    "rel": 4.502241381750815e-06
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.024963189520323188,
+    "hierarchy": -0.02496308112383234,
+    "rel": 4.342272106216347e-06
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.009472053557171078,
+    "hierarchy": -0.009472053557171073,
+    "rel": 5.49423670011923e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.00929076950182011,
+    "hierarchy": -0.009290779893065974,
+    "rel": 1.1184471038354498e-06
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.03319800631731263,
+    "hierarchy": -0.033198155783423396,
+    "rel": 4.502241381750815e-06
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.024963207930233867,
+    "hierarchy": -0.02496308112383234,
+    "rel": 5.079757618839035e-06
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.13454443222135753,
+    "hierarchy": 0.1345444322213576,
+    "rel": 4.1258601574778496e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.010373152271717735,
+    "hierarchy": 0.010373185416875107,
+    "rel": 3.1952728154545686e-06
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.023162592328400435,
+    "hierarchy": 0.02316290676499584,
+    "rel": 1.3575005874569299e-05
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.019522208075983073,
+    "hierarchy": 0.019522025867148487,
+    "rel": 9.333500315303283e-06
+   }
+  ],
+  "seconds": 63.8
+ },
+ "ito, matrix R, nquad": {
+  "rows": [
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.09035939820144251,
+    "hierarchy": 0.0903593982014425,
+    "rel": 1.535843319460367e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": -0.04090707153220736,
+    "hierarchy": -0.04090707153220735,
+    "rel": 1.6962577970031492e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.3661456861998921,
+    "hierarchy": 0.3661456861998921,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.016435026253193662,
+    "hierarchy": 0.016435026253193662,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.05652323512314857,
+    "hierarchy": 0.056523235123148566,
+    "rel": 1.2276179678656556e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.050003312543468854,
+    "hierarchy": 0.050003310096101934,
+    "rel": 4.8944098211285e-08
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.009472053557171078,
+    "hierarchy": -0.009472053557171073,
+    "rel": 5.49423670011923e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.009290779893065971,
+    "hierarchy": -0.009290779893065974,
+    "rel": 3.7342903307213e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.033198155783423396,
+    "hierarchy": -0.033198155783423396,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.02496308327928176,
+    "hierarchy": -0.02496308112383234,
+    "rel": 8.634548805979344e-08
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.009472053557171078,
+    "hierarchy": -0.009472053557171073,
+    "rel": 5.49423670011923e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.009290779893065971,
+    "hierarchy": -0.009290779893065974,
+    "rel": 3.7342903307213e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.0331981557834234,
+    "hierarchy": -0.033198155783423396,
+    "rel": 2.0901443890964504e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.024963083325881676,
+    "hierarchy": -0.02496308112383234,
+    "rel": 8.82122413931627e-08
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.13454443222135753,
+    "hierarchy": 0.1345444322213576,
+    "rel": 4.1258601574778496e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.01037318541687511,
+    "hierarchy": 0.010373185416875107,
+    "rel": 3.3446302293117354e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.023162906764995845,
+    "hierarchy": 0.02316290676499584,
+    "rel": 1.497846098140281e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.019522030320650936,
+    "hierarchy": 0.019522025867148487,
+    "rel": 2.281270642233373e-07
+   }
+  ],
+  "seconds": 6.0
+ },
+ "ito, scalar R, nquad, two times": {
+  "rows": [
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.004556148391383885,
+    "hierarchy": -0.004556148391383886,
+    "rel": 1.903717051070303e-16
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.002785773396322828,
+    "hierarchy": -0.0027857733963228284,
+    "rel": 1.556770086061748e-16
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.018546737372331333,
+    "hierarchy": -0.01854673759462636,
+    "rel": 1.1985667290671274e-08
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.014550674659376813,
+    "hierarchy": -0.014550674390068486,
+    "rel": 1.8508305536582005e-08
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.11443086865769747,
+    "hierarchy": 0.11443086865769744,
+    "rel": 2.425532196094351e-16
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.0037880135270123407,
+    "hierarchy": 0.003788013527012337,
+    "rel": 9.15901415666279e-16
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.01658122154620126,
+    "hierarchy": 0.016581221743478928,
+    "rel": 1.1897655641843879e-08
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.01707937103326228,
+    "hierarchy": 0.017079371917955537,
+    "rel": 5.179893384858032e-08
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   }
+  ],
+  "seconds": 25.1
+ },
+ "ito, scalar R, qmc_vectorized, two times": {
+  "rows": [
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.004556148391383885,
+    "hierarchy": -0.004556148391383886,
+    "rel": 1.903717051070303e-16
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.002785773392288946,
+    "hierarchy": -0.0027857733963228284,
+    "rel": 1.4480295398733264e-09
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.018546740965855242,
+    "hierarchy": -0.01854673759462636,
+    "rel": 1.817693740292032e-07
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.0145506773727185,
+    "hierarchy": -0.014550674390068486,
+    "rel": 2.04983627161656e-07
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.11443086865769747,
+    "hierarchy": 0.11443086865769744,
+    "rel": 2.425532196094351e-16
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.0037880135215294865,
+    "hierarchy": 0.003788013527012337,
+    "rel": 1.4474211032990737e-09
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.01658122387921061,
+    "hierarchy": 0.016581221743478928,
+    "rel": 1.288042410158876e-07
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.017079373745663713,
+    "hierarchy": 0.017079371917955537,
+    "rel": 1.070126105665719e-07
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   }
+  ],
+  "seconds": 10.1
+ },
+ "ito, scalar R, gauss_legendre, two times": {
+  "rows": [
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.004556148391383885,
+    "hierarchy": -0.004556148391383886,
+    "rel": 1.903717051070303e-16
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.002785773396322827,
+    "hierarchy": -0.0027857733963228284,
+    "rel": 4.670310258185245e-16
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.018510094469684175,
+    "hierarchy": -0.01854673759462636,
+    "rel": 0.00197571808816669
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.01453915301552021,
+    "hierarchy": -0.014550674390068486,
+    "rel": 0.0007918103477142199
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.11443086865769747,
+    "hierarchy": 0.11443086865769744,
+    "rel": 2.425532196094351e-16
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.003788013527012339,
+    "hierarchy": 0.003788013527012337,
+    "rel": 4.579507078331395e-16
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.01655176997290936,
+    "hierarchy": 0.016581221743478928,
+    "rel": 0.0017762123337593673
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.017062733001247575,
+    "hierarchy": 0.017079371917955537,
+    "rel": 0.0009742112759117272
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   }
+  ],
+  "seconds": 0.2
+ },
+ "stratonovich, scalar R, gauss_legendre": {
+  "rows": [
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.06885938278800391,
+    "hierarchy": 0.06885938278800392,
+    "rel": 2.0153808015589885e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0034408984794440482,
+    "hierarchy": 0.003440898479444047,
+    "rel": 3.7811130283414157e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.066569584345849,
+    "hierarchy": 0.06656958434584898,
+    "rel": 4.1694079793904624e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.013127368308400816,
+    "hierarchy": 0.013127368308400812,
+    "rel": 2.64291126023588e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.01235738181623683,
+    "hierarchy": 0.012357381816236825,
+    "rel": 4.21138595967996e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.005415015163675648,
+    "hierarchy": 0.00541501516367565,
+    "rel": 3.2035431546221134e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": -0.053251256022723036,
+    "hierarchy": -0.053251256022723015,
+    "rel": 3.90914379612735e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": -0.003411779379857584,
+    "hierarchy": -0.003411779379857581,
+    "rel": 8.89789680095357e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": -0.04877352960435167,
+    "hierarchy": -0.04877352960435164,
+    "rel": 5.690704741030783e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": -0.018405020007000873,
+    "hierarchy": -0.018405020007000863,
+    "rel": 5.655164108434405e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": -0.01986216606513605,
+    "hierarchy": -0.019862166065136043,
+    "rel": 3.493523254790943e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": -0.008340071566399987,
+    "hierarchy": -0.008340071566399992,
+    "rel": 6.239958957782435e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.24783290413772838,
+    "hierarchy": 0.24783290413772832,
+    "rel": 2.239862032218635e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.04126487406638559,
+    "hierarchy": 0.041264874066385585,
+    "rel": 1.6815497589412638e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.05147417059412493,
+    "hierarchy": 0.051474170594124936,
+    "rel": 1.3480341351433465e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.024374640187738574,
+    "hierarchy": 0.024374640187738567,
+    "rel": 2.846767726810496e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.009850058515214593,
+    "hierarchy": -0.009850058515214592,
+    "rel": 1.7611301225239623e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.0293974870169638,
+    "hierarchy": -0.02939748701696379,
+    "rel": 2.3603697485785593e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.045006080346578624,
+    "hierarchy": -0.04500608034657861,
+    "rel": 3.0835362024299136e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.020931240927594075,
+    "hierarchy": -0.020931240927594078,
+    "rel": 1.657544798206289e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.009850058515214593,
+    "hierarchy": -0.009850058515214592,
+    "rel": 1.7611301225239623e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.0293974870169638,
+    "hierarchy": -0.02939748701696379,
+    "rel": 2.3603697485785593e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.045006080346578624,
+    "hierarchy": -0.04500608034657861,
+    "rel": 3.0835362024299136e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.02093124092759407,
+    "hierarchy": -0.020931240927594078,
+    "rel": 3.315089596412578e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.2007715134539253,
+    "hierarchy": 0.20077151345392524,
+    "rel": 2.764891805430206e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.03012852376379372,
+    "hierarchy": 0.030128523763793703,
+    "rel": 5.75774468598914e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.048554337170586596,
+    "hierarchy": 0.0485543371705866,
+    "rel": 1.4290986775349687e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0303164331387969,
+    "hierarchy": 0.030316433138796894,
+    "rel": 2.2888226567218776e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.009850058515214593,
+    "hierarchy": -0.009850058515214593,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.0293974870169638,
+    "hierarchy": -0.029397487016963788,
+    "rel": 3.540554622867839e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     4
+    ],
+    "package": -0.004824046172016794,
+    "hierarchy": -0.00482404617201679,
+    "rel": 8.989981719285509e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.045006080346578624,
+    "hierarchy": -0.045006080346578596,
+    "rel": 6.167072404859829e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     3
+    ],
+    "package": -0.022118659433900935,
+    "hierarchy": -0.022118659433900918,
+    "rel": 7.842805668945849e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.020931240927594075,
+    "hierarchy": -0.020931240927594068,
+    "rel": 3.3150895964125794e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     2
+    ],
+    "package": -0.03586575918561446,
+    "hierarchy": -0.03586575918561444,
+    "rel": 5.804054391819802e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     3,
+     1
+    ],
+    "package": -0.02496702174793073,
+    "hierarchy": -0.024967021747930716,
+    "rel": 5.55844743835522e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     4,
+     0
+    ],
+    "package": -0.007551011599684713,
+    "hierarchy": -0.007551011599684713,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.2007715134539253,
+    "hierarchy": 0.20077151345392524,
+    "rel": 2.764891805430206e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.03012852376379372,
+    "hierarchy": 0.030128523763793696,
+    "rel": 8.060842560384798e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     4
+    ],
+    "package": 0.004909455683452561,
+    "hierarchy": 0.004909455683452559,
+    "rel": 3.5334334146731075e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.048554337170586596,
+    "hierarchy": 0.048554337170586555,
+    "rel": 8.57459206520982e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     3
+    ],
+    "package": 0.023563927124648675,
+    "hierarchy": 0.02356392712464867,
+    "rel": 1.4723551526877938e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0303164331387969,
+    "hierarchy": 0.03031643313879689,
+    "rel": 3.433233985082817e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     2
+    ],
+    "package": 0.04175870379621826,
+    "hierarchy": 0.041758703796218245,
+    "rel": 3.3233282037531197e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     3,
+     1
+    ],
+    "package": 0.03126083941507094,
+    "hierarchy": 0.03126083941507096,
+    "rel": 6.659028388625383e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     4,
+     0
+    ],
+    "package": 0.010488828168189997,
+    "hierarchy": 0.010488828168189992,
+    "rel": 4.961631885355293e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.054222254504184164,
+    "hierarchy": 0.054222254504184164,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.023998003336185812,
+    "hierarchy": 0.023998003336185805,
+    "rel": 2.891446345223353e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.04512974545481789,
+    "hierarchy": 0.045129745454817904,
+    "rel": 3.075086656916411e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0619925722714284,
+    "hierarchy": 0.06199257227142841,
+    "rel": 1.119310531836937e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.05575998266022989,
+    "hierarchy": 0.055759982660229905,
+    "rel": 2.488843637627709e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     0,
+     1,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.021063569910814473,
+    "hierarchy": 0.021063569910814477,
+    "rel": 1.647131500806199e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.054222254504184164,
+    "hierarchy": 0.054222254504184164,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.02399800333618581,
+    "hierarchy": 0.023998003336185805,
+    "rel": 1.4457231726116765e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.04512974545481789,
+    "hierarchy": 0.045129745454817904,
+    "rel": 3.075086656916411e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.061992572271428396,
+    "hierarchy": 0.06199257227142841,
+    "rel": 2.238621063673874e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.05575998266022991,
+    "hierarchy": 0.055759982660229905,
+    "rel": 1.2444218188138544e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y) phi_c(z)",
+    "comps": [
+     1,
+     1,
+     0
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.021063569910814477,
+    "hierarchy": 0.021063569910814477,
+    "rel": 0.0
+   }
+  ],
+  "seconds": 493.4
+ },
+ "stratonovich, scalar R, qmc_vectorized": {
+  "rows": [
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.06885937918536056,
+    "hierarchy": 0.06885938278800394,
+    "rel": 5.2318845046228114e-08
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.06656957703375632,
+    "hierarchy": 0.06656958434584898,
+    "rel": 1.0984134459365178e-07
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": -0.05325125323667882,
+    "hierarchy": -0.05325125602272303,
+    "rel": 5.2318844961095665e-08
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": -0.04877352437130829,
+    "hierarchy": -0.04877352960435166,
+    "rel": 1.0729269372304142e-07
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.24783290413772838,
+    "hierarchy": 0.24783290413772832,
+    "rel": 2.239862032218635e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.04126485915630432,
+    "hierarchy": 0.041264874066385585,
+    "rel": 3.6132622731077204e-07
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.05147417091387124,
+    "hierarchy": 0.05147417059412493,
+    "rel": 6.211781735764596e-09
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.02437462638987758,
+    "hierarchy": 0.02437464018773857,
+    "rel": 5.660744479879363e-07
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.009850058515214593,
+    "hierarchy": -0.009850058515214592,
+    "rel": 1.7611301225239623e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.02939747672099186,
+    "hierarchy": -0.029397487016963795,
+    "rel": 3.5023306346542144e-07
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.045006080723106016,
+    "hierarchy": -0.04500608034657863,
+    "rel": 8.366144813317904e-09
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.02093122693244561,
+    "hierarchy": -0.020931240927594078,
+    "rel": 6.686248806562414e-07
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.009850058515214593,
+    "hierarchy": -0.009850058515214592,
+    "rel": 1.7611301225239623e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.02939747672099186,
+    "hierarchy": -0.029397487016963795,
+    "rel": 3.5023306346542144e-07
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.045006080723106016,
+    "hierarchy": -0.04500608034657863,
+    "rel": 8.366144813317904e-09
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.02093122693242235,
+    "hierarchy": -0.020931240927594078,
+    "rel": 6.686259920400285e-07
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.2007715134539253,
+    "hierarchy": 0.20077151345392533,
+    "rel": 1.3824459027151024e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.03012851152814298,
+    "hierarchy": 0.030128523763793717,
+    "rel": 4.06115176156193e-07
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.048554337596905,
+    "hierarchy": 0.04855433717058658,
+    "rel": 8.780233505602519e-09
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.03031640293698483,
+    "hierarchy": 0.030316433138796905,
+    "rel": 9.96219177146633e-07
+   }
+  ],
+  "seconds": 4.6
+ },
+ "stratonovich, matrix R, qmc_scalar": {
+  "rows": [
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0870619077922593,
+    "hierarchy": 0.08706190860118458,
+    "rel": 9.291380132391563e-09
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.004308413548916068,
+    "hierarchy": 0.004308413514996762,
+    "rel": 7.872806455124163e-09
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.09035939239945487,
+    "hierarchy": 0.09035939820144248,
+    "rel": 6.421011790760416e-08
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.017456208719719507,
+    "hierarchy": 0.01745700778925086,
+    "rel": 4.577356789885657e-05
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.017097798172765105,
+    "hierarchy": 0.017106662916598472,
+    "rel": 0.0005182041568590108
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.007694799040055996,
+    "hierarchy": 0.007700388442230721,
+    "rel": 0.0007258597688489046
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": -0.04120183384787645,
+    "hierarchy": -0.041201842741573506,
+    "rel": 2.1585677884292808e-07
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": -0.002891952538480295,
+    "hierarchy": -0.0028919523221929404,
+    "rel": 7.478939147308279e-08
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": -0.040907058455417825,
+    "hierarchy": -0.04090707153220735,
+    "rel": 3.1967063484188026e-07
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": -0.016415385798643104,
+    "hierarchy": -0.016417061274783807,
+    "rel": 0.00010205700719874491
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": -0.018726548115701274,
+    "hierarchy": -0.018743413221657155,
+    "rel": 0.000899788408676492
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": -0.008357290885871293,
+    "hierarchy": -0.008366763780492231,
+    "rel": 0.0011322053388222633
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.3661456861998921,
+    "hierarchy": 0.3661456861998921,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.062403277480138276,
+    "hierarchy": 0.06240328003834788,
+    "rel": 4.099479387807512e-08
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.09113157761857588,
+    "hierarchy": 0.09113165443937432,
+    "rel": 8.429650368724245e-07
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.05000350695452274,
+    "hierarchy": 0.050003310096101934,
+    "rel": 3.936907785289274e-06
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.009472053557171078,
+    "hierarchy": -0.009472053557171073,
+    "rel": 5.49423670011923e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.030475185836881524,
+    "hierarchy": -0.030475199780685004,
+    "rel": 4.575459252197413e-07
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.04965775987680653,
+    "hierarchy": -0.04965790816912057,
+    "rel": 2.9862779063188565e-06
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.024963189520323188,
+    "hierarchy": -0.02496308112383234,
+    "rel": 4.342272106216347e-06
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.009472053557171078,
+    "hierarchy": -0.009472053557171073,
+    "rel": 5.49423670011923e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.030475186262369867,
+    "hierarchy": -0.030475199780685004,
+    "rel": 4.435841351235995e-07
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.04965775987680653,
+    "hierarchy": -0.04965790816912057,
+    "rel": 2.9862779063188565e-06
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.024963207930233867,
+    "hierarchy": -0.02496308112383234,
+    "rel": 5.079757618839035e-06
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.13454443222135753,
+    "hierarchy": 0.1345444322213576,
+    "rel": 4.1258601574778496e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.022608148558884225,
+    "hierarchy": 0.02260818100188721,
+    "rel": 1.435011643917115e-06
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.03358599026430129,
+    "hierarchy": 0.03358630084570424,
+    "rel": 9.24726436462285e-06
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.019522208075983073,
+    "hierarchy": 0.019522025867148487,
+    "rel": 9.333500315303283e-06
+   }
+  ],
+  "seconds": 70.9
+ },
+ "stratonovich, matrix R, nquad": {
+  "rows": [
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.08706190860118455,
+    "hierarchy": 0.08706190860118457,
+    "rel": 1.5940137346846122e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.09035939820144251,
+    "hierarchy": 0.0903593982014425,
+    "rel": 1.535843319460367e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": -0.04120184274157349,
+    "hierarchy": -0.0412018427415735,
+    "rel": 1.6841222241998762e-16
+   },
+   {
+    "observable": "phi_a(x)",
+    "comps": [
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": -0.04090707153220736,
+    "hierarchy": -0.04090707153220735,
+    "rel": 1.6962577970031492e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.3661456861998921,
+    "hierarchy": 0.3661456861998921,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.06240328003834788,
+    "hierarchy": 0.06240328003834788,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.09113165443937432,
+    "hierarchy": 0.09113165443937432,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.050003312543468854,
+    "hierarchy": 0.050003310096101934,
+    "rel": 4.8944098211285e-08
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.009472053557171078,
+    "hierarchy": -0.009472053557171073,
+    "rel": 5.49423670011923e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.030475199780684987,
+    "hierarchy": -0.030475199780685004,
+    "rel": 5.692246444521306e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.049657908169120565,
+    "hierarchy": -0.04965790816912057,
+    "rel": 1.3973391469240606e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.02496308327928176,
+    "hierarchy": -0.02496308112383234,
+    "rel": 8.634548805979344e-08
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.009472053557171078,
+    "hierarchy": -0.009472053557171073,
+    "rel": 5.49423670011923e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.030475199780684987,
+    "hierarchy": -0.030475199780685004,
+    "rel": 5.692246444521306e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.04965790816912057,
+    "hierarchy": -0.04965790816912057,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     0
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.024963083325881676,
+    "hierarchy": -0.02496308112383234,
+    "rel": 8.82122413931627e-08
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.13454443222135753,
+    "hierarchy": 0.1345444322213576,
+    "rel": 4.1258601574778496e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.02260818100188721,
+    "hierarchy": 0.02260818100188721,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.03358630084570426,
+    "hierarchy": 0.03358630084570424,
+    "rel": 6.197967977287436e-16
+   },
+   {
+    "observable": "phi_a(x) phi_b(y)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.019522030320650936,
+    "hierarchy": 0.019522025867148487,
+    "rel": 2.281270642233373e-07
+   }
+  ],
+  "seconds": 6.2
+ },
+ "stratonovich, scalar R, nquad, two times": {
+  "rows": [
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.004556148391383885,
+    "hierarchy": -0.004556148391383886,
+    "rel": 1.903717051070303e-16
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.015319617336526026,
+    "hierarchy": -0.015319617342742928,
+    "rel": 4.0581313841697855e-10
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.02941898924058846,
+    "hierarchy": -0.02941898951319769,
+    "rel": 9.26643759148023e-09
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.014550674659376813,
+    "hierarchy": -0.014550674390068486,
+    "rel": 1.8508305536582005e-08
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.11443086865769747,
+    "hierarchy": 0.11443086865769744,
+    "rel": 2.425532196094351e-16
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.014497769571775112,
+    "hierarchy": 0.014497769609577504,
+    "rel": 2.6074625575858116e-09
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.02717721725080687,
+    "hierarchy": 0.02717721749015976,
+    "rel": 8.80711543630178e-09
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.01707937103326228,
+    "hierarchy": 0.017079371917955537,
+    "rel": 5.179893384858032e-08
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   }
+  ],
+  "seconds": 25.1
+ },
+ "stratonovich, scalar R, qmc_vectorized, two times": {
+  "rows": [
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.004556148391383885,
+    "hierarchy": -0.004556148391383886,
+    "rel": 1.903717051070303e-16
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.015319617333366356,
+    "hierarchy": -0.015319617342742928,
+    "rel": 6.12063096967758e-10
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.029418992858507898,
+    "hierarchy": -0.02941898951319769,
+    "rel": 1.1371261436090145e-07
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.0145506773727185,
+    "hierarchy": -0.014550674390068486,
+    "rel": 2.04983627161656e-07
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.11443086865769747,
+    "hierarchy": 0.11443086865769744,
+    "rel": 2.425532196094351e-16
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.014497769597959155,
+    "hierarchy": 0.014497769609577504,
+    "rel": 8.013886933750026e-10
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.02717721960197557,
+    "hierarchy": 0.02717721749015976,
+    "rel": 7.770537251634262e-08
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.017079373745663713,
+    "hierarchy": 0.017079371917955537,
+    "rel": 1.070126105665719e-07
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   }
+  ],
+  "seconds": 8.9
+ },
+ "stratonovich, scalar R, gauss_legendre, two times": {
+  "rows": [
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": -0.004556148391383885,
+    "hierarchy": -0.004556148391383886,
+    "rel": 1.903717051070303e-16
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": -0.015311582355210443,
+    "hierarchy": -0.015319617342742928,
+    "rel": 0.0005244900935003694
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": -0.02937426540935994,
+    "hierarchy": -0.02941898951319769,
+    "rel": 0.0015202460919905704
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": -0.01453915301552021,
+    "hierarchy": -0.014550674390068486,
+    "rel": 0.0007918103477142199
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     0,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     0
+    ],
+    "package": 0.11443086865769747,
+    "hierarchy": 0.11443086865769744,
+    "rel": 2.425532196094351e-16
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     2
+    ],
+    "package": 0.014492096789202893,
+    "hierarchy": 0.014497769609577504,
+    "rel": 0.00039128917946541607
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     0,
+     3
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     1
+    ],
+    "package": 0.02714100235826348,
+    "hierarchy": 0.02717721749015976,
+    "rel": 0.0013325548102705478
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     1,
+     2
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     0
+    ],
+    "package": 0.017062733001247575,
+    "hierarchy": 0.017079371917955537,
+    "rel": 0.0009742112759117272
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     2,
+     1
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   },
+   {
+    "observable": "phi_a(x, t1) phi_b(y, t2)",
+    "comps": [
+     1,
+     1
+    ],
+    "tag": [
+     3,
+     0
+    ],
+    "package": 0.0,
+    "hierarchy": 0.0,
+    "rel": 0.0
+   }
+  ],
+  "seconds": 0.3
+ }
+}

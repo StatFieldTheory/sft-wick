@@ -25,6 +25,7 @@ from .specs import (
     GaussianNoise,
     LinearOp,
     LocalVertex,
+    MultiplicativeImpulse,
     NonLocalVertex,
     SeparableRotation,
     SeparableTranslation,
@@ -114,7 +115,10 @@ class System:
         linear: :class:`LinearOp` variant — defines R.  Required
             unless ``explicit_R`` is supplied.
         noise: :class:`GaussianNoise` — κ² (+ optional σ²) defines C
-            together with R.
+            together with R.  A :class:`MultiplicativeImpulse` σ² also
+            adds local vertices (two ψ legs, and for the Stratonovich
+            interpretation a source and a linear drift vertex); see
+            :attr:`multiplicative_vertices`.
         vertices: list of :class:`LocalVertex` — F^(n) local
             interactions.  May be empty (linear theory).
         nonlocal_vertices: list of :class:`NonLocalVertex` — κ^(m) for
@@ -140,6 +144,21 @@ class System:
             object.__setattr__(self, "vertices", tuple(self.vertices))
         if isinstance(self.nonlocal_vertices, list):
             object.__setattr__(self, "nonlocal_vertices", tuple(self.nonlocal_vertices))
+        sigma2 = self.noise.sigma2
+        if isinstance(sigma2, MultiplicativeImpulse):
+            if sigma2.n_components != self.n_components:
+                raise ValueError(
+                    f"MultiplicativeImpulse has N = {sigma2.n_components} "
+                    f"components but the field has {self.n_components}.")
+            taken = ({v.name for v in self.vertices}
+                     | {v.name for v in self.nonlocal_vertices})
+            clash = sorted(taken & {v.name for v in sigma2.vertices()})
+            if clash:
+                raise ValueError(
+                    f"vertex name(s) {clash} are used both by the system's "
+                    f"vertices and by the MultiplicativeImpulse; rename one "
+                    f"(MultiplicativeImpulse(vertex_names=..., "
+                    f"drift_names=...)).  Coupling values are keyed by name.")
 
     # --------------------------------------------------------------- #
     # Derived properties
@@ -157,6 +176,15 @@ class System:
     @property
     def iso_R(self) -> bool:
         return self._effective_linear.is_iso_R
+
+    @property
+    def multiplicative_vertices(self) -> tuple:
+        """The local vertices a :class:`MultiplicativeImpulse` σ² lowers to
+        (:class:`~sft_wick.workflow.specs.MultiplicativeVertex`), or ``()``."""
+        sigma2 = self.noise.sigma2
+        if isinstance(sigma2, MultiplicativeImpulse):
+            return sigma2.vertices()
+        return ()
 
     @cached_property
     def _effective_linear(self) -> LinearOp:
@@ -206,7 +234,7 @@ class System:
         sigma2 = self.noise.sigma2
         if sigma2 is None:
             return False
-        if isinstance(sigma2, ConstantImpulse):
+        if isinstance(sigma2, (ConstantImpulse, MultiplicativeImpulse)):
             return _offdiagonal(np.asarray(sigma2.amplitude, dtype=float))
         fn = sigma2.build_callable(self.n_components)
         t0 = float(self.t_min)
@@ -296,6 +324,15 @@ class System:
                 )
             )
 
+        # Multiplicative white noise: axes of the coupling are ψ legs first,
+        # then φ legs (two ψ legs for D(φ), one for the Stratonovich drift).
+        for mv in self.multiplicative_vertices:
+            rank = np.asarray(mv.coupling).ndim
+            fields = [psi] * mv.n_psi + [phi] * (rank - mv.n_psi)
+            raw_vertices.append(
+                Vertex(fields=fields, coupling=mv.name, local=True)
+            )
+
         return Action(vertices=raw_vertices)
 
     def build_coupling_values(self) -> dict[str, Any]:
@@ -307,6 +344,9 @@ class System:
         - **Local** ``F^(n)``: multiplied by ``-i`` (``F_MSR = -i F``).
         - **Non-local** ``κ^(m)``: multiplied by ``-(i^m) / m!``
           (``K_MSR = -(i^m)/m! κ^(m)``).
+        - **Multiplicative white noise** (:class:`MultiplicativeImpulse`):
+          the two-ψ vertices of ``D(φ)`` by ``-i²/2! = 1/2``, the
+          Stratonovich drift vertices by ``-i``.
 
         Users pass the **bare** physical tensors when constructing
         :class:`LocalVertex` / :class:`NonLocalVertex`; this method
@@ -319,6 +359,8 @@ class System:
             cv[lv.name] = lv.msr_coupling
         for nv in self.nonlocal_vertices:
             cv[nv.name] = nv.msr_coupling
+        for mv in self.multiplicative_vertices:
+            cv[mv.name] = mv.msr_coupling
         return cv
 
     # --------------------------------------------------------------- #
