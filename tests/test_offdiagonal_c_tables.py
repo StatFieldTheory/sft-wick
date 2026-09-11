@@ -391,6 +391,75 @@ def test_custom_impulse_matrix_table_matches_the_closed_form():
         assert _rel(got, ref) < 1e-4, (u1, u2)
 
 
+def rotation_system():
+    """The same noise on the sphere: the rotation builder's kernel."""
+    return sw.System(
+        field=sw.FieldSpec("phi", N), linear=sw.DiagonalA(gamma=list(GAMMA)),
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableRotation(
+                temporal=sw.ExponentialTemporal(lam=LAM, sigma_t=SIGMA_T),
+                angular=sw.LegendreAngular(coeffs=[0.6, 0.3, 0.1])),
+            sigma2=ConstantImpulse(S_MIX)),
+        t_min=T_MIN)
+
+
+def _rotation_pair(cos_val):
+    """The two unit vectors ``precompute_C_table_rotation`` evaluates at."""
+    c = float(np.clip(cos_val, -1.0, 1.0))
+    return np.array([1.0, 0.0]), np.array([c, float(np.sqrt(1.0 - c * c))])
+
+
+FULL_GRID = {
+    "translation": (mixing_system, dict(r_max=Y, n_grid_r=3)),
+    "rotation": (rotation_system, dict(n_grid_cos=3)),
+    "general": (mixing_system, dict(x_max=Y, n_grid_x=3)),
+}
+
+
+@pytest.mark.parametrize("mode", sorted(FULL_GRID))
+def test_full_grid_builders_hold_every_entry(mode):
+    """The pre-allocated-grid builders, not only the lazy caches.  A
+    node of the grid is interpolated exactly, so the table there must be
+    the direct quadrature -- for the cells the transposition filled as
+    much as for the cells that were evaluated."""
+    n_t = 7
+    make, grid = FULL_GRID[mode]
+    props = make().propagators(
+        t_max=T_MIN + SPAN, n_grid_t=n_t, homogeneity=mode,
+        c_closed_form=None, diag_C=False, c_method="gauss_legendre",
+        c_n_gauss=12, progress=False, **grid)
+    cache = props.cache
+    ts = np.linspace(T_MIN, T_MIN + SPAN, n_t)
+    if mode == "translation":
+        pairs = [(np.asarray(0.0), np.asarray(r))
+                 for r in (0.0, Y / 2.0, Y)]
+    elif mode == "rotation":
+        pairs = [_rotation_pair(c) for c in (-1.0, 0.0, 1.0)]
+    else:
+        xs = np.linspace(-Y, Y, 3)
+        pairs = [(np.asarray(xs[p]), np.asarray(xs[q]))
+                 for p, q in ((0, 2), (2, 0), (1, 1))]
+
+    assert cache._c_transpose_ok(pairs[0][0], pairs[0][1], T_MIN + SPAN,
+                                 swap=(mode == "general")), (
+        f"{mode}: the transposition was refused, so every cell was "
+        f"evaluated and this check says less than it looks")
+
+    seen_off = False
+    for x1, x2 in pairs:
+        for i, j in ((1, 5), (5, 1), (3, 3)):
+            direct = cache._C_value_direct(x1, ts[i], x2, ts[j],
+                                           method="gauss_legendre",
+                                           n_gauss=12)
+            table = cache.C_at_batch(np.array([ts[i]]), np.array([ts[j]]),
+                                     x1, x2)[0]
+            assert table.shape == (N, N)
+            assert _rel(table, direct) < 1e-9, (mode, x1, x2, i, j)
+            seen_off = seen_off or (
+                abs(direct[0, 1]) > 0.02 * np.max(np.abs(direct)))
+    assert seen_off, f"{mode}: no off-diagonal entry to speak of"
+
+
 # =====================================================================
 # The transposition that fills half of each table
 # =====================================================================
