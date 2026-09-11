@@ -5534,7 +5534,8 @@ def integrate_moment(
 
     Convenience wrapper around
     :meth:`DiagramIntegrand.integrate_moment_qmc`,
-    :meth:`DiagramIntegrand.integrate_moment_qmc_vectorized`, and
+    :meth:`DiagramIntegrand.integrate_moment_qmc_vectorized`,
+    :meth:`DiagramIntegrand.integrate_moment_gauss_legendre`, and
     :meth:`DiagramIntegrand.integrate_moment_nquad`.
 
     **Dispatch logic.**  With ``method='qmc'`` (default) the function
@@ -5583,11 +5584,14 @@ def integrate_moment(
         method: ``'qmc'`` (default, auto-selects vectorised vs
             scalar), ``'qmc_scalar'`` (force scalar loop),
             ``'qmc_vectorized'`` (force vectorised; raises if cache
-            doesn't support batch), or ``'nquad'`` (nested adaptive
-            quadrature).
+            doesn't support batch), ``'gauss_legendre'``
+            (tensor-product Gauss-Legendre, deterministic), or
+            ``'nquad'`` (nested adaptive quadrature).
         n_samples: Number of Sobol samples (QMC only, should be
             a power of 2).
         seed: Random seed for reproducibility (QMC only).
+        n_gauss: Gauss-Legendre nodes per dimension
+            (``'gauss_legendre'`` only).
 
     Returns:
         ``(estimate, error)`` tuple.

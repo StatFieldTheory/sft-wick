@@ -444,7 +444,7 @@ result = compute_moment(obs, action, order=1)
 | `apply_response_phase(expr)` | Multiply each term by (−i)^n for n response propagators |
 | `collect_by_diagram(expr)` | Group terms by Feynman diagram isomorphism, factor out propagators |
 | `collect_by_topology(expr)` | Alias for `collect_by_diagram` (backward compat) |
-| `integrate_moment(integrand, lambda_f, cache, ...)` | Integrate a single diagram's contribution (QMC or nquad) |
+| `integrate_moment(integrand, lambda_f, cache, ...)` | Integrate a single diagram's contribution (QMC, Gauss-Legendre or nquad) |
 | `integrate_diagrams(diagram_terms, coupling_values, lambda_f, cache, ..., n_jobs=1)` | Batch-integrate a list of diagram terms, optionally in parallel (`n_jobs=-1`) |
 | `simplify(expr)` | Simplify an expression (flatten, collect terms, eliminate zeros) |
 | `reset_uid_counter()` | Reset field operator UID counter (for reproducible tests) |
@@ -488,8 +488,9 @@ result = compute_moment(obs, action, order=1)
 
 Each external operator must carry its own spatial label.  Since 0.4.0,
 `("phi_a(x)", "phi_b(x)")` raises `ValueError` at `System.expand` (L1)
-and `compute_moment` (L0) **at interacting orders**; order 0 is exempt
-and unchanged.  Upgrading from 0.3.x, give each external a distinct
+and `compute_moment` (L0), and since 0.4.2 at `compute_moment_numerical`
+(L0), **at interacting orders**; order 0 is exempt and unchanged.
+Upgrading from 0.3.x, give each external a distinct
 label and put them at the same point through `positions`:
 
 ```python
@@ -575,12 +576,11 @@ At order 6, the dominant cost is **component routing** (`_enumerate_component_ro
 pytest tests/ -v
 ```
 
-**1032 tests** (parametrised cases counted; 38 files, a few minutes on a
-laptop).  Every file, what it checks, the independent reference it is
-checked against and its tolerance are listed in the generated validation
-catalogue, `docs/verification/catalog.rst`
-(`python tools/gen_test_catalog.py`).  The core is organised into eight
-deductive phases:
+Every test file, its test count (parametrised cases counted), what it
+checks, the independent reference it is checked against and its
+tolerance are listed in the generated validation catalogue,
+`docs/verification/catalog.rst` (`python tools/gen_test_catalog.py`).
+The core is organised into eight deductive phases:
 
 1. Phase 1 — Symbolic expansion (`test_deductive_expansion.py`)
 2. Phase 2 — Propagator numerics (`test_deductive_numerics.py::TestClosedFormC` etc.)

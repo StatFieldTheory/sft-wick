@@ -1,6 +1,6 @@
 # Design note — `NonLocalVertex(equal_time=True)`
 
-**Status**: landed 2026-05-14 (unreleased on `main`).
+**Status**: landed 2026-05-14; released in 0.2.0.
 
 **Author of the patch**: applied during the STF_lensing path-integral
 lensing project diagnosis (Zheng Zhang + AI assistant pair-coding); the
@@ -136,9 +136,9 @@ sample of the single integration variable.
   ordering. **Important**: invalidate `expand` and `propagator`
   caches when flipping the flag (the rerun scripts in the
   STF_lensing project do this with `rm -rf` on the cache dirs).
-* All existing tests — 403 pre-existing tests pass unchanged; the new
-  `test_equal_time_nonlocal.py` adds 16 tests covering the new path,
-  and `test_workflow_config.py::test_CF18_yaml_nonlocal_vertex_equal_time_round_trip`
+* All existing tests — 403 pre-existing tests passed unchanged; the new
+  `test_equal_time_nonlocal.py` added 16 tests covering the new path
+  (17 now), and `test_workflow_config.py::test_CF18_yaml_nonlocal_vertex_equal_time_round_trip`
   locks the L2 YAML contract.
 
 ## Limitations / open follow-ups
@@ -159,10 +159,10 @@ sample of the single integration variable.
    `IntegralOver` chain at LaTeX time by inspecting the alias map.
 4. **Vectorised dynamic-coupling path** (`coupling_vectorized=True`)
    is exercised through `_times(lab)` aliasing in the same way as
-   the per-sample path. Regression covered indirectly through the
-   STF_lensing FK rerun; a unit test pinning the
-   `coupling_vectorized=True, equal_time=True` combination would be
-   a nice future addition.
+   the per-sample path. The `coupling_vectorized=True, equal_time=True`
+   combination is pinned by the `equal_time` route of
+   `tests/test_nonlocal_leg_order.py::test_LO1_order1_matches_hand_on_every_route`
+   (Gauss-Legendre, against a numpy hand contraction to 1e-12).
 
 ## Validation reference
 
@@ -184,9 +184,9 @@ linear-ramp shape of R.
 
 ## Tests
 
-`tests/test_equal_time_nonlocal.py` — 16 tests grouped into three layers:
+`tests/test_equal_time_nonlocal.py` — 17 tests grouped into three layers:
 
-**Layer 1 — spec / vertex / instance plumbing (7):**
+**Layer 1 — spec / vertex / instance plumbing (8):**
 
 1. spec accepts the flag with the expected default
 2. `Vertex` carries `equal_time`
@@ -198,33 +198,39 @@ linear-ramp shape of R.
    against the silent footgun where a flag on a local vertex would
    leave the spurious `t_max^(m-1)` factor in place undetected
 7. `equal_time=True` with order 1 (m=1) yields an empty alias map
-   (trivial collapse); order 2 (m=2) is the smallest non-trivial case
+   (trivial collapse)
+8. order 2 (m=2) is the smallest non-trivial case: one alias pair
 
-**Layer 2 — SpatialStructure and integration paths (6):**
+**Layer 2 — SpatialStructure and integration paths (7):**
 
-8. `analyze_spatial` filters aliased legs from `time_integration_vars`
-9. `analyze_spatial` is a no-op when no aliases are present
-10. Static-coupling `DiagramIntegrand.evaluate` fills aliased labels
+9. `analyze_spatial` filters aliased legs from `time_integration_vars`
+10. `analyze_spatial` is a no-op when no aliases are present
+11. Static-coupling `DiagramIntegrand.evaluate` fills aliased labels
     without raising `KeyError` on a per-sample `times` dict
-11. Dynamic-coupling callable receives `m` identical times when
+12. Dynamic-coupling callable receives `m` identical times when
     `equal_time=True`
-12. Jacobian ratio: equal_time integrates to `span` and full integrates
+13. Jacobian ratio: equal_time integrates to `span` and full integrates
     to `span^m` — exposing the `(t_max)^(m-1)` correction (GL path)
-13. Same Jacobian ratio via `integrate_moment_qmc_vectorized` (the
+14. Same Jacobian ratio via `integrate_moment_qmc_vectorized` (the
     production-default integrator)
+15. An external point on the ψ side of R bounds the vertex times from
+    below: with every external at `lambda_f` the causal domain has
+    measure zero, and the GL and QMC-vectorised integrators return
+    exactly 0
 
 **Layer 3 — `_times` alias redirect inside QMC kernel (1) + diagram-term
-end-to-end (1) + design fixtures (1):**
+end-to-end (1):**
 
-14. The QMC-vectorized `_times` resolver redirects aliased labels —
+16. The QMC-vectorized `_times` resolver redirects aliased labels —
     a tracking cache asserts the three R-propagator left-time arrays
     are bit-identical after redirect
-15. End-to-end: `System(equal_time NonLocalVertex).expand(...)`
+17. End-to-end: `System(equal_time NonLocalVertex).expand(...)`
     produces `DiagramTerm`s carrying the alias map at the diagram level
     (closes the loop from spec all the way to integration-ready
     DiagramTerm)
-16. Reset-uid `autouse` fixture pins label ordering so the alias
-    assertions are deterministic under arbitrary test ordering
+
+A reset-uid `autouse` fixture pins label ordering so the alias
+assertions are deterministic under arbitrary test ordering.
 
 Plus `tests/test_workflow_config.py::test_CF18_yaml_nonlocal_vertex_equal_time_round_trip`
 which locks the L2 YAML contract.
