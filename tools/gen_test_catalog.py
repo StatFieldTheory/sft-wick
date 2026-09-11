@@ -165,6 +165,33 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "its own legs, on each integration route and the order-2 FK channel",
         "numpy hand contraction; the old leg-order-blind value shown to "
         "differ", "1e-12"),
+    "tests/test_callable_vertex_copies.py": (
+        "Integrators",
+        "a callable non-local coupling at several sets of points (two copies "
+        "of one vertex at order 2), and the leg structure of equal_time / "
+        "already_R_contracted copies, which the coupling sum routes term by "
+        "term",
+        "numpy hand contraction of the order-2 six-point function (sum over "
+        "the 10 partitions into triples); demo 4's Campbell closed form; the "
+        "old per-instance measure shown to differ",
+        "1e-12 / 1e-3 (QMC)"),
+    "tests/test_nquad_callable_coupling.py": (
+        "Integrators",
+        "callable (spacetime-dependent) couplings on adaptive quadrature, "
+        "which used to refuse them: plain, equal_time and "
+        "already_R_contracted vertices, both contracts, matrix R, and "
+        "make_scipy_integrand",
+        "gauss_legendre on the same diagrams; demo 4's closed form and exact "
+        "moment hierarchy; numpy hand contraction",
+        "1e-10 - 1e-12"),
+    "tests/test_local_callable_coupling.py": (
+        "Workflow and YAML",
+        "a callable local coupling at L1 and in YAML: the rank contract, the "
+        "MSR factor, the argument shapes, and a drift F0 (1 + beta x) "
+        "exp(-lambda t) at orders 1-2 with t_min = 0.5 on every integrator",
+        "exact Itô moment hierarchy of a Markov embedding with a "
+        "deterministic state u = exp(-lambda t)",
+        "1e-12 (GL) / 1e-10 (nquad) / 1e-4 (QMC)"),
     "tests/test_equal_time_nonlocal.py": (
         "Integrators",
         "equal_time non-local vertices (single time integral)",

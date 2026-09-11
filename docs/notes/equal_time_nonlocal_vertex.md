@@ -143,9 +143,10 @@ sample of the single integration variable.
 
 ## Limitations / open follow-ups
 
-1. **`nquad` path explicitly refuses dynamic coupling** (existing
-   behaviour, unrelated to this patch). The `equal_time` path is
-   exercised through the GL and QMC vectorised paths.
+1. ~~**`nquad` path explicitly refuses dynamic coupling**~~ — lifted in
+   0.5.1: `integrate_moment_nquad` materialises a callable coupling at
+   every quadrature point. The `equal_time` path is exercised through the
+   GL, QMC vectorised and (since 0.5.1) nquad paths.
 2. **No partial-equal-time** — there is no way to declare "only the
    first 2 of m legs share a time, the third is independent". If a
    user needs that, they would declare a different vertex with

@@ -15,10 +15,11 @@ sum (typically a non-local ``κ^{(m)}`` vertex like demo2's
   through it ``DynamicCouplingPromise.evaluate_at``, once per sample;
 * ``_evaluate_zero_dimensional``, which the qmc_vectorized,
   gauss_legendre and nquad integrators use for a diagram with no time
-  integral left, calls ``evaluate_at_batch`` with one sample.
-
-``integrate_moment_nquad`` otherwise raises ``NotImplementedError``
-for a callable coupling.
+  integral left, calls ``evaluate_at_batch`` with one sample;
+* ``integrate_moment_nquad`` and ``make_scipy_integrand`` call
+  ``dynamic_coupling_array`` once per quadrature point (they refused a
+  callable coupling up to 0.5.0; see
+  ``tests/test_nquad_callable_coupling.py``).
 
 Currently locked here:
 

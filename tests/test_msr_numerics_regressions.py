@@ -354,16 +354,16 @@ def test_F4_c_value_fn_bypasses_the_quadrature():
 # --------------------------------------------------------------------- #
 # F6 — time-dependent LOCAL couplings
 # --------------------------------------------------------------------- #
-def _linear_local_terms():
+def _linear_local_terms(order: int = 1):
     phi = Field("phi", "physical")
     psi = Field("psi", "response")
     res = compute_moment(
         [phi("x"), phi("y")],
         Action([Vertex(fields=[psi, phi], coupling="c")]),
-        order=1, ito=True, response_phase=True, collect_topology=True,
+        order=order, ito=True, response_phase=True, collect_topology=True,
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
-    return res, res.diagram_terms(1)
+    return res, res.diagram_terms(order)
 
 
 def test_F6_local_coupling_latex_is_unchanged():
@@ -417,18 +417,56 @@ def test_F6_time_dependent_local_coupling_matches_closed_form():
     assert got == pytest.approx(-2.0 * truth, rel=1e-8, abs=0.0)
 
 
-def test_F6_multi_point_callable_is_refused_not_silently_wrong():
-    """Two copies of one vertex sit at different times; a single-coordinate
-    callable evaluation would be silently wrong, so it must raise."""
-    res = _quartic(2)
-    raised = 0
-    for dt in res.diagram_terms(2):
-        try:
-            dt.build_integrand({"g": lambda n, t: np.asarray(1j)})
-        except NotImplementedError as exc:
-            assert "different sets of spacetime points" in str(exc)
-            raised += 1
-    assert raised > 0
+def test_F6_two_copies_of_a_callable_coupling_match_the_tensor():
+    """Two copies of one vertex sit at different points, which was refused
+    up to 0.5.0 ("different sets of spacetime points").  Each copy is now
+    evaluated at its own point, so a callable returning a constant must
+    give the tensor's value, diagram by diagram."""
+    T = 3.0
+    cache = _ScalarBatchCache()
+    terms = _quartic(2).diagram_terms(2)
+    got, ref = [], []
+    for dt in terms:
+        for out, cv in ((got, lambda n, t: np.asarray(1j)),   # noqa: ARG005
+                        (ref, np.array(1j))):
+            out.append(dt.build_integrand({"g": cv})
+                       .integrate_moment_gauss_legendre(
+                           lambda_f=T, cache=cache, t_min=0.0,
+                           n_gauss=16)[0])
+    assert len(got) > 1
+    scale = max(abs(v) for v in ref)
+    for g, r in zip(got, ref):
+        assert abs(g - r) <= 1e-12 * scale, (g, r)
+
+
+def test_F6_two_copies_of_a_time_dependent_coupling_match_the_closed_form():
+    """``c(t) = i k(t)`` shifts the drift by ``-k(t) x``, so
+
+        <x(T)^2> = 2D int_0^T ds exp(-2 mu (T-s) - 2 K(s, T)),
+        K(s, T) = int_s^T k,
+
+    whose O(k^2) coefficient is ``4D int_0^T ds e^{-2 mu (T-s)} K(s,T)^2``.
+    The two vertex copies sit at different times, so each must be evaluated
+    at its own; the order-1 test above cannot see that."""
+    T = 3.0
+    cache = _ScalarBatchCache()
+    _, terms = _linear_local_terms(2)
+
+    def k(s):
+        return np.exp(-s)
+
+    got = sum(
+        dt.build_integrand(
+            {"c": lambda n, tt: np.asarray(
+                1j * k(float(np.atleast_1d(tt)[0])))}
+        ).integrate_moment_nquad(lambda_f=T, cache=cache, t_min=0.0)[0]
+        for dt in terms
+    )
+    truth, _ = quad(
+        lambda s: np.exp(-2 * MU * (T - s)) * (np.exp(-s) - np.exp(-T)) ** 2,
+        0.0, T, limit=300,
+    )
+    assert got == pytest.approx(4.0 * D * truth, rel=1e-6, abs=0.0)
 
 
 # --------------------------------------------------------------------- #
