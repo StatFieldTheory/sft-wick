@@ -195,6 +195,13 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Integrators",
         "matrix-valued R with callable couplings in the scalar loop",
         "qmc_vectorized where legal; closed-form 1-D integrals", "1e-6"),
+    "tests/test_matrix_r_index_and_zero_dim.py": (
+        "Integrators",
+        "matrix-valued R component indices when two R propagators share one "
+        "pair of points",
+        "numpy hand contraction of the same diagram, with the old "
+        "endpoint-lookup value shown to differ; diag_R=True at R = 1",
+        "1e-12"),
     "tests/test_demo3_shot_noise.py": (
         "Propagator numerics",
         "demo 3 filtered-Poisson cumulants, the R-contracted kernel K_R, and "

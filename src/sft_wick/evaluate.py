@@ -3665,14 +3665,14 @@ class DiagramIntegrand:
     ) -> complex:
         """Evaluate matrix-valued R propagators for one component assignment."""
         result: complex = 1.0
-        for sl, sr in _kept_r_propagators(self.spatial):
+        for r_prop in self._kept_r_propagator_objects():
+            sl, sr = r_prop.spatial_left, r_prop.spatial_right
             # Retarded + Itô: vanishes unless t_left > t_right.  See
             # PropagatorCache.R_product for why this is enforced here.
             if not times[sl] > times[sr]:
                 return complex(0.0)
             R_mat = np.asarray(cache.R_time(times[sl], times[sr]))
-            r_prop = self._find_r_propagator(sl, sr)
-            if r_prop and r_prop.index_left and r_prop.index_right:
+            if r_prop.index_left and r_prop.index_right:
                 a = self._resolve_component(r_prop.index_left, idx_map)
                 b = self._resolve_component(r_prop.index_right, idx_map)
                 if a is not None and b is not None:
@@ -3683,12 +3683,32 @@ class DiagramIntegrand:
                 result *= complex(np.trace(R_mat))
         return result
 
-    def _find_r_propagator(self, sl: str, sr: str) -> Propagator | None:
-        """Find the R propagator matching spatial_left=sl, spatial_right=sr."""
-        for p in self.diagram_term.propagators:
-            if p.kind == "R" and p.spatial_left == sl and p.spatial_right == sr:
-                return p
-        return None
+    def _kept_r_propagator_objects(self) -> tuple[Propagator, ...]:
+        """This diagram's R :class:`Propagator` objects, minus absorbed pairs.
+
+        The object-level counterpart of :func:`_kept_r_propagators`, which
+        yields only ``(spatial_left, spatial_right)`` endpoint pairs.
+
+        Endpoints do not identify an R propagator: two of them can join the
+        *same* two points while carrying different component indices --- a
+        local vertex with two ψ legs produces exactly that, e.g.
+        ``R_{i1 i3}(y_0, y_1) R_{i2 i4}(y_0, y_1)``.  Resolving indices by
+        endpoint lookup returns the first match for both factors and
+        silently evaluates ``R[j,l] * R[j,l]`` instead of
+        ``R[j,l] * R[k,m]``, so the matrix-R product loop must walk the
+        propagator objects and read each factor's own indices.
+
+        :func:`analyze_spatial` builds ``spatial.r_propagators`` by walking
+        ``diagram_term.propagators`` in order, so this sequence matches it
+        element for element.  Absorbed propagators are filtered by
+        endpoint, the same rule :func:`_kept_r_propagators` applies.
+        """
+        absorbed = set(self.spatial.r_absorbed_pairs)
+        return tuple(
+            p for p in self.diagram_term.propagators
+            if p.kind == "R"
+            and (p.spatial_left, p.spatial_right) not in absorbed
+        )
 
     def _dynamic_values(
         self,
