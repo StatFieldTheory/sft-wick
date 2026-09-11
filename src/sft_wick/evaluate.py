@@ -289,6 +289,105 @@ def _topological_sort_times(
     return result
 
 
+def _c_has_diagonal_kink(cache: Any) -> bool:
+    """Whether ``C(t1, t2)`` has a derivative jump on ``t1 = t2``.
+
+    White noise gives ``C = ∫_{t_min}^{min(t1, t2)} R σ² R``, whose
+    derivative jumps by ``σ²`` across the diagonal.  True when the model
+    carries ``sigma2``, or when a closed-form C (``cache.c_value_fn``)
+    declares ``has_diagonal_kink``.
+    """
+    model = getattr(cache, "model", None)
+    if getattr(model, "sigma2", None) is not None:
+        return True
+    # ``c_value_fn`` on a PropagatorCache; ``_c_fn`` on the closed-form-only
+    # cache that ``System.propagators(c_closed_form_only=True)`` builds.
+    fn = getattr(cache, "c_value_fn", None) or getattr(cache, "_c_fn", None)
+    return bool(getattr(fn, "has_diagonal_kink", False))
+
+
+def _later_sets(ivars: set, orderings) -> dict[str, set]:
+    """``{v: every variable forced later than v}``: the transitive closure
+    of the ``(earlier, later)`` edges among ``ivars``."""
+    succ: dict[str, set] = defaultdict(set)
+    for earlier, later in orderings:
+        if earlier in ivars and later in ivars:
+            succ[earlier].add(later)
+    closure: dict[str, set] = {}
+
+    def visit(v: str) -> set:
+        if v not in closure:
+            closure[v] = set()
+            acc = set()
+            for w in succ[v]:
+                acc.add(w)
+                acc |= visit(w)
+            closure[v] = acc
+        return closure[v]
+
+    for v in ivars:
+        visit(v)
+    return closure
+
+
+def _kink_pairs(spatial: "SpatialStructure",
+                c_kink: bool) -> list[tuple[str, str]]:
+    """Internal time variables that the causal structure leaves unordered
+    and whose crossing kinks the integrand inside the domain:
+
+    * two parents of one variable: its upper bound ``min(parents)`` changes
+      branch where they cross.  This needs a vertex with several ψ legs at
+      one time, an ``equal_time`` non-local vertex or a local vertex with
+      two ψ legs;
+    * with ``c_kink``, the two ends of a C propagator, when C is kinked on
+      its time diagonal (see :func:`_c_has_diagonal_kink`).
+    """
+    from itertools import combinations
+
+    alias = dict(spatial.equal_time_aliases or ())
+    ivars = set(spatial.time_integration_vars)
+    later = _later_sets(ivars, spatial.time_orderings)
+    parents: dict[str, set] = defaultdict(set)
+    for earlier, lat in spatial.time_orderings:
+        if earlier in ivars and lat in ivars:
+            parents[earlier].add(lat)
+    candidates = [pair for ps in parents.values()
+                  for pair in combinations(sorted(ps), 2)]
+    if c_kink:
+        candidates += [(alias.get(sp_l, sp_l), alias.get(sp_r, sp_r))
+                       for sp_l, sp_r, _il, _ir in spatial.c_propagators]
+    pairs: list[tuple[str, str]] = []
+    for a, b in candidates:
+        if a == b or a not in ivars or b not in ivars:
+            continue
+        if b in later[a] or a in later[b]:
+            continue
+        pair = tuple(sorted((a, b)))
+        if pair not in pairs:
+            pairs.append(pair)
+    return pairs
+
+
+def _kink_orientations(spatial: "SpatialStructure",
+                       pairs: list[tuple[str, str]]) -> list[tuple]:
+    """Every order of the kink pairs consistent with the causal orderings,
+    each as a tuple of extra ``(earlier, later)`` edges.  The sub-domains
+    they define partition the integration domain up to its kinks."""
+    from itertools import product
+
+    ivars = set(spatial.time_integration_vars)
+    base = [(e, l) for e, l in spatial.time_orderings
+            if e in ivars and l in ivars]
+    out = []
+    for bits in product((0, 1), repeat=len(pairs)):
+        extra = tuple((a, b) if bit == 0 else (b, a)
+                      for (a, b), bit in zip(pairs, bits))
+        later = _later_sets(ivars, base + list(extra))
+        if all(v not in later[v] for v in ivars):      # acyclic
+            out.append(extra)
+    return out
+
+
 def analyze_spatial(dt: "DiagramTerm") -> SpatialStructure:
     """Analyze a DiagramTerm's propagator topology.
 
@@ -4882,9 +4981,21 @@ class DiagramIntegrand:
         positions: dict[str, float] | None = None,
         integrate_over: Any = None,
         external_times: dict[str, float] | None = None,
+        _extra_orderings: tuple = (),
     ) -> tuple[float, float]:
         """Tensor-product Gauss-Legendre quadrature on the causal
         simplex.
+
+        The integrand is kinked where two internal times that the causal
+        structure leaves unordered cross, if they are the two parents of
+        one variable (a vertex with several ψ legs at one time) or, when C
+        has a derivative jump on its time diagonal (white noise; see
+        :func:`_c_has_diagonal_kink`), the two ends of a C propagator.  The
+        domain is then split at those diagonals: each consistent order of
+        such pairs is integrated as its own causal sub-simplex
+        (``_extra_orderings``) and the results are added.  Each piece is
+        smooth, and the convergence in ``n_gauss`` stays exponential
+        instead of ``n^-2``.
 
         Mirrors :meth:`integrate_moment_qmc_vectorized` node-for-node
         -- the SAME causal-simplex mapping (parents → upper bounds →
@@ -4958,6 +5069,27 @@ class DiagramIntegrand:
                 "or method='qmc_scalar' for matrix-valued R."
             )
 
+        time_orderings = list(spatial.time_orderings)
+        if _extra_orderings:
+            time_orderings += list(_extra_orderings)
+            int_vars_pf = list(reversed(_topological_sort_times(
+                tuple(spatial.time_integration_vars), time_orderings)))
+            gl_vars = ext_integrated + int_vars_pf
+        else:
+            pairs = _kink_pairs(spatial, _c_has_diagonal_kink(cache))
+            if pairs:
+                total = 0.0
+                for extra in _kink_orientations(spatial, pairs):
+                    val, _ = self.integrate_moment_gauss_legendre(
+                        lambda_f, cache, t_min=t_min, direction=direction,
+                        n_gauss=n_gauss, positions=positions,
+                        integrate_over=integrate_over,
+                        external_times=external_times,
+                        _extra_orderings=extra,
+                    )
+                    total += val
+                return (total, 0.0)
+
         # 1-D Gauss-Legendre nodes / weights mapped from [-1, 1] to [0, 1].
         nodes_1d, weights_1d = leggauss(n_gauss)
         u_1d = (nodes_1d + 1) / 2
@@ -4976,7 +5108,7 @@ class DiagramIntegrand:
 
         # --- Causal mapping: identical to QMC vectorised path. ---
         parent_map: dict[str, list[str]] = defaultdict(list)
-        for earlier, later in spatial.time_orderings:
+        for earlier, later in time_orderings:
             if earlier in int_vars_pf:
                 parent_map[earlier].append(later)
         # Lower limits from external response legs (see

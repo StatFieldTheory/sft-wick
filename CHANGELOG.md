@@ -417,6 +417,41 @@ a C that is not a multiple of the identity raises `ValueError`.  Locked by
 `tests/test_iso_c_value.py`: `iso_C=True` equals `iso_C=False` to 1e-10 at
 orders 0-2 on four backends, and the refusal.
 
+### Improved: Gauss-Legendre splits the time domain where the integrand is kinked
+
+Tensor-product Gauss-Legendre converges exponentially on a smooth integrand
+and as `n^-2` on a kinked one.  Two structures kink a diagram's integrand
+inside the domain, where two internal times that the causal structure
+leaves unordered cross:
+
+- the two ends of a C propagator, when C has a derivative jump on its time
+  diagonal, which white noise gives (`C = ∫ R σ² R`);
+- two parents of one time variable, whose upper bound `min(parents)`
+  changes branch: a vertex with several ψ legs at one time (an
+  `equal_time` non-local vertex, or a local vertex with two ψ legs).
+
+`integrate_moment_gauss_legendre` now integrates each consistent order of
+such pairs as its own causal sub-simplex and adds the results.  Measured on
+demo 4 against the exact moment hierarchy, `⟨φ_0(x) φ_1(y)⟩`:
+
+| channel | before, 8 / 16 / 64 nodes | now, 8 / 16 nodes |
+|---|---|---|
+| white pulses, FF | 4.5e-3 / 1.2e-3 / 7.9e-5 | 2.0e-13 / 7.0e-16 |
+| white pulses, FFK4 (`equal_time` κ⁴) | 2.7e-3 at 16 | 5.4e-12 / 1.1e-15 |
+| exponential pulses, FF | 1.2e-5 / 8.2e-7 / 3.5e-9 | 6.9e-11 / 1.1e-15 |
+
+The C split applies when the model carries `sigma2`, or when a closed-form
+C declares `has_diagonal_kink = True` (demo 4's does: exponential pulses
+give C a jump in a higher derivative); the parent split applies whatever
+the noise.  The cost is one integration per consistent order: 2 for one
+pair, up to `k!` for `k` mutually unordered times.  A kink inside a
+coupling callable, such as the `min` over partner times of an R-contracted
+cumulant, is invisible to the package and keeps the algebraic rate
+(demo 4's exponential FFK4: 3.1e-8 at 16 nodes, 5.4e-10 at 32).  QMC and
+`nquad` are unchanged.  Locked by `tests/test_gl_white_noise_kinks.py`:
+the orientations are the linear extensions of the causal order, and
+white-noise order 2 matches the hierarchy to 1e-11 at 16 nodes.
+
 ### Performance: a per-sample callable coupling is called once per sample
 
 `DynamicCouplingPromise.evaluate_at_batch`, which `qmc_vectorized` and

@@ -228,6 +228,13 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "variance, quadratic-drift correction, shot-noise cumulants, "
         "multiplicative noise, a non-normal linear system",
         "closed forms; Campbell's theorem; Lyapunov equation", "1e-13"),
+    "tests/test_gl_white_noise_kinks.py": (
+        "Integrators",
+        "Gauss-Legendre splits the domain at kinks: unordered ends of a "
+        "white-noise C, unordered parents of a multi-psi vertex; the "
+        "orientations are the consistent total orders",
+        "linear extensions of the causal order; the exact Itô moment "
+        "hierarchy", "exact / 1e-11"),
     "tests/test_iso_c_value.py": (
         "Integrators",
         "an index-free (iso_C=True) C propagator stands for c of "
