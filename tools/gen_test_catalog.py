@@ -221,6 +221,26 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "numpy hand contraction over the full C matrices; all five backends "
         "against each other; the label-blind value shown to differ",
         "1e-12 (backends) / 1e-3 (quadrature vs QMC)"),
+    "tests/test_iso_c_value.py": (
+        "Integrators",
+        "an index-free (iso_C=True) C propagator stands for c of "
+        "C_ab = δ_ab c, not the trace N c: orders 0-2 at N = 2 on four "
+        "backends; a non-isotropic C is refused",
+        "the iso_C=False expansion of the same system", "1e-10"),
+    "tests/test_system_t_min.py": (
+        "Workflow and YAML",
+        "System.t_min reaches the integrators through Expansion.evaluate "
+        "and sweep; a cache built for another t_min is refused",
+        "time-translation invariance (stationary noise, constant drift)",
+        "1e-10"),
+    "tests/test_l1_structure_guards.py": (
+        "Workflow and YAML",
+        "callable-γ scalar/matrix R decided on the whole spline grid; the "
+        "Γ spline reaches a negative t_min; t_max beyond t_max_cache "
+        "refused; diag_R / diag_C refused when R or C has off-diagonal "
+        "entries (dense R, mixing κ² or σ²), diagonal structures accepted",
+        "scipy quad of the rate; Lyapunov equation of the Markov embedding",
+        "1e-5 (spline) / 1e-10"),
     "tests/test_demo3_shot_noise.py": (
         "Propagator numerics",
         "demo 3 filtered-Poisson cumulants, the R-contracted kernel K_R, and "

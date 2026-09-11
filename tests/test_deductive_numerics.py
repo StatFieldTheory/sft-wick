@@ -786,14 +786,16 @@ class TestFeynmanDiagramQMC:
         ))).real
         return cache, F_MSR, dt_dbl, coupling
 
-    # ---------- QDT-P1: scipy.nquad(make_scipy_integrand) = N² × coupling × A² ----------
+    # ---------- QDT-P1: scipy.nquad(make_scipy_integrand) = coupling × A² ----------
 
-    def test_scipy_integrand_matches_N_squared_A_squared(self, _shared):
+    def test_scipy_integrand_matches_A_squared(self, _shared):
         """``scipy.nquad(make_scipy_integrand)`` evaluates ξ(r=0, t_f) at
         fixed external times.  For the double tadpole this equals
-        ``N² × coupling × A(t_f)²``, where the factor ``N²`` comes from
-        the trace over component indices implicit in the C-propagator
-        contraction.  Reference A(t_f) via 1D scipy.quad to 1e-12."""
+        ``coupling × A(t_f)²``: the loop sums are inside ``coupling``
+        and each index-free C contributes ``c`` of ``C_ab = δ_ab c``.
+        Up to 0.4.2 the reference carried an extra ``N²`` that matched
+        the evaluators' trace (``N c`` per C propagator).  Reference
+        A(t_f) via 1D scipy.quad to 1e-12."""
         from scipy.integrate import nquad as scipy_nquad
 
         cache, F_MSR, dt_dbl, coupling = _shared
@@ -811,7 +813,7 @@ class TestFeynmanDiagramQMC:
         )
         got, _ = scipy_nquad(f, bounds, opts={"epsabs": 1e-10, "epsrel": 1e-10})
 
-        expected = self.N**2 * coupling * self._A_at(t_f)**2
+        expected = coupling * self._A_at(t_f)**2
         rel = abs(got - expected) / abs(expected)
         # Tight: both sides use machine-precision analytical C.
         # The only remaining error is scipy.nquad adaptive quadrature.
@@ -820,13 +822,13 @@ class TestFeynmanDiagramQMC:
             f"{expected:.10e}, rel={rel:.2e}"
         )
 
-    # ---------- QDT-P2: integrate_moment_qmc = N² × coupling × B² ----------
+    # ---------- QDT-P2: integrate_moment_qmc = coupling × B² ----------
 
-    def test_qmc_matches_N_squared_B_squared(self, _shared):
+    def test_qmc_matches_B_squared(self, _shared):
         """``ig.integrate_moment_qmc(lambda_f)`` evaluates the time-
         integrated moment of the diagram contribution.  For the double
-        tadpole this equals ``N² × coupling × B(λ)²`` where
-        ``B(λ) = ∫_0^λ A(t) dt``.
+        tadpole this equals ``coupling × B(λ)²`` where
+        ``B(λ) = ∫_0^λ A(t) dt`` (no ``N²``; see QDT-P1).
 
         Verifies QMC reaches within 3σ of its self-reported error bar.
         """
@@ -841,7 +843,7 @@ class TestFeynmanDiagramQMC:
                                     # time-integrated moment.
         )
 
-        expected = self.N**2 * coupling * self._B_at_lambda(lambda_f)**2
+        expected = coupling * self._B_at_lambda(lambda_f)**2
         # Within 3σ of QMC's own error (standard Sobol 99.7% confidence).
         assert abs(got - expected) < 3 * err + 1e-10, (
             f"QMC {got:.6e} vs closed form {expected:.6e}, "
@@ -867,7 +869,7 @@ class TestFeynmanDiagramQMC:
         ig = dt_dbl.build_integrand(
             {"F": F_MSR}, fixed_indices={"a": 0, "b": 0}
         )
-        expected = self.N**2 * coupling * self._B_at_lambda(lambda_f)**2
+        expected = coupling * self._B_at_lambda(lambda_f)**2
 
         errors = []
         for n_bits in (10, 12, 14):

@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1256 tests** in 42 files (parametrised
+The suite has **1310 tests** in 45 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -191,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*487 tests in 14 files.*
+*512 tests in 15 files.*
 
 .. list-table::
    :header-rows: 1
@@ -247,6 +247,11 @@ Integrators
      - brute-force Wick counting; MSR prefactors
      - exact / 1e-10
      - 19
+   * - ``test_iso_c_value.py``
+     - an index-free (iso_C=True) C propagator stands for c of C_ab = δ_ab c, not the trace N c: orders 0-2 at N = 2 on four backends; a non-isotropic C is refused
+     - the iso_C=False expansion of the same system
+     - 1e-10
+     - 25
    * - ``test_matrix_r_evaluation.py``
      - matrix-valued R with callable couplings in the scalar loop
      - qmc_vectorized where legal; closed-form 1-D integrals
@@ -276,7 +281,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*68 tests in 4 files.*
+*97 tests in 6 files.*
 
 .. list-table::
    :header-rows: 1
@@ -297,6 +302,16 @@ Workflow and YAML
      - closed form (level A is a single diagram, hence exact); QMC on the raw-vertex path
      - exact / 2e-4
      - 18
+   * - ``test_l1_structure_guards.py``
+     - callable-γ scalar/matrix R decided on the whole spline grid; the Γ spline reaches a negative t_min; t_max beyond t_max_cache refused; diag_R / diag_C refused when R or C has off-diagonal entries (dense R, mixing κ² or σ²), diagonal structures accepted
+     - scipy quad of the rate; Lyapunov equation of the Markov embedding
+     - 1e-5 (spline) / 1e-10
+     - 19
+   * - ``test_system_t_min.py``
+     - System.t_min reaches the integrators through Expansion.evaluate and sweep; a cache built for another t_min is refused
+     - time-translation invariance (stationary noise, constant drift)
+     - 1e-10
+     - 10
    * - ``test_workflow.py``
      - System / Expansion / Propagators / SweepResult surface; end-to-end vs the raw API; two-time sweeps
      - raw L0 pipeline (validate_phase5); closed forms

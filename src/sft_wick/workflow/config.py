@@ -380,7 +380,9 @@ def _resolve_linear_diagonal(
                 "propagators), 'n_grid_cache'}; got both."
             )
         t_max_cache = float(lin.get("t_max_cache", 100.0))
-        lin["n_grid_cache"] = max(2, int(math.ceil(t_max_cache / effective_dt)))
+        t_min_cache = float(lin.get("t_min_cache", 0.0))
+        lin["n_grid_cache"] = max(
+            2, int(math.ceil((t_max_cache - t_min_cache) / effective_dt)))
     return lin
 
 
@@ -396,7 +398,7 @@ def _resolve_linear_explicit(lin: dict, base_dir: Path) -> dict:
     """
     forbidden = (
         "gamma", "gamma_module", "gamma_attr",
-        "dt", "n_grid_cache", "t_max_cache",
+        "dt", "n_grid_cache", "t_max_cache", "t_min_cache",
     )
     present = [k for k in forbidden if k in lin]
     if present:
@@ -660,7 +662,7 @@ def build_system(cfg: SystemConfig):
         # Pass callables through to DiagonalA; only flatten static lists/arrays.
         gamma_arg = gamma if callable(gamma) else list(gamma)
         diag_kwargs = {"gamma": gamma_arg}
-        for k in ("t_max_cache", "n_grid_cache"):
+        for k in ("t_max_cache", "n_grid_cache", "t_min_cache"):
             if k in lin_d:
                 diag_kwargs[k] = lin_d[k]
         linear = sp.DiagonalA(**diag_kwargs)

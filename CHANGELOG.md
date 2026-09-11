@@ -324,6 +324,93 @@ the closed form per diagram (`[1, 0, 1]`) under both coupling contracts, the
 callable is required to match the static tensor exactly, and the scalar-R
 path is checked to still agree with itself.
 
+### Fixed: L1 defaults that dropped off-diagonal R and C entries
+
+`System.expand` and `System.propagators` default to `diag_R=True` and
+`diag_C=True`, which keep only the diagonal of R and C.  Nothing checked
+that the system had no off-diagonal entries, and three inputs have them:
+
+| input | what was dropped |
+|---|---|
+| a dense drift, `ExplicitR(iso_R=False)` | the off-diagonal entries of R and of C |
+| a component-mixing κ², `GeneralKappa2` | the off-diagonal entries of C |
+| a component-mixing white noise, a `ConstantImpulse` or `CustomImpulse` matrix | the off-diagonal entries of C |
+
+Measured on a non-normal 2 × 2 drift with exponential noise and a linear
+local vertex, against the Lyapunov equation of the Markov embedding:
+order-0 `⟨φ_0 φ_1⟩` came out 0 instead of 0.1178; at order 1, `(0,0)` was
+0.1123 instead of 0.2028 and `(1,1)` had the wrong sign; at order 2, `(0,0)`
+had the wrong sign.  With an off-diagonal `ConstantImpulse` the tabulated C
+was 60 % off.
+
+Both methods now look for off-diagonal entries in R, κ² and σ² (from the
+spec type where it decides the matter, otherwise by evaluating the callable
+at a few time and position pairs) and raise `ValueError` naming the flags
+to use: `diag_R=False`, `diag_C=False`, and propagators built with
+`diag_C=False`, `c_closed_form_only=True` and a closed form that returns the
+full C (the quadrature tables hold `C_aa` only).  With those flags the dense
+example matches the Lyapunov reference to 1e-10 at order 0.  A kernel that
+cannot be evaluated at the probe's scalar positions is not refused.
+`DiagonalA` with distinct rates, separable noise and diagonal white noise
+are not refused.
+
+### Fixed: `DiagonalA` with a callable rate
+
+Two defects, each giving a wrong R without an error:
+
+- The choice between a scalar and a matrix R compared the components of
+  `gamma` at t = 0 and t = 1 only.  For `gamma(t) = [1, 1 + 0.8 sin πt]` it
+  chose a scalar R with component 0's rate: `R_11(2.5, 0.2)` was 0.1003
+  instead of 0.0816.  The comparison now uses every node of the spline
+  grid, evaluated once and shared with the spline.
+- The cumulative-rate spline started at t = 0 whatever `System.t_min` was,
+  so R below 0 was extrapolated: `R(0.5, −2)` came out 13 times too large
+  and `R(−0.5, −3)` 1.4e3 times.  `DiagonalA` gains `t_min_cache`
+  (default 0), `System` extends the grid down to its own `t_min` at the
+  same node spacing, and `System.propagators` refuses a `t_max` above
+  `t_max_cache`, where the spline would also extrapolate.  The YAML
+  `system.linear` block accepts `t_min_cache`.
+
+Both are locked by `tests/test_l1_structure_guards.py` (19 cases), with
+the entry above: scipy `quad` of the rate for R, the Lyapunov equation for
+the dense system, and a refusal or an acceptance for each structure.
+
+### Fixed: `System.t_min` did not reach the integrators
+
+`Expansion.evaluate`, and so `Expansion.sweep` and `sft-wick run`, called
+`integrate_diagrams` without `t_min`, so every time integral started at 0
+while the propagators were built from `t_min`.  With stationary noise and a
+constant drift, the system started at `t_min = 0.75` and observed at
+`T + 0.75` is the system started at 0 and observed at `T`.  With `T = 2`, a
+static κ³ gave an order-1 `⟨φ_a φ_b φ_c⟩` 1.26878 times too large; a local F
+at order 2, whose tadpoles read `C(τ, τ)` below `t_min`, was 2.2e-4 off with
+the closed-form C, which is 0 there.  The L0 route,
+`integrate_diagrams(..., t_min=...)`, was right.  `Expansion.evaluate` now
+passes the system's `t_min` and refuses a propagator cache built for
+another one.  Every shipped example has `t_min = 0`.
+
+Locked by `tests/test_system_t_min.py`: the identity to 1e-10 on
+`gauss_legendre` and `qmc_vectorized` for a local and a non-local vertex,
+through `sweep`, and the refusal.
+
+### Fixed: `iso_C=True` multiplied every C propagator by N
+
+`compute_moment(..., iso_C=True)` strips the equal component indices of a
+C propagator and keeps any index sum in the coupling, so what remains of the
+propagator is `c` in `C_ab = δ_ab c`.  Every evaluator multiplied by the
+trace `N c` instead.  At N = 2, with isotropic noise and a generic F,
+order-0 `⟨φ_0 φ_0⟩` and order-1 `⟨φ_0⟩` came out 2.00000 times too large and
+order 2 4.00000 times, on every backend and at L0 and L1; `iso_C=False`, the
+L1 default, was right, and N = 1 is unaffected.  `TestFeynmanDiagramQMC` in
+`tests/test_deductive_numerics.py` had the factor `N²` written into its
+reference values, and `docs/deductive_verification.md` explained it as a
+trace over components; both are corrected.
+
+An index-free C now contributes `c` (`_isotropic_C` in `evaluate.py`), and
+a C that is not a multiple of the identity raises `ValueError`.  Locked by
+`tests/test_iso_c_value.py`: `iso_C=True` equals `iso_C=False` to 1e-10 at
+orders 0-2 on four backends, and the refusal.
+
 ### Performance: a per-sample callable coupling is called once per sample
 
 `DynamicCouplingPromise.evaluate_at_batch`, which `qmc_vectorized` and

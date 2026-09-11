@@ -185,14 +185,18 @@ Closed-form references (for demo-1's F tensor at (a=b=0), N=2):
   — per-vertex 1-D integral.
 - ``B(λ) = ∫_0^λ A(t) dt``
   — outer integral over external time (for moments).
-- Fixed-time ξ(r=0, t_f) = ``N² × coupling × A(t_f)²``.
-- Time-integrated moment at ``lambda_f`` = ``N² × coupling × B(λ)²``.
+- Fixed-time ξ(r=0, t_f) = ``coupling × A(t_f)²``.
+- Time-integrated moment at ``lambda_f`` = ``coupling × B(λ)²``.
 
-The factor ``N²`` = 4 at N=2 comes from the trace over component
-indices implicit in the C-propagator contraction (even with
-``iso_C=True``).  ``coupling`` for this diagram at (a=b=0) with
-demo-1's F equals 1 (= ``S(0)²``) from the hand-derived formulas in
-T17.
+``coupling`` for this diagram at (a=b=0) with demo-1's F equals 1
+(= ``S(0)²``, with ``S(a) = Σ_i F_aii``) from the hand-derived formulas
+in T17: the sum over the loop index is inside the coupling, and each
+C propagator contributes ``c`` of ``C_ab = δ_ab c``.  Up to 0.4.2 these
+references carried an extra ``N²``: the evaluators contracted an
+index-free (``iso_C=True``) C propagator to its trace ``N c``, and the
+references were written to match.  The double tadpole equals
+``⟨φ_0⟩⟨φ_0⟩`` from two order-1 expansions, which fixes the value
+without the factor.
 
 **Design choice: closed-form C cache in the test.**  Sft-wick's
 native ``PropagatorCache`` either ``dblquad``s every C evaluation

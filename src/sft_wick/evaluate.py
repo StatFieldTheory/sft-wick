@@ -200,6 +200,58 @@ def _select_C_batch(
     return C_arr.sum(axis=1)
 
 
+#: Relative departure from a multiple of the identity (spread of the
+#: diagonal, or size of an off-diagonal entry) above which an index-free C
+#: propagator is refused.
+_ISO_C_RTOL = 1e-9
+
+
+def _isotropic_C(C: Any, *, batched: bool = False) -> Any:
+    """The value ``c`` an index-free C propagator stands for.
+
+    ``compute_moment(..., iso_C=True)`` strips the equal component indices
+    from a C propagator and keeps any index sum in the coupling, so the
+    factor left for the propagator is ``c`` in ``C_ab = δ_ab c``.  Up to
+    0.4.2 every evaluator multiplied by the trace ``N c`` instead, N times
+    too large per C propagator.
+
+    Args:
+        C: ``(N,)`` diagonal or ``(N, N)`` matrix at one point; with
+            ``batched=True``, ``(n, N)`` or ``(n, N, N)``.
+
+    Returns:
+        ``c``: a scalar, or ``(n,)`` with ``batched=True``.
+
+    Raises:
+        ValueError: if C is not a multiple of the identity, so that no
+            single ``c`` exists.
+    """
+    arr = np.asarray(C)
+    if not batched:
+        arr = arr[None, ...]
+    if arr.ndim == 3:
+        diag = np.diagonal(arr, axis1=1, axis2=2)
+        off = float(np.abs(arr - diag[:, :, None] * np.eye(arr.shape[1])).max())
+    elif arr.ndim == 2:
+        diag, off = arr, 0.0
+    else:
+        raise ValueError(
+            f"C must have shape (N,) or (N, N) per point; got "
+            f"{np.asarray(C).shape} (batched={batched})."
+        )
+    c = diag.mean(axis=1)
+    scale = float(np.abs(diag).max()) if diag.size else 0.0
+    spread = float(np.abs(diag - c[:, None]).max()) if diag.size else 0.0
+    if max(spread, off) > _ISO_C_RTOL * scale:
+        raise ValueError(
+            "an index-free C propagator (compute_moment(..., iso_C=True)) "
+            "stands for C_ab = δ_ab c, but this C is not a multiple of the "
+            f"identity (relative departure {max(spread, off) / scale:.1e}).  "
+            "Build the terms with iso_C=False."
+        )
+    return c if batched else c[0]
+
+
 def _topological_sort_times(
     integration_vars: tuple[str, ...],
     time_orderings: list[tuple[str, str]],
@@ -3597,6 +3649,9 @@ class DiagramIntegrand:
                 n_l = directions.get(dir_l, directions.get(sp_l))
                 n_r = directions.get(dir_r, directions.get(sp_r))
                 C_mat = cache.C_value(n_l, times[sp_l], n_r, times[sp_r])
+                if il is None and ir is None:
+                    c_val *= _isotropic_C(C_mat)
+                    continue
                 a = self._resolve_component(il, self.fixed_indices)
                 b = self._resolve_component(ir, self.fixed_indices)
                 if a is not None and b is not None:
@@ -3652,14 +3707,19 @@ class DiagramIntegrand:
             n_r = directions.get(dir_r, directions.get(sp_r))
             c_diag = cache.C_diagonal(n_l, times[sp_l], n_r, times[sp_r])
 
+            if il is None and ir is None:
+                # iso_C stripped both legs; see :func:`_isotropic_C`.
+                contracted = contracted * _isotropic_C(c_diag)
+                continue
+
             ax_l, val_l = self._diag_c_leg(il, idx_name_to_axis)
             ax_r, val_r = self._diag_c_leg(ir, idx_name_to_axis)
 
             # A leg that is neither a summation axis nor a pinned component
-            # — ``None`` under iso_C, or a name nothing resolves — makes the
-            # propagator contract to its trace, matching the ``C_mat.trace()``
-            # fallback in :meth:`_evaluate_general` and the ``a is None``
-            # branch of :func:`_select_C_batch`.
+            # (a name nothing resolves) makes the propagator contract to its
+            # trace, matching the ``C_mat.trace()`` fallback in
+            # :meth:`_evaluate_general` and the ``a is None`` branch of
+            # :func:`_select_C_batch`.
             if (ax_l is None and val_l is None) \
                     or (ax_r is None and val_r is None):
                 contracted = contracted * c_diag.sum()
@@ -3772,6 +3832,9 @@ class DiagramIntegrand:
                 n_r = directions.get(dir_r, directions.get(sp_r))
                 C_mat = cache.C_value(n_l, times[sp_l], n_r, times[sp_r])
 
+                if il is None and ir is None:
+                    c_val *= _isotropic_C(C_mat)
+                    continue
                 a = self._resolve_component(il, idx_map)
                 b = self._resolve_component(ir, idx_map)
                 if a is not None and b is not None:
@@ -3879,6 +3942,9 @@ class DiagramIntegrand:
         def _c_product(idx_map: dict[str, int]) -> np.ndarray:
             cp = np.ones(n_samples)
             for C_batch, il, ir in c_batches:
+                if il is None and ir is None:
+                    cp = cp * _isotropic_C(C_batch, batched=True)
+                    continue
                 a = DiagramIntegrand._resolve_component(il, idx_map)
                 b = DiagramIntegrand._resolve_component(ir, idx_map)
                 cp = cp * _select_C_batch(C_batch, a, b)
@@ -4747,7 +4813,9 @@ class DiagramIntegrand:
                 t_l = _times(sp_l)
                 t_r = _times(sp_r)
                 C_diag_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
-                if il is not None and ir is not None:
+                if il is None and ir is None:
+                    c_product *= _isotropic_C(C_diag_batch, batched=True)
+                elif il is not None and ir is not None:
                     a = DiagramIntegrand._resolve_component(il, fi)
                     b = DiagramIntegrand._resolve_component(ir, fi)
                     c_product *= _select_C_batch(C_diag_batch, a, b)
@@ -4780,6 +4848,9 @@ class DiagramIntegrand:
                     t_l = _times(sp_l)
                     t_r = _times(sp_r)
                     C_diag_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
+                    if il is None and ir is None:
+                        c_prod *= _isotropic_C(C_diag_batch, batched=True)
+                        continue
                     a = DiagramIntegrand._resolve_component(il, idx_map)
                     b = DiagramIntegrand._resolve_component(ir, idx_map)
                     c_prod *= _select_C_batch(C_diag_batch, a, b)
@@ -5047,7 +5118,9 @@ class DiagramIntegrand:
                 t_l = _times(sp_l)
                 t_r = _times(sp_r)
                 C_diag_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
-                if il is not None and ir is not None:
+                if il is None and ir is None:
+                    c_product *= _isotropic_C(C_diag_batch, batched=True)
+                elif il is not None and ir is not None:
                     a = DiagramIntegrand._resolve_component(il, fi)
                     b = DiagramIntegrand._resolve_component(ir, fi)
                     c_product *= _select_C_batch(C_diag_batch, a, b)
@@ -5076,6 +5149,9 @@ class DiagramIntegrand:
                     t_l = _times(sp_l)
                     t_r = _times(sp_r)
                     C_diag_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
+                    if il is None and ir is None:
+                        c_prod *= _isotropic_C(C_diag_batch, batched=True)
+                        continue
                     a = DiagramIntegrand._resolve_component(il, idx_map)
                     b = DiagramIntegrand._resolve_component(ir, idx_map)
                     c_prod *= _select_C_batch(C_diag_batch, a, b)
@@ -5801,6 +5877,9 @@ def integrate_two_point_qmc(
                 t_l = t_arr[:, var_col[sp_l]]
                 t_r = t_arr[:, var_col[sp_r]]
                 C_batch = _lookup_C(sp_l, sp_r, t_l, t_r, ci)
+                if il is None and ir is None:
+                    c_prod *= _isotropic_C(C_batch, batched=True)
+                    continue
                 a = DiagramIntegrand._resolve_component(il, fi)
                 b = DiagramIntegrand._resolve_component(ir, fi)
                 c_prod *= _select_C_batch(C_batch, a, b)
@@ -5832,6 +5911,9 @@ def integrate_two_point_qmc(
                     t_l = t_arr[:, var_col[sp_l]]
                     t_r = t_arr[:, var_col[sp_r]]
                     C_batch = _lookup_C(sp_l, sp_r, t_l, t_r, ci)
+                    if il is None and ir is None:
+                        c_prod *= _isotropic_C(C_batch, batched=True)
+                        continue
                     a = DiagramIntegrand._resolve_component(il, idx_map)
                     b = DiagramIntegrand._resolve_component(ir, idx_map)
                     c_prod *= _select_C_batch(C_batch, a, b)

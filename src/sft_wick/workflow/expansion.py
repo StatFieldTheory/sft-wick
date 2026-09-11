@@ -298,14 +298,25 @@ class Expansion:
         # `propagators_from_cache`) carries no record of which system it was
         # meant for.  An UNDER-counted one silently returns a wrong number
         # rather than failing, so check here, where both counts are known.
-        _cache_n = getattr(getattr(propagators, "cache", None), "model", None)
-        _cache_n = getattr(_cache_n, "n_components", None)
+        _cache_model = getattr(getattr(propagators, "cache", None), "model", None)
+        _cache_n = getattr(_cache_model, "n_components", None)
         if _cache_n is not None and int(_cache_n) != int(self.system.n_components):
             raise ValueError(
                 f"the propagator cache has n_components={_cache_n} but the "
                 f"expansion's system has {self.system.n_components}.  A "
                 f"mismatched cache does not fail on its own -- it silently "
                 f"returns a wrong number."
+            )
+
+        # Every time integral starts at the system's t_min, from which the
+        # propagators were built.  Up to 0.4.2 t_min was not passed on and
+        # the integrals started at 0.
+        t_min = float(self.system.t_min)
+        _cache_t_min = getattr(_cache_model, "t_min", None)
+        if _cache_t_min is not None and float(_cache_t_min) != t_min:
+            raise ValueError(
+                f"the propagator cache was built with t_min={_cache_t_min} "
+                f"but the expansion's system has t_min={t_min}."
             )
 
         _guard_external_times(
@@ -316,6 +327,7 @@ class Expansion:
             diagram_terms,
             coupling_values=coupling_values,
             lambda_f=t_final,
+            t_min=t_min,
             cache=propagators.cache,
             method=method,
             n_samples=n_samples,
