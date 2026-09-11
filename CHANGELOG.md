@@ -1,6 +1,18 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 — 2026-09-11
+
+> **Eight defects that returned a wrong number without an error, one crash,
+> a Gauss-Legendre rule that handles white noise, and two demos checked
+> against exact references.**  Breaking: `System.expand` refuses `diag_R` /
+> `diag_C` when the system's R or C has off-diagonal entries,
+> `System.propagators` refuses `diag_C` with an off-diagonal C and a `t_max`
+> above `t_max_cache`, and the L0 evaluators refuse R indices that
+> contradict the propagator cache.  Values change for callable non-local
+> couplings that are not symmetric in their leg points, for `iso_C=True`
+> with N ≥ 2, for `System.t_min ≠ 0`, and on the scalar loops for pinned
+> observable labels under `diag_C`.  Demos 1-3 reproduce their stored
+> numbers.
 
 ### Fixed: a callable non-local coupling was evaluated at one leg order
 

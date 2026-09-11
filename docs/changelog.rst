@@ -10,15 +10,91 @@ Changelog
    differ, the Markdown file is correct.
 
 
-Version 0.4.2 (unreleased)
+Version 0.5.0 — 2026-09-11
 --------------------------
 
-*Paper assets and documentation only — no* ``src/`` *changes, no behaviour
-change.*  Both items are corrections to claims made in the 0.4.0 and 0.4.1
-entries themselves.
+*Eight defects that returned a wrong number without an error, one crash, a
+Gauss-Legendre rule that handles white noise, and two demos checked against
+exact references.*  Demos 1-3 reproduce their stored numbers.
+
+Breaking
+~~~~~~~~
+
+- ``System.expand`` raises ``ValueError`` when ``diag_R=True`` and R has
+  off-diagonal entries (a dense ``ExplicitR(iso_R=False)``), or
+  ``diag_C=True`` and C has them (a ``GeneralKappa2`` mixing matrix, a matrix
+  ``ConstantImpulse`` / ``CustomImpulse``, or a dense R).  These defaults used
+  to drop the off-diagonal entries: order-0 ⟨φ₀φ₁⟩ of a non-normal drift came
+  out 0 instead of 0.1178.  ``System.propagators`` refuses ``diag_C=True``
+  with an off-diagonal C, and a ``t_max`` above ``t_max_cache``.
+- The L0 evaluators raise ``ValueError`` when a term's R indices contradict
+  the cache's R (two-index terms against a scalar R, index-free terms against
+  a matrix R, an absorbed R with two indices); these pairings used to sum leg
+  components or take a trace.
 
 Fixed
 ~~~~~
+
+- **Callable non-local couplings were evaluated at one leg order.**  Kernels
+  that are not symmetric in their leg points were 53 % to 130 % off on the
+  tests' generic kernel; constant couplings and the demos' kernels are
+  unaffected.
+- **The diag-C fast path ignored pinned observable labels** on
+  ``qmc_scalar``, ``qmc`` and ``nquad`` (17 % to 78 % off at order 2).
+- **Two R propagators between the same two points shared one set of
+  component indices** under a matrix R (L0 only; totals off by 2.1 to 5.8
+  times).
+- **A callable coupling with a matrix R crashed on a zero-dimensional
+  diagram** on three backends.
+- ``DiagonalA`` **with a callable rate** chose scalar or matrix R from t = 0
+  and t = 1 only, and extrapolated its rate integral below t = 0.  New field
+  ``t_min_cache``.
+- ``System.t_min`` **did not reach the integrators** from
+  ``Expansion.evaluate``, ``sweep`` and the CLI (×1.27 on an order-1
+  three-point function).
+- ``iso_C=True`` **multiplied every C propagator by N** (×2 at orders 0-1
+  and ×4 at order 2 for N = 2).
+
+Improved
+~~~~~~~~
+
+- ``gauss_legendre`` splits the time domain, recursively, where the
+  integrand is kinked: the white-noise C diagonal, and two parents of a
+  vertex with several ψ legs.  On white noise it converges spectrally
+  (2.0e-13 at 8 nodes, 7.0e-16 at 16, where it had 4.5e-3 and 1.2e-3).
+- A per-sample callable coupling is called ``n_samples`` times per integrand
+  and leg order on the batched integrators; the fallback loop used to call it
+  up to ``2 n_samples`` times.
+
+Added
+~~~~~
+
+- **Demo 4** (``examples/demo4``): two-component compound-Poisson noise with
+  cumulants asymmetric in points and components, against Campbell's theorem
+  and an exact moment hierarchy.  46.8 % off on the code before the
+  leg-order fix.
+- **Demo 5** (``examples/demo5``): white noise on every integrator at orders
+  0-4 with ``t_min = 0.5``, and multiplicative noise at L0 with scalar and
+  matrix R, against the exact hierarchy (Gauss-Legendre to 1.4e-15).
+- ``examples/reference/ito_moments.py``: the exact moment hierarchy of a
+  polynomial Itô SDE with jumps; it imports nothing from sft-wick.
+- WF9 pins the argument shapes a callable coupling receives.
+
+
+Version 0.4.2 — 2026-09-03
+--------------------------
+
+*One* ``src/`` *fix, paper-asset and documentation corrections, and the test
+suite's tolerances made explicit.*  Several items correct claims made in the
+0.4.0 and 0.4.1 entries themselves.
+
+Fixed
+~~~~~
+
+- ``compute_moment_numerical`` **bypassed the coincident-label guard** that
+  0.4.0 added to ``System.expand`` and ``compute_moment``.  Two externals
+  sharing a spatial label returned exactly half the correct value through
+  this second L0 engine; it now raises the same ``ValueError`` (``CE4``).
 
 - **The Table 1 paper asset did not run on the version the paper cites.**
   ``examples/paper_assets/table1/generate_table1.py`` built its odd-order
@@ -33,6 +109,17 @@ Fixed
   no longer hardcodes any count, and the standalone TikZ diagrams and the
   matplotlib rendering are regenerated.  The wall-clock column is not
   comparable across this change and is still to be re-measured.
+
+- **Every** ``approx(rel=...)`` **site states its** ``abs=`` (issue #5).  The
+  22 sites that pytest's hidden ``1e-12`` floor had weakened pass at the
+  tolerance they were written to assert, and an AST guard rejects a new bare
+  ``rel=``.
+
+- **The 0.4.1 breakdown of the approx audit did not add up** (176 of 207
+  sites).  The catalogue now renders it from the audit's own JSON summary.
+
+- **A README timing could not notice that its subject had changed.**  A test
+  now ties each timed row to the configuration it measured.
 
 - **Two figures were misquoted from demo 3's own stored results.**  The
   level-A ``m = 4`` agreement is **6.6e-16**, the maximum over the nine
@@ -64,7 +151,8 @@ Fixed
   In both the code was independently verified correct and only the test was
   empty, so no released number is affected: the suite's *coverage* was
   overstated, not its results.  The replacements are checks, not
-  relaxations.
+  relaxations.  The five counts above add up to 176, not 207; 0.4.2
+  corrected the breakdown.
 
 Changed
 ~~~~~~~
@@ -75,7 +163,7 @@ Changed
   as a one-off, so the measurement can be re-run in one command.
 
 The 22 weakened sites are documented but not fixed, and no lint guard yet
-stops new bare ``rel=`` sites appearing.
+stops new bare ``rel=`` sites appearing.  (0.4.2 fixed both.)
 
 
 Version 0.4.0 — 2026-09-02
@@ -90,7 +178,8 @@ result can be reproduced against it.
    **Breaking: external operators may no longer share a spatial label.**
    ``("phi_a(x)", "phi_b(x)")`` — the natural spelling of an equal-point
    correlator — now raises ``ValueError`` at both ``System.expand`` (L1)
-   and ``compute_moment`` (L0), **at interacting orders only**.  It
+   and ``compute_moment`` (L0), **at interacting orders only**
+   (``compute_moment_numerical`` was missed and joined in 0.4.2).  It
    previously returned a number, correct at order 0 and wrong once vertices
    are present: measured on demo 2's system, the order-2 ``F`` channel was
    low by a factor 2 while the order-2 ``FK`` channel was exactly right.
