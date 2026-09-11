@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1310 tests** in 45 files (parametrised
+The suite has **1317 tests** in 46 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -191,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*512 tests in 15 files.*
+*519 tests in 16 files.*
 
 .. list-table::
    :header-rows: 1
@@ -252,6 +252,11 @@ Integrators
      - the iso_C=False expansion of the same system
      - 1e-10
      - 25
+   * - ``test_ito_moments_reference.py``
+     - the exact Itô moment-hierarchy reference used by demos 4 and 5 (examples/reference/ito_moments.py; no sft-wick code): OU variance, quadratic-drift correction, shot-noise cumulants, multiplicative noise, a non-normal linear system
+     - closed forms; Campbell's theorem; Lyapunov equation
+     - 1e-13
+     - 7
    * - ``test_matrix_r_evaluation.py``
      - matrix-valued R with callable couplings in the scalar loop
      - qmc_vectorized where legal; closed-form 1-D integrals

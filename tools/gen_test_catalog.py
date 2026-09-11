@@ -221,6 +221,13 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "numpy hand contraction over the full C matrices; all five backends "
         "against each other; the label-blind value shown to differ",
         "1e-12 (backends) / 1e-3 (quadrature vs QMC)"),
+    "tests/test_ito_moments_reference.py": (
+        "Integrators",
+        "the exact Itô moment-hierarchy reference used by demos 4 and 5 "
+        "(examples/reference/ito_moments.py; no sft-wick code): OU "
+        "variance, quadratic-drift correction, shot-noise cumulants, "
+        "multiplicative noise, a non-normal linear system",
+        "closed forms; Campbell's theorem; Lyapunov equation", "1e-13"),
     "tests/test_iso_c_value.py": (
         "Integrators",
         "an index-free (iso_C=True) C propagator stands for c of "
