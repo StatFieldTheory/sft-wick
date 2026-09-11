@@ -123,13 +123,18 @@ def _level_a(p, m, rc):
 
 ROUTES = [("white", True, dict(method="gauss_legendre", n_gauss=8)),
           ("white", False, dict(method="gauss_legendre", n_gauss=16)),
-          ("exponential", True, dict(method="gauss_legendre", n_gauss=8))]
+          ("exponential", True, dict(method="gauss_legendre", n_gauss=8)),
+          ("exponential", False, dict(method="gauss_legendre", n_gauss=16))]
 
 
 @pytest.mark.parametrize("pulse,rc,kw", ROUTES,
                          ids=["white-Rcontracted", "white-raw",
-                              "exponential-Rcontracted"])
+                              "exponential-Rcontracted", "exponential-raw"])
 def test_level_a_three_point_every_triple(pulse, rc, kw):
+    """The raw exponential kernel depends on the smallest leg time, so it
+    is kinked where two leg times cross.  ``RawKappa`` declares
+    ``has_coincident_time_kinks`` and Gauss-Legendre splits the three leg
+    times into their 6 orders; unsplit it was 5.7e-2 off at 16 nodes."""
     p = PULSES[pulse]
     props, exp, labels = _level_a(p, 3, rc)
     xs = np.array([POS[lab] for lab in labels])
@@ -141,8 +146,8 @@ def test_level_a_three_point_every_triple(pulse, rc, kw):
 
 
 def test_level_a_raw_exponential_route_converges():
-    """The raw exponential kernel is kinked where two leg times cross, so
-    the check is QMC at 2^16 samples (2.9e-5 at 2^18 in level_a.py)."""
+    """The raw exponential route on QMC, which is not split at kinks:
+    2^16 samples (2.9e-5 at 2^18)."""
     p = nz.PARAMS_EXP
     props, exp, labels = _level_a(p, 3, rc=False)
     xs = np.array([POS[lab] for lab in labels])
@@ -215,6 +220,11 @@ def level_b():
                          ids=[c[0] for c in CHANNELS])
 def test_level_b_channels_match_the_hierarchy(level_b, pulse, name, order,
                                               vtype, tag):
+    """At most 6.3e-15 at 16 nodes.  In exponential FFK4 two partners of
+    the R-contracted κ⁴ are F-vertex times, and ``K_R`` depends on the
+    smallest partner time; ``RContractedKappa`` declares
+    ``has_coincident_time_kinks`` and the domain is split where the two
+    cross.  Unsplit that channel was 4.3e-8 off at 16 nodes."""
     props, exp, H = level_b[pulse]
     for ab in [(0, 1), (1, 1)]:
         ref = H.moments([(ab[0], 0), (ab[1], 1)], [tag], T)[tag]
@@ -222,4 +232,4 @@ def test_level_b_channels_match_the_hierarchy(level_b, pulse, name, order,
                            component_pair=ab, orders=[order],
                            vertex_types={vtype}, method="gauss_legendre",
                            n_gauss=16).total
-        assert got == pytest.approx(ref, rel=1e-7, abs=0.0), (name, ab)
+        assert got == pytest.approx(ref, rel=1e-12, abs=0.0), (name, ab)

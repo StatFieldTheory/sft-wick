@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1459 tests** in 50 files (parametrised
+The suite has **1474 tests** in 51 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -191,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*661 tests in 20 files.*
+*676 tests in 21 files.*
 
 .. list-table::
    :header-rows: 1
@@ -218,15 +218,15 @@ Integrators
      - 1e-6 - 2e-2 (measured per configuration)
      - 16
    * - ``test_demo4_asymmetric_noise.py``
-     - demo 4: compound-Poisson noise asymmetric in points and in components; level A 3- and 4-point functions for every component tuple (raw, R-contracted, unequal times); level B channels FK3, FF, FFK4 of <phi_a phi_b>
+     - demo 4: compound-Poisson noise asymmetric in points and in components; level A 3- and 4-point functions for every component tuple (raw on Gauss-Legendre split at declared kinks, R-contracted, unequal times); level B channels FK3, FF, FFK4 of <phi_a phi_b>
      - direct quadrature; Campbell closed form; exact Itô moment hierarchy
-     - 1e-12 (level A) / 1e-7 (level B) / 1e-3 (raw QMC)
-     - 22
+     - 1e-12 (levels A and B) / 1e-3 (raw QMC)
+     - 23
    * - ``test_demo5_white_noise.py``
      - demo 5: white noise (ConstantImpulse matrix) with coloured noise, t_min = 0.5, the diag_C=False, diag_C=True and iso_C=True paths, orders 0-4 and 1-, 2-, 3-point functions on every integrator; multiplicative noise at L0 with two-psi vertices, scalar and matrix R
      - exact Itô moment hierarchy (Markov embedding of the coloured noise)
-     - 1e-10 (GL, nquad) / 1e-3 - 1e-4 (QMC) / 1e-8 (order 4)
-     - 40
+     - 1e-10 (GL, nquad) / 1e-12 (nquad, order 2) / 1e-3 - 1e-4 (QMC) / 1e-8 (order 4)
+     - 46
    * - ``test_diag_fast_component_labels.py``
      - observable component labels pinned through fixed_indices on a C propagator in the iso_R + diag_C scalar fast path; the Kronecker delta between C legs when il != ir
      - numpy hand contraction over the full C matrices; all five backends against each other; the label-blind value shown to differ
@@ -272,6 +272,11 @@ Integrators
      - closed forms; Campbell's theorem; Lyapunov equation
      - 1e-13
      - 7
+   * - ``test_kink_split_nquad_couplings.py``
+     - nquad splits the time domain at kinks as Gauss-Legendre does (white-noise C, matrix R); a coupling callable declaring has_coincident_time_kinks contributes its leg times (raw vertex) or partner times (already_R_contracted), read through the MSR wrapper; equal_time vertices contribute none
+     - exact Itô moment hierarchy; the pairs by construction
+     - exact / 1e-12
+     - 8
    * - ``test_matrix_r_batched.py``
      - matrix-valued R (DiagonalA with distinct rates, a non-normal dense ExplicitR) on gauss_legendre, qmc_vectorized, integrate_two_point_qmc and the method='qmc' dispatch: static, callable, equal_time and already_R_contracted vertices, integrate_over, unequal external times; absorbed-R leg indices pinned to their partners'
      - exact Itô moment hierarchy (Markov embedding; a constant random source for κ³), closed form Σ κ M M M, scipy expm + quad_vec hand contractions; the scalar loop on the same Sobol points; nquad

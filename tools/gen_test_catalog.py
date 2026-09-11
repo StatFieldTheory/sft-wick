@@ -247,14 +247,24 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "orientations are the consistent total orders",
         "linear extensions of the causal order; the exact Itô moment "
         "hierarchy", "exact / 1e-11"),
+    "tests/test_kink_split_nquad_couplings.py": (
+        "Integrators",
+        "nquad splits the time domain at kinks as Gauss-Legendre does "
+        "(white-noise C, matrix R); a coupling callable declaring "
+        "has_coincident_time_kinks contributes its leg times (raw vertex) "
+        "or partner times (already_R_contracted), read through the MSR "
+        "wrapper; equal_time vertices contribute none",
+        "exact Itô moment hierarchy; the pairs by construction",
+        "exact / 1e-12"),
     "tests/test_demo4_asymmetric_noise.py": (
         "Integrators",
         "demo 4: compound-Poisson noise asymmetric in points and in "
         "components; level A 3- and 4-point functions for every component "
-        "tuple (raw, R-contracted, unequal times); level B channels FK3, "
-        "FF, FFK4 of <phi_a phi_b>",
+        "tuple (raw on Gauss-Legendre split at declared kinks, "
+        "R-contracted, unequal times); level B channels FK3, FF, FFK4 of "
+        "<phi_a phi_b>",
         "direct quadrature; Campbell closed form; exact Itô moment "
-        "hierarchy", "1e-12 (level A) / 1e-7 (level B) / 1e-3 (raw QMC)"),
+        "hierarchy", "1e-12 (levels A and B) / 1e-3 (raw QMC)"),
     "tests/test_demo5_white_noise.py": (
         "Integrators",
         "demo 5: white noise (ConstantImpulse matrix) with coloured noise, "
@@ -263,7 +273,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "multiplicative noise at L0 with two-psi vertices, scalar and "
         "matrix R",
         "exact Itô moment hierarchy (Markov embedding of the coloured "
-        "noise)", "1e-10 (GL, nquad) / 1e-3 - 1e-4 (QMC) / 1e-8 (order 4)"),
+        "noise)", "1e-10 (GL, nquad) / 1e-12 (nquad, order 2) / "
+        "1e-3 - 1e-4 (QMC) / 1e-8 (order 4)"),
     "tests/test_iso_c_value.py": (
         "Integrators",
         "an index-free (iso_C=True) C propagator stands for c of "

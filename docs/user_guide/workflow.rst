@@ -506,6 +506,105 @@ Compatibility:
 Design details and the equivalence-validation evidence on demo2 FK
 live at ``docs/notes/R_contracted_nonlocal_vertex.md``.
 
+.. _declaring-kinks:
+
+Declaring kinks
+~~~~~~~~~~~~~~~
+
+Tensor-product Gauss-Legendre converges exponentially on an integrand
+that is smooth on the causal simplex, and as ``n^-2`` on one with a kink
+(a jump in the first derivative) inside it; adaptive ``nquad`` stops short
+of its tolerance along a kink.  ``method='gauss_legendre'`` and
+``method='nquad'`` therefore split the time domain where two integration
+times that the causal structure leaves unordered cross and the integrand
+is kinked there.  Each consistent order of such pairs is integrated as its
+own causal sub-simplex, the split repeats inside each piece until no pair
+is left, and the pieces are added.  Three kinds of pair are split:
+
+* two parents of one time variable (a vertex with several ψ legs at one
+  time), whose upper bound ``min(parents)`` changes branch where they
+  cross; found from the diagram;
+* the two ends of a C propagator when C is kinked on its time diagonal:
+  white noise (``GaussianNoise(sigma2=...)``) is found from the model, and
+  a closed-form C callable declares it with ``has_diagonal_kink = True``;
+* two time arguments of a coupling callable that declares
+  ``has_coincident_time_kinks = True``, meaning that it is kinked wherever
+  two of its time arguments coincide, for example through a ``min`` over
+  them.
+
+The package cannot see inside a callable, so the last two are declared on
+the callable object, for example as a class attribute of a frozen
+dataclass::
+
+   @dataclass(frozen=True)
+   class RawKappa3:
+       """κ³ of exponential pulses; depends on min(t_list)."""
+       rates: tuple
+       has_coincident_time_kinks = True
+
+       def __call__(self, n_list, t_list):
+           ...
+
+Which time arguments are paired depends on the vertex:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - vertex
+     - time arguments paired
+   * - raw (the default)
+     - its own leg times
+   * - ``already_R_contracted=True``
+     - the partner times its legs alias onto
+   * - ``equal_time=True``
+     - none: the legs share one time
+
+The attribute is read through the MSR factor wrapper and through any
+wrapper that sets ``__wrapped__``, so it works at L1, from YAML
+(``coupling_module``) and at L0.  Declaring a kink that is not there costs
+time, not accuracy.  ``nquad`` refuses callable couplings (see the
+decision matrix below), so the declared split currently acts on
+Gauss-Legendre only.
+
+The cost is one integration per consistent order: 2 for one pair, up to
+``k!`` for ``k`` mutually unordered times.  Measured on demo 4
+(``examples/demo4/README.md``), exponential pulses, against exact
+references (maximum relative difference over the component tuples):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 22 22 22
+
+   * - channel
+     - not split, 16 / 32 nodes
+     - split, 12 / 16 nodes
+     - pieces
+   * - raw κ³, 3-point function
+     - 5.7e-2 / 1.5e-2
+     - 2.2e-14 / 2.2e-14
+     - 6
+   * - R-contracted κ⁴, FFK4 of ``⟨φ_a φ_b⟩``
+     - 4.3e-8 / 7.4e-10
+     - 2.6e-15 / 6.3e-15
+     - 2, in the diagrams where two F times are partners
+
+Limits:
+
+* Only pairs of internal integration times are split.  With unequal
+  ``external_times``, a piece can bound a time by ``min`` of a fixed
+  external time and another integration time, which is kinked where the
+  second crosses the first.  Demo 4's raw exponential 3-point function at
+  external times (1.7, 1.2, 0.6) is 1.4e-3 off at 16 nodes and 2.1e-4 at
+  64.  Integrated external times (``integrate_over``) are not split
+  either.
+* The declaration covers kinks where two time arguments coincide, not a
+  kink at a fixed time or along another curve.
+* QMC is not split.  At equal cost the split did not reduce the error for
+  2^10 to 2^16 samples: on demo 4's raw kernel (6 pieces) it was 4 to 10
+  times larger, and on demo 5's white-noise channel (2 pieces) it was
+  larger up to 2^14 samples and 3.8 times smaller at 2^16.
+
 d-dim spatial coordinates
 -------------------------
 
@@ -1194,16 +1293,16 @@ Decision matrix:
        74-245 ms and only ~2e-6 accurate)
    * - ``sweep.method``
      - ``qmc_vectorized`` (default)
-     - High-d diagrams (``d ≥ 6``), kinks inside coupling callables, or when stochastic error bars are wanted
-     - ``~ 1/√n_samples`` bias decay; can severely under-resolve narrow peaks at large ``t_final``
+     - High-d diagrams (``d ≥ 6``), a kink the package cannot see (an undeclared one inside a coupling callable), or when stochastic error bars are wanted
+     - ``~ 1/√n_samples`` bias decay; can severely under-resolve narrow peaks at large ``t_final``; not split at kinks
    * -
      - ``gauss_legendre``
-     - Smooth integrands at ``d ≤ 5`` (the typical sft-wick case), and white-noise or several-ψ-leg kinks, which it splits out
+     - Smooth integrands at ``d ≤ 5`` (the typical sft-wick case), and white-noise, several-ψ-leg or declared coupling kinks, which it splits out (:ref:`declaring-kinks`)
      - **Exponential convergence** in ``n_gauss``; deterministic; cost ``n_gauss^d`` per consistent order of the kinked pairs (2 for one pair, up to ``k!`` for ``k`` mutually unordered times)
    * -
      - ``nquad``
      - Adaptive 1-3D fallback when GL nodes are insufficient
-     - Slow; raises ``NotImplementedError`` on dynamic-coupling diagrams
+     - Slow; split at kinks like ``gauss_legendre``; raises ``NotImplementedError`` on dynamic-coupling diagrams
    * -
      - ``qmc`` / ``qmc_scalar``
      - Compatibility / single-sample debugging

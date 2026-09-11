@@ -38,10 +38,19 @@ def _tensor(fn, m: int, n_comp: int, xs, ts) -> np.ndarray:
 
 @dataclass(frozen=True)
 class RawKappa:
-    """Bare ``κ^(m)`` at the vertex legs (vectorised contract)."""
+    """Bare ``κ^(m)`` at the vertex legs (vectorised contract).
+
+    ``has_coincident_time_kinks`` tells Gauss-Legendre and nquad that the
+    kernel is kinked where two of its time arguments cross: for exponential
+    pulses ``G_a(t)`` depends on the smallest leg time.  They then split
+    the time domain at every pair of leg times the diagram leaves
+    unordered.  For white pulses the raw vertex is ``equal_time``, its legs
+    share one time, and the declaration changes nothing.
+    """
 
     m: int
     p: nz.Params
+    has_coincident_time_kinks = True
 
     def __call__(self, n_2d, t_2d):
         return _tensor(lambda c, x, t: nz.kappa_raw(c, x, t, self.p),
@@ -50,10 +59,16 @@ class RawKappa:
 
 @dataclass(frozen=True)
 class RContractedKappa:
-    """``already_R_contracted`` ``κ^(m)``: ``K_R`` at the partner points."""
+    """``already_R_contracted`` ``κ^(m)``: ``K_R`` at the partner points.
+
+    ``T̃_a(t')`` depends on the smallest partner time, so ``K_R`` is kinked
+    where two partner times cross; ``has_coincident_time_kinks`` makes
+    Gauss-Legendre and nquad split there (two F-vertex partners in FFK4).
+    """
 
     m: int
     p: nz.Params
+    has_coincident_time_kinks = True
 
     def __call__(self, n_2d, t_2d):
         return _tensor(lambda c, x, t: nz.K_R(c, x, t, self.p),
