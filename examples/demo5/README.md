@@ -66,15 +66,21 @@ build a vertex with two ψ legs, so this part runs `compute_moment` and
 With distinct rates `γ = (0.6, 1.6)` R is a diagonal matrix, and in the FG
 channel the two ψ legs of the ψψφ vertex contract with the two φ legs of
 the F vertex: two R propagators between the same two points, the diagrams
-of the repeated-pair fix (63fc842).  Matrix R runs on the scalar loops only.
+of the repeated-pair fix (63fc842).  Every integrator runs the matrix-R
+case; `gauss_legendre` and `qmc_vectorized` did so only after the matrix-R
+change, and raised `NotImplementedError` before it.
 
 Reference: the same hierarchy with a state-dependent diffusion, order by
 order in `F` and `g'`.  Under Itô the GG channel has no diagram and `⟨φ_a⟩`
 has no `g'`-odd term; the hierarchy agrees.
 
-| | scalar R, Gauss-Legendre | matrix R, `nquad` (orders ≤ 1) | matrix R, `qmc_scalar` (2¹³) |
-|---|---|---|---|
-| worst over all tags and components | 2.4e-16 | 6.2e-16 | 2.6e-5 |
+| | scalar R, GL | matrix R, GL | matrix R, `nquad` (orders ≤ 1) | matrix R, `qmc_vectorized` (2¹³) | matrix R, `qmc_scalar` (2¹³) |
+|---|---|---|---|---|---|
+| worst over all tags and components | 2.4e-16 | 6.6e-16 | 6.2e-16 | 2.6e-5 | 2.6e-5 |
+| seconds | 0.0 | 0.1 | 0.2 | 2.2 | 20.5 |
+
+The two QMC columns are the same Sobol points: they agree to 2.4e-16 and
+differ only in speed.
 
 On `3cc7115`, before the repeated-pair fix, the matrix-R `qmc_scalar` run is
 off by 2.7e-3 to 9.1e-3 in the FG channel and 2.3e-2 to 6.7e-2 in FH (the
@@ -86,7 +92,9 @@ columns are unchanged.
 - `nquad` on the order-2 white-noise integrand did not finish one
   evaluation in 10 minutes; adaptive quadrature meets the kink everywhere.
   It runs the tadpole only.
-- A matrix R runs on the scalar loops only (`qmc_scalar`, `qmc`, `nquad`).
+- A matrix R runs on every integrator.  At the same Sobol points the
+  batched loop is 11 times faster than the scalar one here (2.2 s vs
+  20.5 s at 2¹³), and Gauss-Legendre reaches 6.6e-16 in 0.1 s.
 - The package is Itô numerically whatever `ito=` says: with `ito=False` the
   extra equal-time terms are kept but evaluate to 0, because the retarded
   R vanishes at equal times.  A Stratonovich model needs its noise-induced
