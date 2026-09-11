@@ -70,7 +70,12 @@ GL = ("gauss_legendre", dict(n_gauss=12))
 QMC_V = ("qmc_vectorized", dict(n_samples=2 ** 12, seed=2))
 QMC_S = ("qmc_scalar", dict(n_samples=2 ** 10, seed=2))
 NQUAD = ("nquad", {})
-TOL = {"gauss_legendre": 1e-12, "nquad": 1e-10, "qmc_vectorized": 1e-5,
+#: ``qmc_vectorized`` was 1e-5 against scipy's 30-bit Sobol points, where
+#: this integrand's draw happened to land within 3.4e-7 of the hierarchy.
+#: On the 64-bit points it is 2.2e-5 at 2**12 samples -- the same sampling
+#: error the other QMC route shows, and four orders from the 5 % a wrong
+#: lowering gives (LC1).
+TOL = {"gauss_legendre": 1e-12, "nquad": 1e-10, "qmc_vectorized": 5e-5,
        "qmc_scalar": 1e-4}
 
 
