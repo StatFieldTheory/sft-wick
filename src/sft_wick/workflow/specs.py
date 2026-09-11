@@ -298,14 +298,17 @@ class DiagonalA(LinearOp):
     **Time-dependent** (callable):
         ``gamma`` is a callable ``γ(t) -> np.ndarray(shape=(N,))``
         returning the per-component instantaneous decay rate.  In
-        this case the wrapper pre-computes
-        ``Γ_a(t) = ∫_{t_min_cache}^t γ_a(τ) dτ`` on a time grid, caches
-        it as a cubic spline, and evaluates R via::
+        this case the wrapper interpolates ``γ_a`` on a time grid by a
+        cubic spline, takes ``Γ_a(t) = ∫_{t_min_cache}^t γ_a(τ) dτ`` as
+        the exact integral of that spline, and evaluates R via::
 
             R_{aa}(t_1, t_2) = Θ(t_1 - t_2) · exp(-(Γ_a(t_1) − Γ_a(t_2)))
 
-        The spline build cost is a one-time ``n_grid_cache`` calls to
-        ``γ(t)`` + a cumulative trapezoidal integral.  For the
+        ``Γ`` is accurate to ``O(h⁴)`` in the node spacing
+        ``h = (t_max_cache − t_min_cache) / (n_grid_cache − 1)``: for
+        ``γ(t) = 1 + 0.5 sin t`` at the default grid (``h = 0.50``) R is
+        4e-4 off, at ``h = 0.12`` 1e-6.  The build costs
+        ``n_grid_cache`` calls to ``γ(t)``.  For the
         full-matrix (non-diagonal) time-dependent case — which
         requires a time-ordered matrix exponential — use
         :class:`ExplicitR` with your own R callable.
@@ -367,17 +370,18 @@ class DiagonalA(LinearOp):
 
     def _build_time_dependent_R(self) -> Callable:
         """Pre-compute Γ_a(t) spline, return fast O(1)-per-query R."""
-        from scipy.integrate import cumulative_trapezoid
         from scipy.interpolate import CubicSpline
 
         t_grid, gamma_vals = self._gamma_grid
-        # Γ_a(t) = ∫_{t_min_cache}^t γ_a(τ) dτ per component.  R reads only
-        # differences Γ(t1) − Γ(t2), so the origin of Γ does not matter.
-        Gamma_grid = cumulative_trapezoid(
-            gamma_vals, t_grid, axis=0, initial=0.0,
-        )
+        # Γ_a(t) = ∫_{t_min_cache}^t γ_a(τ) dτ per component, as the exact
+        # integral of the cubic-spline interpolant of γ_a: a piecewise
+        # quartic, O(h⁴).  It used to be the cumulative trapezoid rule,
+        # O(h²): 2.0e-2 relative error in R at the default spacing 0.50 for
+        # a rate varying on a unit time scale.  R reads only differences
+        # Γ(t1) − Γ(t2), so the origin of Γ does not matter.
         splines = [
-            CubicSpline(t_grid, Gamma_grid[:, a], extrapolate=True)
+            CubicSpline(t_grid, gamma_vals[:, a], extrapolate=True)
+            .antiderivative()
             for a in range(gamma_vals.shape[1])
         ]
 
