@@ -355,7 +355,7 @@ From YAML this is the ``linear.type: explicit`` route::
        type: explicit
        R_time_module: ./R_time.py     # exports R_time(t1, t2)
        R_time_attr:   R_time           # default 'R_time'
-       iso_R:         true             # required: YAML explicit R is scalar
+       iso_R:         true             # true: a scalar R; false: an (N, N) matrix
 
 The module is loaded at config-parse time and registered for
 cross-process by-value serialisation, so the explicit-R callable
@@ -363,11 +363,18 @@ composes cleanly with ``propagators.n_jobs > 1``,
 ``expand.n_jobs > 1``, and ``sweep.n_jobs > 1`` (same machinery
 ``c_closed_form_module`` and ``coupling_module`` use).
 
-A matrix-valued explicit R (``ExplicitR(iso_R=False)``) is available from
-the L0/L1 Python APIs and runs on every ``sweep.method``.  The L2 YAML
-wrapper rejects ``linear.type: explicit`` with ``iso_R: false``.
-``linear.type: diagonal`` with component-dependent rates is also a
-matrix R, and runs from YAML on every method.
+``iso_R: false`` declares a matrix-valued R — the response of a dense
+drift, a time-ordered matrix exponential rather than a per-component
+decay.  At load time the callable is called once at a causal and once at
+an acausal time pair inside ``[t_min, t_max]``: the value must have the
+declared shape and must vanish for ``t1 < t2``.  A dense R needs three
+more settings, because C is then dense too: ``expand.diag_R: false`` and
+``expand.diag_C: false`` (``System.expand`` refuses the diagonal
+simplifications when R or C has off-diagonal entries), C from a closed
+form (``propagators.c_closed_form_module`` with
+``c_closed_form_only: true`` and ``diag_C: false``), and a
+``sweep.method`` that supports a matrix R — one that does not raises
+``NotImplementedError`` and names the ones that do.
 
 Dynamic coupling (spacetime-dependent κ^(m))
 --------------------------------------------
@@ -816,33 +823,39 @@ fields must be present.
        # ---- type: diagonal -- A_{ab} = -γ_a δ_{ab} ----
        gamma: [1.0, 1.0]     # length-N constant rates  -- OR
        # gamma_module: ./drift.py        # dotted path to callable γ(t)→array(N)
-       # gamma_attr: gamma_fn            # default 'gamma_fn'
+       # gamma_attr: gamma               # default 'gamma'
        # t_max_cache: 20.0               # γ-spline upper end (default 100.0); propagators.t_max may not exceed it
        # t_min_cache: 0.0                # γ-spline lower end (default 0.0); System extends it down to t_min
        # n_grid_cache: 400               # γ-spline node count (default ceil((t_max_cache - t_min_cache)/dt), else 200)
-       # ---- type: explicit -- user-supplied scalar R(t1, t2) ----
-       # R_time_module: ./R_time.py      # path to a .py exporting R_time(t1, t2) -> float
+       # ---- type: explicit -- user-supplied R(t1, t2) ----
+       # R_time_module: ./R_time.py      # path to a .py exporting R_time(t1, t2)
        # R_time_attr:   R_time           # default 'R_time'
-       # iso_R:         true             # required for YAML explicit R
+       # iso_R:         true             # true: a scalar R; false: an (N, N) matrix
 
      noise:
        kappa2:
          type: separable_translation     # 'separable_translation' | 'separable_rotation'
                                          # | 'callable_module'
          temporal: {type: exponential, lam: 0.05, sigma_t: 0.3}
-                                         # 'exponential' | 'gaussian'
+                                         # 'exponential' | 'gaussian' | 'custom'
          spatial:  {type: exponential, sigma_x: 1.0}
-                                         # 'exponential' | 'gaussian'
+                                         # 'exponential' | 'gaussian' | 'custom'
+         # temporal: {type: custom, module: ./kernels.py, attr: temporal}
+         #                                 # any callable κ(Δt) -> float; 'attr'
+         #                                 # defaults to the block's name
          # angular: {type: legendre, coeffs: [1.0, 0.2]}  # separable_rotation
+                                         # 'legendre' | 'custom'
        sigma2: null                      # optional δ-correlated white-noise floor
                                          # 'constant'        -> {type: constant, amplitude: 0.01}
+                                         #                      amplitude: a number (× I_N), or a
+                                         #                      symmetric N × N nested list
                                          # 'callable_module' -> {type: callable_module,
                                          #                       module: ./sigma2.py, attr: sigma2}
                                          # callable signature: sigma2(n1, lam, n2) -> (N, N)
 
      vertices:                           # zero or more local F vertices (bare F tensor)
-       - name: F
-         coupling: [[[0.0,0.0],[0.0,1.0]], [[0.0,0.5],[0.5,0.0]]]
+       - name: F                         # unique across vertices and nonlocal_vertices
+         coupling: [[[0.0,0.0],[0.0,1.0]], [[0.0,0.5],[0.5,0.0]]]   # shape (N,)*n
          # OR
          # coupling_path: ./F.npy        # path to .npy file (relative to YAML)
          # OR (for spacetime-dependent F)
@@ -854,9 +867,11 @@ fields must be present.
      nonlocal_vertices: []               # zero or more non-local κ^(m) vertices
        # - name: K
        #   order: 3                      # required: m, the number of ψ-legs
-       #   coupling_module: ./k3.py
+       #   coupling_module: ./k3.py      # or coupling / coupling_path, shape (N,)*m
        #   coupling_attr:   coupling_fn  # default 'coupling_fn'
        #   coupling_vectorized: false    # set true if attr is the batched contract
+       #   equal_time: false             # one shared time for the m legs
+       #   already_R_contracted: false   # the callable returns κ^(m)_R
 
      t_min: 0.0                          # lower bound for time integration domain
 
@@ -920,7 +935,11 @@ fields must be present.
        x: [0.0]
        y: [0.0, 0.5, 1.0, 2.5]
      t_final_grid: [1.0, 5.0, 15.0]    # required
-     component_pairs: [[0, 0], [1, 1]] # required
+     component_tuples: [[0, 0], [1, 1]]
+                                       # required: one component index per observable
+                                       # operator, so [[0, 1, 1], ...] for a 3-point
+                                       # observable.  `component_pairs` is the older
+                                       # name of the same axis.
 
      # Optional: pin external points at UNEQUAL times, swept as a further
      # Cartesian axis (same shape as positions_grid).  Needed for two-time
@@ -974,18 +993,18 @@ Section reference: ``system``
    * - ``linear.type``
      - ``str``
      - ``"diagonal"``
-     - ``"diagonal"`` -> :class:`~sft_wick.workflow.DiagonalA`; ``"explicit"`` -> :class:`~sft_wick.workflow.ExplicitR` with a scalar R.  A dense (matrix-valued) R needs L1 Python: ``ExplicitR(iso_R=False)`` with ``diag_R=False`` and ``diag_C=False``.
+     - ``"diagonal"`` -> :class:`~sft_wick.workflow.DiagonalA`; ``"explicit"`` -> :class:`~sft_wick.workflow.ExplicitR`, scalar or matrix-valued (``iso_R``).
    * - ``linear.gamma``
-     - ``list[float]`` of length N
+     - ``list[float]`` of length N (or 1)
      - **required** unless ``gamma_module`` set (``type: diagonal``)
-     - Constant decay rates :math:`\gamma_a`
+     - Constant decay rates :math:`\gamma_a`.  One rate stands for every component; a bare number is read as such a list, so ``--override system.linear.gamma=1.5`` works
    * - ``linear.gamma_module``
      - ``str`` (path)
      - ``null``
      - (``type: diagonal``) dotted-path / relative-path to a ``.py`` file exporting a callable ``γ(t) → ndarray(N,)``
    * - ``linear.gamma_attr``
      - ``str``
-     - ``"gamma_fn"``
+     - ``"gamma"``
      - Attribute name in ``gamma_module``
    * - ``linear.t_max_cache``
      - ``float``
@@ -1010,7 +1029,7 @@ Section reference: ``system``
    * - ``linear.iso_R``
      - ``bool``
      - ``true``
-     - (``type: explicit``) must be ``true``. Matrix-valued R is a lower-level Python API feature, not an L2 YAML mode.
+     - (``type: explicit``) ``true``: the callable returns a scalar; ``false``: it returns an ``(N, N)`` matrix.  Checked for shape and for causality when the config is loaded
    * - ``noise.kappa2.type``
      - ``str``
      - **required**
@@ -1018,15 +1037,15 @@ Section reference: ``system``
    * - ``noise.kappa2.temporal``
      - block
      - **required** (separable variants)
-     - ``{type: exponential|gaussian, lam, sigma_t}`` — see :doc:`expressions`
+     - ``{type: exponential|gaussian, lam, sigma_t}``, or ``{type: custom, module: ./kernels.py, attr: temporal}`` for any callable ``κ(Δt) → float`` (lowered to :class:`~sft_wick.workflow.CustomKernel`) — see :doc:`expressions`
    * - ``noise.kappa2.spatial``
      - block
      - **required** (``separable_translation``)
-     - ``{type: exponential|gaussian, sigma_x}``. For ``separable_rotation``, use ``angular: {type: legendre, coeffs: [...]}`` instead.
+     - ``{type: exponential|gaussian, sigma_x}``, or ``{type: custom, module: ..., attr: spatial}`` for any callable ``κ(r) → float``. For ``separable_rotation``, use ``angular: {type: legendre, coeffs: [...]}`` or ``{type: custom, ...}`` (``κ(cos θ) → float``) instead.  A custom block's ``attr`` defaults to the block's own name.
    * - ``noise.sigma2``
      - block or ``null``
      - ``null``
-     - Optional δ-correlated white-noise variance.  Three flavours: ``{type: constant, amplitude: 0.01}`` for a scalar / spacetime-independent impulse; ``{type: callable_module, module: ./fn.py, attr: sigma2}`` for a user-supplied ``sigma2(n1, lam, n2) → (N, N)`` (mirrors the ``kappa2.callable_module`` pattern; the spec is wrapped via ``CustomImpulse``); or ``{type: multiplicative, g0: [[...]], g1: [[[...]]], interpretation: ito|stratonovich}`` for white noise whose amplitude depends on φ (:class:`~sft_wick.workflow.MultiplicativeImpulse`; optional ``vertex_names``, ``drift_names``).  With ``multiplicative``, ``D0 = g0 g0ᵀ`` is dense in general, so set ``propagators.diag_C: false`` and ``c_closed_form_only: true``
+     - Optional δ-correlated white-noise variance.  Three flavours: ``{type: constant, amplitude: 0.01}``, where the amplitude is a number (read as ``amplitude × I_N``) or a symmetric ``N × N`` nested list — the matrix form mixes the components, so it needs ``propagators.diag_C: false``; ``{type: callable_module, module: ./fn.py, attr: sigma2}`` for a user-supplied ``sigma2(n1, lam, n2) → (N, N)`` (mirrors the ``kappa2.callable_module`` pattern; the spec is wrapped via ``CustomImpulse``); or ``{type: multiplicative, g0: [[...]], g1: [[[...]]], interpretation: ito|stratonovich}`` for white noise whose amplitude depends on φ (:class:`~sft_wick.workflow.MultiplicativeImpulse`; optional ``vertex_names``, ``drift_names``), whose ``D0 = g0 g0ᵀ`` is dense in general and then needs ``propagators.diag_C: false``
    * - ``vertices``
      - list of blocks
      - ``[]``
@@ -1042,7 +1061,7 @@ Section reference: ``system``
 
 .. _vertex-spec:
 
-**Vertex spec** — one of the following must be present in each ``vertices[]`` / ``nonlocal_vertices[]`` entry to define the coupling tensor:
+**Vertex spec** — every ``vertices[]`` / ``nonlocal_vertices[]`` entry needs a ``name``, unique across both lists (the coupling values are keyed by it), and exactly one of the following to define the coupling.  A tensor coupling must have every axis of length N: ``(N,)*order`` for a non-local vertex, ``(N,)*n`` for a local one whose first axis is the ψ leg.
 
 .. list-table::
    :header-rows: 1
@@ -1183,6 +1202,41 @@ empty list in the grid (which would produce no rows), and a point whose
 ``t_<point>`` column would collide with an existing one.  A response
 observable whose externals are all at the same time warns.
 
+.. _n-point-sweeps:
+
+n-point observables: ``component_tuples``
+-----------------------------------------
+
+An observable of three or four operators is swept like a 2-point one; its
+component axis carries one index per operator:
+
+.. code-block:: yaml
+
+   expand:
+     observable: ["phi_a(x)", "phi_b(y)", "phi_c(z)"]
+     orders: [1]
+
+   sweep:
+     positions_grid: {x: [0.0], y: [0.8], z: [-0.5]}
+     t_final_grid: [1.7]
+     component_tuples: [[0, 1, 1], [1, 1, 1]]
+
+Each result row carries the tuple in the columns ``a``, ``b``, ``c``, ... —
+named by position, whatever index letters the observable uses, so a 2-point
+sweep keeps its ``a``, ``b`` — and ``SweepResult.totals()`` groups by them.
+The same argument is available in Python as
+``Expansion.sweep(component_tuples=[(0, 1, 1), ...])``;
+``component_pairs`` is its older name and still takes 2-point pairs.
+
+Refused rather than mis-answered: a tuple whose length differs from the
+number of operators, an index outside ``0 .. N-1``, a tuple or a grid value
+listed twice (``totals()`` would add the copies together), and a spatial
+label that collides with a component column.
+
+``examples/demo4/config_level_a.yaml`` and ``config_level_a_4pt.yaml`` run
+demo 4's free-field 3- and 4-point functions this way, for every component
+triple and quadruple.
+
 
 Section reference: ``propagators``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1290,10 +1344,10 @@ Section reference: ``sweep``
      - Pin external points at unequal times, swept as a further Cartesian
        axis.  Required for two-time observables — see
        :ref:`two-time-observables`
-   * - ``component_pairs``
-     - ``list[[a, b]]``
+   * - ``component_tuples``
+     - ``list[list[int]]``
      - **required**
-     - Component-index pairs for the observable
+     - One component index per observable operator: ``[[0, 0], [1, 1]]`` for a 2-point observable, ``[[0, 1, 1]]`` for a 3-point one.  Each tuple is a further Cartesian axis and fills the result's component columns ``a``, ``b``, ``c``, ...  ``component_pairs`` is the older name of the same axis; give one or the other.  See :ref:`n-point-sweeps`
    * - ``orders``
      - ``list[int]`` or ``null``
      - ``null``
@@ -1315,9 +1369,9 @@ Section reference: ``sweep``
      - ``8192``
      - Sobol sample count (QMC paths only)
    * - ``seed``
-     - ``int``
+     - ``int`` or ``null``
      - ``42``
-     - Sobol seed (QMC paths only)
+     - Sobol seed (QMC paths only); ``null`` draws an unseeded sequence
    * - ``n_gauss``
      - ``int``
      - ``8``
@@ -1476,6 +1530,9 @@ loading (so it composes cleanly with any of the
    * - ``system.noise.kappa2.type: callable_module``
      - ``κ²(n1,t1,n2,t2) → (N, N)``
      - Non-separable noise correlator (replaces ``separable_translation``/``separable_rotation``)
+   * - ``system.noise.kappa2.<block>.type: custom``
+     - ``κ(Δt) → float``, ``κ(r) → float`` or ``κ(cos θ) → float``
+     - One kernel of a separable κ² outside the built-in families (demo 3's spatial envelope, a sum of exponentials); ``module`` + ``attr``, whose default is the block's own name
    * - ``system.noise.sigma2.type: callable_module``
      - ``σ²(n1,lam,n2) → (N, N)``
      - Spacetime-varying δ-correlated white-noise impulse (the alternative to ``sigma2.type: constant``)

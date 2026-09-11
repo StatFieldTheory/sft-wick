@@ -1,0 +1,64 @@
+# Demo 4, level A from the command line: the free-field (F = 0) connected
+# three-point function <phi_a(x) phi_b(y) phi_c(z)> at T = 1.7 for all
+# eight component triples, exponential pulses, R-contracted kappa^3.
+#
+# At F = 0 the order-1 kappa^3 diagram is the whole connected three-point
+# function and equals the closed form K_R = nu prod(h) X T~ of
+# poisson_noise.py.  level_a.py computes the same numbers through
+# Expansion.evaluate; tests/test_sweep_component_tuples.py checks that this
+# config reproduces them exactly.
+#
+#   cd examples/demo4 && sft-wick run config_level_a.yaml
+#
+# The noise, the coupling and the closed-form C are instances defined in
+# poisson_l2.py.
+
+system:
+  field: {name: phi, n_components: 2}
+  linear: {type: diagonal, gamma: [1.0, 1.0]}
+  nonlocal_vertices:
+    - name: K3
+      order: 3
+      coupling_module: poisson_l2.py
+      coupling_attr: K3_R_EXP
+      coupling_vectorized: true
+      already_R_contracted: true
+  noise:
+    # The pulses mix the components, so kappa2 is a general (N, N) callable
+    # and C has off-diagonal entries (propagators.diag_C: false below).
+    kappa2: {type: callable_module, module: poisson_l2.py, attr: KAPPA2_EXP}
+    sigma2: null
+
+expand:
+  observable: ["phi_a(x)", "phi_b(y)", "phi_c(z)"]
+  orders: [1]
+
+propagators:
+  t_max: 2.2
+  c_closed_form_module: poisson_l2.py
+  c_closed_form_attr: C_EXP
+  c_closed_form_only: true
+  c_closed_form_vectorized: true
+  diag_C: false
+
+sweep:
+  positions_grid: {x: [0.0], y: [0.8], z: [-0.5]}
+  t_final_grid: [1.7]
+  # One component index per observable operator.  The result rows carry
+  # them as the columns a, b, c.
+  component_tuples:
+    - [0, 0, 0]
+    - [0, 0, 1]
+    - [0, 1, 0]
+    - [0, 1, 1]
+    - [1, 0, 0]
+    - [1, 0, 1]
+    - [1, 1, 0]
+    - [1, 1, 1]
+  orders: [1]
+  method: gauss_legendre
+  n_gauss: 8
+
+output:
+  - {type: table, format: plain}
+  - {type: npz, path: results/level_a.npz}

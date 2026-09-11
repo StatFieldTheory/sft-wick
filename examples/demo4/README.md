@@ -119,11 +119,20 @@ the declaration has no effect.
 | `poisson_system.py` | the sft-wick `System`, the coupling callables and the closed-form C |
 | `poisson_reference.py` | the moment hierarchy at the observation points |
 | `level_a.py`, `level_b.py` | the two tiers |
+| `config_level_a.yaml`, `config_level_a_4pt.yaml` | level A (exponential pulses, R-contracted) as YAML configs for `sft-wick run`: every component triple and quadruple |
+| `poisson_l2.py` | the module-level callables those configs load |
 
 ```bash
 conda activate sft-wick
 cd examples/demo4
 python level_a.py      # ~1 s
 python level_b.py      # ~2 s
+sft-wick run config_level_a.yaml
+sft-wick run config_level_a_4pt.yaml
 pytest ../../tests/test_demo4_asymmetric_noise.py -q
 ```
+
+The two configs sweep the component axis with `component_tuples`, one
+index per observable operator; the result rows carry them as the columns
+`a, b, c` (and `d`).  They reproduce `level_a.py`'s `Expansion.evaluate`
+values exactly (`tests/test_sweep_component_tuples.py`).

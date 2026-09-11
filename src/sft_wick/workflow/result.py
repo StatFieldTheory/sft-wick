@@ -76,8 +76,9 @@ class SweepResult:
 
     Each row is a dict with:
 
-    - the sweep coordinate fields (``x``, ``y``, ..., ``t_final``,
-      ``a``, ``b``),
+    - the sweep coordinate fields (``x``, ``y``, ..., ``t_final``, and one
+      component column per observable operator: ``a``, ``b`` for a
+      2-point observable, ``a``, ``b``, ``c`` for a 3-point one),
     - the diagram coordinate fields (``order``, ``diagram_idx``,
       ``vertex_type``, ``n_cross_C``),
     - the integrand output (``value``, ``error``).
@@ -95,11 +96,17 @@ class SweepResult:
     #: independent sweep axes, and defaulted so existing construction sites
     #: and any pickled SweepResult keep working.
     external_time_keys: tuple = ()
+    #: Component columns, one per observable operator, named by position:
+    #: ``("a", "b")`` for a 2-point observable, ``("a", "b", "c")`` for a
+    #: 3-point one.  Defaults to the 2-point pair so existing construction
+    #: sites and pickled SweepResults keep working.
+    component_keys: tuple = ("a", "b")
 
     def to_dataframe(self):
         """Convert to a :class:`pandas.DataFrame`.  Requires pandas.
 
-        Columns include position keys, ``t_final``, ``a``, ``b``,
+        Columns include position keys, ``t_final``, any ``t_<point>``
+        columns, the component columns (:attr:`component_keys`),
         ``order``, ``diagram_idx``, ``vertex_type``, ``n_cross_C``,
         ``value``, ``error``.
         """
@@ -115,13 +122,15 @@ class SweepResult:
     def totals(self) -> "pd.DataFrame":  # noqa: F821
         """Sum across diagrams at each sweep point, grouped by
         ``order`` and sweep coordinates.  Returns a DataFrame with
-        one row per (positions, t_final, a, b, order) and a
-        ``value`` column.
+        one row per (positions, t_final, components, order) and a
+        ``value`` column; the components are ``a, b`` for a 2-point
+        observable and ``a, b, c, ...`` for longer ones.
         """
         df = self.to_dataframe()
         group_cols = (
             list(self.position_keys) + ["t_final"]
-            + list(self.external_time_keys) + ["a", "b", "order"]
+            + list(self.external_time_keys) + list(self.component_keys)
+            + ["order"]
         )
         return (
             df.groupby(group_cols, as_index=False)["value"]
@@ -129,13 +138,14 @@ class SweepResult:
         )
 
     def by_vertex_type_totals(self) -> "pd.DataFrame":  # noqa: F821
-        """Sum across diagrams grouped by (positions, t_final, a, b,
-        ``vertex_type``).  Produces the demo2-style channel
+        """Sum across diagrams grouped by (positions, t_final,
+        components, ``vertex_type``).  Produces the demo2-style channel
         decomposition."""
         df = self.to_dataframe()
         group_cols = (
             list(self.position_keys) + ["t_final"]
-            + list(self.external_time_keys) + ["a", "b", "vertex_type"]
+            + list(self.external_time_keys) + list(self.component_keys)
+            + ["vertex_type"]
         )
         return (
             df.groupby(group_cols, as_index=False)["value"]

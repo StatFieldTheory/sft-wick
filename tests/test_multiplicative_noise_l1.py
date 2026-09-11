@@ -270,6 +270,7 @@ def matrix_r():
 @pytest.mark.parametrize("method, kw, weight, rel", [
     ("qmc_scalar", dict(n_samples=2 ** 11, seed=2), 2, 5e-3),
     ("nquad", {}, 1, 1e-8),
+    ("gauss_legendre", dict(n_gauss=12), 2, 1e-8),
 ])
 def test_MN4_matrix_r_matches_the_hierarchy(matrix_r, method, kw, weight, rel):
     system, props, H, exps = matrix_r
@@ -298,15 +299,6 @@ def test_MN10_vertex_orders_3_and_4(interpretation, obs, comps, weight):
     got = m5c.package_by_tag(system, props, exps, comps, "gauss_legendre",
                              dict(n_gauss=12), weight)
     _check(got, H.moments(comps, tags, m5c.T), tags)
-
-
-def test_MN4_gauss_legendre_still_refuses_a_matrix_R(matrix_r):
-    system, props, _H, exps = matrix_r
-    with pytest.raises(NotImplementedError):
-        exps[TWO][1].evaluate(props, positions=m5c.POS,
-                              t_final=m5c.T_MIN + m5c.T,
-                              component_pair=(0, 1), orders=[1],
-                              method="gauss_legendre", n_gauss=8)
 
 
 # --------------------------------------------------------------------------
