@@ -1,5 +1,79 @@
 # Changelog
 
+## Unreleased
+
+### Fixed: a callable non-local coupling was evaluated at one leg order
+
+A non-local vertex enters a diagram through a coupling sum with one term per
+assignment of its legs to the fields they contract with.  Each term keeps
+every component index on its own leg, `K_{σ(abc)}(σ(y))`, and the symbolic
+expansion was right.  The numerical path was not: `DiagramTerm.build_integrand`
+passed a callable coupling the legs of the first term only, and every term
+read that one tensor with its own permuted indices.  sft-wick computed
+`Σ_σ κ_{σ(abc)}(y)` where `Σ_σ κ_{σ(abc)}(σ(y))` is required.
+
+The two agree when the kernel is symmetric under a permutation of its leg
+points at fixed component indices, and differ in general otherwise.  A
+cumulant is symmetric only when (index, point) pairs are permuted together,
+so a multi-component cumulant whose value depends on the leg points was
+mis-evaluated, for example a κ³ with spin-2 components.  Constant (ndarray)
+couplings were not affected.  Every route that accepts a callable shared the
+defect: `gauss_legendre`, `qmc_vectorized`, `qmc_scalar` (also with a
+matrix-valued R), `equal_time` vertices, and the zero-dimensional path that
+`already_R_contracted` vertices reach.  The 0.3.0 entry below says that
+permutations of one point set "are still accepted"; accepting them was this
+defect.
+
+Each distinct leg order of a callable symbol in a coupling sum now gets a
+symbol of its own (`K@0`, `K@1`, ...; `_split_callable_occurrences` in
+`perturbation.py`).  The callable is evaluated at each leg order, and each
+term reads the tensor of its own.  `DynamicCouplingPromise` and the
+integrators are unchanged.  A callable vertex at two different point sets
+(two copies at order ≥ 2) is still refused.
+
+Relative difference from an independent numpy hand contraction (N = 3,
+R = Θ, the generic kernel of the new tests; component triple (0,1,2) at
+order 1, (a,b) = (0,1) for the order-2 FK channel of `<φ_a(x) φ_b(z)>`):
+
+| case | 0.4.2 | now |
+|---|---|---|
+| order 1, `gauss_legendre` | 6.4e-01 | 1.3e-15 |
+| order 1, `qmc_vectorized` | 1.3 | 1.8e-15 |
+| order 1, `qmc_scalar` | 1.3 | 2.8e-15 |
+| order 1, `equal_time` | 6.3e-01 | 1.8e-16 |
+| order 1, `already_R_contracted` | 6.8e-01 | 1.3e-16 |
+| order 2, FK channel | 5.5e-01 | 2.1e-16 |
+| order 2, FK channel, cumulant-symmetric kernel | 5.3e-01 | 1.0e-15 |
+
+**Every value computed through a callable non-local coupling that is not
+point-symmetric changes.**  The kernels shipped in `examples/` are
+point-symmetric cumulants, so they move only by their numerical asymmetry,
+measured at representative partner points:
+
+| callable | max relative point asymmetry |
+|---|---|
+| demo 2 raw κ³; demo 3 raw κ³, κ⁴; `paper_assets/demo2_kappa4` raw κ⁴ | 3.3e-16 |
+| demo 3 R-contracted κ³, κ⁴, κ⁵ | 4.4e-15 |
+| `paper_assets/demo2_kappa4/k4_R_contracted.py` | 5.3e-06 |
+| demo 2 R-contracted κ³ (`k3_R_coupling.py`, `k3_R_contracted.py`) | 2.3e-06 to 9.6e-05 |
+
+The last two are quadratures accurate to about 1e-4 whose integration
+coordinates single out one leg.  Demo 3 is unchanged to rounding.  No
+existing test changed.
+
+Cost: a diagram in which `k` distinct leg orders occur calls the callable
+`k` times where it called it once (`k ≤ m!`, 6 for κ³), per sample under
+the per-sample contract and per integrand under `coupling_vectorized=True`.
+
+Locked by `tests/test_nonlocal_leg_order.py` (71 cases, LO0-LO6): the routes
+above, both callable contracts, a single-component field, the L0
+`compute_moment` route, and the FK channel with a plain and an
+`already_R_contracted` K, each against the hand contraction to 1e-12.  Every
+case whose kernel is not point-symmetric also requires the old value to
+differ from the correct one by more than 1e-2.  On 0.4.2, 42 cases fail; the
+29 that pass are the two point-symmetric controls, the kernel-symmetry checks
+and the static-coupling control.
+
 ## 0.4.2 — 2026-09-03
 
 > **One `src/` fix, a documentation catch-up, and the test suite's tolerances
@@ -1282,6 +1356,11 @@ three things the paper's demo-2 figures inherit; all are fixed in
   first occurrence's coordinates, which was measured 4.06× wrong. Permutations
   of a single point set — the symmetrised non-local coupling sum — are still
   accepted, preserving the κ⁽ᵐ⁾ feature.
+
+  **Corrected after 0.4.2:** accepting those permutations was not correct.
+  Every permutation was still evaluated at the first occurrence's leg order,
+  which is right only for a kernel symmetric under a permutation of its leg
+  points at fixed component indices.  See the Unreleased entry.
 
 ### Tests
 

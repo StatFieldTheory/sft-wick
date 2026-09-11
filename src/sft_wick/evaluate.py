@@ -3039,10 +3039,15 @@ class DynamicCouplingPromise:
     per-sample path:
 
     - the list of static (``ndarray``) symbol values,
-    - the list of dynamic (callable) symbol values,
-    - for each dynamic symbol, the ψ-leg spatial-label tuple
-      extracted from the :class:`DiagramTerm`'s ``coupling_sum`` so
-      we can look up each leg's time and position per sample.
+    - the dynamic (callable) values, keyed by **leg order**: each
+      distinct ``(name, spatial_args)`` occurrence of a callable symbol
+      in the ``coupling_sum`` has its own key (``K@0``, ``K@1``, ...;
+      see :func:`~sft_wick.perturbation._split_callable_occurrences`),
+    - for each key, the ψ-leg spatial labels in that occurrence's leg
+      order, so we can look up each leg's time and position per sample,
+    - the parent :class:`DiagramTerm` with its ``coupling_sum``
+      rewritten to those keys, so that every term reads the tensor
+      evaluated at its own legs.
 
     The per-sample evaluator :meth:`evaluate_at` materialises the
     dynamic tensors using the sample's ``(times, positions)`` and
@@ -3052,18 +3057,21 @@ class DynamicCouplingPromise:
     same.
     """
 
-    #: The parent :class:`DiagramTerm`.
+    #: The parent :class:`DiagramTerm`, with each callable symbol in its
+    #: ``coupling_sum`` renamed to its per-leg-order key (see
+    #: :meth:`DiagramTerm.build_integrand`).
     diagram_term: Any
 
     #: Static coupling values — already materialised arrays.
     static_values: dict
 
-    #: Dynamic coupling values — mapping ``name -> callable(n_list,
-    #: t_list)`` returning an ``ndarray``.
+    #: Dynamic coupling values — mapping ``key -> callable(n_list,
+    #: t_list)`` returning an ``ndarray``.  One callable appears under
+    #: one key per leg order at which its symbol occurs.
     dynamic_values: dict
 
-    #: Per-dynamic-symbol tuple of ψ-leg spatial labels, as they
-    #: appear in the diagram's ``coupling_sum``.
+    #: Per-key tuple of ψ-leg spatial labels, in the leg order of that
+    #: occurrence in the diagram's ``coupling_sum``.
     spatial_args_by_name: dict
 
     #: Component-index pins forwarded from ``build_integrand``.

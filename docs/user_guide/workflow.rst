@@ -275,7 +275,8 @@ are supported.
        ],
    )
 
-The runtime calls ``k3_coupling`` once per QMC sample.
+The runtime calls ``k3_coupling`` once per QMC sample and leg order
+(see *Leg order* below).
 
 **Vectorised contract** (opt-in, fast for heavy callables)::
 
@@ -288,7 +289,7 @@ The runtime calls ``k3_coupling`` once per QMC sample.
        "K", order=3, coupling=k3_coupling, coupling_vectorized=True,
    )
 
-The runtime calls ``k3_coupling`` exactly once per integrand,
+The runtime calls ``k3_coupling`` once per integrand and leg order,
 amortising the callable's overhead across all samples. This is the
 right form when the function does heavy work that vectorises well
 (special functions, ufuncs, BLAS).  For cheap functions
@@ -301,6 +302,13 @@ passed.  Both dynamic contracts route through
 which dispatches per-symbol based on the ``vectorized`` flag --
 mixing both contracts on different symbols within the same diagram
 is supported.
+
+**Leg order.**  Axis ``l`` of the returned tensor belongs to the leg
+at ``n_list[l]``, ``t_list[l]``.  A diagram sums the vertex over every
+assignment of its legs to the fields they contract with.  Each term
+calls the callable with its own leg order, so the callable is evaluated
+once per distinct leg order in the diagram (at most ``m!``) and needs
+no permutation symmetry of its own.
 
 .. note::
 
