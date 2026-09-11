@@ -42,7 +42,7 @@ def test_SB1_default_sobol_bits_carry_a_left_riemann_bias():
         for seed in (1, 3):
             u = qmc.Sobol(d=1, seed=seed).random(2 ** m)[:, 0]
             rel = (np.mean(np.exp(2 * u)) - exact) / exact
-            assert rel == pytest.approx(predicted, rel=1e-2), (m, seed, rel)
+            assert rel == pytest.approx(predicted, rel=1e-2, abs=0.0), (m, seed, rel)
 
             u = qmc.Sobol(d=1, seed=seed, bits=64).random(2 ** m)[:, 0]
             rel = (np.mean(np.exp(2 * u)) - exact) / exact
