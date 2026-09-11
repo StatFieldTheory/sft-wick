@@ -3876,6 +3876,32 @@ class DiagramIntegrand:
             return float(_real_or_raise(val, self._e_psi,
                                         where=' (zero-dimensional)'))
 
+        if not cache.model.iso_R:
+            # Matrix-valued R.  The batched branch below multiplies
+            # ``cache.R_time_batch``, which is scalar-only
+            # (``np.vectorize(..., otypes=[float])``), so an (N, N) R_time
+            # raised a bare "setting an array element with a sequence".
+            # The batched backends DO refuse matrix R explicitly -- but
+            # their refusals sit after their ``n_total == 0`` early return,
+            # so none of them fires for a zero-dimensional integrand.
+            #
+            # There is nothing to refuse here, though: with no integration
+            # variables the integrand is a single point, which is exactly
+            # what the index-aware scalar evaluation handles.  Materialise
+            # the coupling for that one point and go through
+            # :meth:`evaluate`, as ``integrate_moment_qmc``'s own
+            # ``n_total == 0`` branch already does -- so all four backends
+            # agree on this integrand instead of one computing it and three
+            # raising.
+            ca = self.dynamic_coupling_array(
+                fixed_times, directions, default_position=direction,
+            )
+            val = self.evaluate(fixed_times, directions, cache,
+                                coupling_array=ca)
+            return float(_real_or_raise(
+                val, self._e_psi,
+                where=' (dynamic coupling, zero-dimensional, matrix R)'))
+
         n_samples = 1
         et_alias = dict(spatial.equal_time_aliases or ())
 
