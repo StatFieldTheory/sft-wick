@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1108 tests** in 39 files (parametrised
+The suite has **1126 tests** in 39 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -191,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*339 tests in 11 files.*
+*357 tests in 11 files.*
 
 .. list-table::
    :header-rows: 1
@@ -221,7 +221,7 @@ Integrators
      - spacetime-dependent (callable) κ^(m) couplings, per-sample and vectorised contracts, propagator-indexed contraction
      - static tensor at the same point; two contracts against each other
      - 1e-12
-     - 14
+     - 32
    * - ``test_equal_time_nonlocal.py``
      - equal_time non-local vertices (single time integral)
      - explicit δ-function reduction
