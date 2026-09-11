@@ -43,6 +43,8 @@ from .vertices import VertexInstance
 from .wick import Pairing, SpatialSignature, wick_contract, wick_contract_spatial
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from .evaluate import DiagramIntegrand, SpatialStructure
     from matplotlib.figure import Figure
 
@@ -890,7 +892,11 @@ class DiagramTerm:
                   spacetime-dependent couplings (e.g. demo2's
                   ``κ^{(3)}(x₁,t₁; x₂,t₂; x₃,t₃)``).  Here ``n_list``
                   and ``t_list`` are length-``order`` sequences of the
-                  vertex's ψ-leg positions and times.
+                  vertex's ψ-leg positions and times, in the leg order
+                  of the coupling-sum term being evaluated: axis ``l``
+                  of the returned tensor belongs to the leg at
+                  ``n_list[l]``, ``t_list[l]``.  The callable is called
+                  once per distinct leg order in ``coupling_sum``.
 
                 When any value is callable the integrand enters a
                 **per-QMC-sample** evaluation path (see
@@ -903,6 +909,8 @@ class DiagramTerm:
             A :class:`DiagramIntegrand` that can evaluate the integrand at
             specific time/direction coordinates.
         """
+        from dataclasses import replace
+
         from .evaluate import (
             DiagramIntegrand,
             DynamicCouplingPromise,
@@ -944,64 +952,61 @@ class DiagramTerm:
                 fixed_indices=fi,
             )
 
-        # Dynamic path: extract each active callable symbol's
-        # spatial_args from the coupling_sum so we know which ψ-leg
-        # coordinates to pass at QMC time.
-        spatial_args_by_name = _collect_symbol_spatial_args(
-            self.coupling_sum
-        )
+        # Dynamic path.  Each occurrence of a callable symbol names its own
+        # legs in ``spatial_args``.  The coupling sum of one non-local vertex
+        # lists the symbol at every leg order the contraction produced,
+        # K_{σ(abc)}(σ(y)), with each component index kept on its own leg, so
+        # every term must be evaluated at its own leg order.  Up to 0.4.2 the
+        # callable was evaluated once, at the first term's legs, and every
+        # term read that tensor with its own indices: Σ_σ K_{σ(abc)}(y)
+        # instead of Σ_σ K_{σ(abc)}(σ(y)).  The two agree only for a kernel
+        # symmetric under a permutation of its leg points at fixed indices.
         occurrences = _collect_symbol_occurrences(self.coupling_sum)
         for name in active_dynamic:
-            if name not in spatial_args_by_name:
-                raise ValueError(
-                    f"coupling_values['{name}'] is callable and the "
-                    f"symbol '{name}' appears in this diagram's "
-                    f"coupling_sum, but carries no spatial argument, so the "
-                    f"coordinates at which to evaluate it are unknown.  "
-                    f"Either pass '{name}' as an ndarray (a constant "
-                    f"coupling), or rebuild the Action so the vertex records "
-                    f"its point."
-                )
-            # A callable is evaluated from a single coordinate tuple (the
-            # first occurrence).  That is fine when every occurrence names the
-            # same *set* of points -- the permutation-symmetrised coupling sum
-            # of one non-local vertex, where the tuples differ only by leg
-            # order.  (For an asymmetric kernel the leg order does matter and
-            # the result is then mis-evaluated; that is a known limitation of
-            # the first-occurrence rule, documented on
-            # ``_collect_symbol_spatial_args``.)
-            #
-            # It is NOT fine when the point sets genuinely differ -- two copies
-            # of the same vertex at order >= 2 sit at different times, and
-            # evaluating both at the first copy's coordinates was measured
-            # 4.06x wrong.  Refuse that rather than return a wrong number.
-            places = occurrences.get(name, ())
+            if name not in occurrences:
+                raise _no_spatial_args_error(name)
+            # Occurrences at different point sets (two copies of one vertex
+            # at order >= 2, at different times) are still refused.  The
+            # per-occurrence split below would evaluate each copy at its own
+            # coordinates, but that case has no independent check yet; under
+            # the first-occurrence rule it was measured 4.06x wrong.
+            places = occurrences[name]
             distinct_point_sets = {frozenset(pl) for pl in places}
             if len(distinct_point_sets) > 1:
                 raise NotImplementedError(
                     f"coupling '{name}' is callable and occurs at "
                     f"{len(distinct_point_sets)} different sets of spacetime "
                     f"points in this diagram "
-                    f"({', '.join(str(p) for p in places)}); per-occurrence "
-                    f"evaluation is not implemented, and evaluating them all "
-                    f"at {places[0]} would be silently wrong.  This happens "
+                    f"({', '.join(str(p) for p in places)}).  This happens "
                     f"when one vertex species appears more than once (order "
-                    f">= 2).  Supported today: a callable coupling whose "
-                    f"occurrences all sit at the same point set.  Pass an "
-                    f"ndarray for the constant case."
+                    f">= 2), and a callable coupling at more than one point "
+                    f"set is not supported yet.  Supported today: a callable "
+                    f"coupling whose occurrences all sit at one point set, in "
+                    f"any leg order.  Pass an ndarray for the constant case."
                 )
 
         static_values = {
             name: np.asarray(v) for name, v in coupling_values.items()
             if name not in dynamic_names
         }
-        dynamic_names = active_dynamic  # reduce to what's active
 
+        # One symbol per (callable, leg order): K@0, K@1, ...  The promise
+        # evaluates each at its own legs and contracts the renamed sum, in
+        # which every term reads the tensor of its own leg order.
+        split_sum, legs_by_key = _split_callable_occurrences(
+            self.coupling_sum, active_dynamic,
+            reserved=set(coupling_values) | symbol_names_in_coupling,
+        )
         promise = DynamicCouplingPromise(
-            diagram_term=self,
+            diagram_term=replace(self, coupling_sum=split_sum),
             static_values=static_values,
-            dynamic_values=dict(dynamic_names),
-            spatial_args_by_name=spatial_args_by_name,
+            dynamic_values={
+                key: active_dynamic[name]
+                for key, (name, _legs) in legs_by_key.items()
+            },
+            spatial_args_by_name={
+                key: legs for key, (_name, legs) in legs_by_key.items()
+            },
             fixed_indices=fi,
         )
 
@@ -1156,17 +1161,87 @@ def _collect_symbol_occurrences(expr: Expr) -> dict[str, tuple[tuple[str, ...], 
     return {k: tuple(v) for k, v in out.items()}
 
 
+def _no_spatial_args_error(name: str) -> ValueError:
+    """The error for a callable coupling whose symbol names no legs."""
+    return ValueError(
+        f"coupling_values['{name}'] is callable and the "
+        f"symbol '{name}' appears in this diagram's "
+        f"coupling_sum, but carries no spatial argument, so the "
+        f"coordinates at which to evaluate it are unknown.  "
+        f"Either pass '{name}' as an ndarray (a constant "
+        f"coupling), or rebuild the Action so the vertex records "
+        f"its point."
+    )
+
+
+def _split_callable_occurrences(
+    expr: Expr,
+    names: Iterable[str],
+    reserved: Iterable[str] = (),
+) -> tuple[Expr, dict[str, tuple[str, tuple[str, ...]]]]:
+    """Give every leg order of a callable coupling its own symbol name.
+
+    :meth:`DiagramTerm.build_integrand` evaluates a callable coupling at the
+    coordinates of the legs listed in a symbol's ``spatial_args``, in that
+    order.  The coupling sum of a non-local vertex lists one name at several
+    leg orders, e.g. ``K_{abc}(y_0, y_1, y_2) + K_{bac}(y_1, y_0, y_2)``, and
+    each term must be evaluated at its own.  The coupling evaluators look
+    values up by symbol name, so each distinct ``(name, spatial_args)`` pair
+    is renamed (``K@0``, ``K@1``, ... in first-seen order) and then reads its
+    own tensor.  Index labels, leg labels and ``local`` are kept.
+
+    Args:
+        expr: a coupling sum.  ``Symbol``, ``Product`` and ``Sum`` nodes are
+            rewritten; every other node is returned unchanged.
+        names: the symbol names to split (the callable couplings).
+        reserved: names already in use, which the new names avoid.
+
+    Returns:
+        ``(rewritten, legs_by_key)``: the rewritten expression, and
+        ``{new_name: (name, spatial_args)}`` in first-seen order.
+
+    Raises:
+        ValueError: an occurrence of one of ``names`` carries no
+            ``spatial_args``, so there is nowhere to evaluate it.
+    """
+    split = set(names)
+    taken = set(reserved) | split
+    key_of: dict[tuple[str, tuple[str, ...]], str] = {}
+    legs_by_key: dict[str, tuple[str, tuple[str, ...]]] = {}
+    count: dict[str, int] = {}
+
+    def key_for(name: str, legs: tuple[str, ...]) -> str:
+        if (name, legs) not in key_of:
+            key = f"{name}@{count.get(name, 0)}"
+            while key in taken:
+                key += "'"
+            count[name] = count.get(name, 0) + 1
+            taken.add(key)
+            key_of[(name, legs)] = key
+            legs_by_key[key] = (name, legs)
+        return key_of[(name, legs)]
+
+    def rewrite(e: Expr) -> Expr:
+        if isinstance(e, Symbol):
+            if e.name not in split:
+                return e
+            if not e.spatial_args:
+                raise _no_spatial_args_error(e.name)
+            key = key_for(e.name, tuple(e.spatial_args))
+            return Symbol(key, e.indices, e.spatial_args, e.local)
+        if isinstance(e, Product):
+            return Product(tuple(rewrite(f) for f in e.factors))
+        if isinstance(e, Sum):
+            return Sum(tuple(rewrite(t) for t in e.terms))
+        return e
+
+    return rewrite(expr), legs_by_key
+
+
 def _collect_symbol_spatial_args(expr: Expr) -> dict[str, tuple[str, ...]]:
     """Walk a coupling-sum expression tree and collect the
     ``spatial_args`` tuple for each unique :class:`~sft_wick.expressions.Symbol`
     name.
-
-    Used by :meth:`DiagramTerm.build_integrand` to determine, for a
-    non-local vertex coupling passed as a callable, which spatial
-    labels (e.g. ``y_0_0``, ``y_0_1``, ``y_0_2``) correspond to that
-    vertex's ψ-legs — so that at QMC time the per-sample
-    ``(n_list, t_list)`` can be reconstructed and fed into the
-    callable.
 
     Returns ``{name: spatial_args_tuple}``.  Symbols with no
     spatial args are omitted.
@@ -1177,10 +1252,12 @@ def _collect_symbol_spatial_args(expr: Expr) -> dict[str, tuple[str, ...]]:
        That is only valid when the name occurs at a single coordinate tuple.
        It does **not** hold in general: a permutation-symmetrised
        ``coupling_sum`` lists the same name at several leg orderings, and at
-       order >= 2 two copies of one vertex live at different points.  Use
-       :func:`_collect_symbol_occurrences` to detect those cases —
-       :meth:`DiagramTerm.build_integrand` refuses them rather than silently
-       evaluating every occurrence at the first one's coordinates.
+       order >= 2 two copies of one vertex live at different points.  Up to
+       0.4.2 :meth:`DiagramTerm.build_integrand` evaluated a callable coupling
+       at this one tuple for every occurrence, which is correct only for a
+       kernel symmetric under a permutation of its leg points at fixed
+       indices; it now uses :func:`_split_callable_occurrences`.  Kept for
+       introspection; the package no longer calls it.
     """
     out: dict[str, tuple[str, ...]] = {}
 
