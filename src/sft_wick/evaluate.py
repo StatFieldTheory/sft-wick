@@ -3153,8 +3153,12 @@ class DynamicCouplingPromise:
         callable receives ``(m_legs, n_samples)`` arrays — or
         ``(m_legs, n_samples, d)`` for d-dim positions — in a single
         call and returns a tensor of shape
-        ``(n_samples,) + (N,)*order``. Otherwise we fall back to the
-        ``n_samples`` per-sample calls of :meth:`evaluate_at`.
+        ``(n_samples,) + (N,)*order``. Otherwise the callable is
+        called directly, once per sample and once more at sample 0
+        to learn the shape of the contracted coupling:
+        ``n_samples + 1`` calls per leg order, or ``2 * n_samples``
+        if the contraction falls back to the per-sample loop
+        described next.
 
         Either way, the symbolic contraction itself runs once over
         the whole sample axis via

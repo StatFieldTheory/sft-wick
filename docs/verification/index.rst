@@ -210,7 +210,9 @@ variable left to integrate). Two contracts are supported:
 * ``fn(n_list, t_list) → tensor`` -- per-sample call (default).
 * ``fn(n_2d, t_2d) → (n_samples, ...)`` when the user opts in via
   ``NonLocalVertex(coupling_vectorized=True)`` -- one call per
-  integrand and leg order, useful for heavy callables.
+  integrand and leg order, useful for heavy callables;
+  ``integrate_moment_qmc`` calls it once per sample and leg order
+  instead, as a batch of one (``n_samples = 1``).
 
 Locked invariants:
 
