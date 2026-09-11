@@ -480,6 +480,34 @@ answer.
 On `817375f`, before the leg-order fix, level A is 46.8 % off on every route.
 Locked by `tests/test_demo4_asymmetric_noise.py`.
 
+### Added: demo 5, white noise on every integrator, additive and multiplicative
+
+`examples/demo5/`, against the exact moment hierarchy of the Markov
+embedding (`examples/demo5/white_reference.py`, no sft-wick code):
+
+- Part A (`run.py`): white noise from a `ConstantImpulse` matrix plus
+  coloured noise with a Gaussian envelope, a quadratic drift with no index
+  symmetry, `t_min = 0.5`, in three variants that take the
+  `diag_C=False`, `diag_C=True` (the diag-C fast path of the scalar loops)
+  and `iso_C=True` paths.  `⟨φ_a⟩` at orders 1 and 3, `⟨φ_a φ_b⟩` at orders
+  0, 2, 4 and `⟨φ_a φ_b φ_c⟩` at order 1.  Gauss-Legendre agrees to 1.4e-15
+  at every order up to 4, `nquad` (the tadpole) to 4.3e-16, the QMC routes
+  to their sampling error (1e-7 to 7e-6).
+- Part B (`multiplicative.py`): multiplicative white noise at L0, with the
+  local ψψφ and ψψφφ vertices the L1 workflow cannot build (factor
+  `−i²/2! = ½`, checked by making an order-1 ψψ vertex reproduce C).
+  Scalar R on Gauss-Legendre agrees to 2.4e-16; matrix R, where the F and
+  ψψφ vertices share two R propagators, to 6.2e-16 on `nquad` and 2.6e-5 on
+  `qmc_scalar`.
+
+Run on older code, the same scripts fail where the fixes of 2026-09-11
+say they should: on `facf556` the `iso_C` variant is off by factors 2, 4
+and 8 on every integrator and Gauss-Legendre by 5.8e-4 to 3.5e-3 (`t_min`,
+the white-noise kink); on `3cc7115` the diagonal variant's scalar loops
+are 64 % off at order 2 (diag-C fast path) and part B's matrix-R channels
+2.7e-3 to 6.7e-2 (repeated R pair).  Locked by
+`tests/test_demo5_white_noise.py`.
+
 ### Performance: a per-sample callable coupling is called once per sample
 
 `DynamicCouplingPromise.evaluate_at_batch`, which `qmc_vectorized` and

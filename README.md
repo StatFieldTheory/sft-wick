@@ -599,7 +599,7 @@ See `docs/verification/index.rst` for the per-phase test matrix, tolerances, and
 | Path | Contents |
 |------|----------|
 | `src/sft_wick/` | Package source: diagram enumeration, propagators, numerical evaluation, drawing, and the `workflow/` high-level API + CLI |
-| `examples/` | Worked examples — `demo1/` (Gaussian noise), `demo2/` (non-Gaussian, non-zero κ³), `demo3/` (filtered Poisson shot noise), and tutorial notebooks |
+| `examples/` | Worked examples — `demo1/` (Gaussian noise), `demo2/` (non-Gaussian, non-zero κ³), `demo3/` (filtered Poisson shot noise), `demo4/` (compound-Poisson noise asymmetric in points and components), `demo5/` (white noise on every integrator, additive and multiplicative), `reference/` (the exact Itô moment hierarchy demos 4 and 5 are checked against), and tutorial notebooks |
 | `tests/` | pytest suite (eight deductive phases) |
 | `docs/` | Sphinx documentation (ReadTheDocs source) |
 
@@ -638,6 +638,23 @@ The cached simulation outputs (`sim_cache.npz` for demos 1 and 2,
 reference figures are committed, so a reviewer can re-run the scripts and
 diff against the shipped outputs. See also
 `examples/nonlocal_vertex_2pt.ipynb` for a non-local-vertex tutorial.
+
+Demos 4 and 5 have an exact reference instead of a simulation: the moment
+hierarchy of the Itô process at the observation points
+(`examples/reference/ito_moments.py`, which imports nothing from
+sft-wick), solved order by order in the couplings, so each package channel
+is compared with one exact coefficient.
+
+```bash
+# demo4 — cumulants asymmetric in points and components (the leg-order defect's class)
+cd examples/demo4 && python level_a.py && python level_b.py     # ~10 s
+# demo5 — white noise on every integrator; multiplicative noise at L0
+cd examples/demo5 && python run.py && python multiplicative.py
+```
+
+Each README (`examples/demo4/README.md`, `examples/demo5/README.md`)
+lists the agreement per channel and integrator, and what the same scripts
+report on the code before each fix of 2026-09-11.
 
 ## Documentation
 

@@ -243,6 +243,15 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "FF, FFK4 of <phi_a phi_b>",
         "direct quadrature; Campbell closed form; exact Itô moment "
         "hierarchy", "1e-12 (level A) / 1e-7 (level B) / 1e-3 (raw QMC)"),
+    "tests/test_demo5_white_noise.py": (
+        "Integrators",
+        "demo 5: white noise (ConstantImpulse matrix) with coloured noise, "
+        "t_min = 0.5, the diag_C=False, diag_C=True and iso_C=True paths, "
+        "orders 0-4 and 1-, 2-, 3-point functions on every integrator; "
+        "multiplicative noise at L0 with two-psi vertices, scalar and "
+        "matrix R",
+        "exact Itô moment hierarchy (Markov embedding of the coloured "
+        "noise)", "1e-10 (GL, nquad) / 1e-3 - 1e-4 (QMC) / 1e-8 (order 4)"),
     "tests/test_iso_c_value.py": (
         "Integrators",
         "an index-free (iso_C=True) C propagator stands for c of "
