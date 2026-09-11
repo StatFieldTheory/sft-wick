@@ -1,0 +1,62 @@
+# Demo 4, level A from the command line: the free-field (F = 0) connected
+# four-point function <phi_a(x) phi_b(y) phi_c(z) phi_d(w)> at T = 1.7 for
+# all sixteen component quadruples, exponential pulses, R-contracted
+# kappa^4.  It equals the closed form K_R of poisson_noise.py at m = 4;
+# level_a.py computes four of these quadruples through Expansion.evaluate.
+#
+#   cd examples/demo4 && sft-wick run config_level_a_4pt.yaml
+
+system:
+  field: {name: phi, n_components: 2}
+  linear: {type: diagonal, gamma: [1.0, 1.0]}
+  nonlocal_vertices:
+    - name: K4
+      order: 4
+      coupling_module: poisson_l2.py
+      coupling_attr: K4_R_EXP
+      coupling_vectorized: true
+      already_R_contracted: true
+  noise:
+    kappa2: {type: callable_module, module: poisson_l2.py, attr: KAPPA2_EXP}
+    sigma2: null
+
+expand:
+  observable: ["phi_a(x)", "phi_b(y)", "phi_c(z)", "phi_d(w)"]
+  orders: [1]
+
+propagators:
+  t_max: 2.2
+  c_closed_form_module: poisson_l2.py
+  c_closed_form_attr: C_EXP
+  c_closed_form_only: true
+  c_closed_form_vectorized: true
+  diag_C: false
+
+sweep:
+  positions_grid: {x: [0.0], y: [0.8], z: [-0.5], w: [1.3]}
+  t_final_grid: [1.7]
+  # Columns a, b, c, d of the result rows.
+  component_tuples:
+    - [0, 0, 0, 0]
+    - [0, 0, 0, 1]
+    - [0, 0, 1, 0]
+    - [0, 0, 1, 1]
+    - [0, 1, 0, 0]
+    - [0, 1, 0, 1]
+    - [0, 1, 1, 0]
+    - [0, 1, 1, 1]
+    - [1, 0, 0, 0]
+    - [1, 0, 0, 1]
+    - [1, 0, 1, 0]
+    - [1, 0, 1, 1]
+    - [1, 1, 0, 0]
+    - [1, 1, 0, 1]
+    - [1, 1, 1, 0]
+    - [1, 1, 1, 1]
+  orders: [1]
+  method: gauss_legendre
+  n_gauss: 8
+
+output:
+  - {type: table, format: plain}
+  - {type: npz, path: results/level_a_4pt.npz}
