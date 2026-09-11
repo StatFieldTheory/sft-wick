@@ -289,17 +289,25 @@ The runtime calls ``k3_coupling`` once per QMC sample and leg order
        "K", order=3, coupling=k3_coupling, coupling_vectorized=True,
    )
 
-The runtime calls ``k3_coupling`` once per integrand and leg order,
+With the batched integrators (``method='qmc_vectorized'`` or
+``'gauss_legendre'``), the runtime calls ``k3_coupling`` once per
+integrand and leg order,
 amortising the callable's overhead across all samples. This is the
 right form when the function does heavy work that vectorises well
 (special functions, ufuncs, BLAS).  For cheap functions
 (`numpy.exp` of a few scalars) the per-sample contract has lower
 total overhead.
+Under the scalar QMC loop (``method='qmc_scalar'``, and ``'qmc'``
+when :func:`~sft_wick.evaluate.integrate_moment` selects that loop),
+the runtime calls ``k3_coupling`` once per QMC sample and leg order,
+as a batch of one (``n_samples = 1``).
 
 The static fast path is used automatically when no callable is
-passed.  Both dynamic contracts route through
-:class:`~sft_wick.evaluate.DynamicCouplingPromise.evaluate_at_batch`,
-which dispatches per-symbol based on the ``vectorized`` flag --
+passed.  The batched integrators call
+:meth:`~sft_wick.evaluate.DynamicCouplingPromise.evaluate_at_batch`
+and the scalar QMC loop calls
+:meth:`~sft_wick.evaluate.DynamicCouplingPromise.evaluate_at`; both
+dispatch per symbol on the ``vectorized`` flag, so
 mixing both contracts on different symbols within the same diagram
 is supported.
 
