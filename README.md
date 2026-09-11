@@ -614,7 +614,7 @@ See `docs/verification/index.rst` for the per-phase test matrix, tolerances, and
 | Path | Contents |
 |------|----------|
 | `src/sft_wick/` | Package source: diagram enumeration, propagators, numerical evaluation, drawing, and the `workflow/` high-level API + CLI |
-| `examples/` | Worked examples — `demo1/` (Gaussian noise), `demo2/` (non-Gaussian, non-zero κ³), `demo3/` (filtered Poisson shot noise), `demo4/` (compound-Poisson noise asymmetric in points and components), `demo5/` (white noise on every integrator; multiplicative noise at L0 and L1, Itô and Stratonovich), `reference/` (the exact moment hierarchies demos 4 and 5 are checked against), and tutorial notebooks |
+| `examples/` | Worked examples — `demo1/` (Gaussian noise), `demo2/` (non-Gaussian, non-zero κ³), `demo3/` (filtered Poisson shot noise), `demo4/` (compound-Poisson noise asymmetric in points and components), `demo5/` (white noise on every integrator; multiplicative noise at L0 and L1, Itô and Stratonovich), `demo6/` (repeated and static non-local vertices, cubic plus quartic drift), `demo7/` (observables in space, angle and time), `demo8/` (time-dependent coefficients and non-exponential dynamics), `reference/` (the exact Itô moment hierarchies demos 4-8 are checked against), and tutorial notebooks |
 | `tests/` | pytest suite (eight deductive phases) |
 | `docs/` | Sphinx documentation (ReadTheDocs source) |
 
@@ -670,11 +670,14 @@ cd examples/demo4 && python level_a.py && python level_b.py     # ~10 s
 # demo5 — white noise on every integrator; multiplicative noise at L0 and L1
 cd examples/demo5 && python run.py && python multiplicative.py
 cd examples/demo5 && python white_l1_multiplicative.py   # Itô and Stratonovich
+# demo8 — a rate varying in time, a damped-oscillator R, custom kernels, sigma^2(t)
+cd examples/demo8 && python time8_run.py
 ```
 
-Each README (`examples/demo4/README.md`, `examples/demo5/README.md`)
-lists the agreement per channel and integrator, and what the same scripts
-report on the code before each fix of 2026-09-11.
+Each README (`examples/demo4/README.md`, `examples/demo5/README.md`,
+`examples/demo8/README.md`) lists the agreement per channel and
+integrator, and what the same scripts report on the code before each fix
+of 2026-09-11.
 
 ## Documentation
 

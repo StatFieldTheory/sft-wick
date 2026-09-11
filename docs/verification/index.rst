@@ -307,7 +307,7 @@ End-to-end validation — the demos
 
 For full **inductive** validation against direct simulation on
 physically non-trivial problems, see demos 1-3 in ``examples/``;
-demos 4 and 5 are checked against an exact reference instead:
+demos 4, 5 and 8 are checked against an exact reference instead:
 
 **examples/demo1** — Gaussian driving
   Two-component Langevin system with quadratic self-interactions,
@@ -406,11 +406,33 @@ demos 4 and 5 are checked against an exact reference instead:
   ``iso_C`` by factors 2 to 8, the diag-C fast path by 64 %, the
   repeated R pair by up to 6.7 %.  Open: ``examples/demo5/README.md``.
 
-Demos 4 and 5 use ``examples/reference/ito_moments.py``: the moment
+**examples/demo8** — time-dependent coefficients and non-exponential dynamics
+  The four routes that leave the constant-drift, exponential-kernel
+  family: a callable ``DiagonalA.gamma``
+  (:math:`\gamma(t) = [1 + 0.5\sin t,\; 0.6 + 0.3\cos 2t]`, unequal
+  and time-varying, with :math:`t_{\min} = -1.3` and :math:`0.7`); an
+  ``ExplicitR`` carrying the response of a damped oscillator, which
+  changes sign inside the window; ``CustomKernel`` with a Matérn-3/2
+  and a damped-cosine covariance, each the stationary covariance of a
+  2-D linear SDE, plus ``GaussianTemporal``, which has no finite
+  embedding; and a ``CustomImpulse`` whose amplitude
+  :math:`s_a(t)` varies in time.  The reference is the moment
+  hierarchy of the embedding, whose generator now depends on time and
+  is integrated with ``solve_ivp`` (DOP853, ``rtol = 1e-12``); for the
+  Gaussian kernel it is the order-1 and order-2 diagrams contracted by
+  hand with ``C`` in closed form (``erf``).  Given the exact ``C``,
+  Gauss-Legendre at 12 nodes agrees to 1.3e-13 (a), 6.5e-08 (b, 1.9e-15
+  at 20 nodes), 2.4e-13 (c) and 1.4e-13 (d), and ``nquad`` with a
+  matrix R to 1.9e-09.  The demo also measures what the package's own
+  ``C`` table costs in accuracy where the kernel kinks ``C``.  Open:
+  ``examples/demo8/README.md``.
+
+Demos 4, 5 and 8 use ``examples/reference/ito_moments.py``: the moment
 hierarchy of a finite-dimensional polynomial Itô SDE with jumps,
 solved order by order in the couplings.  It imports nothing from
 sft-wick, and ``tests/test_ito_moments_reference.py`` pins it against
-closed forms.
+closed forms.  Demo 8 extends it to a generator that depends on time
+(``examples/demo8/time8_reference.py``).
 
 Running the tests
 -----------------
@@ -440,9 +462,10 @@ Running the tests
    # Demo 3 — scripts, not a notebook (~3 min + ~6 min)
    cd examples/demo3 && python level_a.py && python level_b.py
 
-   # Demos 4 and 5 — exact references, no simulation
+   # Demos 4, 5 and 8 — exact references, no simulation
    cd examples/demo4 && python level_a.py && python level_b.py
    cd examples/demo5 && python run.py && python multiplicative.py
+   cd examples/demo8 && python time8_run.py
 
 For the detailed per-test matrix, tolerances, and design rationale,
 see :download:`deductive_verification.md <../deductive_verification.md>`
