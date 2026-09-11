@@ -83,6 +83,62 @@ differ from the correct one by more than 1e-2.  On 0.4.2, 42 cases fail; the
 29 that pass are the two point-symmetric controls, the kernel-symmetry checks
 and the static-coupling control.
 
+### Fixed: two R propagators between the same two points shared one set of component indices
+
+With a matrix-valued R (`iso_R=False`), the matrix-R product loop
+(`DiagramIntegrand._evaluate_r_product_general`) resolved each R factor's
+component indices by looking the factor up through its
+`(spatial_left, spatial_right)` endpoints, and `_find_r_propagator` returned
+the **first** R propagator with those endpoints.
+Endpoints do not identify an R propagator.  A local vertex with two ψ legs
+puts two of them between the same two internal points, carrying different
+indices, `R_{i₁i₃}(y₀,y₁) R_{i₂i₄}(y₀,y₁)`; both factors then read the first
+match's indices and the diagram evaluated `R[j,l] * R[j,l]` where
+`R[j,l] * R[k,m]` is required.  Wrong value, no error.
+
+Only the matrix-R path was affected: the scalar path multiplies R through
+`PropagatorCache.R_product`, which carries no indices at all.  Such a diagram
+is reachable only from the raw L0 API (`compute_moment` +
+`integrate_diagrams`), because the L1/L2 workflow cannot build a local vertex
+with two response legs.
+
+Measured on N = 2 with R = Θ·1 (so `diag_R=True` is exact and its expansion is
+the reference), a ψφφ (`F`) and a ψψφ (`G`) local vertex, seed-7 normal
+couplings, observable `<φ_a(x) φ_b(y)>` at order 2, `qmc_scalar` with 2¹⁰
+samples and seed 5.  Eleven diagrams; nine were already right, and the two
+carrying a repeated pair — 7 and 9 — were not:
+
+| quantity | 0.4.2 | now | `diag_R=True` |
+|---|---|---|---|
+| (a,b) = (0,0), diagram 7 | +6.859817e-02 | -6.059916e-03 | -6.059916e-03 |
+| (a,b) = (0,0), diagram 9 | +6.859817e-02 | -6.059916e-03 | -6.059916e-03 |
+| (a,b) = (0,0), total | +1.752026e-01 | +2.588640e-02 | +2.588640e-02 |
+| (a,b) = (0,1), diagram 7 | +1.383161e-01 | +1.159565e-01 | +1.159565e-01 |
+| (a,b) = (0,1), diagram 9 | -1.215400e-01 | +1.713376e-02 | +1.713376e-02 |
+| (a,b) = (0,1), total | -5.969186e-02 | +5.662232e-02 | +5.662232e-02 |
+
+The totals were wrong by 5.8 and 2.1 times their own magnitude, and the
+(0,1) total had the wrong sign.  Against a generic non-symmetric R
+(`[[0.7,-0.4],[0.25,1.3]]`, the matrix of the new tests) at fixed times
+t = (0.9, 0.8, 0.6, 0.3), the same two diagrams were wrong by factors of
+3.46, 3.46, 0.15 and 2.51 relative to a numpy hand contraction.
+
+`_evaluate_r_product_general` now iterates over the R `Propagator` objects
+themselves — `_kept_r_propagator_objects`, the object-level counterpart of
+`_kept_r_propagators`, which filters absorbed pairs by endpoint exactly as
+that helper does — and reads each factor's own `index_left` / `index_right`.
+`_find_r_propagator` had no other caller and is gone.  Diagrams without a
+repeated pair are unaffected, bit for bit: there the first match *is* the
+factor.
+
+Locked by `tests/test_matrix_r_index_and_zero_dim.py`: the repeated pair is
+shown to exist and to carry distinct indices, both diagrams are checked
+against a numpy contraction written from the diagram's own propagator list
+(with the old endpoint-lookup value computed alongside and required to
+differ by more than 1e-2), the nine unaffected diagrams are required to match
+*both*, and the R = 1 expansion is required to reproduce `diag_R=True` on
+every diagram.
+
 ## 0.4.2 — 2026-09-03
 
 > **One `src/` fix, a documentation catch-up, and the test suite's tolerances
