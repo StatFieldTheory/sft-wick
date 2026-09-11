@@ -46,9 +46,12 @@ order 1, (a,b) = (0,1) for the order-2 FK channel of `<φ_a(x) φ_b(z)>`):
 | order 2, FK channel, cumulant-symmetric kernel | 5.3e-01 | 1.0e-15 |
 
 **Every value computed through a callable non-local coupling that is not
-point-symmetric changes.**  The kernels shipped in `examples/` are
-point-symmetric cumulants, so they move only by their numerical asymmetry,
-measured at representative partner points:
+point-symmetric changes.**  The kernels shipped in `examples/` are cumulants
+of the form `δ_{a₁…a_m} f(z₁, …, z_m)` with `f` symmetric in the leg points:
+a term is non-zero only when every leg carries the same component, and
+permuting its legs then permutes the arguments of a symmetric function, so
+every leg order needs the same tensor.  They move only by their numerical
+asymmetry, measured at representative partner points:
 
 | callable | max relative point asymmetry |
 |---|---|
@@ -58,8 +61,14 @@ measured at representative partner points:
 | demo 2 R-contracted κ³ (`k3_R_coupling.py`, `k3_R_contracted.py`) | 2.3e-06 to 9.6e-05 |
 
 The last two are quadratures accurate to about 1e-4 whose integration
-coordinates single out one leg.  Demo 3 is unchanged to rounding.  No
-existing test changed.
+coordinates single out one leg.  Recomputed on 0.4.2 and on this version,
+with the settings of `examples/paper_assets/demo2_kappa4/run_budget.py`
+(the 0.4.2 values reproduce the stored `budget.npz`), demo 2's `ξ₀₁`
+channels change by 4.9e-06 (FK, t = 1), 3.2e-06 (FK, t = 15) and 4.0e-07
+(F³κ³, t = 15), below their quoted digits and their quadrature errors.
+Demo 3's level-A values are bit-identical and its level-B channels change
+by at most 7e-16.  Demo 1 has no non-local vertex.  No existing test
+changed.
 
 Cost: a diagram in which `k` distinct leg orders occur calls the callable
 `k` times where it called it once (`k ≤ m!`, 6 for κ³), per sample under
