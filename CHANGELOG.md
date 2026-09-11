@@ -66,6 +66,8 @@ with the settings of `examples/paper_assets/demo2_kappa4/run_budget.py`
 (the 0.4.2 values reproduce the stored `budget.npz`), demo 2's `ξ₀₁`
 channels change by 4.9e-06 (FK, t = 1), 3.2e-06 (FK, t = 15) and 4.0e-07
 (F³κ³, t = 15), below their quoted digits and their quadrature errors.
+Below t = 1 the FK change grows as the channel shrinks: 2.3e-05 relative at
+t = 0.16 and 6.1e-05 (1.3e-11 absolute) at t = 0.1.
 Demo 3's level-A values are bit-identical and its level-B channels change
 by at most 7e-16.  Demo 1 has no non-local vertex.  No existing test
 changed.
@@ -73,6 +75,10 @@ changed.
 Cost: a diagram in which `k` distinct leg orders occur calls the callable
 `k` times where it called it once (`k ≤ m!`, 6 for κ³), per sample under
 the per-sample contract and per integrand under `coupling_vectorized=True`.
+Demo 2's F²κ⁴ channel (`k ≤ 24`) went from 3 to 30 callable calls per
+Gauss-Legendre node, and the `ffk4_rc16` stage of
+`examples/paper_assets/demo2_kappa4/run_budget.py` from 35 s to 323 s; the
+timings in that directory's README predate the change.
 
 Locked by `tests/test_nonlocal_leg_order.py` (71 cases, LO0-LO6): the routes
 above, both callable contracts, a single-component field, the L0
@@ -459,6 +465,23 @@ WF8, which runs the same system with 3-D positions, checks only for a finite
 nonzero total.  It still passed with the positions reduced to their norms
 before they reached the callable; WF9 fails in its 12 vector cases under that
 change, and in the same 12 when the positions are zeroed.
+
+### Documentation: stale demo 1 figures
+
+- `examples/demo1/L2/INTEGRATION_ERROR.md` quoted the Gauss-Legendre 18-node
+  values of two order-4 cells (`(0,0)`, r = 0 and `(1,1)`, r = 0.5, both at
+  t = 15) in its "converged (GL24)" column; the 24-node values are 3.9691e-5
+  and 2.2166e-5, not 3.9721e-5 and 2.2175e-5.  The conclusions drawn from
+  them (74 % and 42 % errors of the seed-42 draw) do not change.
+- `examples/demo1/validate_wrapper.py` compared its time-integrated sweep
+  with a table copied from `validate_phase5.py` when that script still
+  reported time-integrated moments; since the QMC sampling fixes of
+  0.3.0-0.4.x its order-2 and order-4 rows differed by 7.6e-4 to 5.4e-3
+  relative, and the script failed.  The table now holds this script's own
+  output; the L1-versus-raw-API equivalence is tested by
+  `tests/test_workflow.py::test_WF4_end_to_end_matches_validate_phase5`.
+- `docs/user_guide/workflow.rst` referred to a `ConstantMatrix` linear
+  operator that does not exist; a dense R is `ExplicitR(iso_R=False)`.
 
 ## 0.4.2 — 2026-09-03
 
