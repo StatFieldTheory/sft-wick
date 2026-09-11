@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1037 tests** in 38 files (parametrised
+The suite has **1108 tests** in 39 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -191,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*268 tests in 10 files.*
+*339 tests in 11 files.*
 
 .. list-table::
    :header-rows: 1
@@ -252,6 +252,11 @@ Integrators
      - closed forms; all five backends against each other
      - 1e-6 - 1e-10
      - 150
+   * - ``test_nonlocal_leg_order.py``
+     - leg order of a callable κ^(m): every coupling-sum term evaluated at its own legs, on each integration route and the order-2 FK channel
+     - numpy hand contraction; the old leg-order-blind value shown to differ
+     - 1e-12
+     - 71
 
 Workflow and YAML
 -----------------

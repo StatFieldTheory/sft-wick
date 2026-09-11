@@ -208,7 +208,7 @@ through :class:`~sft_wick.evaluate.DynamicCouplingPromise` inside
 * ``fn(n_list, t_list) → tensor`` -- per-sample call (default).
 * ``fn(n_2d, t_2d) → (n_samples, ...)`` when the user opts in via
   ``NonLocalVertex(coupling_vectorized=True)`` -- one call per
-  integrand, useful for heavy callables.
+  integrand and leg order, useful for heavy callables.
 
 Locked invariants:
 
@@ -219,6 +219,10 @@ Locked invariants:
   the static fast path (rtol 1e-10).
 * **WF7** -- per-sample and vectorised callables produce
   bit-identical totals (rtol 1e-10).
+* **LO0-LO6** (``tests/test_nonlocal_leg_order.py``) -- a callable κ
+  is evaluated at each coupling-sum term's own leg order: every
+  integration route and the order-2 FK channel match a numpy hand
+  contraction to 1e-12, for kernels with and without point symmetry.
 * Validated against demo2's FK channel to 0.48 % relative agreement
   against the hand-coded reference integrator.
 
