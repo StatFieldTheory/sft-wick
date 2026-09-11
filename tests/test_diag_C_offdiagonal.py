@@ -256,24 +256,29 @@ def test_iso_R_independent_of_diag_C(tmp_path: Path) -> None:
 
 
 # =====================================================================
-# T5 (guard) -- diag_C=False without c_closed_form_only must error.
+# T5 -- diag_C=False without c_closed_form_only tabulates every C_ab.
 # =====================================================================
 
 
-def test_diag_C_false_without_closed_form_only_raises(tmp_path: Path) -> None:
-    """Spline-table paths only fill diagonal entries; pairing
-    ``diag_C: false`` with a non-closed-form-only build silently
-    drops off-diagonals at lookup time. Reject early at the
-    propagator-build site with a clear message."""
+def test_diag_C_false_tables_hold_every_entry(tmp_path: Path) -> None:
+    """``diag_C: false`` with the spline tables used to be refused, because
+    the tables held ``C_aa`` only.  They now hold every ``C_ab``: a table
+    built from the stub closed form returns its off-diagonal entries, in
+    both orders of the pair."""
     (tmp_path / "stub_c.py").write_text(_STUB_C_MODULE)
     data = yaml.safe_load(_BASE_YAML)
     # Strip the c_closed_form_only opt-in; the user still provides
-    # c_closed_form_module so a spline table would be built.
+    # c_closed_form_module, so a spline table is built from it.
     data["propagators"]["c_closed_form_only"] = False
     data["propagators"]["diag_C"] = False
-    data["sweep"]["component_pairs"] = [[0, 1]]
+    data["sweep"]["component_pairs"] = [[0, 1], [1, 2], [2, 0]]
     (tmp_path / "c.yaml").write_text(yaml.safe_dump(data))
 
     cfg = load_workflow_config(tmp_path / "c.yaml")
-    with pytest.raises(ValueError, match="diag_C=False requires c_closed_form_only"):
-        run_workflow(cfg)
+    _sweep, totals = run_workflow(cfg)
+    for pair, want in {(0, 1): 12.0, (1, 2): 23.0, (2, 0): 13.0}.items():
+        got = _pair_value(totals, pair)
+        assert got == pytest.approx(want, rel=1e-12, abs=0.0), (
+            f"pair {pair}: want C[{pair[0]}, {pair[1]}] = {want}; "
+            f"got {got:.6e}"
+        )

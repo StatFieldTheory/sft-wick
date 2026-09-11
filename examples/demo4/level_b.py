@@ -51,11 +51,14 @@ CHANNELS = [("order 0", 0, None, (0, 0)), ("FK3", 2, "FK3", (1, 1)),
 N_GAUSS = {"white": {2: 16, 3: 16}, "exponential": {2: 32, 3: 24}}
 
 
-def run(p):
+def run(p, quadrature: bool = False):
     H = Hierarchy(p, [POS["x"], POS["y"]])
     system = dsys.make_system(p, f_amplitude=1.0, cumulants=(3, 4),
                               r_contracted=(p.pulse == "exponential"))
-    props = dsys.propagators_for(system, p, t_max=T + 0.5)
+    props = (dsys.quadrature_propagators_for(
+                 system, p, t_max=T + 0.5,
+                 n_grid_t=21 if p.pulse == "white" else 17)
+             if quadrature else dsys.propagators_for(system, p, t_max=T + 0.5))
     two = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0, 2, 3],
                         diag_C=False)
     one = system.expand(("phi_a(x)",), orders=[1], diag_C=False)
@@ -84,11 +87,15 @@ def run(p):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", default="level_b_results.json")
+    ap.add_argument("--c-quadrature", action="store_true",
+                    help="tabulate C by quadrature instead of using the "
+                         "closed form of poisson_noise; accuracy is then "
+                         "the table's")
     args = ap.parse_args()
     out = {}
     for p in (nz.PARAMS_WHITE, nz.PARAMS_EXP):
         t0 = time.perf_counter()
-        rows = run(p)
+        rows = run(p, quadrature=args.c_quadrature)
         secs = time.perf_counter() - t0
         print(f"\n{p.pulse} pulses ({secs:.1f} s, n_gauss "
               f"{N_GAUSS[p.pulse]})")

@@ -180,7 +180,10 @@ def _estimate(cfg, bench_seconds, build_system, load_c) -> CostEstimate:
         n_c_calls, t_c = 0, None
     else:
         n_cells = pc.n_grid_t ** 2
-        if cache._c_time_symmetric():
+        # Half the cells when the table is fixed by its t2 >= t1 half: an
+        # even kernel for a diagonal table, the transposition
+        # C_ab(t1, t2) = C_ba(t2, t1) for a full one.
+        if cache._c_half_grid(*cache._probe_positions(), pc.t_max):
             n_cells = pc.n_grid_t * (pc.n_grid_t + 1) // 2
         if props.is_lazy:
             n_tables = 1 if cache._lazy_spatial_factor() is not None else n_sep
