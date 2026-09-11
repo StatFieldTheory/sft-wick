@@ -341,6 +341,38 @@ the closed form per diagram (`[1, 0, 1]`) under both coupling contracts, the
 callable is required to match the static tensor exactly, and the scalar-R
 path is checked to still agree with itself.
 
+### Performance: a per-sample callable coupling is called once per sample
+
+`DynamicCouplingPromise.evaluate_at_batch`, which `qmc_vectorized` and
+`gauss_legendre` use for a callable non-local coupling, called a callable
+under the per-sample contract `n_samples + 1` times per integrand and leg
+order: once at sample 0 to learn the shape of the contracted coupling, then
+at every sample to build the tensor stack.  When the batched contraction fell
+back to the per-sample loop, that loop called it again for samples 1 to
+`n_samples - 1`.  The stack is now built first, and the shape probe, the
+batched contraction and the fallback loop read it: `n_samples` calls per
+integrand and leg order on both paths.
+
+Calls of a recording callable on the N = 2 system of WF9 and WF10 (order-2
+FK channel, 2 integrands with 3 leg orders each):
+
+| route | before | after |
+|---|---|---|
+| `qmc_vectorized` (256 samples), `gauss_legendre` (`n_gauss=4`) | 1542 | 1536 |
+| the same, batched contraction forced to fall back | 3072 | 1536 |
+| `qmc_scalar` (32 samples), through `evaluate_at` | 192 | 192 |
+
+The FK totals are bit-identical before and after on `qmc_vectorized` and
+`gauss_legendre`, with and without the fallback, and on `qmc_scalar` and
+`qmc`.  A callable declared with `coupling_vectorized=True` is unaffected.
+
+Locked by WF10 in `tests/test_dynamic_coupling.py` (5 cases): the calls per
+`evaluate_at_batch` or `evaluate_at` call, the route each method takes, and,
+on the forced fallback, the FK total against the batched one to 1e-12.  On
+the previous code the four `evaluate_at_batch` cases fail and the
+`qmc_scalar` case passes; with the fallback loop reading sample `s - 1` for
+sample `s`, the two fallback cases fail.
+
 ## 0.4.2 — 2026-09-03
 
 > **One `src/` fix, a documentation catch-up, and the test suite's tolerances
