@@ -235,6 +235,15 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "orientations are the consistent total orders",
         "linear extensions of the causal order; the exact Itô moment "
         "hierarchy", "exact / 1e-11"),
+    "tests/test_kink_split_nquad_couplings.py": (
+        "Integrators",
+        "nquad splits the time domain at kinks as Gauss-Legendre does "
+        "(white-noise C, matrix R); a coupling callable declaring "
+        "has_coincident_time_kinks contributes its leg times (raw vertex) "
+        "or partner times (already_R_contracted), read through the MSR "
+        "wrapper; equal_time vertices contribute none",
+        "exact Itô moment hierarchy; the pairs by construction",
+        "exact / 1e-12"),
     "tests/test_demo4_asymmetric_noise.py": (
         "Integrators",
         "demo 4: compound-Poisson noise asymmetric in points and in "

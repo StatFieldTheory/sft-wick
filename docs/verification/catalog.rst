@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1383 tests** in 49 files (parametrised
+The suite has **1391 tests** in 50 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -191,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*585 tests in 19 files.*
+*593 tests in 20 files.*
 
 .. list-table::
    :header-rows: 1
@@ -272,6 +272,11 @@ Integrators
      - closed forms; Campbell's theorem; Lyapunov equation
      - 1e-13
      - 7
+   * - ``test_kink_split_nquad_couplings.py``
+     - nquad splits the time domain at kinks as Gauss-Legendre does (white-noise C, matrix R); a coupling callable declaring has_coincident_time_kinks contributes its leg times (raw vertex) or partner times (already_R_contracted), read through the MSR wrapper; equal_time vertices contribute none
+     - exact Itô moment hierarchy; the pairs by construction
+     - exact / 1e-12
+     - 8
    * - ``test_matrix_r_evaluation.py``
      - matrix-valued R with callable couplings in the scalar loop
      - qmc_vectorized where legal; closed-form 1-D integrals
