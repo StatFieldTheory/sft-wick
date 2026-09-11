@@ -139,6 +139,56 @@ differ by more than 1e-2), the nine unaffected diagrams are required to match
 *both*, and the R = 1 expansion is required to reproduce `diag_R=True` on
 every diagram.
 
+### Fixed: a callable coupling with a matrix-valued R crashed on a zero-dimensional diagram
+
+`DiagramIntegrand._evaluate_zero_dimensional` handles a diagram with no
+surviving time-integration variable, which is what an
+`already_R_contracted` vertex reaches when its absorbed R legs alias onto
+fixed external points.  Its dynamic-coupling branch multiplied
+`cache.R_time_batch`, which is scalar-only
+(`np.vectorize(model.R_time, otypes=[float])`), so a matrix-valued R raised
+
+    ValueError: setting an array element with a sequence.
+
+Nothing refused it first.  `integrate_moment_qmc_vectorized` and
+`integrate_moment_gauss_legendre` do carry an explicit `NotImplementedError`
+for matrix R, and `integrate_moment_nquad` refuses callable couplings, but
+all three checks sit *after* their `n_total == 0` early return, so none of
+them fires for a zero-dimensional integrand.
+
+Measured on N = 2 with R = Θ·1, one non-local `already_R_contracted` ψψ
+vertex, observable `<φ_a(x₁) φ_b(x₂) φ_c(x₃) ψ_d(x₄)>` at order 1 with
+`diag_R=True` (three diagrams, all zero-dimensional), fixed indices
+(a,b,c,d) = (0,1,0,0) and t_{x₄} = 0.5:
+
+| coupling | qmc_scalar | qmc_vectorized | gauss_legendre | nquad |
+|---|---|---|---|---|
+| `K = 0.5·1`, 0.4.2 and now | +2.000000 | +2.000000 | +2.000000 | +2.000000 |
+| callable `K`, 0.4.2 | +2.000000 | `ValueError` | `ValueError` | `ValueError` |
+| callable `K`, now | +2.000000 | +2.000000 | +2.000000 | +2.000000 |
+
++2 is the closed form: the δ from the ψ_d leg kills the b diagram (b = 1,
+d = 0) and leaves two diagrams of `(K + K) R[0,0] = (0.5 + 0.5) × 1 = 1`
+each, the two absorbed R factors contributing 1.
+
+For a matrix R the branch now materialises the coupling for that single
+point and goes through the index-aware `DiagramIntegrand.evaluate`, the way
+`integrate_moment_qmc`'s own `n_total == 0` branch already did.  Moving the
+refusals ahead of the early return was the alternative and is the worse one:
+it would turn a confusing exception into a clear one while leaving the value
+uncomputable on three backends out of four, when `qmc_scalar` already
+computes it — and there is nothing to refuse, since a zero-dimensional
+integrand is a single point, which is exactly what the scalar evaluation
+handles.  All four backends now agree instead of one computing and three
+raising.  The scalar-R zero-dimensional path still goes through
+`R_time_batch` and is unchanged.
+
+Locked by `tests/test_matrix_r_index_and_zero_dim.py`: the three diagrams are
+shown to be zero-dimensional, each of the four backends is checked against
+the closed form per diagram (`[1, 0, 1]`) under both coupling contracts, the
+callable is required to match the static tensor exactly, and the scalar-R
+path is checked to still agree with itself.
+
 ## 0.4.2 — 2026-09-03
 
 > **One `src/` fix, a documentation catch-up, and the test suite's tolerances

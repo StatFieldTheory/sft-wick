@@ -1,20 +1,32 @@
-"""Matrix-valued R: per-propagator component indices.
+"""Matrix-valued R: per-propagator component indices, and the
+zero-dimensional dynamic-coupling branch.
 
-``DiagramIntegrand._evaluate_r_product_general`` looked each R factor's
-indices up by its ``(spatial_left, spatial_right)`` endpoints.  Endpoints do
-not identify an R propagator --- a local vertex with two ψ legs puts *two* of
-them between the same two points --- so both factors of such a pair read the
-first match's indices and the diagram silently evaluated
-``R[j,l] * R[j,l]`` instead of ``R[j,l] * R[k,m]``.
+Two defects of the matrix-R path, both invisible to the scalar-R path
+(which never resolves component indices at all):
 
-The scalar-R path never resolves component indices at all and is unaffected.
+1. ``DiagramIntegrand._evaluate_r_product_general`` looked each R factor's
+   indices up by its ``(spatial_left, spatial_right)`` endpoints.  Endpoints
+   do not identify an R propagator --- a local vertex with two ψ legs puts
+   *two* of them between the same two points --- so both factors of such a
+   pair read the first match's indices and the diagram silently evaluated
+   ``R[j,l] * R[j,l]`` instead of ``R[j,l] * R[k,m]``.
+
+2. ``DiagramIntegrand._evaluate_zero_dimensional``'s dynamic-coupling branch
+   multiplied ``cache.R_time_batch``, which is scalar-only, so a matrix R
+   raised ``ValueError: setting an array element with a sequence``.  The
+   batched backends do refuse matrix R explicitly, but their refusals sit
+   after their ``n_total == 0`` early return, so none of them fired.
 """
 
 import numpy as np
 import pytest
 
 import sft_wick as sw
-from sft_wick.evaluate import PropagatorCache, PropagatorModel
+from sft_wick.evaluate import (
+    PropagatorCache,
+    PropagatorModel,
+    integrate_diagrams,
+)
 
 N = 2
 
@@ -140,6 +152,10 @@ def _directions(ig) -> dict:
     return {d: 0.0 for d in set(ig.spatial.direction_map.values())}
 
 
+# --------------------------------------------------------------------------
+# 1. Repeated R pair: each factor keeps its own component indices.
+# --------------------------------------------------------------------------
+
 def test_two_psi_leg_vertex_produces_a_repeated_r_pair():
     """The premise of the other tests: the ψψφ vertex really does put two
     R propagators between one pair of points, with *different* indices."""
@@ -248,3 +264,211 @@ def test_identity_matrix_r_agrees_with_diag_r(fixed):
         assert v_d == pytest.approx(v_g, rel=1e-12, abs=1e-14)
         nonzero += abs(v_d) > 1e-6
     assert nonzero >= 10
+
+
+# --------------------------------------------------------------------------
+# 2. Zero-dimensional integrand with a callable coupling and a matrix R.
+# --------------------------------------------------------------------------
+
+def _zero_dim_terms() -> list:
+    """Three order-1 diagrams with no surviving time-integration variable.
+
+    ``already_R_contracted=True`` absorbs both κ legs' R propagators, and
+    the accompanying time aliases pin them to fixed external points, so
+    nothing is left to integrate over.
+    """
+    sw.reset_uid_counter()
+    phi = sw.Field("phi", "physical", n_components=N)
+    psi = sw.Field("psi", "response", n_components=N)
+    action = sw.Action(
+        vertices=[
+            sw.Vertex(fields=[psi, psi], coupling="K", local=False,
+                      already_R_contracted=True),
+        ]
+    )
+    observable = [phi("a", "x1"), phi("b", "x2"), phi("c", "x3"),
+                  psi("d", "x4")]
+    return sw.compute_moment(
+        observable, action, order=1, diag_R=True,
+    ).diagram_terms(1)
+
+
+ZERO_DIM_FIXED = {"a": 0, "b": 1, "c": 0, "d": 0}
+ZERO_DIM_EXTERNAL_TIMES = {"x4": 0.5}
+
+#: Closed form for the setup below, with R = 1 and K ≡ 1/2 everywhere.
+#:
+#: Each diagram is ``-(δ_{·d}) (K_{··} + K_{··}) R_{··}(x_i, x4)`` times the
+#: response phase, with the two absorbed R factors contributing 1.  The δ
+#: kills diagram 1 (b = 1 ≠ d = 0) and leaves diagrams 0 and 2, each of
+#: which is ``(0.5 + 0.5) × R[0,0](1.0, 0.5) = 1``.  Total: 2.
+ZERO_DIM_EXPECTED = 2.0
+
+ZERO_DIM_METHODS = ["qmc_scalar", "qmc_vectorized", "gauss_legendre", "nquad"]
+
+
+def test_zero_dimensional_terms_have_no_integration_variable():
+    """The premise: these diagrams really are zero-dimensional, which is
+    what carries them past every backend's matrix-R refusal."""
+    terms = _zero_dim_terms()
+    assert len(terms) == 3
+    for dt in terms:
+        ig = dt.build_integrand({"K": 0.5 * np.ones((N, N))}, ZERO_DIM_FIXED)
+        assert ig.spatial.time_integration_vars == ()
+        assert ig.spatial.external_points == ("x1", "x2", "x3", "x4")
+        assert len(ig.spatial.r_absorbed_pairs) == 2
+
+
+@pytest.mark.parametrize("method", ZERO_DIM_METHODS)
+@pytest.mark.parametrize("dynamic", [False, True], ids=["static", "callable"])
+def test_zero_dimensional_matrix_r_coupling(method, dynamic):
+    """A callable κ must give the same answer as the static tensor it
+    returns, on every backend.
+
+    Before the fix the callable raised ``ValueError: setting an array
+    element with a sequence`` on ``qmc_vectorized``, ``gauss_legendre`` and
+    ``nquad`` — the scalar-only ``R_time_batch`` being handed a 2×2 R.
+    """
+    static_K = 0.5 * np.ones((N, N))
+    K = ((lambda n_list, t_list: 0.5 * np.ones((N, N)))  # noqa: ARG005
+         if dynamic else static_K)
+
+    total, details = integrate_diagrams(
+        _zero_dim_terms(), {"K": K},
+        lambda_f=1.0, cache=_cache(np.eye(N)), method=method,
+        n_samples=2**8, seed=3, fixed_indices=ZERO_DIM_FIXED,
+        external_times=ZERO_DIM_EXTERNAL_TIMES,
+    )
+
+    assert total == pytest.approx(ZERO_DIM_EXPECTED, rel=1e-12, abs=1e-14)
+    # Per-diagram, so the total cannot be right by cancellation: the δ_{bd}
+    # diagram vanishes and the other two contribute 1 each.
+    assert [v for v, _ in details] == pytest.approx(
+        [1.0, 0.0, 1.0], rel=1e-12, abs=1e-14,
+    )
+
+
+def test_zero_dimensional_callable_matches_static_exactly():
+    """Same integrand, both coupling contracts, one comparison — the
+    callable path must not merely be finite, it must be *right*."""
+    cache = _cache(np.eye(N))
+    kwargs = dict(
+        lambda_f=1.0, cache=cache, method="gauss_legendre", n_samples=2**8,
+        seed=3, fixed_indices=ZERO_DIM_FIXED,
+        external_times=ZERO_DIM_EXTERNAL_TIMES,
+    )
+    static_total, _ = integrate_diagrams(
+        _zero_dim_terms(), {"K": 0.5 * np.ones((N, N))}, **kwargs,
+    )
+    dynamic_total, _ = integrate_diagrams(
+        _zero_dim_terms(),
+        {"K": lambda n_list, t_list: 0.5 * np.ones((N, N))},  # noqa: ARG005
+        **kwargs,
+    )
+    assert dynamic_total == pytest.approx(static_total, rel=1e-12, abs=1e-14)
+    assert static_total == pytest.approx(ZERO_DIM_EXPECTED,
+                                         rel=1e-12, abs=1e-14)
+
+
+def _zero_dim_terms_summed_indices() -> list:
+    """The same three diagrams without ``diag_R``.
+
+    The two absorbed κ legs then carry *summation* indices (``i_0``,
+    ``i_1``) rather than collapsing onto the fixed external ones, so the
+    integrand has a non-trivial propagator-index shape and the surviving R
+    factor is read off-diagonal.  This is the zero-dimensional case that
+    exercises the matrix-R index resolution, not just the crash.
+    """
+    sw.reset_uid_counter()
+    phi = sw.Field("phi", "physical", n_components=N)
+    psi = sw.Field("psi", "response", n_components=N)
+    action = sw.Action(
+        vertices=[
+            sw.Vertex(fields=[psi, psi], coupling="K", local=False,
+                      already_R_contracted=True),
+        ]
+    )
+    observable = [phi("a", "x1"), phi("b", "x2"), phi("c", "x3"),
+                  psi("d", "x4")]
+    return sw.compute_moment(
+        observable, action, order=1, diag_R=False,
+    ).diagram_terms(1)
+
+
+#: Closed form for the summed-index variant with the generic R above.
+#:
+#: Each diagram keeps one R factor — ``R_{ad}(x1,x4)``, ``R_{bd}(x2,x4)``,
+#: ``R_{cd}(x3,x4)`` — the two absorbed ones contributing 1, and its two
+#: summation indices survive only inside K.  With (a,b,c,d) = (0,1,0,0) and
+#: K ≡ 1/2 that is ``Σ_{i₀i₁} (K + K) = 4`` times R[0,0], R[1,0], R[0,0]:
+#: 4 × (0.7 + 0.25 + 0.7) = 6.6.
+ZERO_DIM_SUMMED_PER_DIAGRAM = [4.0 * 0.7, 4.0 * 0.25, 4.0 * 0.7]
+ZERO_DIM_SUMMED_EXPECTED = sum(ZERO_DIM_SUMMED_PER_DIAGRAM)
+
+
+@pytest.mark.parametrize("method", ZERO_DIM_METHODS)
+@pytest.mark.parametrize("dynamic", [False, True], ids=["static", "callable"])
+def test_zero_dimensional_matrix_r_summed_indices(method, dynamic):
+    """Zero-dimensional, callable coupling, *and* R matrix elements that
+    actually depend on the component assignment."""
+    static_K = 0.5 * np.ones((N, N))
+    K = ((lambda n_list, t_list: 0.5 * np.ones((N, N)))  # noqa: ARG005
+         if dynamic else static_K)
+
+    total, details = integrate_diagrams(
+        _zero_dim_terms_summed_indices(), {"K": K},
+        lambda_f=1.0, cache=_cache(R_GENERIC), method=method,
+        n_samples=2**8, seed=3, fixed_indices=ZERO_DIM_FIXED,
+        external_times=ZERO_DIM_EXTERNAL_TIMES,
+    )
+
+    assert total == pytest.approx(ZERO_DIM_SUMMED_EXPECTED,
+                                  rel=1e-12, abs=1e-14)
+    assert [v for v, _ in details] == pytest.approx(
+        ZERO_DIM_SUMMED_PER_DIAGRAM, rel=1e-12, abs=1e-14,
+    )
+
+
+def test_zero_dimensional_summed_index_terms_are_index_carrying():
+    """The premise of the test above: these diagrams really do carry
+    propagator indices, so the R factor is not trivially diagonal."""
+    terms = _zero_dim_terms_summed_indices()
+    assert len(terms) == 3
+    for dt in terms:
+        ig = dt.build_integrand({"K": 0.5 * np.ones((N, N))}, ZERO_DIM_FIXED)
+        assert ig.spatial.time_integration_vars == ()
+        assert tuple(dim for _, dim in dt.propagator_indices) == (N, N)
+
+
+def test_zero_dimensional_scalar_r_unchanged():
+    """The scalar-R zero-dimensional path still goes through the batched
+    ``R_time_batch`` branch and is untouched by the matrix-R detour."""
+
+    def R_scalar(t1, t2):  # noqa: ARG001
+        return 1.0
+
+    def kappa2(n1, t1, n2, t2):  # noqa: ARG001
+        return KAPPA_MAT * np.exp(-abs(t1 - t2))
+
+    scalar_cache = PropagatorCache(
+        PropagatorModel(R_time=R_scalar, kappa2=kappa2, n_components=N,
+                        iso_R=True, diag_C=False)
+    )
+    kwargs = dict(
+        lambda_f=1.0, cache=scalar_cache, method="gauss_legendre",
+        n_samples=2**8, seed=3, fixed_indices=ZERO_DIM_FIXED,
+        external_times=ZERO_DIM_EXTERNAL_TIMES,
+    )
+    static_total, _ = integrate_diagrams(
+        _zero_dim_terms(), {"K": 0.5 * np.ones((N, N))}, **kwargs,
+    )
+    dynamic_total, _ = integrate_diagrams(
+        _zero_dim_terms(),
+        {"K": lambda n_list, t_list: 0.5 * np.ones((N, N))},  # noqa: ARG005
+        **kwargs,
+    )
+    assert dynamic_total == pytest.approx(static_total, rel=1e-12, abs=1e-14)
+    # Not vacuous: R = 1 puts the scalar control on the same closed form as
+    # the matrix case, so a silent zero on either side would be caught.
+    assert static_total == pytest.approx(ZERO_DIM_EXPECTED,
+                                         rel=1e-12, abs=1e-14)

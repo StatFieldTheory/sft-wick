@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1117 tests** in 40 files (parametrised
+The suite has **1137 tests** in 40 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -191,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*348 tests in 12 files.*
+*368 tests in 12 files.*
 
 .. list-table::
    :header-rows: 1
@@ -248,10 +248,10 @@ Integrators
      - 1e-6
      - 1
    * - ``test_matrix_r_index_and_zero_dim.py``
-     - matrix-valued R component indices when two R propagators share one pair of points
-     - numpy hand contraction of the same diagram, with the old endpoint-lookup value shown to differ; diag_R=True at R = 1
+     - matrix-valued R component indices when two R propagators share one pair of points; the zero-dimensional dynamic-coupling branch under matrix R
+     - numpy hand contraction of the same diagram, with the old endpoint-lookup value shown to differ; diag_R=True at R = 1; closed form for the zero-dimensional diagrams; the four backends against each other
      - 1e-12
-     - 9
+     - 29
    * - ``test_msr_numerics_regressions.py``
      - causal lower bounds from external response legs, two-time observables, C-table diagonal ridge, reality projection, external_times through every backend
      - closed forms; all five backends against each other

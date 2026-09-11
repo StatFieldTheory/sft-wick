@@ -198,9 +198,12 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     "tests/test_matrix_r_index_and_zero_dim.py": (
         "Integrators",
         "matrix-valued R component indices when two R propagators share one "
-        "pair of points",
+        "pair of points; the zero-dimensional dynamic-coupling branch under "
+        "matrix R",
         "numpy hand contraction of the same diagram, with the old "
-        "endpoint-lookup value shown to differ; diag_R=True at R = 1",
+        "endpoint-lookup value shown to differ; diag_R=True at R = 1; "
+        "closed form for the zero-dimensional diagrams; the four backends "
+        "against each other",
         "1e-12"),
     "tests/test_demo3_shot_noise.py": (
         "Propagator numerics",
