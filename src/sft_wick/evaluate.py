@@ -3763,14 +3763,14 @@ class DiagramIntegrand:
     ) -> complex:
         """Evaluate matrix-valued R propagators for one component assignment."""
         result: complex = 1.0
-        for sl, sr in _kept_r_propagators(self.spatial):
+        for r_prop in self._kept_r_propagator_objects():
+            sl, sr = r_prop.spatial_left, r_prop.spatial_right
             # Retarded + Itô: vanishes unless t_left > t_right.  See
             # PropagatorCache.R_product for why this is enforced here.
             if not times[sl] > times[sr]:
                 return complex(0.0)
             R_mat = np.asarray(cache.R_time(times[sl], times[sr]))
-            r_prop = self._find_r_propagator(sl, sr)
-            if r_prop and r_prop.index_left and r_prop.index_right:
+            if r_prop.index_left and r_prop.index_right:
                 a = self._resolve_component(r_prop.index_left, idx_map)
                 b = self._resolve_component(r_prop.index_right, idx_map)
                 if a is not None and b is not None:
@@ -3781,12 +3781,32 @@ class DiagramIntegrand:
                 result *= complex(np.trace(R_mat))
         return result
 
-    def _find_r_propagator(self, sl: str, sr: str) -> Propagator | None:
-        """Find the R propagator matching spatial_left=sl, spatial_right=sr."""
-        for p in self.diagram_term.propagators:
-            if p.kind == "R" and p.spatial_left == sl and p.spatial_right == sr:
-                return p
-        return None
+    def _kept_r_propagator_objects(self) -> tuple[Propagator, ...]:
+        """This diagram's R :class:`Propagator` objects, minus absorbed pairs.
+
+        The object-level counterpart of :func:`_kept_r_propagators`, which
+        yields only ``(spatial_left, spatial_right)`` endpoint pairs.
+
+        Endpoints do not identify an R propagator: two of them can join the
+        *same* two points while carrying different component indices --- a
+        local vertex with two ψ legs produces exactly that, e.g.
+        ``R_{i1 i3}(y_0, y_1) R_{i2 i4}(y_0, y_1)``.  Resolving indices by
+        endpoint lookup returns the first match for both factors and
+        silently evaluates ``R[j,l] * R[j,l]`` instead of
+        ``R[j,l] * R[k,m]``, so the matrix-R product loop must walk the
+        propagator objects and read each factor's own indices.
+
+        :func:`analyze_spatial` builds ``spatial.r_propagators`` by walking
+        ``diagram_term.propagators`` in order, so this sequence matches it
+        element for element.  Absorbed propagators are filtered by
+        endpoint, the same rule :func:`_kept_r_propagators` applies.
+        """
+        absorbed = set(self.spatial.r_absorbed_pairs)
+        return tuple(
+            p for p in self.diagram_term.propagators
+            if p.kind == "R"
+            and (p.spatial_left, p.spatial_right) not in absorbed
+        )
 
     def _dynamic_values(
         self,
@@ -3953,6 +3973,32 @@ class DiagramIntegrand:
             val = self.evaluate(fixed_times, directions, cache)
             return float(_real_or_raise(val, self._e_psi,
                                         where=' (zero-dimensional)'))
+
+        if not cache.model.iso_R:
+            # Matrix-valued R.  The batched branch below multiplies
+            # ``cache.R_time_batch``, which is scalar-only
+            # (``np.vectorize(..., otypes=[float])``), so an (N, N) R_time
+            # raised a bare "setting an array element with a sequence".
+            # The batched backends DO refuse matrix R explicitly -- but
+            # their refusals sit after their ``n_total == 0`` early return,
+            # so none of them fires for a zero-dimensional integrand.
+            #
+            # There is nothing to refuse here, though: with no integration
+            # variables the integrand is a single point, which is exactly
+            # what the index-aware scalar evaluation handles.  Materialise
+            # the coupling for that one point and go through
+            # :meth:`evaluate`, as ``integrate_moment_qmc``'s own
+            # ``n_total == 0`` branch already does -- so all four backends
+            # agree on this integrand instead of one computing it and three
+            # raising.
+            ca = self.dynamic_coupling_array(
+                fixed_times, directions, default_position=direction,
+            )
+            val = self.evaluate(fixed_times, directions, cache,
+                                coupling_array=ca)
+            return float(_real_or_raise(
+                val, self._e_psi,
+                where=' (dynamic coupling, zero-dimensional, matrix R)'))
 
         n_samples = 1
         et_alias = dict(spatial.equal_time_aliases or ())
