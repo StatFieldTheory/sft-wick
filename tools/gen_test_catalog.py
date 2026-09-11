@@ -195,6 +195,14 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Integrators",
         "matrix-valued R with callable couplings in the scalar loop",
         "qmc_vectorized where legal; closed-form 1-D integrals", "1e-6"),
+    "tests/test_diag_fast_component_labels.py": (
+        "Integrators",
+        "observable component labels pinned through fixed_indices on a C "
+        "propagator in the iso_R + diag_C scalar fast path; the Kronecker "
+        "delta between C legs when il != ir",
+        "numpy hand contraction over the full C matrices; all five backends "
+        "against each other; the label-blind value shown to differ",
+        "1e-12 (backends) / 1e-3 (quadrature vs QMC)"),
     "tests/test_demo3_shot_noise.py": (
         "Propagator numerics",
         "demo 3 filtered-Poisson cumulants, the R-contracted kernel K_R, and "
