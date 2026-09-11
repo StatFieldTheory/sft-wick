@@ -159,6 +159,12 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "vectorised contracts, propagator-indexed contraction",
         "static tensor at the same point; two contracts against each other",
         "1e-12"),
+    "tests/test_nonlocal_leg_order.py": (
+        "Integrators",
+        "leg order of a callable κ^(m): every coupling-sum term evaluated at "
+        "its own legs, on each integration route and the order-2 FK channel",
+        "numpy hand contraction; the old leg-order-blind value shown to "
+        "differ", "1e-12"),
     "tests/test_equal_time_nonlocal.py": (
         "Integrators",
         "equal_time non-local vertices (single time integral)",

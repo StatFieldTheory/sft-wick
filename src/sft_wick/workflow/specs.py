@@ -727,6 +727,20 @@ class NonLocalVertex:
             spatial / time coordinates.  The wrapper multiplies by
             the MSR factor ``-(i^m) / m!`` internally (so demo2's
             ``K = (i/6) * κ^(3)`` is automated).
+            Axis ``l`` of the returned tensor belongs to the leg at
+            ``n_list[l]``, ``t_list[l]``, and the callable needs no
+            permutation symmetry.  A diagram sums the vertex over
+            every assignment of its legs to the fields they contract
+            with; each term calls the callable with its own leg
+            order, so every component index is evaluated at the
+            point of its own leg.  A diagram in which ``k`` distinct
+            leg orders occur (``k <= m!``) calls it ``k`` times per
+            sample, or ``k`` times per integrand under
+            ``coupling_vectorized=True``.  Up to 0.4.2 the callable
+            was evaluated at one leg order only; that is correct
+            only for a kernel symmetric under a permutation of its
+            leg points at fixed component indices (see
+            ``CHANGELOG.md``).
         coupling_vectorized: only meaningful when ``coupling`` is a
             callable. ``False`` (default) signals the per-sample
             contract -- the workflow calls ``fn`` with 1-D length-m
