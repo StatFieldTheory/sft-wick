@@ -14,6 +14,12 @@ number without an error; they now raise ``ValueError``:
   large per R;
 * two indices on an absorbed R, either cache: the leg components were summed.
 
+Since then ``compute_moment`` writes the partner's index on an absorbed R's
+leg whatever ``diag_R`` says (the Kronecker delta that stands in for the
+absorbed R), so default-flag absorbed terms evaluate with either cache and
+the third pairing comes only from terms built otherwise; and a matrix-R cache
+runs on every backend, the batched ones included.
+
 The system is order-1 ``<phi_a(x1) phi_b(x2) phi_c(z)>`` with N = 3, one
 non-local psi-psi-psi vertex with the static coupling ``K = (i/6) A`` (A a
 random (3, 3, 3) tensor), R = Theta (``DiagonalA`` with gamma = 0, or the
@@ -129,18 +135,13 @@ def test_scalar_R_cache_with_the_delta_applied(flag, method):
     _assert_hand(_integrate(_terms(**{flag: True}), "scalar", method))
 
 
+@pytest.mark.parametrize("method", BACKENDS)
 @pytest.mark.parametrize("flags", [{}, {"diag_R": True}], ids=["default", "diag_R"])
-def test_matrix_R_cache_with_indexed_R(flags):
-    _assert_hand(_integrate(_terms(**flags), "matrix", "qmc_scalar"))
-
-
-@pytest.mark.parametrize("method", ["gauss_legendre", "qmc_vectorized"])
-@pytest.mark.parametrize("flags", [{}, {"diag_R": True}], ids=["default", "diag_R"])
-def test_matrix_R_cache_keeps_its_batched_backend_refusal(flags, method):
-    """Terms that match a matrix R still get the batched backends' existing
-    NotImplementedError; the ValueError is only for terms that contradict R."""
-    with pytest.raises(NotImplementedError, match="matrix-valued R"):
-        _integrate(_terms(**flags), "matrix", method)
+def test_matrix_R_cache_with_indexed_R(flags, method):
+    """Every backend.  ``gauss_legendre`` and ``qmc_vectorized`` raised
+    NotImplementedError for a matrix R until they learned to select its
+    entries per component assignment."""
+    _assert_hand(_integrate(_terms(**flags), "matrix", method))
 
 
 # ---------------------------------------------------------------------------
@@ -236,13 +237,43 @@ def test_parallel_integrate_diagrams_refuses_before_starting_workers(monkeypatch
 # An R absorbed into an already_R_contracted vertex
 # ---------------------------------------------------------------------------
 
+def _stale_absorbed_terms(monkeypatch):
+    """The terms compute_moment wrote before it pinned absorbed leg
+    indices: each absorbed R keeps the partner's index and the leg's own,
+    ``R_{a i_0}``."""
+    import sft_wick.perturbation as pert
+    monkeypatch.setattr(pert, "_pin_absorbed_leg_indices", lambda dt: dt)
+    return _terms(absorbed=True)
+
+
 @pytest.mark.parametrize("method", BACKENDS)
 @pytest.mark.parametrize("r_type", ["scalar", "matrix"])
-def test_absorbed_R_with_two_indices_raises(r_type, method):
-    """Returned A.sum() with either cache: the absorbed R's factor is skipped,
-    and the Kronecker delta that stands in for it was never applied."""
+def test_absorbed_R_leg_takes_its_partners_index(r_type, method):
+    """compute_moment writes the partner's index on each absorbed leg (the
+    Kronecker delta that stands in for the absorbed R) whatever diag_R says,
+    so the default flags give the hand value with either cache.  Before,
+    these terms kept ``R_{a i_0}`` and were refused; before the refusal they
+    returned ``A.sum()``."""
+    terms = _terms(absorbed=True)
+    for dt in terms:
+        absorbed = set(dt.r_absorbed_pairs)
+        assert len(absorbed) == 3
+        for p in dt.propagators:
+            if (p.spatial_left, p.spatial_right) in absorbed:
+                assert p.index_left == p.index_right, p
+    _assert_hand(_integrate(terms, r_type, method))
+
+
+@pytest.mark.parametrize("method", BACKENDS)
+@pytest.mark.parametrize("r_type", ["scalar", "matrix"])
+def test_absorbed_R_with_two_indices_raises(r_type, method, monkeypatch):
+    """A term whose absorbed R still carries two indices -- built by hand, or
+    by compute_moment before the change -- would sum the leg components
+    (``A.sum()``: the absorbed R's factor is skipped and no delta replaces
+    it), so it is refused with either cache."""
+    terms = _stale_absorbed_terms(monkeypatch)
     with pytest.raises(ValueError, match="already_R_contracted"):
-        _integrate(_terms(absorbed=True), r_type, method)
+        _integrate(terms, r_type, method)
 
 
 @pytest.mark.parametrize("method", BACKENDS)
@@ -294,8 +325,7 @@ def test_order_zero_response_mismatches_raise():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("r_type, method", [
-    *(("scalar", m) for m in BACKENDS),
-    ("matrix", "qmc_scalar"),
+    (r, m) for r in ("scalar", "matrix") for m in BACKENDS
 ])
 @pytest.mark.parametrize("flags", [{}, {"iso_R": True}], ids=["default", "iso_R"])
 def test_one_component_is_not_refused(flags, r_type, method):

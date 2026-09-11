@@ -247,11 +247,11 @@ composes cleanly with ``propagators.n_jobs > 1``,
 ``expand.n_jobs > 1``, and ``sweep.n_jobs > 1`` (same machinery
 ``c_closed_form_module`` and ``coupling_module`` use).
 
-Matrix-valued R is still available from the lower-level Python APIs,
-where callers can choose scalar-loop integration paths explicitly.  The
-L2 YAML numerical wrapper currently rejects ``linear.type: explicit``
-with ``iso_R: false`` rather than silently routing a matrix R through a
-scalar-only vectorised integrator.
+A matrix-valued explicit R (``ExplicitR(iso_R=False)``) is available from
+the L0/L1 Python APIs and runs on every ``sweep.method``.  The L2 YAML
+wrapper rejects ``linear.type: explicit`` with ``iso_R: false``.
+``linear.type: diagonal`` with component-dependent rates is also a
+matrix R, and runs from YAML on every method.
 
 Dynamic coupling (spacetime-dependent κ^(m))
 --------------------------------------------
@@ -1187,6 +1187,13 @@ Decision matrix:
      - ``qmc`` / ``qmc_scalar``
      - Compatibility / single-sample debugging
      - Slow scalar Python loop; not for production sweeps
+
+Every ``sweep.method`` accepts a matrix-valued R (``DiagonalA`` with
+component-dependent rates, ``ExplicitR(iso_R=False)``).  The batched
+methods select R's component entries per index assignment on the whole
+batch of nodes, as they do for C.  Before, ``gauss_legendre`` and
+``qmc_vectorized`` raised ``NotImplementedError`` for a matrix R, and only
+``qmc`` / ``qmc_scalar`` and ``nquad`` evaluated it.
 
 User-Python hooks
 ~~~~~~~~~~~~~~~~~

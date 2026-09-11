@@ -1086,6 +1086,58 @@ def _collect_r_absorbed_pairs(
     return tuple(sorted(pairs)), tuple(sorted(aliases))
 
 
+def _pin_absorbed_leg_indices(dt: DiagramTerm) -> DiagramTerm:
+    """Give each absorbed R's leg the component index of its partner.
+
+    An ``already_R_contracted`` callable returns the cumulant already
+    contracted with R, in the components of the partner points::
+
+        K^R_{c_1..c_m}(p_1..p_m) = Σ_i ∫dz K_{i_1..i_m}(z) Π_k R_{c_k i_k}(p_k, z_k)
+
+    The evaluators skip the absorbed ``R_{c_k i_k}``; what stands in for it
+    is ``δ_{c_k i_k}``.  So the leg's summation index ``i_k`` is renamed to
+    the partner's ``c_k`` in the coupling and the propagators, and dropped
+    from the summation indices.  Only the absorbed R propagators are
+    touched: the others keep both indices whatever ``diag_R`` says, which
+    is what a matrix-valued R needs.  Before this, only ``diag_R=True`` or
+    ``iso_R=True`` applied the delta, and they apply it to every R.
+
+    A leg index that is not one of the term's summation indices is left
+    alone, and the R-cache guard (``evaluate._r_index_mismatch``) refuses
+    the term.
+    """
+    from dataclasses import replace
+
+    absorbed = set(dt.r_absorbed_pairs)
+    if not absorbed:
+        return dt
+    summed = {name for name, _ in dt.summation_indices}
+    sub: dict[str, str] = {}
+    for p in dt.propagators:
+        if p.kind != "R":
+            continue
+        if (p.spatial_left, p.spatial_right) in absorbed:
+            partner_idx, leg_idx = p.index_left, p.index_right
+        elif (p.spatial_right, p.spatial_left) in absorbed:
+            partner_idx, leg_idx = p.index_right, p.index_left
+        else:
+            continue
+        if (partner_idx is None or leg_idx is None
+                or partner_idx == leg_idx or leg_idx not in summed):
+            continue
+        sub[leg_idx] = partner_idx
+    if not sub:
+        return dt
+    return replace(
+        dt,
+        propagators=tuple(_apply_index_sub(p, sub) for p in dt.propagators),
+        coupling_sum=simplify(_apply_index_sub(dt.coupling_sum, sub)),
+        summation_indices=tuple(
+            (name, dim) for name, dim in dt.summation_indices
+            if name not in sub),
+    )
+
+
 def _collect_symbol_names(expr: Expr) -> set[str]:
     """Walk a coupling-sum tree and return the set of unique
     :class:`~sft_wick.expressions.Symbol` names present.
@@ -1603,19 +1655,20 @@ def compute_moment(
                             ))
                             if leg_aliases else eq_time_aliases_tuple
                         )
-                        order_dterms.append(DiagramTerm(
-                            propagators=dt_props,
-                            coupling_sum=dt_coupling,
-                            rational_prefactor=prefactor,
-                            integration_vars=int_vars_sorted,
-                            summation_indices=tuple(sum_indices),
-                            n_response=sum(
-                                1 for p in dt_props if p.kind == "R"
-                            ),
-                            equal_time_aliases=merged_aliases,
-                            r_absorbed_pairs=r_absorbed_pairs,
-                            n_external_response=_n_ext_response,
-                        ))
+                        order_dterms.append(_pin_absorbed_leg_indices(
+                            DiagramTerm(
+                                propagators=dt_props,
+                                coupling_sum=dt_coupling,
+                                rational_prefactor=prefactor,
+                                integration_vars=int_vars_sorted,
+                                summation_indices=tuple(sum_indices),
+                                n_response=sum(
+                                    1 for p in dt_props if p.kind == "R"
+                                ),
+                                equal_time_aliases=merged_aliases,
+                                r_absorbed_pairs=r_absorbed_pairs,
+                                n_external_response=_n_ext_response,
+                            )))
                 else:
                     # --- Operator-level Wick contraction ---
                     wick_result, pairings = wick_contract(all_ops, ito=ito)
@@ -2746,20 +2799,21 @@ def compute_moment_numerical(
                             ))
                             if leg_aliases2 else eq_time_aliases_tuple2
                         )
-                        integrands.append(DiagramTerm(
-                            propagators=props_tuple,
-                            coupling_sum=coupling_expr,
-                            rational_prefactor=prefactor,
-                            integration_vars=int_vars_sorted,
-                            summation_indices=tuple(sum_indices),
-                            n_response=sum(
-                                1 for p in props_tuple
-                                if p.kind == "R"
-                            ),
-                            equal_time_aliases=merged_aliases2,
-                            r_absorbed_pairs=r_absorbed_pairs2,
-                            n_external_response=_n_ext_response,
-                        ))
+                        integrands.append(_pin_absorbed_leg_indices(
+                            DiagramTerm(
+                                propagators=props_tuple,
+                                coupling_sum=coupling_expr,
+                                rational_prefactor=prefactor,
+                                integration_vars=int_vars_sorted,
+                                summation_indices=tuple(sum_indices),
+                                n_response=sum(
+                                    1 for p in props_tuple
+                                    if p.kind == "R"
+                                ),
+                                equal_time_aliases=merged_aliases2,
+                                r_absorbed_pairs=r_absorbed_pairs2,
+                                n_external_response=_n_ext_response,
+                            )))
 
         # Apply diagonal constraints
         if (diag_R or diag_C) and integrands:

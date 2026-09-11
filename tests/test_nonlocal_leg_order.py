@@ -37,8 +37,8 @@ against the code before the fix.
 * **LO0** the kernels have the stated symmetries.
 * **LO1** order-1 ``<phi_a(x1) phi_b(x2) phi_c(z)>``, all 27 component
   triples, on ``gauss_legendre``, ``qmc_vectorized`` and ``qmc_scalar`` with
-  both callable contracts, on a matrix-valued R, and on ``equal_time`` and
-  ``already_R_contracted`` vertices.
+  both callable contracts, on a matrix-valued R (all three), and on
+  ``equal_time`` and ``already_R_contracted`` vertices.
 * **LO2** the same with gamma > 0 and ``z`` at an earlier time, so leg
   times move with the legs as well as leg directions.
 * **LO3** the callable is called at every leg order the contraction needs.
@@ -348,6 +348,10 @@ ROUTES = {
     "qmc_scalar-batched": ("qmc_scalar", True, False, "legs", {}),
     "qmc_scalar-matrix_R": ("qmc_scalar", False, False, "legs",
                             {"matrix_R": True}),
+    "gauss_legendre-matrix_R": ("gauss_legendre", True, True, "legs",
+                                {"matrix_R": True}),
+    "qmc_vectorized-matrix_R": ("qmc_vectorized", False, False, "legs",
+                                {"matrix_R": True}),
     "equal_time": ("gauss_legendre", True, True, "equal",
                    {"equal_time": True}),
     "already_R_contracted-gauss_legendre": ("gauss_legendre", True, True,
