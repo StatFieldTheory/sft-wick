@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1383 tests** in 49 files (parametrised
+The suite has **1578 tests** in 52 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -191,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*585 tests in 19 files.*
+*678 tests in 21 files.*
 
 .. list-table::
    :header-rows: 1
@@ -207,6 +207,11 @@ Integrators
      - raw-κ³ evaluation of the same diagram
      - 1e-12
      - 22
+   * - ``test_callable_vertex_copies.py``
+     - a callable non-local coupling at several sets of points (two copies of one vertex at order 2), and the leg structure of equal_time / already_R_contracted copies, which the coupling sum routes term by term
+     - numpy hand contraction of the order-2 six-point function (sum over the 10 partitions into triples); demo 4's Campbell closed form; the old per-instance measure shown to differ
+     - 1e-12 / 1e-3 (QMC)
+     - 55
    * - ``test_coincident_external_labels.py``
      - external operators sharing a spatial label are refused at L1 and L0 rather than silently mis-counted
      - the distinct-label spelling of the same observable
@@ -251,7 +256,7 @@ Integrators
      - tensor-product Gauss-Legendre time integration on the causal simplex
      - hand-derived quadrature; QMC
      - 1e-5
-     - 10
+     - 9
    * - ``test_gl_white_noise_kinks.py``
      - Gauss-Legendre splits the domain at kinks: unordered ends of a white-noise C, unordered parents of a multi-psi vertex; the orientations are the consistent total orders
      - linear extensions of the causal order; the exact Itô moment hierarchy
@@ -286,12 +291,17 @@ Integrators
      - causal lower bounds from external response legs, two-time observables, C-table diagonal ridge, reality projection, external_times through every backend
      - closed forms; all five backends against each other
      - 1e-6 - 1e-10
-     - 150
+     - 151
    * - ``test_nonlocal_leg_order.py``
      - leg order of a callable κ^(m): every coupling-sum term evaluated at its own legs, on each integration route and the order-2 FK channel
      - numpy hand contraction; the old leg-order-blind value shown to differ
      - 1e-12
      - 71
+   * - ``test_nquad_callable_coupling.py``
+     - callable (spacetime-dependent) couplings on adaptive quadrature, which used to refuse them: plain, equal_time and already_R_contracted vertices, both contracts, matrix R, and make_scipy_integrand
+     - gauss_legendre on the same diagrams; demo 4's closed form and exact moment hierarchy; numpy hand contraction
+     - 1e-10 - 1e-12
+     - 38
    * - ``test_r_cache_mismatch.py``
      - R-propagator indices vs the cache's R type: two-index R with a scalar-R cache, index-free R with a matrix-R cache and a two-index absorbed R raise at every entry point; matching pairs on every backend, N = 1, and L1 flag overrides
      - numpy hand contraction of the coupling (R = Θ is 1 on the domain)
@@ -301,7 +311,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*97 tests in 6 files.*
+*199 tests in 7 files.*
 
 .. list-table::
    :header-rows: 1
@@ -327,6 +337,11 @@ Workflow and YAML
      - scipy quad of the rate; Lyapunov equation of the Markov embedding
      - 1e-5 (spline) / 1e-10
      - 19
+   * - ``test_local_callable_coupling.py``
+     - a callable local coupling at L1 and in YAML: the rank contract, the MSR factor, the argument shapes, and a drift F0 (1 + beta x) exp(-lambda t) at orders 1-2 with t_min = 0.5 on every integrator
+     - exact Itô moment hierarchy of a Markov embedding with a deterministic state u = exp(-lambda t)
+     - 1e-12 (GL) / 1e-10 (nquad) / 1e-4 (QMC)
+     - 102
    * - ``test_system_t_min.py``
      - System.t_min reaches the integrators through Expansion.evaluate and sweep; a cache built for another t_min is refused
      - time-translation invariance (stationary noise, constant drift)

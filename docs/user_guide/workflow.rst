@@ -301,7 +301,9 @@ total overhead.
 Under the scalar QMC loop (``method='qmc_scalar'``, and ``'qmc'``
 when :func:`~sft_wick.evaluate.integrate_moment` selects that loop),
 the runtime calls ``k3_coupling`` once per QMC sample and leg order,
-as a batch of one (``n_samples = 1``).
+as a batch of one (``n_samples = 1``).  ``method='nquad'`` does the
+same at every point its adaptive quadrature visits; it refused a
+callable coupling up to 0.5.0.
 
 The static fast path is used automatically when no callable is
 passed.  The batched integrators call
@@ -318,6 +320,26 @@ assignment of its legs to the fields they contract with.  Each term
 calls the callable with its own leg order, so the callable is evaluated
 once per distinct leg order in the diagram (at most ``m!``) and needs
 no permutation symmetry of its own.
+
+**Several copies of one vertex.**  At order ``n >= 2`` a diagram can
+hold two or more copies of the same vertex, at different points, and
+its coupling sum also routes the legs of the copies between them.  Each
+``(copy, leg order)`` is evaluated at its own points, so the callable is
+called once per distinct leg tuple in the diagram.  Up to 0.5.0 a
+callable at more than one set of points was refused.
+
+**Local vertices.**  A :class:`~sft_wick.workflow.LocalVertex` takes the
+same two contracts for a spacetime-dependent ``F^(n)(x, t)``; the vertex
+has a single point, so ``n_list`` and ``t_list`` have length 1
+(``(1, n_samples)`` under ``coupling_vectorized=True``) and the returned
+tensor has shape ``(N,)*n``::
+
+   sw.LocalVertex("F", coupling=f_of_x_t, rank=3)
+
+``rank`` is required for a callable -- the number of legs cannot be read
+off a callable -- and is checked against the tensor when one is passed.
+The MSR factor ``-i`` is applied to the callable's output, as it is to a
+tensor.
 
 .. note::
 
@@ -610,6 +632,7 @@ fields must be present.
          # OR (for spacetime-dependent F)
          # coupling_module: ./F_dynamic.py
          # coupling_attr:   coupling_fn
+         # rank: 3                       # required for a callable coupling
          # coupling_vectorized: false
 
      nonlocal_vertices: []               # zero or more non-local κ^(m) vertices
@@ -1182,7 +1205,8 @@ Decision matrix:
    * -
      - ``nquad``
      - Adaptive 1-3D fallback when GL nodes are insufficient
-     - Slow; raises ``NotImplementedError`` on dynamic-coupling diagrams
+     - Slow; a callable coupling is evaluated once per quadrature point
+       and symbol, so cost grows with the adaptive subdivision
    * -
      - ``qmc`` / ``qmc_scalar``
      - Compatibility / single-sample debugging

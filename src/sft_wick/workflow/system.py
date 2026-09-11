@@ -278,9 +278,9 @@ class System:
         raw_vertices: list[Vertex] = []
 
         for lv in self.vertices:
-            rank = np.asarray(lv.coupling).ndim
-            # Convention: first axis = ψ, rest = φ
-            fields = [psi] + [phi] * (rank - 1)
+            # Convention: first axis = ψ, rest = φ.  ``n_legs`` reads a
+            # tensor's rank, or the declared ``rank`` of a callable.
+            fields = [psi] + [phi] * (lv.n_legs - 1)
             raw_vertices.append(
                 Vertex(fields=fields, coupling=lv.name, local=True)
             )
@@ -311,8 +311,9 @@ class System:
         Users pass the **bare** physical tensors when constructing
         :class:`LocalVertex` / :class:`NonLocalVertex`; this method
         is the single point of truth for the MSR convention.  For a
-        callable non-local coupling the returned dict value is a
-        wrapped callable that applies the factor at evaluation time.
+        callable coupling, local or non-local, the returned dict value
+        is a wrapped callable that applies the factor at evaluation
+        time.
         """
         cv: dict[str, Any] = {}
         for lv in self.vertices:
@@ -668,8 +669,9 @@ def _system_spec_key(system: System) -> Any:
         "noise_kappa2_repr": repr(system.noise.kappa2),
         "noise_sigma2_repr": repr(system.noise.sigma2),
         "vertices": tuple(
-            (v.name, np.asarray(v.coupling).shape,
-             float(np.sum(np.abs(np.asarray(v.coupling)))))
+            (v.name, "callable", v.n_legs) if callable(v.coupling)
+            else (v.name, np.asarray(v.coupling).shape,
+                  float(np.sum(np.abs(np.asarray(v.coupling)))))
             for v in system.vertices
         ),
         "nonlocal_vertices": tuple(
