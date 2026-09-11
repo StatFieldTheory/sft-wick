@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1383 tests** in 49 files (parametrised
+The suite has **1450 tests** in 51 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -191,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*585 tests in 19 files.*
+*652 tests in 21 files.*
 
 .. list-table::
    :header-rows: 1
@@ -227,6 +227,16 @@ Integrators
      - exact Itô moment hierarchy (Markov embedding of the coloured noise)
      - 1e-10 (GL, nquad) / 1e-3 - 1e-4 (QMC) / 1e-8 (order 4)
      - 37
+   * - ``test_demo7_shot3d.py``
+     - demo 7: 3-D positions with a callable kappa3 (compound-Poisson shot noise in R^3) at orders 0-2, off-diagonal component pairs, raw equal-time and R-contracted vertices, scalar and matrix R
+     - Gaussian overlap integrals against coordinate-by-coordinate quadrature; the exact Ito moment hierarchy at the three points
+     - 1e-10 (GL) / 3e-3 (QMC)
+     - 13
+   * - ``test_demo7_space.py``
+     - demo 7: the two-time <phi_a(x,t) phi_b(y,t')> at orders 0-2 on every integrator (external_times, both time orders, matrix R, a mixing white noise); a four-coefficient Legendre angular kernel at three angles; the quadrature tables of a custom and a general kappa2; integrate_over and the three-point function at order 2
+     - the exact Ito moment hierarchy of the Markov embedding at the observation points, whose two-time propagation and integrated fields are themselves checked against quadrature
+     - 1e-6 (GL, nquad) / 1e-4 - 1e-2 (QMC, coarse tables)
+     - 54
    * - ``test_diag_fast_component_labels.py``
      - observable component labels pinned through fixed_indices on a C propagator in the iso_R + diag_C scalar fast path; the Kronecker delta between C legs when il != ir
      - numpy hand contraction over the full C matrices; all five backends against each other; the label-blind value shown to differ
