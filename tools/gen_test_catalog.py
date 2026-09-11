@@ -252,6 +252,31 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "matrix R",
         "exact Itô moment hierarchy (Markov embedding of the coloured "
         "noise)", "1e-10 (GL, nquad) / 1e-3 - 1e-4 (QMC) / 1e-8 (order 4)"),
+    "tests/test_demo6_static_vertices.py": (
+        "Integrators",
+        "demo 6: two copies of one non-local vertex (the order-2 six-point "
+        "function, static and equal_time), static cumulants with F (channels "
+        "F X3, F F X4), and an m = 2 vertex, whose order-1 contribution is "
+        "the C of that noise",
+        "closed form (sum over the ten splits; C of the same noise); exact "
+        "Itô moment hierarchy at several observation times", "1e-12 / 1e-10"),
+    "tests/test_demo6_cubic_quartic.py": (
+        "Integrators",
+        "demo 6: a quartic (psi phi phi phi) and a cubic local vertex in one "
+        "system, orders 2-3 of <phi_a> and <phi_a phi_b>, channel by channel",
+        "exact Itô moment hierarchy with a cubic drift term", "1e-10 / 1e-8"),
+    "tests/test_demo6_high_cumulants.py": (
+        "Integrators",
+        "demo 6: m = 4 and m = 5 non-local vertices on every route "
+        "(R-contracted callable, raw callable, static, static equal_time), "
+        "at equal and distinct external times, matrix R on nquad",
+        "Campbell's theorem for compound-Poisson noise; the static closed "
+        "form; both demos' Itô moment hierarchies", "1e-12 / 1e-2 (raw QMC)"),
+    "tests/test_demo4_order4_channel.py": (
+        "Integrators",
+        "demo 4 at order 4: the F^3 kappa^3 channel of <phi_a phi_b> (30 "
+        "diagrams), white and exponential pulses",
+        "exact Itô moment hierarchy at tag F^3 mu^1", "1e-9 / 1e-6"),
     "tests/test_iso_c_value.py": (
         "Integrators",
         "an index-free (iso_C=True) C propagator stands for c of "

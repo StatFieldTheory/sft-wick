@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1392 tests** in 49 files (parametrised
+The suite has **1440 tests** in 53 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -191,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*594 tests in 19 files.*
+*642 tests in 23 files.*
 
 .. list-table::
    :header-rows: 1
@@ -222,11 +222,31 @@ Integrators
      - direct quadrature; Campbell closed form; exact Itô moment hierarchy
      - 1e-12 (level A) / 1e-7 (level B) / 1e-3 (raw QMC)
      - 22
+   * - ``test_demo4_order4_channel.py``
+     - demo 4 at order 4: the F^3 kappa^3 channel of <phi_a phi_b> (30 diagrams), white and exponential pulses
+     - exact Itô moment hierarchy at tag F^3 mu^1
+     - 1e-9 / 1e-6
+     - 6
    * - ``test_demo5_white_noise.py``
      - demo 5: white noise (ConstantImpulse matrix) with coloured noise, t_min = 0.5, the diag_C=False, diag_C=True and iso_C=True paths, orders 0-4 and 1-, 2-, 3-point functions on every integrator; multiplicative noise at L0 with two-psi vertices, scalar and matrix R
      - exact Itô moment hierarchy (Markov embedding of the coloured noise)
      - 1e-10 (GL, nquad) / 1e-3 - 1e-4 (QMC) / 1e-8 (order 4)
      - 37
+   * - ``test_demo6_cubic_quartic.py``
+     - demo 6: a quartic (psi phi phi phi) and a cubic local vertex in one system, orders 2-3 of <phi_a> and <phi_a phi_b>, channel by channel
+     - exact Itô moment hierarchy with a cubic drift term
+     - 1e-10 / 1e-8
+     - 8
+   * - ``test_demo6_high_cumulants.py``
+     - demo 6: m = 4 and m = 5 non-local vertices on every route (R-contracted callable, raw callable, static, static equal_time), at equal and distinct external times, matrix R on nquad
+     - Campbell's theorem for compound-Poisson noise; the static closed form; both demos' Itô moment hierarchies
+     - 1e-12 / 1e-2 (raw QMC)
+     - 16
+   * - ``test_demo6_static_vertices.py``
+     - demo 6: two copies of one non-local vertex (the order-2 six-point function, static and equal_time), static cumulants with F (channels F X3, F F X4), and an m = 2 vertex, whose order-1 contribution is the C of that noise
+     - closed form (sum over the ten splits; C of the same noise); exact Itô moment hierarchy at several observation times
+     - 1e-12 / 1e-10
+     - 18
    * - ``test_diag_fast_component_labels.py``
      - observable component labels pinned through fixed_indices on a C propagator in the iso_R + diag_C scalar fast path; the Kronecker delta between C legs when il != ir
      - numpy hand contraction over the full C matrices; all five backends against each other; the label-blind value shown to differ

@@ -1,0 +1,8125 @@
+{
+ "positions": {
+  "x": 0.0,
+  "y": 0.8,
+  "z": -0.5,
+  "w": 1.3,
+  "v": 0.4
+ },
+ "t": 1.7,
+ "unequal": {
+  "x": 1.7,
+  "y": 1.2,
+  "z": 0.6,
+  "w": 1.45,
+  "v": 0.95
+ },
+ "static_times": {
+  "x": 2.0,
+  "y": 1.5,
+  "z": 0.8999999999999999,
+  "w": 1.75,
+  "v": 1.25
+ },
+ "worst": {
+  "white | m=4 | R-contracted | gauss_legendre | equal times": 5.438337630687143e-16,
+  "white | m=4 | R-contracted | gauss_legendre | distinct times": 6.581898847659803e-16,
+  "white | m=4 | raw | gauss_legendre | equal times": 9.98025381538804e-16,
+  "white | m=4 | hierarchy | expm | equal times": 1.8101266914178012e-16,
+  "white | m=4 | hierarchy | expm | distinct times": 6.366742973205155e-16,
+  "exponential | m=4 | R-contracted | gauss_legendre | equal times": 2.1967801563380116e-14,
+  "exponential | m=4 | R-contracted | gauss_legendre | distinct times": 7.500406942115028e-15,
+  "exponential | m=4 | raw | qmc_vectorized | equal times": 2.5415941915063415e-05,
+  "exponential | m=4 | raw | gauss_legendre | equal times": 0.11775643137328658,
+  "exponential | m=4 | hierarchy | expm | equal times": 1.92760010013491e-13,
+  "exponential | m=4 | hierarchy | expm | distinct times": 3.120949016743472e-14,
+  "static static | m=4 | X4 | gauss_legendre | distinct times | rates [1.05, 1.05]": 2.4452257766489324e-16,
+  "static static | m=4 | X4 | qmc_vectorized | distinct times | rates [1.05, 1.05]": 1.1174072612037132e-07,
+  "static static | m=4 | hierarchy | expm | distinct times | rates [1.05, 1.05]": 8.150752588829775e-16,
+  "static equal_time | m=4 | J4 | gauss_legendre | distinct times | rates [1.05, 1.05]": 5.176754229346559e-16,
+  "static equal_time | m=4 | J4 | qmc_vectorized | distinct times | rates [1.05, 1.05]": 9.778887013650908e-10,
+  "static equal_time | m=4 | J4 | nquad | distinct times | rates [1.05, 1.05]": 3.01977330045216e-16,
+  "static equal_time | m=4 | hierarchy | expm | distinct times | rates [1.05, 1.05]": 1.0569206551582559e-15,
+  "static static | m=4 | X4 | qmc_scalar | distinct times | rates [0.8, 1.3]": 6.29801422155853e-07,
+  "static static | m=4 | hierarchy | expm | distinct times | rates [0.8, 1.3]": 7.988442588306303e-16,
+  "static equal_time | m=4 | J4 | qmc_scalar | distinct times | rates [0.8, 1.3]": 9.778236373349443e-10,
+  "static equal_time | m=4 | J4 | nquad | distinct times | rates [0.8, 1.3]": 4.479530597496298e-16,
+  "static equal_time | m=4 | hierarchy | expm | distinct times | rates [0.8, 1.3]": 9.7666754201307e-16,
+  "white | m=5 | R-contracted | gauss_legendre | equal times": 2.544799334777564e-15,
+  "white | m=5 | R-contracted | gauss_legendre | distinct times": 2.808504657901362e-15,
+  "white | m=5 | raw | gauss_legendre | equal times": 3.608203132802635e-15,
+  "white | m=5 | hierarchy | expm | equal times": 4.639523106959877e-16,
+  "white | m=5 | hierarchy | expm | distinct times": 9.241592097000873e-16,
+  "exponential | m=5 | R-contracted | gauss_legendre | equal times": 8.808231997586831e-13,
+  "exponential | m=5 | R-contracted | gauss_legendre | distinct times": 3.3776954891975415e-14,
+  "exponential | m=5 | raw | qmc_vectorized | equal times": 0.0017095263453161904,
+  "exponential | m=5 | hierarchy | expm | equal times": 8.231396040962255e-13,
+  "exponential | m=5 | hierarchy | expm | distinct times": 3.2282398131455396e-14,
+  "static static | m=5 | X5 | gauss_legendre | distinct times | rates [1.05, 1.05]": 2.899299067736676e-16,
+  "static static | m=5 | X5 | qmc_vectorized | distinct times | rates [1.05, 1.05]": 1.152389088445931e-06,
+  "static static | m=5 | hierarchy | expm | distinct times | rates [1.05, 1.05]": 2.899299067736676e-16,
+  "static equal_time | m=5 | J5 | gauss_legendre | distinct times | rates [1.05, 1.05]": 5.157201967040526e-16,
+  "static equal_time | m=5 | J5 | qmc_vectorized | distinct times | rates [1.05, 1.05]": 1.2223609270638508e-09,
+  "static equal_time | m=5 | J5 | nquad | distinct times | rates [1.05, 1.05]": 1.7190673223468422e-16,
+  "static equal_time | m=5 | hierarchy | expm | distinct times | rates [1.05, 1.05]": 3.8679014752803946e-16,
+  "static static | m=5 | X5 | qmc_scalar | distinct times | rates [0.8, 1.3]": 4.93591229463553e-06,
+  "static static | m=5 | hierarchy | expm | distinct times | rates [0.8, 1.3]": 5.844407107088418e-16,
+  "static equal_time | m=5 | J5 | qmc_scalar | distinct times | rates [0.8, 1.3]": 1.1640044446459156e-09,
+  "static equal_time | m=5 | J5 | nquad | distinct times | rates [0.8, 1.3]": 4.701059127504904e-16,
+  "static equal_time | m=5 | hierarchy | expm | distinct times | rates [0.8, 1.3]": 1.2927912600638484e-15
+ },
+ "rows": [
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.019036018870196757,
+   "reference": 0.01903601887019675,
+   "rel": 3.645139223291551e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.03827765601432777,
+   "reference": -0.03827765601432779,
+   "rel": 5.438337630687143e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.0382776560143278,
+   "reference": -0.0382776560143278,
+   "rel": 0.0
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.0562557073238074,
+   "reference": 0.05625570732380742,
+   "rel": 3.700367963005251e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": -0.017735743500887163,
+   "reference": -0.017735743500887163,
+   "rel": 0.0
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": 0.04662217595628349,
+   "reference": 0.04662217595628349,
+   "rel": 0.0
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": 0.031872803710339785,
+   "reference": 0.0318728037103398,
+   "rel": 4.3541157953771067e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": -0.057117927521135314,
+   "reference": -0.05711792752113533,
+   "rel": 2.429672855808584e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": -0.01773574350088716,
+   "reference": -0.017735743500887163,
+   "rel": 1.9561891790891474e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": 0.031872803710339785,
+   "reference": 0.0318728037103398,
+   "rel": 4.3541157953771067e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": 0.04662217595628349,
+   "reference": 0.0466221759562835,
+   "rel": 1.4883247642524586e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": -0.057117927521135314,
+   "reference": -0.057117927521135335,
+   "rel": 3.644509283712875e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": 0.015824225520199627,
+   "reference": 0.015824225520199624,
+   "rel": 2.192490841036653e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.03833374722778254,
+   "reference": -0.03833374722778252,
+   "rel": 3.6202533828356024e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": -0.03833374722778253,
+   "reference": -0.03833374722778251,
+   "rel": 5.430380074253405e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": 0.055620981448054996,
+   "reference": 0.055620981448055,
+   "rel": 1.247531726923505e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.001353031133826711,
+   "reference": 0.0013530311338267112,
+   "rel": 1.6026270872557218e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.0027206770843445516,
+   "reference": -0.0027206770843445516,
+   "rel": 0.0
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.002720677084344552,
+   "reference": -0.0027206770843445525,
+   "rel": 1.5940181636759045e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.003998510612096704,
+   "reference": 0.003998510612096703,
+   "rel": 4.338424089031412e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": -0.0012606109135474429,
+   "reference": -0.0012606109135474427,
+   "rel": 1.7201218247976097e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": 0.003313784044118606,
+   "reference": 0.0033137840441186065,
+   "rel": 1.3087179587454115e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": 0.0022654366985291577,
+   "reference": 0.0022654366985291577,
+   "rel": 0.0
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": -0.0040597950003479315,
+   "reference": -0.0040597950003479315,
+   "rel": 0.0
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": -0.0012606109135474429,
+   "reference": -0.0012606109135474427,
+   "rel": 1.7201218247976097e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": 0.0022654366985291577,
+   "reference": 0.0022654366985291577,
+   "rel": 0.0
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": 0.003313784044118606,
+   "reference": 0.003313784044118607,
+   "rel": 2.617435917490823e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": -0.004059795000347932,
+   "reference": -0.004059795000347932,
+   "rel": 0.0
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": 0.0011247451446397938,
+   "reference": 0.0011247451446397933,
+   "rel": 3.8558145466197215e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.0027246639031566107,
+   "reference": -0.002724663903156609,
+   "rel": 6.366742973205155e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": -0.002724663903156609,
+   "reference": -0.002724663903156608,
+   "rel": 3.1833714866025783e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": 0.003953395933591998,
+   "reference": 0.0039533959335919956,
+   "rel": 6.581898847659803e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.019036018870196736,
+   "reference": 0.01903601887019675,
+   "rel": 7.290278446583102e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.03827765601432779,
+   "reference": -0.03827765601432779,
+   "rel": 0.0
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.03827765601432779,
+   "reference": -0.0382776560143278,
+   "rel": 3.6255584204580937e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.056255707323807386,
+   "reference": 0.05625570732380742,
+   "rel": 6.167279938342086e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": -0.017735743500887153,
+   "reference": -0.017735743500887163,
+   "rel": 5.868567537267442e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": 0.046622175956283464,
+   "reference": 0.04662217595628349,
+   "rel": 5.953299057009835e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": 0.031872803710339785,
+   "reference": 0.0318728037103398,
+   "rel": 4.3541157953771067e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": -0.05711792752113531,
+   "reference": -0.05711792752113533,
+   "rel": 3.6445092837128757e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": -0.017735743500887153,
+   "reference": -0.017735743500887163,
+   "rel": 5.868567537267442e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": 0.031872803710339785,
+   "reference": 0.0318728037103398,
+   "rel": 4.3541157953771067e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": 0.04662217595628347,
+   "reference": 0.0466221759562835,
+   "rel": 5.953299057009834e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": -0.05711792752113531,
+   "reference": -0.057117927521135335,
+   "rel": 4.859345711617167e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": 0.015824225520199613,
+   "reference": 0.015824225520199624,
+   "rel": 6.577472523109959e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.03833374722778249,
+   "reference": -0.03833374722778252,
+   "rel": 9.050633457089005e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": -0.038333747227782475,
+   "reference": -0.03833374722778251,
+   "rel": 9.05063345708901e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": 0.05562098144805495,
+   "reference": 0.055620981448055,
+   "rel": 9.98025381538804e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": 0.0318728037103398,
+   "reference": 0.0318728037103398,
+   "rel": 0.0
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": 0.002265436698529158,
+   "reference": 0.0022654366985291577,
+   "rel": 1.9143367337333703e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.038333747227782516,
+   "reference": -0.03833374722778252,
+   "rel": 1.8101266914178012e-16
+  },
+  {
+   "noise": "white",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.0027246639031566107,
+   "reference": -0.002724663903156609,
+   "rel": 6.366742973205155e-16
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 5.633050872477938e-05,
+   "reference": 5.633050872477936e-05,
+   "rel": 3.608842027936582e-16
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.0002813799540791701,
+   "reference": -0.00028137995407917,
+   "rel": 3.8531606703598e-16
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.00028137995407917016,
+   "reference": -0.0002813799540791701,
+   "rel": 1.9265803351798994e-16
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.0011910437717646094,
+   "reference": 0.001191043771764599,
+   "rel": 8.738839917226799e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": -0.00013037586967110971,
+   "reference": -0.00013037586967110985,
+   "rel": 1.0394965870798656e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": 0.0009870829990496852,
+   "reference": 0.0009870829990496727,
+   "rel": 1.2741324906760911e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": 0.0006748098309273357,
+   "reference": 0.0006748098309273477,
+   "rel": 1.7834126835482913e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": -0.004193742880450948,
+   "reference": -0.004193742880450944,
+   "rel": 8.272912886782778e-16
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": -0.00013037586967110974,
+   "reference": -0.00013037586967110985,
+   "rel": 8.315972696638925e-16
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": 0.0006748098309273357,
+   "reference": 0.0006748098309273295,
+   "rel": 9.158065131734716e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": 0.0009870829990496854,
+   "reference": 0.0009870829990497071,
+   "rel": 2.1967801563380116e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": -0.004193742880450948,
+   "reference": -0.0041937428804509225,
+   "rel": 5.997861842917545e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": 0.0003350299222147751,
+   "reference": 0.0003350299222147721,
+   "rel": 9.061178962437046e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.0028145607954355944,
+   "reference": -0.002814560795435605,
+   "rel": 3.852118505465447e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": -0.002814560795435593,
+   "reference": -0.0028145607954356043,
+   "rel": 4.006203245684067e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": 0.019881152129103016,
+   "reference": 0.019881152129103016,
+   "rel": 0.0
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 1.2196074930535492e-05,
+   "reference": 1.2196074930535487e-05,
+   "rel": 4.1670764672012886e-16
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.00010108143811915424,
+   "reference": -0.00010108143811915432,
+   "rel": 8.044519790127927e-16
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -3.963593820140671e-05,
+   "reference": -3.9635938201406784e-05,
+   "rel": 1.880588747000641e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.0002576312677864491,
+   "reference": 0.00025763126778644783,
+   "rel": 4.8396008336683624e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": -3.6511084539454304e-05,
+   "reference": -3.651108453945437e-05,
+   "rel": 1.8559469441976944e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": 0.0004208528533282785,
+   "reference": 0.0004208528533282781,
+   "rel": 1.0304809996284317e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": 0.00011420611560535067,
+   "reference": 0.00011420611560535038,
+   "rel": 2.610679785869064e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": -0.001015636996161304,
+   "reference": -0.001015636996161306,
+   "rel": 2.135019060123542e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": -5.898150646942681e-05,
+   "reference": -5.8981506469426846e-05,
+   "rel": 5.744396831867027e-16
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": 0.0004621995509520078,
+   "reference": 0.0004621995509520068,
+   "rel": 2.228457517407195e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": 0.0002680290963759233,
+   "reference": 0.0002680290963759226,
+   "rel": 2.62930936097759e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": -0.0016185276144616999,
+   "reference": -0.00161852761446171,
+   "rel": 6.296772653306401e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": 0.00017939401574668497,
+   "reference": 0.000179394015746685,
+   "rel": 1.5109229925713662e-16
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.002119434928074847,
+   "reference": -0.002119434928074848,
+   "rel": 6.138629640138962e-16
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": -0.0008528594337656839,
+   "reference": -0.0008528594337656903,
+   "rel": 7.500406942115028e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": 0.008629713012995647,
+   "reference": 0.008629713012995586,
+   "rel": 7.035613069375115e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "raw",
+   "method": "qmc_vectorized",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 5.633121006815646e-05,
+   "reference": 5.633050872477936e-05,
+   "rel": 1.2450506714310308e-05
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "raw",
+   "method": "qmc_vectorized",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.0002813822679402833,
+   "reference": -0.00028137995407917,
+   "rel": 8.223262104309779e-06
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "raw",
+   "method": "qmc_vectorized",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.00028137280254260117,
+   "reference": -0.0002813799540791701,
+   "rel": 2.5415941915063415e-05
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "raw",
+   "method": "qmc_vectorized",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.0011910291171662196,
+   "reference": 0.001191043771764599,
+   "rel": 1.2303996483437158e-05
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 6.296378840965116e-05,
+   "reference": 5.633050872477936e-05,
+   "rel": 0.11775643137328658
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.00030253568570331524,
+   "reference": -0.00028137995407917,
+   "rel": 0.0751856389108401
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": 0.0006748098309274096,
+   "reference": 0.0006748098309273477,
+   "rel": 9.174131912667336e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": 0.00011420611560535394,
+   "reference": 0.00011420611560535038,
+   "rel": 3.120949016743472e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.0028145607954350627,
+   "reference": -0.002814560795435605,
+   "rel": 1.92760010013491e-13
+  },
+  {
+   "noise": "exponential",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.0021194349280748473,
+   "reference": -0.002119434928074848,
+   "rel": 4.0924197600926416e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.1276979118483487,
+   "reference": 0.12769791184834867,
+   "rel": 2.17353402368794e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.04256597061611623,
+   "reference": -0.04256597061611622,
+   "rel": 1.630150517765955e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.04256597061611623,
+   "reference": -0.04256597061611622,
+   "rel": 1.630150517765955e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.06384895592417435,
+   "reference": 0.06384895592417433,
+   "rel": 2.17353402368794e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": -0.04256597061611623,
+   "reference": -0.04256597061611622,
+   "rel": 1.630150517765955e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": 0.06384895592417435,
+   "reference": 0.06384895592417433,
+   "rel": 2.17353402368794e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": 0.06384895592417435,
+   "reference": 0.06384895592417433,
+   "rel": 2.17353402368794e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": 0.02837731374407749,
+   "reference": 0.02837731374407748,
+   "rel": 2.4452257766489324e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": -0.04256597061611623,
+   "reference": -0.04256597061611622,
+   "rel": 1.630150517765955e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": 0.06384895592417435,
+   "reference": 0.06384895592417433,
+   "rel": 2.17353402368794e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": 0.06384895592417435,
+   "reference": 0.06384895592417433,
+   "rel": 2.17353402368794e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": 0.02837731374407749,
+   "reference": 0.02837731374407748,
+   "rel": 2.4452257766489324e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": 0.06384895592417435,
+   "reference": 0.06384895592417433,
+   "rel": 2.17353402368794e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": 0.02837731374407749,
+   "reference": 0.02837731374407748,
+   "rel": 2.4452257766489324e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": 0.02837731374407749,
+   "reference": 0.02837731374407748,
+   "rel": 2.4452257766489324e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": -0.0993205981042712,
+   "reference": -0.09932059810427118,
+   "rel": 1.3972718723708185e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "qmc_vectorized",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.12769792611740605,
+   "reference": 0.12769791184834867,
+   "rel": 1.1174072601169462e-07
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "qmc_vectorized",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.04256597537246869,
+   "reference": -0.04256597061611622,
+   "rel": 1.1174072612037132e-07
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "qmc_vectorized",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.04256597537246869,
+   "reference": -0.04256597061611622,
+   "rel": 1.1174072612037132e-07
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "qmc_vectorized",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.06384896305870302,
+   "reference": 0.06384895592417433,
+   "rel": 1.1174072601169462e-07
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.1276979118483487,
+   "reference": 0.12769791184834867,
+   "rel": 2.17353402368794e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.04256597061611619,
+   "reference": -0.04256597061611622,
+   "rel": 8.150752588829775e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.042565970616116215,
+   "reference": -0.04256597061611622,
+   "rel": 1.630150517765955e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.06384895592417436,
+   "reference": 0.06384895592417433,
+   "rel": 4.34706804737588e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.007898754449915035,
+   "reference": 0.007898754449915031,
+   "rel": 4.392397527930414e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.002872274345423649,
+   "reference": -0.0028722743454236478,
+   "rel": 4.52965995067824e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.002872274345423649,
+   "reference": -0.0028722743454236478,
+   "rel": 4.52965995067824e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.005026480104491386,
+   "reference": 0.005026480104491383,
+   "rel": 5.176754229346559e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": -0.002872274345423649,
+   "reference": -0.0028722743454236478,
+   "rel": 4.52965995067824e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": 0.005026480104491386,
+   "reference": 0.005026480104491383,
+   "rel": 5.176754229346559e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": 0.005026480104491386,
+   "reference": 0.005026480104491383,
+   "rel": 5.176754229346559e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": -0.006462617277203209,
+   "reference": -0.006462617277203208,
+   "rel": 1.3421214668676265e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": -0.002872274345423649,
+   "reference": -0.0028722743454236478,
+   "rel": 4.52965995067824e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": 0.005026480104491386,
+   "reference": 0.005026480104491383,
+   "rel": 5.176754229346559e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": 0.005026480104491386,
+   "reference": 0.005026480104491383,
+   "rel": 5.176754229346559e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": -0.006462617277203209,
+   "reference": -0.006462617277203208,
+   "rel": 1.3421214668676265e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": 0.005026480104491386,
+   "reference": 0.005026480104491383,
+   "rel": 5.176754229346559e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.006462617277203209,
+   "reference": -0.006462617277203208,
+   "rel": 1.3421214668676265e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": -0.006462617277203209,
+   "reference": -0.006462617277203208,
+   "rel": 1.3421214668676265e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": 0.0035903429317795613,
+   "reference": 0.0035903429317795596,
+   "rel": 4.831637280723456e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "qmc_vectorized",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.00789875444219093,
+   "reference": 0.007898754449915031,
+   "rel": 9.778884660580803e-10
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "qmc_vectorized",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.0028722743426148837,
+   "reference": -0.0028722743454236478,
+   "rel": 9.77888507236807e-10
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "qmc_vectorized",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.0028722743426148837,
+   "reference": -0.0028722743454236478,
+   "rel": 9.77888507236807e-10
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "qmc_vectorized",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.005026480099576045,
+   "reference": 0.005026480104491383,
+   "rel": 9.778887013650908e-10
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "nquad",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.007898754449915033,
+   "reference": 0.007898754449915031,
+   "rel": 2.196198763965207e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "nquad",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.0028722743454236486,
+   "reference": -0.0028722743454236478,
+   "rel": 3.01977330045216e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "nquad",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.0028722743454236486,
+   "reference": -0.0028722743454236478,
+   "rel": 3.01977330045216e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "nquad",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.005026480104491383,
+   "reference": 0.005026480104491383,
+   "rel": 0.0
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.007898754449915033,
+   "reference": 0.007898754449915031,
+   "rel": 2.196198763965207e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.002872274345423651,
+   "reference": -0.0028722743454236478,
+   "rel": 1.0569206551582559e-15
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.002872274345423651,
+   "reference": -0.0028722743454236478,
+   "rel": 1.0569206551582559e-15
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.0050264801044913815,
+   "reference": 0.005026480104491383,
+   "rel": 3.45116948623104e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "qmc_scalar",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.20212354453727072,
+   "reference": 0.20212352728402766,
+   "rel": 8.535989495282322e-08
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "qmc_scalar",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.05192619584031368,
+   "reference": -0.05192619016914054,
+   "rel": 1.092160453854751e-07
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "qmc_scalar",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.060108538714063894,
+   "reference": -0.06010851670999648,
+   "rel": 3.66072374095226e-07
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "X4",
+   "method": "qmc_scalar",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.06948937240097161,
+   "reference": 0.06948932863649361,
+   "rel": 6.29801422155853e-07
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.20212352728402766,
+   "reference": 0.20212352728402766,
+   "rel": 0.0
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.05192619016914053,
+   "reference": -0.05192619016914054,
+   "rel": 1.3362994437498664e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.06010851670999646,
+   "reference": -0.06010851670999648,
+   "rel": 3.4631833974801315e-16
+  },
+  {
+   "noise": "static static",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.06948932863649356,
+   "reference": 0.06948932863649361,
+   "rel": 7.988442588306303e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "qmc_scalar",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.017836563049837863,
+   "reference": 0.017836563063126826,
+   "rel": 7.450406018490051e-10
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "qmc_scalar",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.0038725563688570934,
+   "reference": -0.003872556372193059,
+   "rel": 8.614375873989698e-10
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "qmc_scalar",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.005923425121410212,
+   "reference": -0.005923425126512876,
+   "rel": 8.614380771449572e-10
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "qmc_scalar",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.006216580257666315,
+   "reference": 0.006216580263745034,
+   "rel": 9.778236373349443e-10
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "nquad",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.017836563063126826,
+   "reference": 0.017836563063126826,
+   "rel": 0.0
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "nquad",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.0038725563721930607,
+   "reference": -0.003872556372193059,
+   "rel": 4.479530597496298e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "nquad",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.005923425126512875,
+   "reference": -0.005923425126512876,
+   "rel": 1.4642908781038648e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "J4",
+   "method": "nquad",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.006216580263745035,
+   "reference": 0.006216580263745034,
+   "rel": 1.3952393457329572e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.017836563063126813,
+   "reference": 0.017836563063126826,
+   "rel": 7.780527985519661e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.00387255637219306,
+   "reference": -0.003872556372193059,
+   "rel": 2.239765298748149e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.005923425126512873,
+   "reference": -0.005923425126512876,
+   "rel": 5.857163512415459e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 4,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.006216580263745028,
+   "reference": 0.006216580263745034,
+   "rel": 9.7666754201307e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.013633479483194155,
+   "reference": 0.01363347948319419,
+   "rel": 2.544799334777564e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.010293919423209617,
+   "reference": -0.010293919423209617,
+   "rel": 0.0
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.025816776369718724,
+   "reference": -0.02581677636971869,
+   "rel": 1.3438730313452448e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.020263746719263998,
+   "reference": 0.02026374671926396,
+   "rel": 1.8833593313327785e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": -0.025816776369718724,
+   "reference": -0.02581677636971869,
+   "rel": 1.3438730313452448e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": 0.020263746719263998,
+   "reference": 0.02026374671926396,
+   "rel": 1.8833593313327785e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": 0.03827122591927559,
+   "reference": 0.03827122591927568,
+   "rel": 2.357008916857325e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": -0.029866272291982104,
+   "reference": -0.02986627229198216,
+   "rel": 1.8586568383413634e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": -0.012344088756319547,
+   "reference": -0.012344088756319527,
+   "rel": 1.5458377375953259e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": 0.009494663581564498,
+   "reference": 0.009494663581564484,
+   "rel": 1.461640814189621e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": 0.028014145634693118,
+   "reference": 0.02801414563469318,
+   "rel": 2.2292325437840905e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": -0.02364113467695908,
+   "reference": -0.023641134676959108,
+   "rel": 1.1740373715090664e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": 0.021288721563832148,
+   "reference": 0.021288721563832127,
+   "rel": 9.778267637774736e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.016806806266420043,
+   "reference": -0.016806806266420057,
+   "rel": 8.257242683603863e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": -0.03626118660972657,
+   "reference": -0.036261186609726624,
+   "rel": 1.530869682471109e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": 0.029527881994541927,
+   "reference": 0.029527881994541892,
+   "rel": 1.1749731838521053e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": -0.012344088756319547,
+   "reference": -0.012344088756319527,
+   "rel": 1.5458377375953259e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": 0.009494663581564498,
+   "reference": 0.00949466358156448,
+   "rel": 2.00975611951073e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": 0.021288721563832148,
+   "reference": 0.02128872156383212,
+   "rel": 1.3037690183699651e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": -0.016806806266420043,
+   "reference": -0.016806806266420057,
+   "rel": 8.257242683603863e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": 0.028014145634693118,
+   "reference": 0.028014145634693177,
+   "rel": 2.1053862913516413e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": -0.02364113467695908,
+   "reference": -0.023641134676959108,
+   "rel": 1.1740373715090664e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": -0.03626118660972657,
+   "reference": -0.036261186609726624,
+   "rel": 1.530869682471109e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": 0.029527881994541927,
+   "reference": 0.02952788199454189,
+   "rel": 1.292470502237316e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": 0.010765352329413018,
+   "reference": 0.010765352329413022,
+   "rel": 3.2227899708162966e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": -0.008401114316733632,
+   "reference": -0.00840111431673362,
+   "rel": 1.4454111530955708e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": -0.02243407483033547,
+   "reference": -0.022434074830335476,
+   "rel": 3.093015404639918e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": 0.01919345502909872,
+   "reference": 0.019193455029098756,
+   "rel": 1.807619809301486e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": -0.02243407483033547,
+   "reference": -0.022434074830335476,
+   "rel": 3.093015404639918e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": 0.01919345502909872,
+   "reference": 0.019193455029098756,
+   "rel": 1.807619809301486e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": 0.032830881661430084,
+   "reference": 0.032830881661430035,
+   "rel": 1.4794685634170358e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": -0.027884783063337165,
+   "reference": -0.02788478306333711,
+   "rel": 1.9907327629255914e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.0007129548407649151,
+   "reference": 0.0007129548407649142,
+   "rel": 1.2165731802281186e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.0005383144994106661,
+   "reference": -0.0005383144994106663,
+   "rel": 4.0281366140888375e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.0013500732302729644,
+   "reference": -0.001350073230272966,
+   "rel": 1.2849106530510719e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.0010596807904645457,
+   "reference": 0.001059680790464546,
+   "rel": 2.046280695548343e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": -0.0013500732302729641,
+   "reference": -0.001350073230272966,
+   "rel": 1.445524484682456e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": 0.0010596807904645457,
+   "reference": 0.001059680790464546,
+   "rel": 2.046280695548343e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": 0.0020013713898047766,
+   "reference": 0.0020013713898047758,
+   "rel": 4.3338370000033357e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": -0.0015618392525854944,
+   "reference": -0.0015618392525854963,
+   "rel": 1.2495293015867378e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": -0.0006455269063556637,
+   "reference": -0.0006455269063556636,
+   "rel": 1.6795615516731777e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": 0.0004965178823392157,
+   "reference": 0.0004965178823392167,
+   "rel": 1.965250376562084e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": 0.0014649833716160326,
+   "reference": 0.00146498337161603,
+   "rel": 1.7761875420434556e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": -0.0012362993196190523,
+   "reference": -0.0012362993196190512,
+   "rel": 8.76973848711319e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": 0.0011132812508604384,
+   "reference": 0.0011132812508604368,
+   "rel": 1.3634317835736111e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.0008789021100749018,
+   "reference": -0.0008789021100749032,
+   "rel": 1.6036630337718001e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": -0.0018962575589857806,
+   "reference": -0.0018962575589857767,
+   "rel": 2.058332109186383e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": 0.0015441433297709818,
+   "reference": 0.0015441433297709783,
+   "rel": 2.2468425599249197e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": -0.0006455269063556637,
+   "reference": -0.0006455269063556636,
+   "rel": 1.6795615516731777e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": 0.0004965178823392157,
+   "reference": 0.0004965178823392164,
+   "rel": 1.3101669177080567e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": 0.0011132812508604384,
+   "reference": 0.0011132812508604364,
+   "rel": 1.7529837217375007e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": -0.0008789021100749018,
+   "reference": -0.0008789021100749032,
+   "rel": 1.6036630337718001e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": 0.0014649833716160326,
+   "reference": 0.0014649833716160296,
+   "rel": 2.0722187990506988e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": -0.0012362993196190523,
+   "reference": -0.0012362993196190512,
+   "rel": 8.76973848711319e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": -0.001896257558985781,
+   "reference": -0.0018962575589857767,
+   "rel": 2.287035676873759e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": 0.0015441433297709818,
+   "reference": 0.001544143329770978,
+   "rel": 2.3872702199202274e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": 0.0005629678076866582,
+   "reference": 0.0005629678076866576,
+   "rel": 9.629344322019926e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": -0.00043933136271763755,
+   "reference": -0.00043933136271763777,
+   "rel": 4.935692119855923e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": -0.0011731768304698857,
+   "reference": -0.0011731768304698875,
+   "rel": 1.4786547355201396e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": 0.0010037105121159901,
+   "reference": 0.0010037105121159873,
+   "rel": 2.808504657901362e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": -0.0011731768304698857,
+   "reference": -0.0011731768304698875,
+   "rel": 1.4786547355201396e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": 0.0010037105121159901,
+   "reference": 0.0010037105121159873,
+   "rel": 2.808504657901362e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": 0.0017168717667379024,
+   "reference": 0.0017168717667379054,
+   "rel": 1.7681961703682946e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": -0.001458218431559768,
+   "reference": -0.0014582184315597663,
+   "rel": 1.18961839902221e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.013633479483194143,
+   "reference": 0.01363347948319419,
+   "rel": 3.4354791019497113e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.010293919423209626,
+   "reference": -0.010293919423209617,
+   "rel": 8.425961991044636e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.025816776369718724,
+   "reference": -0.02581677636971869,
+   "rel": 1.3438730313452448e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.02026374671926389,
+   "reference": 0.02026374671926396,
+   "rel": 3.4242896933323247e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": -0.025816776369718724,
+   "reference": -0.02581677636971869,
+   "rel": 1.3438730313452448e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": 0.02026374671926389,
+   "reference": 0.02026374671926396,
+   "rel": 3.4242896933323247e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": 0.03827122591927576,
+   "reference": 0.03827122591927568,
+   "rel": 1.9943921604177366e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": -0.029866272291982153,
+   "reference": -0.02986627229198216,
+   "rel": 2.3233210479267043e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": -0.012344088756319493,
+   "reference": -0.012344088756319527,
+   "rel": 2.810614068355138e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": 0.009494663581564457,
+   "reference": 0.009494663581564484,
+   "rel": 2.923281628379242e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": 0.028014145634693132,
+   "reference": 0.02801414563469318,
+   "rel": 1.7338475340542927e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": -0.023641134676959087,
+   "reference": -0.023641134676959108,
+   "rel": 8.805280286317998e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": 0.021288721563832165,
+   "reference": 0.021288721563832127,
+   "rel": 1.7926824002587015e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.016806806266420074,
+   "reference": -0.016806806266420057,
+   "rel": 1.0321553354504828e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": -0.03626118660972655,
+   "reference": -0.036261186609726624,
+   "rel": 2.104945813397775e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": 0.029527881994541837,
+   "reference": 0.029527881994541892,
+   "rel": 1.8799570941633685e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": -0.012344088756319493,
+   "reference": -0.012344088756319527,
+   "rel": 2.810614068355138e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": 0.009494663581564457,
+   "reference": 0.00949466358156448,
+   "rel": 2.3751663230581354e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": 0.021288721563832165,
+   "reference": 0.02128872156383212,
+   "rel": 2.1186246548511933e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": -0.016806806266420074,
+   "reference": -0.016806806266420057,
+   "rel": 1.0321553354504828e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": 0.028014145634693132,
+   "reference": 0.028014145634693177,
+   "rel": 1.6100012816218433e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": -0.023641134676959087,
+   "reference": -0.023641134676959108,
+   "rel": 8.805280286317998e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": -0.036261186609726555,
+   "reference": -0.036261186609726624,
+   "rel": 1.9135871030888864e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": 0.029527881994541837,
+   "reference": 0.02952788199454189,
+   "rel": 1.7624597757781583e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": 0.010765352329413029,
+   "reference": 0.010765352329413022,
+   "rel": 6.445579941632593e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": -0.008401114316733616,
+   "reference": -0.00840111431673362,
+   "rel": 4.129746151701631e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": -0.02243407483033542,
+   "reference": -0.022434074830335476,
+   "rel": 2.4744123237119344e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": 0.019193455029098784,
+   "reference": 0.019193455029098756,
+   "rel": 1.4460958474411888e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": -0.02243407483033542,
+   "reference": -0.022434074830335476,
+   "rel": 2.4744123237119344e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": 0.019193455029098784,
+   "reference": 0.019193455029098756,
+   "rel": 1.4460958474411888e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": 0.03283088166142993,
+   "reference": 0.032830881661430035,
+   "rel": 3.1702897787507908e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "raw",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": -0.02788478306333701,
+   "reference": -0.02788478306333711,
+   "rel": 3.608203132802635e-15
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.01680680626642005,
+   "reference": -0.016806806266420057,
+   "rel": 4.1286213418019314e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.0008789021100749038,
+   "reference": -0.0008789021100749032,
+   "rel": 7.401521694331385e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": -0.022434074830335465,
+   "reference": -0.022434074830335476,
+   "rel": 4.639523106959877e-16
+  },
+  {
+   "noise": "white",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": -0.0011731768304698886,
+   "reference": -0.0011731768304698875,
+   "rel": 9.241592097000873e-16
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 8.02565755086506e-06,
+   "reference": 8.025657550865044e-06,
+   "rel": 2.11081258298394e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -1.4421600137464958e-05,
+   "reference": -1.442160013746498e-05,
+   "rel": 1.5270744174496973e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -3.616884981661811e-05,
+   "reference": -3.6168849816618195e-05,
+   "rel": 2.4355606263700597e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 7.59565304681031e-05,
+   "reference": 7.59565304681061e-05,
+   "rel": 3.9610300919558216e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": -3.616884981661808e-05,
+   "reference": -3.616884981661808e-05,
+   "rel": 0.0
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": 7.595653046810313e-05,
+   "reference": 7.595653046810477e-05,
+   "rel": 2.1589398248948775e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": 0.00014345567864927958,
+   "reference": 0.00014345567864927923,
+   "rel": 2.4562687889076416e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": -0.0003436628689990314,
+   "reference": -0.0003436628689991275,
+   "rel": 2.796767741326282e-13
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": -1.729385132971155e-05,
+   "reference": -1.7293851329711474e-05,
+   "rel": 4.310138785009551e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": 3.558975117527953e-05,
+   "reference": 3.558975117528034e-05,
+   "rel": 2.2657516255583717e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": 0.00010500808838163088,
+   "reference": 0.00010500808838163061,
+   "rel": 2.5812349057940933e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": -0.0002720319459371352,
+   "reference": -0.00027203194593721874,
+   "rel": 3.0708811460433216e-13
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": 7.979854123191055e-05,
+   "reference": 7.979854123190399e-05,
+   "rel": 8.219978764367186e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.00019339123422441268,
+   "reference": -0.00019339123422443786,
+   "rel": 1.3020546436325446e-13
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": -0.000417247365247966,
+   "reference": -0.0004172473652478727,
+   "rel": 2.2372773281754803e-13
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": 0.001231936708173658,
+   "reference": 0.001231936708173114,
+   "rel": 4.416238647194973e-13
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": -1.7293851329711556e-05,
+   "reference": -1.729385132971159e-05,
+   "rel": 1.959153993186147e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": 3.5589751175279525e-05,
+   "reference": 3.558975117528115e-05,
+   "rel": 4.569583110369721e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": 7.979854123191071e-05,
+   "reference": 7.979854123191234e-05,
+   "rel": 2.038011263892478e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": -0.0001933912342244126,
+   "reference": -0.00019339123422447215,
+   "rel": 3.07924009909601e-13
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": 0.00010500808838163087,
+   "reference": 0.00010500808838162325,
+   "rel": 7.253270085281911e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": -0.00027203194593713526,
+   "reference": -0.0002720319459371705,
+   "rel": 1.2953100226661344e-13
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": -0.00041724736524796613,
+   "reference": -0.0004172473652478727,
+   "rel": 2.2398757919712705e-13
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": 0.0012319367081736583,
+   "reference": 0.0012319367081731138,
+   "rel": 4.419758964968744e-13
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": 4.0352794749036766e-05,
+   "reference": 4.035279474903714e-05,
+   "rel": 9.235902968053657e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": -9.666928033909983e-05,
+   "reference": -9.666928033909432e-05,
+   "rel": 5.69190750780703e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": -0.0002581426447920581,
+   "reference": -0.0002581426447919888,
+   "rel": 2.685907591375222e-13
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": 0.0008007727005749284,
+   "reference": 0.0008007727005747374,
+   "rel": 2.38565104248476e-13
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": -0.000258142644792058,
+   "reference": -0.0002581426447919613,
+   "rel": 3.746410588752077e-13
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": 0.0008007727005749277,
+   "reference": 0.000800772700575121,
+   "rel": 2.414083886917304e-13
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": 0.0013697415983949428,
+   "reference": 0.0013697415983961493,
+   "rel": 8.808231997586831e-13
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": -0.005555556637135415,
+   "reference": -0.0055555566371354006,
+   "rel": 2.654126401527583e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 1.8198671646094409e-06,
+   "reference": 1.8198671646094366e-06,
+   "rel": 2.3271834442819976e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -3.279208778136506e-06,
+   "reference": -3.2792087781365105e-06,
+   "rel": 1.420672340522966e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -1.3858356360616528e-05,
+   "reference": -1.3858356360616487e-05,
+   "rel": 2.9337953513556327e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 2.716138790272502e-05,
+   "reference": 2.7161387902725077e-05,
+   "rel": 2.120592681772114e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": -5.405638247434065e-06,
+   "reference": -5.40563824743408e-06,
+   "rel": 2.6638038736976554e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": 1.0712767200450518e-05,
+   "reference": 1.0712767200450465e-05,
+   "rel": 4.9021920991206036e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": 3.3865982896997254e-05,
+   "reference": 3.386598289699718e-05,
+   "rel": 2.2009961909296193e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": -7.10815438292064e-05,
+   "reference": -7.108154382920666e-05,
+   "rel": 3.622572078400808e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": -5.158665097177131e-06,
+   "reference": -5.158665097177126e-06,
+   "rel": 9.851768990211892e-16
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": 9.936263451429637e-06,
+   "reference": 9.936263451429716e-06,
+   "rel": 8.013182966726557e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": 4.912218986330335e-05,
+   "reference": 4.912218986330364e-05,
+   "rel": 5.93172524812767e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": -0.00011049130185150201,
+   "reference": -0.00011049130185150197,
+   "rel": 3.679708790366989e-16
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": 1.471229361543116e-05,
+   "reference": 1.4712293615431299e-05,
+   "rel": 9.441995040392819e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -3.1336572840086096e-05,
+   "reference": -3.133657284008567e-05,
+   "rel": 1.3623206583397404e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": -0.00011246372778429931,
+   "reference": -0.00011246372778429787,
+   "rel": 1.2773610717391375e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": 0.00027524969259005907,
+   "reference": 0.0002752496925900657,
+   "rel": 2.4027758904753366e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": -8.354301208070401e-06,
+   "reference": -8.354301208070388e-06,
+   "rel": 1.6222215142275274e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": 1.6005566959218106e-05,
+   "reference": 1.6005566959218167e-05,
+   "rel": 3.8103225182651484e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": 6.0171617137261206e-05,
+   "reference": 6.017161713726136e-05,
+   "rel": 2.590159110054538e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": -0.0001258725492721389,
+   "reference": -0.0001258725492721386,
+   "rel": 2.368710248244009e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": 3.116850543701856e-05,
+   "reference": 3.116850543701863e-05,
+   "rel": 2.39148134673949e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": -7.055280705503905e-05,
+   "reference": -7.055280705503893e-05,
+   "rel": 1.7288149046921284e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": -0.00018012238536776687,
+   "reference": -0.00018012238536776543,
+   "rel": 7.975509960131699e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": 0.0004379041411905683,
+   "reference": 0.0004379041411905738,
+   "rel": 1.2503240906025155e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": 2.3744347336600245e-05,
+   "reference": 2.374434733660045e-05,
+   "rel": 8.561528538107101e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": -4.925401923206233e-05,
+   "reference": -4.925401923206172e-05,
+   "rel": 1.238200925592906e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": -0.00021914168664485716,
+   "reference": -0.00021914168664485703,
+   "rel": 6.184367458133217e-16
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": 0.0005538916921218491,
+   "reference": 0.0005538916921218434,
+   "rel": 1.0374359456738568e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": -8.726029202581789e-05,
+   "reference": -8.726029202581689e-05,
+   "rel": 1.1493051263825439e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": 0.00022368728639989742,
+   "reference": 0.00022368728639990407,
+   "rel": 2.9687598313484496e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": 0.0006322491725264666,
+   "reference": 0.0006322491725264813,
+   "rel": 2.3150254622027618e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "R-contracted",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": -0.002131365141803924,
+   "reference": -0.002131365141803852,
+   "rel": 3.3776954891975415e-14
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "raw",
+   "method": "qmc_vectorized",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 8.023478857741141e-06,
+   "reference": 8.025657550865044e-06,
+   "rel": 0.00027146599641143766
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "raw",
+   "method": "qmc_vectorized",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -1.4423528910827396e-05,
+   "reference": -1.442160013746498e-05,
+   "rel": 0.00013374198036499239
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "raw",
+   "method": "qmc_vectorized",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -3.61070182149769e-05,
+   "reference": -3.6168849816618195e-05,
+   "rel": 0.0017095263453161904
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "raw",
+   "method": "qmc_vectorized",
+   "times": "equal",
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 7.590265108745506e-05,
+   "reference": 7.59565304681061e-05,
+   "rel": 0.0007093449413630836
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "equal",
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.00019339123422427868,
+   "reference": -0.00019339123422443786,
+   "rel": 8.231396040962255e-13
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -3.133657284008539e-05,
+   "reference": -3.133657284008567e-05,
+   "rel": 8.865896347925294e-15
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "equal",
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": -0.0002581426447918793,
+   "reference": -0.0002581426447919888,
+   "rel": 4.2420119895058234e-13
+  },
+  {
+   "noise": "exponential",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": -0.00021914168664484995,
+   "reference": -0.00021914168664485703,
+   "rel": 3.2282398131455396e-14
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.04786600996856834,
+   "reference": 0.047866009968568324,
+   "rel": 2.899299067736676e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": 0.019944170820236806,
+   "reference": 0.019944170820236803,
+   "rel": 1.7395794406420053e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": 0.019944170820236806,
+   "reference": 0.019944170820236803,
+   "rel": 1.7395794406420053e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": -0.03191067331237889,
+   "reference": -0.03191067331237889,
+   "rel": 0.0
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": 0.019944170820236806,
+   "reference": 0.019944170820236803,
+   "rel": 1.7395794406420053e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": -0.03191067331237889,
+   "reference": -0.03191067331237889,
+   "rel": 0.0
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": -0.03191067331237889,
+   "reference": -0.03191067331237889,
+   "rel": 0.0
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": 0.027921839148331528,
+   "reference": 0.02792183914833152,
+   "rel": 2.4851134866314363e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": 0.019944170820236806,
+   "reference": 0.019944170820236803,
+   "rel": 1.7395794406420053e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": -0.03191067331237889,
+   "reference": -0.03191067331237889,
+   "rel": 0.0
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": -0.03191067331237889,
+   "reference": -0.03191067331237889,
+   "rel": 0.0
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": 0.027921839148331528,
+   "reference": 0.02792183914833152,
+   "rel": 2.4851134866314363e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": -0.03191067331237889,
+   "reference": -0.03191067331237889,
+   "rel": 0.0
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": 0.027921839148331528,
+   "reference": 0.02792183914833152,
+   "rel": 2.4851134866314363e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": 0.027921839148331528,
+   "reference": 0.02792183914833152,
+   "rel": 2.4851134866314363e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": -0.015955336656189444,
+   "reference": -0.015955336656189444,
+   "rel": 0.0
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.019944170820236806,
+   "reference": 0.019944170820236803,
+   "rel": 1.7395794406420053e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": -0.03191067331237889,
+   "reference": -0.03191067331237889,
+   "rel": 0.0
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": -0.03191067331237889,
+   "reference": -0.03191067331237889,
+   "rel": 0.0
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.027921839148331528,
+   "reference": 0.02792183914833152,
+   "rel": 2.4851134866314363e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": -0.03191067331237889,
+   "reference": -0.03191067331237889,
+   "rel": 0.0
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": 0.027921839148331528,
+   "reference": 0.02792183914833152,
+   "rel": 2.4851134866314363e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": 0.027921839148331528,
+   "reference": 0.02792183914833152,
+   "rel": 2.4851134866314363e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": -0.015955336656189444,
+   "reference": -0.015955336656189444,
+   "rel": 0.0
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": -0.03191067331237889,
+   "reference": -0.03191067331237889,
+   "rel": 0.0
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": 0.027921839148331528,
+   "reference": 0.02792183914833152,
+   "rel": 2.4851134866314363e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": 0.027921839148331528,
+   "reference": 0.02792183914833152,
+   "rel": 2.4851134866314363e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": -0.015955336656189444,
+   "reference": -0.015955336656189444,
+   "rel": 0.0
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": 0.027921839148331528,
+   "reference": 0.02792183914833152,
+   "rel": 2.4851134866314363e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.015955336656189444,
+   "reference": -0.015955336656189444,
+   "rel": 0.0
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": -0.015955336656189444,
+   "reference": -0.015955336656189444,
+   "rel": 0.0
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": 0.03988834164047361,
+   "reference": 0.039888341640473605,
+   "rel": 1.7395794406420053e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "qmc_vectorized",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.047865954808300734,
+   "reference": 0.047866009968568324,
+   "rel": 1.1523890883299591e-06
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "qmc_vectorized",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": 0.01994414783679197,
+   "reference": 0.019944170820236803,
+   "rel": 1.152389088445931e-06
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "qmc_vectorized",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": 0.01994414783679197,
+   "reference": 0.019944170820236803,
+   "rel": 1.152389088445931e-06
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "qmc_vectorized",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": -0.03191063653886716,
+   "reference": -0.03191067331237889,
+   "rel": 1.1523890884024414e-06
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.04786600996856831,
+   "reference": 0.047866009968568324,
+   "rel": 2.899299067736676e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": 0.019944170820236803,
+   "reference": 0.019944170820236803,
+   "rel": 0.0
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": 0.0199441708202368,
+   "reference": 0.019944170820236803,
+   "rel": 1.7395794406420053e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": -0.03191067331237888,
+   "reference": -0.03191067331237889,
+   "rel": 2.1744743008025065e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": -0.0025227683835101237,
+   "reference": -0.0025227683835101224,
+   "rel": 5.157201967040526e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": 0.003784152575265185,
+   "reference": 0.0037841525752651843,
+   "rel": 2.2920897631291227e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": 0.003784152575265185,
+   "reference": 0.0037841525752651843,
+   "rel": 2.2920897631291227e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.0016818455890067494,
+   "reference": 0.0016818455890067485,
+   "rel": 5.157201967040526e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": 0.003784152575265185,
+   "reference": 0.0037841525752651843,
+   "rel": 2.2920897631291227e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": 0.0016818455890067494,
+   "reference": 0.0016818455890067485,
+   "rel": 5.157201967040526e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": 0.0016818455890067494,
+   "reference": 0.0016818455890067485,
+   "rel": 5.157201967040526e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": -0.004204613972516873,
+   "reference": -0.004204613972516871,
+   "rel": 4.125761573632421e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": 0.003784152575265185,
+   "reference": 0.0037841525752651843,
+   "rel": 2.2920897631291227e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": 0.0016818455890067494,
+   "reference": 0.0016818455890067485,
+   "rel": 5.157201967040526e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": 0.0016818455890067494,
+   "reference": 0.0016818455890067485,
+   "rel": 5.157201967040526e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": -0.004204613972516873,
+   "reference": -0.004204613972516871,
+   "rel": 4.125761573632421e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": 0.0016818455890067494,
+   "reference": 0.0016818455890067485,
+   "rel": 5.157201967040526e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": -0.004204613972516873,
+   "reference": -0.004204613972516871,
+   "rel": 4.125761573632421e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": -0.004204613972516873,
+   "reference": -0.004204613972516871,
+   "rel": 4.125761573632421e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": 0.0033636911780134987,
+   "reference": 0.003363691178013497,
+   "rel": 5.157201967040526e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.003784152575265185,
+   "reference": 0.0037841525752651843,
+   "rel": 2.2920897631291227e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": 0.0016818455890067494,
+   "reference": 0.0016818455890067485,
+   "rel": 5.157201967040526e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": 0.0016818455890067494,
+   "reference": 0.0016818455890067485,
+   "rel": 5.157201967040526e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": -0.004204613972516873,
+   "reference": -0.004204613972516871,
+   "rel": 4.125761573632421e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    1,
+    0,
+    0
+   ],
+   "package": 0.0016818455890067494,
+   "reference": 0.0016818455890067485,
+   "rel": 5.157201967040526e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    1,
+    0,
+    1
+   ],
+   "package": -0.004204613972516873,
+   "reference": -0.004204613972516871,
+   "rel": 4.125761573632421e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    1,
+    1,
+    0
+   ],
+   "package": -0.004204613972516873,
+   "reference": -0.004204613972516871,
+   "rel": 4.125761573632421e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    0,
+    1,
+    1,
+    1
+   ],
+   "package": 0.0033636911780134987,
+   "reference": 0.003363691178013497,
+   "rel": 5.157201967040526e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    0,
+    0,
+    0
+   ],
+   "package": 0.0016818455890067494,
+   "reference": 0.0016818455890067485,
+   "rel": 5.157201967040526e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    0,
+    0,
+    1
+   ],
+   "package": -0.004204613972516873,
+   "reference": -0.004204613972516871,
+   "rel": 4.125761573632421e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    0
+   ],
+   "package": -0.004204613972516873,
+   "reference": -0.004204613972516871,
+   "rel": 4.125761573632421e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    0,
+    1,
+    1
+   ],
+   "package": 0.0033636911780134987,
+   "reference": 0.003363691178013497,
+   "rel": 5.157201967040526e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    1,
+    0,
+    0
+   ],
+   "package": -0.004204613972516873,
+   "reference": -0.004204613972516871,
+   "rel": 4.125761573632421e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    1,
+    0,
+    1
+   ],
+   "package": 0.0033636911780134987,
+   "reference": 0.003363691178013497,
+   "rel": 5.157201967040526e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    1,
+    1,
+    0
+   ],
+   "package": 0.0033636911780134987,
+   "reference": 0.003363691178013497,
+   "rel": 5.157201967040526e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "gauss_legendre",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    1,
+    1,
+    1,
+    1,
+    1
+   ],
+   "package": -0.0021023069862584364,
+   "reference": -0.0021023069862584356,
+   "rel": 4.125761573632421e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "qmc_vectorized",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": -0.002522768380426389,
+   "reference": -0.0025227683835101224,
+   "rel": 1.2223608697616068e-09
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "qmc_vectorized",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": 0.003784152570639584,
+   "reference": 0.0037841525752651843,
+   "rel": 1.2223609270638508e-09
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "qmc_vectorized",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": 0.003784152570639584,
+   "reference": 0.0037841525752651843,
+   "rel": 1.2223609270638508e-09
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "qmc_vectorized",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.0016818455869509264,
+   "reference": 0.0016818455890067485,
+   "rel": 1.2223607838082406e-09
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "nquad",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": -0.002522768383510123,
+   "reference": -0.0025227683835101224,
+   "rel": 1.7190673223468422e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "nquad",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": 0.003784152575265184,
+   "reference": 0.0037841525752651843,
+   "rel": 1.1460448815645613e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "nquad",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": 0.003784152575265184,
+   "reference": 0.0037841525752651843,
+   "rel": 1.1460448815645613e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "nquad",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.0016818455890067487,
+   "reference": 0.0016818455890067485,
+   "rel": 1.2893004917601316e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": -0.002522768383510123,
+   "reference": -0.0025227683835101224,
+   "rel": 1.7190673223468422e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": 0.0037841525752651856,
+   "reference": 0.0037841525752651843,
+   "rel": 3.438134644693684e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": 0.0037841525752651856,
+   "reference": 0.0037841525752651843,
+   "rel": 3.438134644693684e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    1.05,
+    1.05
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.0016818455890067478,
+   "reference": 0.0016818455890067485,
+   "rel": 3.8679014752803946e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "qmc_scalar",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.08310333347876589,
+   "reference": 0.0831035948375578,
+   "rel": 3.144975766994466e-06
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "qmc_scalar",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": 0.02888405692897457,
+   "reference": 0.028884191344107635,
+   "rel": 4.653588236704749e-06
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "qmc_scalar",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": 0.026686887704729496,
+   "reference": 0.026686979042340537,
+   "rel": 3.422553406872322e-06
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "X5",
+   "method": "qmc_scalar",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": -0.0356179482041198,
+   "reference": -0.035618124012056024,
+   "rel": 4.93591229463553e-06
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": 0.08310359483755782,
+   "reference": 0.0831035948375578,
+   "rel": 1.6699383263673854e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": 0.028884191344107628,
+   "reference": 0.028884191344107635,
+   "rel": 2.4023154469660304e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": 0.026686979042340544,
+   "reference": 0.026686979042340537,
+   "rel": 2.6001046776026037e-16
+  },
+  {
+   "noise": "static static",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": -0.035618124012056045,
+   "reference": -0.035618124012056024,
+   "rel": 5.844407107088418e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "qmc_scalar",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": -0.0063730276487088105,
+   "reference": -0.006373027654643827,
+   "rel": 9.312710832077893e-10
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "qmc_scalar",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": 0.007380138930863164,
+   "reference": 0.0073801389385949505,
+   "rel": 1.0476478328508485e-09
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "qmc_scalar",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": 0.005747657978531992,
+   "reference": 0.0057476579845535105,
+   "rel": 1.0476472973105585e-09
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "qmc_scalar",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.001980261623795945,
+   "reference": 0.0019802616261009784,
+   "rel": 1.1640044446459156e-09
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "nquad",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": -0.006373027654643828,
+   "reference": -0.006373027654643827,
+   "rel": 1.3609885049790802e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "nquad",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": 0.007380138938594947,
+   "reference": 0.0073801389385949505,
+   "rel": 4.701059127504904e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "nquad",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": 0.005747657984553512,
+   "reference": 0.0057476579845535105,
+   "rel": 3.0181397025340987e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "J5",
+   "method": "nquad",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.0019802616261009784,
+   "reference": 0.0019802616261009784,
+   "rel": 0.0
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "package": -0.006373027654643831,
+   "reference": -0.006373027654643827,
+   "rel": 6.804942524895401e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    0,
+    1
+   ],
+   "package": 0.007380138938594941,
+   "reference": 0.0073801389385949505,
+   "rel": 1.2927912600638484e-15
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    0
+   ],
+   "package": 0.005747657984553508,
+   "reference": 0.0057476579845535105,
+   "rel": 4.527209553801148e-16
+  },
+  {
+   "noise": "static equal_time",
+   "m": 5,
+   "route": "hierarchy",
+   "method": "expm",
+   "times": "distinct",
+   "rates": [
+    0.8,
+    1.3
+   ],
+   "comps": [
+    0,
+    0,
+    0,
+    1,
+    1
+   ],
+   "package": 0.001980261626100979,
+   "reference": 0.0019802616261009784,
+   "rel": 2.190018042454797e-16
+  }
+ ]
+}
