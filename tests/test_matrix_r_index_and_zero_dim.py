@@ -14,8 +14,10 @@ Two defects of the matrix-R path, both invisible to the scalar-R path
 2. ``DiagramIntegrand._evaluate_zero_dimensional``'s dynamic-coupling branch
    multiplied ``cache.R_time_batch``, which is scalar-only, so a matrix R
    raised ``ValueError: setting an array element with a sequence``.  The
-   batched backends do refuse matrix R explicitly, but their refusals sit
-   after their ``n_total == 0`` early return, so none of them fired.
+   batched backends then refused matrix R explicitly, but their refusals
+   sat after their ``n_total == 0`` early return, so none of them fired.
+   (The batched backends have since learned matrix R; see
+   ``tests/test_matrix_r_batched.py``.)
 """
 
 import numpy as np
@@ -373,11 +375,10 @@ def test_zero_dimensional_callable_matches_static_exactly():
 def _zero_dim_terms_summed_indices() -> list:
     """The same three diagrams without ``diag_R``.
 
-    The two absorbed κ legs then carry *summation* indices (``i_0``,
-    ``i_1``) rather than collapsing onto the fixed external ones, so the
-    integrand has a non-trivial propagator-index shape and the surviving R
-    factor is read off-diagonal.  The absorbed R propagators keep two
-    different indices, which the R-cache guard refuses.
+    The surviving R keeps two different labels and is read off its
+    diagonal.  The two absorbed κ legs carry summation indices (``i_0``,
+    ``i_1``) in the contraction, and ``compute_moment`` pins them to their
+    partners' labels: an absorbed R stands in for that Kronecker delta.
     """
     sw.reset_uid_counter()
     phi = sw.Field("phi", "physical", n_components=N)
@@ -395,46 +396,61 @@ def _zero_dim_terms_summed_indices() -> list:
     ).diagram_terms(1)
 
 
+#: Per-diagram closed form without ``diag_R``, R = R_GENERIC, K ≡ 1/2 at
+#: (a,b,c,d) = (0,1,0,0): each diagram keeps one R, ``R_{ad}(x1,x4)``,
+#: ``R_{bd}(x2,x4)`` or ``R_{cd}(x3,x4)``, and its two absorbed legs take
+#: their partners' components, so ``(K + K) = 1`` multiplies R[0,0], R[1,0]
+#: and R[0,0]: total 1.65.
+SUMMED_EXPECTED = [R_GENERIC[0, 0], R_GENERIC[1, 0], R_GENERIC[0, 0]]
+
+
 @pytest.mark.parametrize("method", ZERO_DIM_METHODS)
 @pytest.mark.parametrize("dynamic", [False, True], ids=["static", "callable"])
-def test_zero_dimensional_matrix_r_summed_indices_refused(method, dynamic):
-    """Without ``diag_R`` the absorbed R propagators keep two different
-    component indices, and these terms are refused on every backend.
+def test_zero_dimensional_matrix_r_without_diag_r(method, dynamic):
+    """Without ``diag_R`` the kept R is read off its diagonal (b = 1, d = 0)
+    and the absorbed legs take their partners' components, on every backend.
 
-    Each diagram keeps one R factor, ``R_{ad}(x1,x4)``, ``R_{bd}(x2,x4)``
-    or ``R_{cd}(x3,x4)``; the two absorbed ones are skipped, and their leg
-    indices ``i_0``, ``i_1`` survive only inside K.  An absorbed R stands in
-    for the Kronecker delta between its partner's component and its leg's,
-    so the leg indices must be pinned to the partners' components:
-    ``(K + K) = 1`` times R[0,0], R[1,0], R[0,0], total 1.65 at
-    (a,b,c,d) = (0,1,0,0) with K ≡ 1/2.  Evaluating the terms as they stand
-    sums the leg components instead, ``Σ_{i₀i₁} (K + K) = 4`` times the
-    same factors, total 6.6, which is the pairing the R-cache guard refuses
-    (see ``tests/test_r_cache_mismatch.py``).  The refusal comes before any
-    backend runs, so every method and both coupling contracts raise.
+    An absorbed R stands in for the Kronecker delta between its partner's
+    component and its leg's; ``compute_moment`` now writes that delta into
+    the terms whatever ``diag_R`` says.  Evaluating the legs' own summation
+    indices instead sums them, ``Σ_{i₀i₁} (K + K) = 4`` times the same
+    factors, total 6.6: the terms ``compute_moment`` wrote before, which the
+    R-cache guard refused (see ``tests/test_r_cache_mismatch.py``).
     """
     static_K = 0.5 * np.ones((N, N))
     K = ((lambda n_list, t_list: 0.5 * np.ones((N, N)))  # noqa: ARG005
          if dynamic else static_K)
 
-    with pytest.raises(ValueError, match="absorbed into an already_R_contracted"):
-        integrate_diagrams(
-            _zero_dim_terms_summed_indices(), {"K": K},
-            lambda_f=1.0, cache=_cache(R_GENERIC), method=method,
-            n_samples=2**8, seed=3, fixed_indices=ZERO_DIM_FIXED,
-            external_times=ZERO_DIM_EXTERNAL_TIMES,
-        )
+    total, details = integrate_diagrams(
+        _zero_dim_terms_summed_indices(), {"K": K},
+        lambda_f=1.0, cache=_cache(R_GENERIC), method=method,
+        n_samples=2**8, seed=3, fixed_indices=ZERO_DIM_FIXED,
+        external_times=ZERO_DIM_EXTERNAL_TIMES,
+    )
+    assert [v for v, _ in details] == pytest.approx(
+        SUMMED_EXPECTED, rel=1e-12, abs=1e-14)
+    assert total == pytest.approx(1.65, rel=1e-12, abs=0.0)
 
 
-def test_zero_dimensional_summed_index_terms_are_index_carrying():
-    """The premise of the test above: these diagrams really do carry
-    propagator indices, so the R factor is not trivially diagonal."""
+def test_zero_dimensional_summed_index_terms_pin_the_legs():
+    """The premise of the test above: without ``diag_R`` the kept R carries
+    two different labels, each absorbed R its partner's label twice, and no
+    summation index is left."""
     terms = _zero_dim_terms_summed_indices()
     assert len(terms) == 3
-    for dt in terms:
+    for dt, partner in zip(terms, "abc"):
         ig = dt.build_integrand({"K": 0.5 * np.ones((N, N))}, ZERO_DIM_FIXED)
         assert ig.spatial.time_integration_vars == ()
-        assert tuple(dim for _, dim in dt.propagator_indices) == (N, N)
+        assert dt.summation_indices == ()
+        absorbed = set(dt.r_absorbed_pairs)
+        kept = [p for p in dt.propagators
+                if p.kind == "R"
+                and (p.spatial_left, p.spatial_right) not in absorbed]
+        assert [(p.index_left, p.index_right) for p in kept] == [
+            (partner, "d")]
+        for p in dt.propagators:
+            if (p.spatial_left, p.spatial_right) in absorbed:
+                assert p.index_left == p.index_right != "d"
 
 
 def test_zero_dimensional_scalar_r_unchanged():

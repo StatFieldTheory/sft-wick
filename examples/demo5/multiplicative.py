@@ -20,9 +20,10 @@ local vertex with two ψ legs, so this part is L0: ``compute_moment`` and
 With distinct decay rates ``γ_a`` R is a (diagonal) matrix, and a ψψφ vertex
 whose two ψ legs contract with the two φ legs of one F vertex puts two R
 propagators between the same two points: the diagrams the repeated-pair fix
-(63fc842, merged 2026-09-11) is about.  Matrix R runs only on the
-scalar-loop backends; with equal rates R is a scalar and Gauss-Legendre
-runs too.
+(63fc842, merged 2026-09-11) is about.  The matrix-R runs cover every
+integrator: Gauss-Legendre and ``qmc_vectorized`` (batched since the
+matrix-R change), ``qmc_scalar`` and ``nquad``; with equal rates R is a
+scalar.
 
 Tags ``(k, j)`` count powers of F and of ``g'``.  Run
 ``python multiplicative.py``; results go to ``multiplicative_results.json``.
@@ -180,8 +181,12 @@ def main():
     for label, gammas, method, kw in [
         ("scalar R, gauss_legendre", (1.0, 1.0), "gauss_legendre",
          dict(n_gauss=16)),
+        ("matrix R, gauss_legendre", (0.6, 1.6), "gauss_legendre",
+         dict(n_gauss=16)),
         ("matrix R, nquad (order <= 1)", (0.6, 1.6), "nquad",
          dict(max_order=1)),
+        ("matrix R, qmc_vectorized", (0.6, 1.6), "qmc_vectorized",
+         dict(n_samples=2 ** 13, seed=3)),
         ("matrix R, qmc_scalar", (0.6, 1.6), "qmc_scalar",
          dict(n_samples=2 ** 13, seed=3)),
     ]:

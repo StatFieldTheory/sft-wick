@@ -125,11 +125,12 @@ _R_MISMATCH = {
     "absorbed": (
         "{r} is absorbed into an already_R_contracted vertex, so its factor "
         "is skipped, and what stands in for it is the Kronecker delta of its "
-        "two component indices.  Only compute_moment(..., diag_R=True) or "
-        "iso_R=True applies that delta; without it the leg components would "
-        "be summed instead of pinned.  With a matrix R, diag_R=True also "
-        "sets the off-diagonal entries of the other R propagators to zero, "
-        "so it is exact only for a diagonal R."
+        "two component indices: the leg must carry its partner's index.  "
+        "compute_moment writes that index on every absorbed leg; these terms "
+        "were built another way (by hand, or by an earlier compute_moment, "
+        "for instance loaded from an on-disk expansion cache), and "
+        "evaluating them would sum the leg components instead of pinning "
+        "them.  Rebuild them with compute_moment or System.expand."
     ),
 }
 
@@ -2209,7 +2210,8 @@ class PropagatorCache:
         return result
 
     def R_time_batch(self, t1: np.ndarray, t2: np.ndarray) -> np.ndarray:
-        """Evaluate R_time at arrays of time pairs (iso_R only).
+        """Evaluate R_time at arrays of time pairs (iso_R only; a
+        matrix-valued R goes through :meth:`R_matrix_batch`).
 
         Args:
             t1: Array of shape ``(n,)`` — left times.
@@ -2236,6 +2238,51 @@ class PropagatorCache:
             b1, b2 = np.broadcast_arrays(t1a, t2a)
             out[causal] = R_vec(b1[causal], b2[causal])
         return out
+
+    def R_matrix_batch(self, t1: np.ndarray, t2: np.ndarray) -> np.ndarray:
+        """Evaluate a matrix-valued R at arrays of time pairs.
+
+        The ``iso_R=False`` counterpart of :meth:`R_time_batch`, used by the
+        batched integrators: ``out[s] = Θ(t1[s] − t2[s]) R_time(t1[s], t2[s])``
+        with the strict test of :meth:`R_time_batch` (Itô: equal times give
+        0).  ``model.R_time`` is called only on causal pairs, and once per
+        distinct pair: on a tensor-product Gauss-Legendre grid an R that
+        touches a fixed external point takes as many distinct values as its
+        other end has nodes, so most samples reuse an evaluation.
+
+        Args:
+            t1: Array of shape ``(n,)`` — left times.
+            t2: Array of shape ``(n,)`` — right times.
+
+        Returns:
+            Array of shape ``(n, N, N)``.
+
+        Raises:
+            ValueError: if ``R_time`` does not return an ``(N, N)`` matrix.
+        """
+        t1a, t2a = np.broadcast_arrays(np.asarray(t1, dtype=float),
+                                       np.asarray(t2, dtype=float))
+        shape = t1a.shape
+        t1a, t2a = t1a.reshape(-1), t2a.reshape(-1)
+        N = int(self.model.n_components)
+        out = np.zeros((t1a.shape[0], N, N))
+        causal = t1a > t2a
+        if causal.any():
+            pairs = np.stack([t1a[causal], t2a[causal]], axis=1)
+            uniq, inverse = np.unique(pairs, axis=0, return_inverse=True)
+            vals = np.empty((uniq.shape[0], N, N))
+            for k, (tl, tr) in enumerate(uniq):
+                mat = np.asarray(self.model.R_time(float(tl), float(tr)),
+                                 dtype=float)
+                if mat.shape != (N, N):
+                    raise ValueError(
+                        f"a matrix-valued R (model.iso_R is False) must "
+                        f"return an ({N}, {N}) array from R_time; got shape "
+                        f"{mat.shape} at t = ({tl!r}, {tr!r})."
+                    )
+                vals[k] = mat
+            out[causal] = vals[np.asarray(inverse).reshape(-1)]
+        return out.reshape(shape + (N, N))
 
     # ------------------------------------------------------------------ #
     # Quadrature-method resolution and kernel structure
@@ -3616,11 +3663,10 @@ class DiagramIntegrand:
     ) -> np.ndarray:
         """Materialise this sample's coupling tensor for a callable coupling.
 
-        The batched backends carry their own vectorised materialisation, but
-        they accept only scalar isotropic R.  This is the scalar-loop
-        counterpart, and it is what lets a callable coupling be combined with
-        a MATRIX-valued response propagator -- the two constraints previously
-        had no overlap, so that combination was computable by no backend.
+        The scalar-loop counterpart of the batched backends' vectorised
+        materialisation (:meth:`DynamicCouplingPromise.evaluate_at_batch`).
+        It let a callable coupling be combined with a matrix-valued R while
+        the batched backends still refused a matrix R.
 
         Args:
             times: ``{spatial_point: time}``.  Aliased legs of an equal-time
@@ -4008,6 +4054,156 @@ class DiagramIntegrand:
             and (p.spatial_left, p.spatial_right) not in absorbed
         )
 
+    def _r_batches(
+        self, cache: Any, times: Callable[[str], np.ndarray], n_samples: int,
+    ) -> tuple[np.ndarray, list]:
+        """The R factors of the batched integrators, ``(r_product,
+        r_batches)``.
+
+        A scalar R (``cache.model.iso_R``) carries no component index, so
+        its factors multiply into the ``(n_samples,)`` ``r_product`` once.
+        A matrix R's entry depends on the component assignment: each kept R
+        propagator becomes one entry of ``r_batches``
+        (:meth:`_matrix_r_batches`), ``r_product`` stays 1, and
+        :meth:`_r_factor` selects the entries per assignment.  Absorbed R
+        propagators are skipped either way.
+
+        Args:
+            times: ``label -> (n_samples,)`` time array, resolving
+                equal-time aliases.
+        """
+        r_product = np.ones(n_samples)
+        if not cache.model.iso_R:
+            return r_product, self._matrix_r_batches(cache, times)
+        for sl, sr in _kept_r_propagators(self.spatial):
+            r_product *= cache.R_time_batch(times(sl), times(sr))
+        return r_product, []
+
+    def _matrix_r_batches(
+        self, cache: Any, times: Callable[[str], np.ndarray],
+    ) -> list[tuple[np.ndarray, str | None, str | None, np.ndarray]]:
+        """``(R_batch, index_left, index_right, nonzero)`` per kept R
+        propagator of a matrix-valued R.
+
+        ``R_batch`` is ``cache.R_matrix_batch`` at the propagator's two
+        times, ``(n_samples, N, N)``; ``nonzero[a, b]`` records whether
+        entry ``(a, b)`` is non-zero at any sample, so an assignment that
+        reads an entry that is zero everywhere (an off-diagonal entry of a
+        diagonal R) is skipped without touching the sample axis.  The
+        propagator objects come from :meth:`_kept_r_propagator_objects`, so
+        two R propagators between the same two points keep their own
+        indices.
+        """
+        out = []
+        for p in self._kept_r_propagator_objects():
+            R_b = cache.R_matrix_batch(times(p.spatial_left),
+                                       times(p.spatial_right))
+            out.append((R_b, p.index_left, p.index_right,
+                        np.any(R_b != 0.0, axis=0)))
+        return out
+
+    @staticmethod
+    def _r_factor(
+        r_product: np.ndarray, r_batches: list, idx_map: dict[str, int],
+    ) -> np.ndarray | None:
+        """``r_product`` times each matrix R factor at one component
+        assignment, or ``None`` when one of those factors is zero at every
+        sample.
+
+        Resolves indices the way :meth:`_evaluate_r_product_general` does:
+        entry ``R[:, a, b]`` when both legs resolve, the trace otherwise.
+        With no matrix factors (a scalar R) ``r_product`` is returned as it
+        is.
+        """
+        out = r_product
+        for R_b, il, ir, nonzero in r_batches:
+            a = b = None
+            if il and ir:
+                a = DiagramIntegrand._resolve_component(il, idx_map)
+                b = DiagramIntegrand._resolve_component(ir, idx_map)
+            if a is not None and b is not None:
+                if not nonzero[a, b]:
+                    return None
+                out = out * R_b[:, a, b]
+            else:
+                trace = np.einsum("iaa->i", R_b)
+                if not np.any(trace):
+                    return None
+                out = out * trace
+        return out
+
+    @staticmethod
+    def _c_product(
+        c_batches: "list[tuple[np.ndarray, str | None, str | None]]",
+        idx_map: dict[str, int],
+        n_samples: int,
+    ) -> np.ndarray:
+        """Product of the C propagators at one component assignment, from
+        batches whose lookup is already done."""
+        cp = np.ones(n_samples)
+        for C_batch, il, ir in c_batches:
+            if il is None and ir is None:
+                cp = cp * _isotropic_C(C_batch, batched=True)
+                continue
+            a = DiagramIntegrand._resolve_component(il, idx_map)
+            b = DiagramIntegrand._resolve_component(ir, idx_map)
+            cp = cp * _select_C_batch(C_batch, a, b)
+        return cp
+
+    def _static_values(
+        self,
+        c_batches: "list[tuple[np.ndarray, str | None, str | None]]",
+        r_product: np.ndarray,
+        jacobians: np.ndarray,
+        *,
+        r_batches: list = (),
+        where: str = " (coupling)",
+    ) -> np.ndarray:
+        """The integrand of a static coupling at every sample: the sum over
+        the diagram's component assignments of coupling x R factors x C
+        factors, times ``jacobians``.
+
+        The static counterpart of :meth:`_dynamic_values`, shared by the
+        QMC-vectorised and Gauss-Legendre integrators and
+        :func:`integrate_two_point_qmc`.  ``c_batches`` holds the C lookups,
+        ``r_product`` the scalar-R product and ``r_batches`` the matrix-R
+        factors (see :meth:`_r_batches`).
+        """
+        coeff = self.coupling_array
+        n_samples = int(r_product.shape[0])
+        fi = self.fixed_indices
+        prop_idx = self.diagram_term.propagator_indices
+        if not prop_idx:
+            c_val = _real_or_raise(coeff, self._e_psi, where=where)
+            r_fac = self._r_factor(r_product, r_batches, fi)
+            if r_fac is None:
+                return np.zeros(n_samples)
+            return (r_fac * c_val * self._c_product(c_batches, fi, n_samples)
+                    * jacobians)
+
+        idx_names = [name for name, _ in prop_idx]
+        prop_shape = tuple(dim for _, dim in prop_idx)
+        values = np.zeros(n_samples)
+        for pidx in np.ndindex(*prop_shape):
+            c_raw = coeff[pidx] if coeff.ndim > 0 else coeff
+            # Magnitude FIRST.  A tensor entry that is float noise around
+            # zero can carry an arbitrary complex phase, and projecting it
+            # before the negligibility test turns "skip this term" into a
+            # hard ValueError from _real_or_raise.
+            if abs(complex(c_raw)) < 1e-20:
+                continue
+            c_val = _real_or_raise(c_raw, self._e_psi, where=where)
+            if abs(c_val) < 1e-20:
+                continue
+            idx_map = {**fi, **dict(zip(idx_names, pidx))}
+            r_fac = self._r_factor(r_product, r_batches, idx_map)
+            if r_fac is None:
+                continue
+            values += (c_val * r_fac
+                       * self._c_product(c_batches, idx_map, n_samples)
+                       * jacobians)
+        return values
+
     def _dynamic_values(
         self,
         couplings: np.ndarray,
@@ -4016,10 +4212,10 @@ class DiagramIntegrand:
         jacobians: np.ndarray | None = None,
         *,
         where: str = "",
+        r_batches: list = (),
     ) -> np.ndarray:
         """Combine a per-sample dynamic coupling with the C-propagator
-        product -- the dynamic counterpart of the static branches in
-        the QMC / Gauss-Legendre integrators.
+        product -- the dynamic counterpart of :meth:`_static_values`.
 
         ``couplings`` comes from
         :meth:`DynamicCouplingPromise.evaluate_at_batch` and is either
@@ -4028,15 +4224,17 @@ class DiagramIntegrand:
           the C-propagator components are fixed by
           :attr:`fixed_indices` alone and one C-product suffices; or
         * ``(n_samples,) + prop_shape`` -- a κ leg index survived onto
-          a C propagator (demo2's order-4 F³κ³).  Then the C-product
-          depends on the index assignment, so we sum over
-          ``np.ndindex(prop_shape)`` and rebuild it per assignment,
-          mirroring the static prop-indexed branch exactly.
+          a C propagator (demo2's order-4 F³κ³), or onto a matrix-valued
+          R.  Then the C-product depends on the index assignment, so we
+          sum over ``np.ndindex(prop_shape)`` and rebuild it per
+          assignment, mirroring the static prop-indexed branch exactly.
 
         ``c_batches`` holds ``(C_batch, index_left, index_right)`` per
         C propagator with the batched propagator lookup already done:
         the lookup does not depend on the component assignment, so
         hoisting it keeps the per-index loop to component selection.
+        ``r_batches`` holds the matrix-R factors (see :meth:`_r_batches`),
+        selected per assignment the same way.
 
         Returns the ``(n_samples,)`` real integrand, multiplied by
         ``jacobians`` when given.
@@ -4045,23 +4243,14 @@ class DiagramIntegrand:
         fi = self.fixed_indices
 
         def _c_product(idx_map: dict[str, int]) -> np.ndarray:
-            cp = np.ones(n_samples)
-            for C_batch, il, ir in c_batches:
-                if il is None and ir is None:
-                    cp = cp * _isotropic_C(C_batch, batched=True)
-                    continue
-                a = DiagramIntegrand._resolve_component(il, idx_map)
-                b = DiagramIntegrand._resolve_component(ir, idx_map)
-                cp = cp * _select_C_batch(C_batch, a, b)
-            return cp
+            return DiagramIntegrand._c_product(c_batches, idx_map, n_samples)
 
         couplings = np.asarray(couplings)
         if couplings.ndim <= 1:
-            values = (
-                _real_batch_or_raise(couplings, self._e_psi, where=where)
-                * r_product
-                * _c_product(fi)
-            )
+            c_val = _real_batch_or_raise(couplings, self._e_psi, where=where)
+            r_fac = self._r_factor(r_product, r_batches, fi)
+            values = (np.zeros(n_samples) if r_fac is None
+                      else c_val * r_fac * _c_product(fi))
         else:
             prop_idx = self.diagram_term.propagator_indices
             idx_names = [name for name, _ in prop_idx]
@@ -4087,7 +4276,10 @@ class DiagramIntegrand:
                     continue
                 c_val = _real_batch_or_raise(c_raw, self._e_psi, where=where)
                 idx_map = {**fi, **dict(zip(idx_names, pidx))}
-                values = values + c_val * r_product * _c_product(idx_map)
+                r_fac = self._r_factor(r_product, r_batches, idx_map)
+                if r_fac is None:
+                    continue
+                values = values + c_val * r_fac * _c_product(idx_map)
 
         if jacobians is not None:
             values = values * jacobians
@@ -4179,21 +4371,13 @@ class DiagramIntegrand:
 
         if not cache.model.iso_R:
             # Matrix-valued R.  The batched branch below multiplies
-            # ``cache.R_time_batch``, which is scalar-only
-            # (``np.vectorize(..., otypes=[float])``), so an (N, N) R_time
-            # raised a bare "setting an array element with a sequence".
-            # The batched backends DO refuse matrix R explicitly -- but
-            # their refusals sit after their ``n_total == 0`` early return,
-            # so none of them fires for a zero-dimensional integrand.
-            #
-            # There is nothing to refuse here, though: with no integration
-            # variables the integrand is a single point, which is exactly
-            # what the index-aware scalar evaluation handles.  Materialise
-            # the coupling for that one point and go through
-            # :meth:`evaluate`, as ``integrate_moment_qmc``'s own
-            # ``n_total == 0`` branch already does -- so all four backends
-            # agree on this integrand instead of one computing it and three
-            # raising.
+            # ``cache.R_time_batch``, which is scalar-only, so an (N, N)
+            # R_time raised a bare "setting an array element with a
+            # sequence" here.  With no integration variables the integrand
+            # is a single point, which the index-aware scalar evaluation
+            # handles: materialise the coupling for that one point and go
+            # through :meth:`evaluate`, as ``integrate_moment_qmc``'s own
+            # ``n_total == 0`` branch does, so all four backends agree.
             ca = self.dynamic_coupling_array(
                 fixed_times, directions, default_position=direction,
             )
@@ -4702,13 +4886,6 @@ class DiagramIntegrand:
             )
             return (val, 0.0)
 
-        if spatial.r_propagators and not cache.model.iso_R:
-            raise NotImplementedError(
-                "method='qmc_vectorized' currently supports scalar "
-                "iso_R=True response propagators only. Use method='qmc' "
-                "or method='qmc_scalar' for matrix-valued R."
-            )
-
         # Build causal parent map (per-internal-var upper bound list).
         parent_map: dict[str, list[str]] = defaultdict(list)
         for earlier, later in spatial.time_orderings:
@@ -4811,20 +4988,11 @@ class DiagramIntegrand:
             return fixed_t_by.get(var, fixed_t)
 
         # --- Vectorized integrand evaluation ---
-        dt = self.diagram_term
-        coeff = self.coupling_array
-        prop_idx = dt.propagator_indices
-
-        # R product (vectorized) — skip absorbed R's per
+        # R factors (vectorized) — skip absorbed R's per
         # ``DiagramTerm.r_absorbed_pairs``; those factors are already
-        # baked into the κ^(m)_R callable.
-        r_product = np.ones(n_samples)
-        for sl, sr in _kept_r_propagators(spatial):
-            t_l = _times(sl)
-            t_r = _times(sr)
-            r_product *= cache.R_time_batch(t_l, t_r)
-
-        fi = self.fixed_indices
+        # baked into the κ^(m)_R callable.  A matrix-valued R stays one
+        # batch per propagator, selected per component assignment.
+        r_product, r_batches = self._r_batches(cache, _times, n_samples)
 
         # --- Spatial-aware dispatch ---
         # Decide once per call how to evaluate each C propagator.
@@ -4847,6 +5015,14 @@ class DiagramIntegrand:
             x_l = group_x[spatial.direction_map[sp_l]]  # type: ignore[index]
             x_r = group_x[spatial.direction_map[sp_r]]  # type: ignore[index]
             return cache.C_at_batch(t_l, t_r, x_l, x_r)
+
+        # The C lookup does not depend on the component assignment, so it
+        # is done once here; the per-assignment loops of
+        # ``_static_values`` / ``_dynamic_values`` only select components.
+        c_batches = [
+            (_lookup_C(sp_l, sp_r, _times(sp_l), _times(sp_r)), il, ir)
+            for sp_l, sp_r, il, ir in spatial.c_propagators
+        ]
 
         if self.dynamic_coupling is not None:
             # --- Per-sample (dynamic) coupling path ---
@@ -4872,17 +5048,7 @@ class DiagramIntegrand:
             all_spatial_labels = set(spatial.direction_map.keys())
             _promise = self.dynamic_coupling
 
-            # --- A: hoist C-propagator lookup out of per-sample loop. ---
-            # The lookup does not depend on the component assignment,
-            # so it is done once here even when the coupling is
-            # prop-indexed and ``_dynamic_values`` must select
-            # components per index assignment.
-            c_batches = [
-                (_lookup_C(sp_l, sp_r, _times(sp_l), _times(sp_r)), il, ir)
-                for sp_l, sp_r, il, ir in spatial.c_propagators
-            ]
-
-            # --- B: pre-build per-symbol-leg time / position arrays. ---
+            # --- Pre-build per-symbol-leg time / position arrays. ---
             label_t = {lab: _times(lab) for lab in all_spatial_labels}
             if spatial_aware:
                 # group_x is computed above (line ~2146) when the
@@ -4908,59 +5074,11 @@ class DiagramIntegrand:
             # both and does the C-component selection.
             values = self._dynamic_values(
                 couplings, c_batches, r_product, jacobians,
-                where=' (dynamic coupling, qmc)',
+                where=' (dynamic coupling, qmc)', r_batches=r_batches,
             )
-
-        elif not prop_idx:
-            # Scalar coupling path (iso_R + iso_C or no prop indices)
-            c_product = np.ones(n_samples)
-            for sp_l, sp_r, il, ir in spatial.c_propagators:
-                t_l = _times(sp_l)
-                t_r = _times(sp_r)
-                C_diag_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
-                if il is None and ir is None:
-                    c_product *= _isotropic_C(C_diag_batch, batched=True)
-                elif il is not None and ir is not None:
-                    a = DiagramIntegrand._resolve_component(il, fi)
-                    b = DiagramIntegrand._resolve_component(ir, fi)
-                    c_product *= _select_C_batch(C_diag_batch, a, b)
-                else:
-                    c_product *= _select_C_batch(C_diag_batch, None, None)
-
-            values = r_product * _real_or_raise(coeff, self._e_psi, where=' (coupling)') * c_product * jacobians
-
         else:
-            # Propagator-indexed coupling: loop over index combinations
-            idx_names = [name for name, _ in prop_idx]
-            prop_shape = tuple(dim for _, dim in prop_idx)
-            values = np.zeros(n_samples)
-
-            for pidx in np.ndindex(*prop_shape):
-                c_raw = coeff[pidx] if coeff.ndim > 0 else coeff
-                # Magnitude FIRST.  A tensor entry that is float noise around
-                # zero can carry an arbitrary complex phase, and projecting it
-                # before the negligibility test turns "skip this term" into a
-                # hard ValueError from _real_or_raise.
-                if abs(complex(c_raw)) < 1e-20:
-                    continue
-                c_val = _real_or_raise(c_raw, self._e_psi, where=' (coupling)')
-                if abs(c_val) < 1e-20:
-                    continue
-
-                idx_map = {**fi, **dict(zip(idx_names, pidx))}
-                c_prod = np.ones(n_samples)
-                for sp_l, sp_r, il, ir in spatial.c_propagators:
-                    t_l = _times(sp_l)
-                    t_r = _times(sp_r)
-                    C_diag_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
-                    if il is None and ir is None:
-                        c_prod *= _isotropic_C(C_diag_batch, batched=True)
-                        continue
-                    a = DiagramIntegrand._resolve_component(il, idx_map)
-                    b = DiagramIntegrand._resolve_component(ir, idx_map)
-                    c_prod *= _select_C_batch(C_diag_batch, a, b)
-
-                values += c_val * r_product * c_prod * jacobians
+            values = self._static_values(c_batches, r_product, jacobians,
+                                         r_batches=r_batches)
 
         # Mask invalid samples
         values = np.where(jacobians > 0, values, 0.0)
@@ -5067,13 +5185,6 @@ class DiagramIntegrand:
                 external_times=external_times,
             )
             return (val, 0.0)
-
-        if spatial.r_propagators and not cache.model.iso_R:
-            raise NotImplementedError(
-                "method='gauss_legendre' currently supports scalar "
-                "iso_R=True response propagators only. Use method='qmc' "
-                "or method='qmc_scalar' for matrix-valued R."
-            )
 
         # Split at kinks until none is left: ordering one pair can give a
         # variable two unordered parents, so the pairs are re-detected under
@@ -5201,15 +5312,8 @@ class DiagramIntegrand:
             return fixed_t_by.get(var, fixed_t)
 
         # --- Vectorised integrand evaluation: identical to QMC path. ---
-        dt = self.diagram_term
-        coeff = self.coupling_array
-        prop_idx = dt.propagator_indices
+        r_product, r_batches = self._r_batches(cache, _times, n_samples)
 
-        r_product = np.ones(n_samples)
-        for sl, sr in _kept_r_propagators(spatial):
-            r_product *= cache.R_time_batch(_times(sl), _times(sr))
-
-        fi = self.fixed_indices
         spatial_aware = _cache_has_spatial_table(cache)
         group_x: dict[str, float] | None = None
         if spatial_aware:
@@ -5222,14 +5326,14 @@ class DiagramIntegrand:
             x_r = group_x[spatial.direction_map[sp_r]]  # type: ignore[index]
             return cache.C_at_batch(t_l, t_r, x_l, x_r)
 
+        c_batches = [
+            (_lookup_C(sp_l, sp_r, _times(sp_l), _times(sp_r)), il, ir)
+            for sp_l, sp_r, il, ir in spatial.c_propagators
+        ]
+
         if self.dynamic_coupling is not None:
             all_spatial_labels = set(spatial.direction_map.keys())
             _promise = self.dynamic_coupling
-
-            c_batches = [
-                (_lookup_C(sp_l, sp_r, _times(sp_l), _times(sp_r)), il, ir)
-                for sp_l, sp_r, il, ir in spatial.c_propagators
-            ]
 
             label_t = {lab: _times(lab) for lab in all_spatial_labels}
             if spatial_aware:
@@ -5251,52 +5355,11 @@ class DiagramIntegrand:
             values = self._dynamic_values(
                 couplings, c_batches, r_product, jacobians,
                 where=' (dynamic coupling, gauss-legendre)',
+                r_batches=r_batches,
             )
-
-        elif not prop_idx:
-            c_product = np.ones(n_samples)
-            for sp_l, sp_r, il, ir in spatial.c_propagators:
-                t_l = _times(sp_l)
-                t_r = _times(sp_r)
-                C_diag_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
-                if il is None and ir is None:
-                    c_product *= _isotropic_C(C_diag_batch, batched=True)
-                elif il is not None and ir is not None:
-                    a = DiagramIntegrand._resolve_component(il, fi)
-                    b = DiagramIntegrand._resolve_component(ir, fi)
-                    c_product *= _select_C_batch(C_diag_batch, a, b)
-                else:
-                    c_product *= _select_C_batch(C_diag_batch, None, None)
-            values = r_product * _real_or_raise(coeff, self._e_psi, where=' (coupling)') * c_product * jacobians
-
         else:
-            idx_names = [name for name, _ in prop_idx]
-            prop_shape = tuple(dim for _, dim in prop_idx)
-            values = np.zeros(n_samples)
-            for pidx in np.ndindex(*prop_shape):
-                c_raw = coeff[pidx] if coeff.ndim > 0 else coeff
-                # Magnitude FIRST.  A tensor entry that is float noise around
-                # zero can carry an arbitrary complex phase, and projecting it
-                # before the negligibility test turns "skip this term" into a
-                # hard ValueError from _real_or_raise.
-                if abs(complex(c_raw)) < 1e-20:
-                    continue
-                c_val = _real_or_raise(c_raw, self._e_psi, where=' (coupling)')
-                if abs(c_val) < 1e-20:
-                    continue
-                idx_map = {**fi, **dict(zip(idx_names, pidx))}
-                c_prod = np.ones(n_samples)
-                for sp_l, sp_r, il, ir in spatial.c_propagators:
-                    t_l = _times(sp_l)
-                    t_r = _times(sp_r)
-                    C_diag_batch = _lookup_C(sp_l, sp_r, t_l, t_r)
-                    if il is None and ir is None:
-                        c_prod *= _isotropic_C(C_diag_batch, batched=True)
-                        continue
-                    a = DiagramIntegrand._resolve_component(il, idx_map)
-                    b = DiagramIntegrand._resolve_component(ir, idx_map)
-                    c_prod *= _select_C_batch(C_diag_batch, a, b)
-                values += c_val * r_product * c_prod * jacobians
+            values = self._static_values(c_batches, r_product, jacobians,
+                                         r_batches=r_batches)
 
         # --- GL aggregation: weighted sum (NOT mean). ---
         # Each tensor-product node carries weight ``w_i = prod_d w_1d[i_d]``.
@@ -5544,10 +5607,11 @@ def integrate_moment(
 
     - If the cache supports batched C evaluation (either
       ``PropagatorCache.precompute_C_table`` has been called, or a
-      custom cache implements ``C_diagonal_batch`` natively) and
-      ``cache.model.iso_R`` is true →
+      custom cache implements ``C_diagonal_batch`` natively) →
       :meth:`integrate_moment_qmc_vectorized` (~200× faster than
-      the scalar loop on typical workloads).
+      the scalar loop on typical workloads), for a scalar or a
+      matrix-valued R.  Until the batched integrators learned matrix R,
+      a matrix R always took the scalar loop here.
     - Otherwise → :meth:`integrate_moment_qmc` (scalar Python loop).
 
     Users who explicitly want the scalar loop (e.g. for debugging
@@ -5597,7 +5661,7 @@ def integrate_moment(
         ``(estimate, error)`` tuple.
     """
     if method == "qmc":
-        if cache.model.iso_R and _cache_supports_batch_c(cache):
+        if _cache_supports_batch_c(cache):
             return integrand.integrate_moment_qmc_vectorized(
                 lambda_f, cache, t_min=t_min, direction=direction,
                 n_samples=n_samples, seed=seed, positions=positions,
@@ -5957,9 +6021,11 @@ def integrate_two_point_qmc(
         )
         if ni == 0 and not legacy_position_blind:
             et = dict(ext_times)
+            ca = (ig.dynamic_coupling_array(et, directions)
+                  if ig.dynamic_coupling is not None else None)
             total += _real_or_raise(
-                ig.evaluate(et, directions, cache), ig._e_psi,
-                where=" (two-point qmc, zero-dimensional)",
+                ig.evaluate(et, directions, cache, coupling_array=ca),
+                ig._e_psi, where=" (two-point qmc, zero-dimensional)",
             )
             continue
 
@@ -5995,74 +6061,43 @@ def integrate_two_point_qmc(
             t_arr[:, j] = ext_times.get(evs[j], t_f)
         for j in range(ni):
             t_arr[:, len(evs) + j] = t_s[:, j]
+        et_alias = dict(sp.equal_time_aliases or ())
 
-        # --- Vectorised R product ---
-        r_prod = np.ones(n_eval)
-        for sl, sr in _kept_r_propagators(sp):
-            r_prod *= cache.R_time_batch(
-                t_arr[:, var_col[sl]], t_arr[:, var_col[sr]]
-            )
+        def _t(label: str) -> np.ndarray:
+            """Times of ``label``; an aliased leg reads its representative's."""
+            return t_arr[:, var_col[et_alias.get(label, label)]]
 
-        # --- Vectorised C product with spatial factors ---
-        dt = ig.diagram_term
-        coeff = ig.coupling_array
-        prop_idx = dt.propagator_indices
+        # --- Vectorised R factors: a scalar-R product, or matrix-R batches
+        # selected per component assignment (see DiagramIntegrand._r_batches)
+        r_prod, r_batches = ig._r_batches(cache, _t, n_eval)
 
-        # Fixed indices from the integrand (e.g. observable component
-        # indices like {'a': 0, 'b': 1}).  These must participate in
-        # _resolve_component so that C-propagator legs carrying a fixed
-        # index name are evaluated at the correct component instead of
-        # being summed over all components.
-        fi = ig.fixed_indices
+        # --- Vectorised C lookups with spatial factors ---
+        c_batches = [
+            (_lookup_C(sp_l, sp_r, _t(sp_l), _t(sp_r), ci), il, ir)
+            for ci, (sp_l, sp_r, il, ir) in enumerate(sp.c_propagators)
+        ]
 
-        if not prop_idx:
-            # Scalar coupling (iso_R + iso_C)
-            c_prod = np.ones(n_eval)
-            for ci, (sp_l, sp_r, il, ir) in enumerate(sp.c_propagators):
-                t_l = t_arr[:, var_col[sp_l]]
-                t_r = t_arr[:, var_col[sp_r]]
-                C_batch = _lookup_C(sp_l, sp_r, t_l, t_r, ci)
-                if il is None and ir is None:
-                    c_prod *= _isotropic_C(C_batch, batched=True)
-                    continue
-                a = DiagramIntegrand._resolve_component(il, fi)
-                b = DiagramIntegrand._resolve_component(ir, fi)
-                c_prod *= _select_C_batch(C_batch, a, b)
-            values = r_prod * _real_or_raise(
-                coeff, getattr(dt, 'n_external_response', 0),
-                where=' (coupling)') * c_prod * jac
-
+        if ig.dynamic_coupling is None:
+            values = ig._static_values(c_batches, r_prod, jac,
+                                       r_batches=r_batches)
         else:
-            # Propagator-indexed coupling
-            idx_names = [name for name, _ in prop_idx]
-            prop_shape = tuple(dim for _, dim in prop_idx)
-            values = np.zeros(n_eval)
-            for pidx in np.ndindex(*prop_shape):
-                c_raw = coeff[pidx] if coeff.ndim > 0 else coeff
-                # Magnitude FIRST.  A tensor entry that is float noise around
-                # zero can carry an arbitrary complex phase, and projecting it
-                # before the negligibility test turns "skip this term" into a
-                # hard ValueError from _real_or_raise.
-                if abs(complex(c_raw)) < 1e-20:
-                    continue
-                c_val = _real_or_raise(c_raw, getattr(dt, "n_external_response", 0), where=' (coupling)')
-                if abs(c_val) < 1e-20:
-                    continue
-                idx_map = {**fi, **dict(zip(idx_names, pidx))}
-                c_prod = np.ones(n_eval)
-                for ci, (sp_l, sp_r, il, ir) in enumerate(
-                    sp.c_propagators
-                ):
-                    t_l = t_arr[:, var_col[sp_l]]
-                    t_r = t_arr[:, var_col[sp_r]]
-                    C_batch = _lookup_C(sp_l, sp_r, t_l, t_r, ci)
-                    if il is None and ir is None:
-                        c_prod *= _isotropic_C(C_batch, batched=True)
-                        continue
-                    a = DiagramIntegrand._resolve_component(il, idx_map)
-                    b = DiagramIntegrand._resolve_component(ir, idx_map)
-                    c_prod *= _select_C_batch(C_batch, a, b)
-                values += c_val * r_prod * c_prod * jac
+            # A callable coupling.  The static ``coupling_array`` is then a
+            # zeros placeholder, which this function used to read: it
+            # returned 0 for every diagram with a callable vertex.  Each leg
+            # sits at the position of its direction group.
+            labels = set(sp.direction_map)
+            group_pos = group_x if spatial_aware else directions
+            couplings = ig.dynamic_coupling.evaluate_at_batch(
+                label_t={lab: _t(lab) for lab in labels},
+                label_x={lab: group_pos[sp.direction_map[lab]]
+                         for lab in labels},
+                n_samples=n_eval,
+            )
+            values = ig._dynamic_values(
+                couplings, c_batches, r_prod, jac,
+                where=" (dynamic coupling, two-point qmc)",
+                r_batches=r_batches,
+            )
 
         values = np.where(jac > 0, values, 0.0)
         est = float(np.mean(values))

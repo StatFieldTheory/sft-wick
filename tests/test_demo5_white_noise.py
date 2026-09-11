@@ -110,15 +110,34 @@ def test_order_4_two_point():
 
 @pytest.mark.parametrize("gammas,method,rel,kw", [
     ((1.0, 1.0), "gauss_legendre", 1e-10, dict(n_gauss=16)),
+    ((0.6, 1.6), "gauss_legendre", 1e-10, dict(n_gauss=16)),
+    ((0.6, 1.6), "qmc_vectorized", 1e-3, dict(n_samples=2 ** 13, seed=3)),
     ((0.6, 1.6), "qmc_scalar", 1e-3, dict(n_samples=2 ** 13, seed=3)),
-], ids=["scalar-R", "matrix-R"])
+], ids=["scalar-R", "matrix-R-gauss_legendre", "matrix-R-qmc_vectorized",
+        "matrix-R-qmc_scalar"])
 def test_multiplicative_channels(gammas, method, rel, kw):
+    """Matrix R (distinct rates) on the batched integrators raised
+    NotImplementedError before the matrix-R change; the scalar loop and
+    ``nquad`` were the only routes."""
     rows = mult.compare(np.array(gammas), mult.package(gammas, method, **kw))
     for r in rows:
         if r["hierarchy"] == 0.0:
             assert abs(r["package"]) < 1e-12, r
         else:
             assert r["rel"] < rel, r
+
+
+def test_multiplicative_matrix_R_batched_equals_scalar_loop():
+    """Same Sobol points: the batched and the scalar loop agree to
+    round-off on every channel and component tuple of part B."""
+    kw = dict(n_samples=2 ** 8, seed=5)
+    batched = mult.package((0.6, 1.6), "qmc_vectorized", **kw)
+    scalar = mult.package((0.6, 1.6), "qmc_scalar", **kw)
+    assert len(batched) == len(scalar) > 0
+    for b, s in zip(batched, scalar):
+        assert (b["channel"], b["comps"]) == (s["channel"], s["comps"])
+        assert b["package"] == pytest.approx(s["package"], rel=1e-12,
+                                             abs=1e-15), (b, s)
 
 
 def test_two_psi_vertex_factor_reproduces_C():

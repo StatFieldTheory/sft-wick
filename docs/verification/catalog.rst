@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1383 tests** in 49 files (parametrised
+The suite has **1459 tests** in 50 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -191,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*585 tests in 19 files.*
+*661 tests in 20 files.*
 
 .. list-table::
    :header-rows: 1
@@ -226,7 +226,7 @@ Integrators
      - demo 5: white noise (ConstantImpulse matrix) with coloured noise, t_min = 0.5, the diag_C=False, diag_C=True and iso_C=True paths, orders 0-4 and 1-, 2-, 3-point functions on every integrator; multiplicative noise at L0 with two-psi vertices, scalar and matrix R
      - exact Itô moment hierarchy (Markov embedding of the coloured noise)
      - 1e-10 (GL, nquad) / 1e-3 - 1e-4 (QMC) / 1e-8 (order 4)
-     - 37
+     - 40
    * - ``test_diag_fast_component_labels.py``
      - observable component labels pinned through fixed_indices on a C propagator in the iso_R + diag_C scalar fast path; the Kronecker delta between C legs when il != ir
      - numpy hand contraction over the full C matrices; all five backends against each other; the label-blind value shown to differ
@@ -272,6 +272,11 @@ Integrators
      - closed forms; Campbell's theorem; Lyapunov equation
      - 1e-13
      - 7
+   * - ``test_matrix_r_batched.py``
+     - matrix-valued R (DiagonalA with distinct rates, a non-normal dense ExplicitR) on gauss_legendre, qmc_vectorized, integrate_two_point_qmc and the method='qmc' dispatch: static, callable, equal_time and already_R_contracted vertices, integrate_over, unequal external times; absorbed-R leg indices pinned to their partners'
+     - exact Itô moment hierarchy (Markov embedding; a constant random source for κ³), closed form Σ κ M M M, scipy expm + quad_vec hand contractions; the scalar loop on the same Sobol points; nquad
+     - 1e-10 (vs exact) / 1e-12 (same points, GL vs nquad)
+     - 53
    * - ``test_matrix_r_evaluation.py``
      - matrix-valued R with callable couplings in the scalar loop
      - qmc_vectorized where legal; closed-form 1-D integrals
@@ -291,12 +296,12 @@ Integrators
      - leg order of a callable κ^(m): every coupling-sum term evaluated at its own legs, on each integration route and the order-2 FK channel
      - numpy hand contraction; the old leg-order-blind value shown to differ
      - 1e-12
-     - 71
+     - 81
    * - ``test_r_cache_mismatch.py``
      - R-propagator indices vs the cache's R type: two-index R with a scalar-R cache, index-free R with a matrix-R cache and a two-index absorbed R raise at every entry point; matching pairs on every backend, N = 1, and L1 flag overrides
      - numpy hand contraction of the coupling (R = Θ is 1 on the domain)
      - 1e-12
-     - 80
+     - 90
 
 Workflow and YAML
 -----------------
