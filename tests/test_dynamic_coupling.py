@@ -1,9 +1,24 @@
 """Tests for the spacetime-dependent (callable) coupling path.
 
-Covers the ``DynamicCouplingPromise`` path in
-``sft_wick.evaluate.DiagramIntegrand.integrate_moment_qmc_vectorized``
-that is triggered when any ``coupling_values[name]`` is callable
-(typically a non-local ``κ^{(m)}`` vertex like demo2's ``κ^{(3)}``).
+``DiagramTerm.build_integrand`` attaches a
+``sft_wick.evaluate.DynamicCouplingPromise`` to the integrand when a
+callable ``coupling_values[name]`` appears in the diagram's coupling
+sum (typically a non-local ``κ^{(m)}`` vertex like demo2's
+``κ^{(3)}``).  The ``DiagramIntegrand`` integrators use it as follows:
+
+* ``integrate_moment_qmc_vectorized`` and
+  ``integrate_moment_gauss_legendre`` call
+  ``DynamicCouplingPromise.evaluate_at_batch`` once per diagram, with
+  every sample;
+* ``integrate_moment_qmc``, the scalar loop behind
+  ``method='qmc_scalar'``, calls ``dynamic_coupling_array``, and
+  through it ``DynamicCouplingPromise.evaluate_at``, once per sample;
+* ``_evaluate_zero_dimensional``, which the qmc_vectorized,
+  gauss_legendre and nquad integrators use for a diagram with no time
+  integral left, calls ``evaluate_at_batch`` with one sample.
+
+``integrate_moment_nquad`` otherwise raises ``NotImplementedError``
+for a callable coupling.
 
 Currently locked here:
 
@@ -15,16 +30,28 @@ Currently locked here:
   the two routes must return bit-comparable numbers; this is the
   boundary test for the feature that replaced the pre-0.4.0
   ``NotImplementedError``.
+* **DC2** -- scalar QMC integrates a callable coupling to closed-form
+  values; ``DiagramIntegrand.evaluate`` refuses a callable coupling
+  without an explicit ``coupling_array``; a coupling leg with no
+  propagator is still given a position.
 * **WF6** -- end-to-end FK (κ^{(3)}) integration: a constant
   callable κ^{(3)} routed through ``DynamicCouplingPromise`` must
   produce the same numerical result as the same constant tensor
   routed through the static fast path. This locks the
-  static-vs-dynamic equivalence -- any future vectorisation of the
-  per-sample loop (deferred A/B/C/D in the project todo) must
-  preserve it.
-
-Future tests in this file will cover the vectorised dynamic-coupling
-path (deferred A/B/C/D).
+  static-vs-dynamic equivalence, which the batched evaluation in
+  ``evaluate_at_batch`` must preserve.
+* **WF7** -- a callable declared with ``coupling_vectorized=True``
+  gives the same FK total as the same kernel under the per-sample
+  contract.
+* **WF8** -- 3-D vector leg positions integrate to a finite, nonzero
+  FK total on qmc_vectorized and gauss_legendre.
+* **WF9** -- the ``(n, t)`` argument shapes each contract receives for
+  scalar, 2-D and 3-D positions on qmc_vectorized, gauss_legendre and
+  qmc_scalar, and the agreement of the FK total across contracts and
+  position kinds.
+* **DC3** -- a single-component (N = 1) field with a constant callable
+  coupling matches the static tensor on gauss_legendre and
+  qmc_vectorized.
 """
 from __future__ import annotations
 
@@ -376,11 +403,14 @@ def test_DC2_a_coupling_leg_with_no_propagator_still_gets_a_position():
 # =====================================================================
 
 
-def _make_kappa3_system_with_K(K_coupling):
+def _make_kappa3_system_with_K(
+    K_coupling, *, coupling_vectorized: bool = False,
+):
     """Build a 2-component System whose order-2 expansion contains
     FK diagrams driven by ``K``. ``K_coupling`` may be either a
     constant ``(N, N, N)`` tensor or a callable
-    ``fn(n_list, t_list) -> (N, N, N)``.
+    ``fn(n_list, t_list) -> (N, N, N)``; ``coupling_vectorized`` is
+    passed to ``NonLocalVertex``.
     """
     N = 2
     F = np.zeros((N, N, N))
@@ -393,7 +423,10 @@ def _make_kappa3_system_with_K(K_coupling):
         linear=sw.DiagonalA(gamma=[1.0, 1.0]),
         vertices=[sw.LocalVertex("F", coupling=F)],
         nonlocal_vertices=[
-            sw.NonLocalVertex("K", order=3, coupling=K_coupling),
+            sw.NonLocalVertex(
+                "K", order=3, coupling=K_coupling,
+                coupling_vectorized=coupling_vectorized,
+            ),
         ],
         noise=sw.GaussianNoise(
             kappa2=sw.SeparableTranslation(
@@ -724,6 +757,142 @@ def test_WF8_dynamic_kappa3_with_3d_positions(method, kw):
         f"trivially-zero total {result.total!r} from method={method!r}; "
         f"the K-callable should give a nontrivial envelope at this grid"
     )
+
+
+# =====================================================================
+# WF9 -- the argument shapes a callable coupling receives
+# =====================================================================
+
+
+def _wf9_recording_kappa3(*, vectorized: bool, seen: list):
+    """WF8's κ^(3) callable (same ``K_const``, same envelope) under the
+    per-sample or the vectorised contract.  Every call appends
+    ``(np.shape(n), np.shape(t))`` to ``seen``.
+
+    The envelope depends on the positions only through each leg's norm,
+    so a scalar position and a vector of the same length give the same
+    value.
+    """
+    N = 2
+    K_const = np.zeros((N, N, N))
+    K_const[0, 0, 0] = 0.3
+    K_const[1, 1, 1] = 0.5
+    # Axes ahead of a position axis: legs, plus samples when vectorised.
+    n_lead = 2 if vectorized else 1
+
+    def K_callable(n_list, t_list):
+        seen.append((np.shape(n_list), np.shape(t_list)))
+        n = np.asarray(n_list, dtype=float)
+        t = np.asarray(t_list, dtype=float)
+        if n.ndim > n_lead:
+            n = np.linalg.norm(n, axis=-1)
+        envelope = np.exp(-np.abs(t[0] - t[1])) * np.exp(-np.abs(n[0] - n[2]))
+        if vectorized:
+            return envelope[:, None, None, None] * K_const[None, :, :, :]
+        return float(envelope) * K_const
+
+    return K_callable
+
+
+#: Leg positions: x at the origin, y at distance 0.5 along the first axis.
+_WF9_POSITIONS = {
+    "scalar": {"x": 0.0, "y": 0.5},
+    "2d": {"x": np.array([0.0, 0.0]), "y": np.array([0.5, 0.0])},
+    "3d": {"x": np.array([0.0, 0.0, 0.0]), "y": np.array([0.5, 0.0, 0.0])},
+}
+
+#: method -> (integrator kwargs, samples per call of a vectorised callable).
+_WF9_METHODS = {
+    "qmc_vectorized": ({"n_samples": 2 ** 7, "seed": 20260429}, 2 ** 7),
+    # n_gauss nodes in each of the FK diagrams' four time integrals.
+    "gauss_legendre": ({"n_gauss": 4}, 4 ** 4),
+    # evaluate_at runs a vectorised callable as a batch of one sample.
+    "qmc_scalar": ({"n_samples": 2 ** 5, "seed": 20260429}, 1),
+}
+
+
+def _wf9_fk_total(*, vectorized: bool, positions: dict, method: str):
+    """Order-2 FK total with the recording κ^(3), and the ``(n, t)``
+    shapes of every call the integration made."""
+    seen: list = []
+    system = _make_kappa3_system_with_K(
+        _wf9_recording_kappa3(vectorized=vectorized, seen=seen),
+        coupling_vectorized=vectorized,
+    )
+    expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=[2])
+    props = system.propagators(
+        t_max=2.0, n_grid_t=20,
+        c_closed_form=_load_demo1_C_fn(),
+        c_closed_form_only=True,
+        c_closed_form_vectorized=True,
+    )
+    result = expansion.evaluate(
+        props,
+        positions=positions,
+        t_final=2.0,
+        component_pair=(0, 1),
+        orders=[2],
+        vertex_types={"FK"},
+        method=method,
+        # A worker process would record into its own copy of ``seen``.
+        n_jobs=1,
+        **_WF9_METHODS[method][0],
+    )
+    return result.total, seen
+
+
+@pytest.mark.parametrize("method", list(_WF9_METHODS))
+@pytest.mark.parametrize("pos_kind", list(_WF9_POSITIONS))
+@pytest.mark.parametrize(
+    "vectorized", [False, True], ids=["per_sample", "vectorized"],
+)
+def test_WF9_callable_coupling_argument_shapes(vectorized, pos_kind, method):
+    """A callable κ^(3) receives the argument shapes that
+    ``DynamicCouplingPromise.evaluate_at_batch`` documents.
+
+    With m = 3 legs, the per-sample contract passes ``n`` of shape
+    ``(m,)`` for scalar positions and ``(m, d)`` for d-dim positions;
+    ``coupling_vectorized=True`` passes ``(m, n_samples)`` and
+    ``(m, n_samples, d)``.  ``t`` is ``(m,)`` or ``(m, n_samples)`` in
+    both cases.  ``method='qmc_scalar'`` runs a vectorised callable
+    through ``DynamicCouplingPromise.evaluate_at`` one sample at a time,
+    so there ``n_samples`` is 1.
+
+    WF8's callable accepts ``(m,)`` and ``(m, d)`` alike and WF8 checks
+    only for a finite nonzero total, so it passes whether or not vector
+    positions reach the callable.  This callable records the shapes of
+    every call.  d = 2 is included because with d = m = 3 an array with
+    the leg and position axes swapped has the same shape.
+
+    The envelope depends on the positions only through their norms, and
+    all three position kinds put x at the origin and y at distance 0.5,
+    so every contract and position kind must give the per-sample,
+    scalar-position total of the same method.  Zeroing the vector
+    positions inside the promise keeps every shape correct and changes
+    the total, so this comparison catches a vector that arrives with the
+    right shape and a wrong value.
+    """
+    positions = _WF9_POSITIONS[pos_kind]
+    n_batch = _WF9_METHODS[method][1]
+    lead = (3, n_batch) if vectorized else (3,)  # m = 3 legs
+    expected = {(lead + np.shape(positions["x"]), lead)}
+
+    total, seen = _wf9_fk_total(
+        vectorized=vectorized, positions=positions, method=method,
+    )
+    assert set(seen) == expected, (
+        f"method={method!r}, {pos_kind} positions: the callable received "
+        f"(n, t) shapes {sorted(set(seen))}, expected {sorted(expected)}"
+    )
+
+    reference, _ = _wf9_fk_total(
+        vectorized=False, positions=_WF9_POSITIONS["scalar"], method=method,
+    )
+    assert reference != 0.0, "test is vacuous if the reference total is zero"
+    # abs=0.0: every total here is below 0.1, so rel * expected is under
+    # 1e-13 and the default 1e-12 floor would loosen the check to more than
+    # 1e-11 relative.
+    assert total == pytest.approx(reference, rel=1e-12, abs=0.0)
 
 
 def _scalar_field_system(coupling):
