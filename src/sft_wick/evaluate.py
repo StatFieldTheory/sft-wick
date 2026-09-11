@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import Any, Callable
 
 import hashlib
@@ -100,6 +101,81 @@ def _kept_r_propagators(
         return spatial.r_propagators
     absorbed = set(spatial.r_absorbed_pairs)
     return tuple(p for p in spatial.r_propagators if p not in absorbed)
+
+
+#: ``ValueError`` text for each kind of :func:`_r_index_mismatch`.
+_R_MISMATCH = {
+    "scalar": (
+        "{r} carries two different component indices, but the propagator "
+        "cache's R is a scalar (cache.model.iso_R is True) and is multiplied "
+        "in without their Kronecker delta, so the leg components would be "
+        "summed instead of pinned.  Build the terms with "
+        "compute_moment(..., iso_R=True) or diag_R=True; at L1, do not pass "
+        "iso_R=False together with diag_R=False to System.expand."
+    ),
+    "matrix": (
+        "{r} has no component index on one or both legs, which is how "
+        "compute_moment(..., iso_R=True) writes a scalar R, but the "
+        "propagator cache's R is a matrix (cache.model.iso_R is False), and "
+        "an index-free R is evaluated as its trace: N times too large for R "
+        "proportional to the N x N identity.  Build the terms with "
+        "iso_R=False (diag_R=True keeps R diagonal), or use a cache whose R "
+        "is a scalar."
+    ),
+    "absorbed": (
+        "{r} is absorbed into an already_R_contracted vertex, so its factor "
+        "is skipped, and what stands in for it is the Kronecker delta of its "
+        "two component indices.  Only compute_moment(..., diag_R=True) or "
+        "iso_R=True applies that delta; without it the leg components would "
+        "be summed instead of pinned.  With a matrix R, diag_R=True also "
+        "sets the off-diagonal entries of the other R propagators to zero, "
+        "so it is exact only for a diagonal R."
+    ),
+}
+
+
+def _r_index_mismatch(dt: "DiagramTerm", iso_R: bool) -> str | None:
+    """Why ``dt``'s R propagators cannot be evaluated against a scalar R
+    (``iso_R``) or a matrix R, or ``None`` if they can.
+
+    ``compute_moment`` writes an R propagator with two component indices
+    (the default), one repeated index (``diag_R=True``) or none
+    (``iso_R=True``).  The evaluators read those indices only for a matrix
+    R, and they skip the factor of an R absorbed into an
+    ``already_R_contracted`` vertex.  So a scalar R, ``R_ab = delta_ab R``,
+    needs its delta applied to the terms; a matrix R needs the indices; and
+    an absorbed R needs the delta whatever the cache holds.  Each of the
+    three pairings that break this used to return a wrong number without an
+    error.
+    """
+    absorbed = set(getattr(dt, "r_absorbed_pairs", ()) or ())
+    for p in dt.propagators:
+        if p.kind != "R":
+            continue
+        il, ir = p.index_left, p.index_right
+        two = il is not None and ir is not None and il != ir
+        if (p.spatial_left, p.spatial_right) in absorbed:
+            kind = "absorbed" if two else None
+        elif iso_R:
+            kind = "scalar" if two else None
+        else:
+            kind = "matrix" if il is None or ir is None else None
+        if kind:
+            return _R_MISMATCH[kind].format(
+                r=f"R({p.spatial_left}, {p.spatial_right}) with component "
+                  f"indices ({il}, {ir})")
+    return None
+
+
+def _cache_r_type(cache: Any) -> bool | None:
+    """``cache.model.iso_R``, or ``None`` when :func:`_r_index_mismatch` does
+    not apply: a cache that declares no R type (a test double), or a single
+    component, for which the delta is 1 and the trace is R's only entry."""
+    model = getattr(cache, "model", None)
+    iso_R = getattr(model, "iso_R", None)
+    if iso_R is None or getattr(model, "n_components", None) == 1:
+        return None
+    return bool(iso_R)
 
 
 def _select_C_batch(
@@ -3436,6 +3512,20 @@ class DiagramIntegrand:
                 positions.setdefault(label, default_position)
         return self.dynamic_coupling.evaluate_at(times, positions)
 
+    @cached_property
+    def _r_index_mismatches(self) -> tuple[str | None, str | None]:
+        """:func:`_r_index_mismatch` against a matrix R and a scalar R,
+        computed once because :meth:`evaluate` consults it on every call."""
+        dt = self.diagram_term
+        return (_r_index_mismatch(dt, False), _r_index_mismatch(dt, True))
+
+    def _require_r_indices_match(self, cache: Any) -> None:
+        """Raise ``ValueError`` if this diagram's R-propagator indices
+        contradict ``cache``'s R type (see :func:`_r_index_mismatch`)."""
+        iso_R = _cache_r_type(cache)
+        if iso_R is not None and self._r_index_mismatches[iso_R]:
+            raise ValueError(self._r_index_mismatches[iso_R])
+
     def evaluate(
         self,
         times: dict[str, float],
@@ -3467,6 +3557,9 @@ class DiagramIntegrand:
             NotImplementedError: if this integrand carries a spacetime-dependent
                 (callable) coupling and no ``coupling_array`` was supplied --
                 it would otherwise read the zeros placeholder and return 0.
+            ValueError: if this diagram's R-propagator component indices
+                contradict ``cache``'s R type, as for
+                :func:`integrate_diagrams`.
         """
         if self.dynamic_coupling is not None and coupling_array is None:
             raise NotImplementedError(
@@ -3478,6 +3571,7 @@ class DiagramIntegrand:
                 "integrand.dynamic_coupling_array(times, directions), or use "
                 "method='gauss_legendre' / method='qmc_vectorized'."
             )
+        self._require_r_indices_match(cache)
         dt = self.diagram_term
         spatial = self.spatial
         coeff = (self.coupling_array if coupling_array is None
@@ -4134,6 +4228,8 @@ class DiagramIntegrand:
         """
         from scipy.stats import qmc
 
+        self._require_r_indices_match(cache)
+
         # A spacetime-dependent (callable) coupling used to be refused here,
         # which left the combination "callable coupling + MATRIX-valued R"
         # computable by no backend at all: this loop rejected the callable,
@@ -4326,6 +4422,7 @@ class DiagramIntegrand:
         """
         from scipy.stats import qmc
 
+        self._require_r_indices_match(cache)
         spatial = self.spatial
         int_vars_pf = list(reversed(spatial.time_integration_vars))
         ext_vars = list(spatial.external_points)
@@ -4676,6 +4773,7 @@ class DiagramIntegrand:
         """
         from numpy.polynomial.legendre import leggauss
 
+        self._require_r_indices_match(cache)
         spatial = self.spatial
         int_vars_pf = list(reversed(spatial.time_integration_vars))
         ext_vars = list(spatial.external_points)
@@ -4932,6 +5030,7 @@ class DiagramIntegrand:
         """
         from scipy.integrate import nquad as _nquad
 
+        self._require_r_indices_match(cache)
         spatial = self.spatial
         int_vars = list(spatial.time_integration_vars)
         ext_vars = list(spatial.external_points)
@@ -5303,9 +5402,26 @@ def integrate_diagrams(
     Returns:
         ``(total, details)`` where *total* is the scalar sum and
         *details* is a list of ``(estimate, error)`` per diagram.
+
+    Raises:
+        ValueError: if a term's R-propagator component indices contradict
+            ``cache``'s R type: two different indices against a scalar-R
+            cache (``compute_moment``'s default flags), an index-free R
+            (``iso_R=True``) against a matrix-R cache, or two different
+            indices on an R absorbed into an ``already_R_contracted``
+            vertex.  The message names the flags that match the cache.
     """
     if not diagram_terms:
         return (0.0, [])
+
+    # Also checked per integrand; checking here first reports a mismatch
+    # before any integrand is built or any joblib worker is started.
+    iso_R = _cache_r_type(cache)
+    if iso_R is not None:
+        for dt in diagram_terms:
+            problem = _r_index_mismatch(dt, iso_R)
+            if problem:
+                raise ValueError(problem)
 
     tick = progress_tick or (lambda n=1: None)
 
@@ -5407,6 +5523,7 @@ def integrate_two_point_qmc(
     total_err_sq = 0.0
 
     for ig in integrands:
+        ig._require_r_indices_match(cache)
         sp = ig.spatial
         ivs = list(reversed(sp.time_integration_vars))
         evs = list(sp.external_points)
