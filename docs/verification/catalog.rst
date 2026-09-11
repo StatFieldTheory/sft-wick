@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1383 tests** in 49 files (parametrised
+The suite has **1392 tests** in 49 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -191,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*585 tests in 19 files.*
+*594 tests in 19 files.*
 
 .. list-table::
    :header-rows: 1
@@ -241,7 +241,7 @@ Integrators
      - equal_time non-local vertices (single time integral)
      - explicit δ-function reduction
      - 1e-8
-     - 17
+     - 26
    * - ``test_evaluate_pipeline.py``
      - spatial analysis, causal orderings, integrand assembly
      - specification
