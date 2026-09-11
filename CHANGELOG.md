@@ -431,8 +431,11 @@ leaves unordered cross:
   `equal_time` non-local vertex, or a local vertex with two ψ legs).
 
 `integrate_moment_gauss_legendre` now integrates each consistent order of
-such pairs as its own causal sub-simplex and adds the results.  Measured on
-demo 4 against the exact moment hierarchy, `⟨φ_0(x) φ_1(y)⟩`:
+such pairs as its own causal sub-simplex and adds the results, and repeats
+the split inside each sub-simplex until no such pair is left: ordering one
+pair can place a variable below two others that are still unordered (at
+order 4 of demo 5 a single split left 3.1e-3).  Measured on demo 4 against
+the exact moment hierarchy, `⟨φ_0(x) φ_1(y)⟩`:
 
 | channel | before, 8 / 16 / 64 nodes | now, 8 / 16 nodes |
 |---|---|---|

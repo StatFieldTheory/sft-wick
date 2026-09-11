@@ -330,25 +330,29 @@ def _later_sets(ivars: set, orderings) -> dict[str, set]:
     return closure
 
 
-def _kink_pairs(spatial: "SpatialStructure",
-                c_kink: bool) -> list[tuple[str, str]]:
-    """Internal time variables that the causal structure leaves unordered
-    and whose crossing kinks the integrand inside the domain:
+def _kink_pairs(spatial: "SpatialStructure", c_kink: bool,
+                orderings=None) -> list[tuple[str, str]]:
+    """Internal time variables that ``orderings`` (default: the causal
+    structure) leave unordered and whose crossing kinks the integrand
+    inside the domain:
 
     * two parents of one variable: its upper bound ``min(parents)`` changes
-      branch where they cross.  This needs a vertex with several ψ legs at
-      one time, an ``equal_time`` non-local vertex or a local vertex with
-      two ψ legs;
+      branch where they cross.  A vertex with several ψ legs at one time
+      (an ``equal_time`` non-local vertex or a local vertex with two ψ
+      legs) has such parents, and so can a variable that an earlier split
+      placed below two others;
     * with ``c_kink``, the two ends of a C propagator, when C is kinked on
       its time diagonal (see :func:`_c_has_diagonal_kink`).
     """
     from itertools import combinations
 
+    orderings = (spatial.time_orderings if orderings is None
+                 else orderings)
     alias = dict(spatial.equal_time_aliases or ())
     ivars = set(spatial.time_integration_vars)
-    later = _later_sets(ivars, spatial.time_orderings)
+    later = _later_sets(ivars, orderings)
     parents: dict[str, set] = defaultdict(set)
-    for earlier, lat in spatial.time_orderings:
+    for earlier, lat in orderings:
         if earlier in ivars and lat in ivars:
             parents[earlier].add(lat)
     candidates = [pair for ps in parents.values()
@@ -369,15 +373,17 @@ def _kink_pairs(spatial: "SpatialStructure",
 
 
 def _kink_orientations(spatial: "SpatialStructure",
-                       pairs: list[tuple[str, str]]) -> list[tuple]:
-    """Every order of the kink pairs consistent with the causal orderings,
-    each as a tuple of extra ``(earlier, later)`` edges.  The sub-domains
-    they define partition the integration domain up to its kinks."""
+                       pairs: list[tuple[str, str]],
+                       orderings=None) -> list[tuple]:
+    """Every order of the kink pairs consistent with ``orderings`` (default:
+    the causal structure), each as a tuple of extra ``(earlier, later)``
+    edges.  The sub-domains they define partition the domain."""
     from itertools import product
 
+    orderings = (spatial.time_orderings if orderings is None
+                 else orderings)
     ivars = set(spatial.time_integration_vars)
-    base = [(e, l) for e, l in spatial.time_orderings
-            if e in ivars and l in ivars]
+    base = [(e, l) for e, l in orderings if e in ivars and l in ivars]
     out = []
     for bits in product((0, 1), repeat=len(pairs)):
         extra = tuple((a, b) if bit == 0 else (b, a)
@@ -5069,26 +5075,29 @@ class DiagramIntegrand:
                 "or method='qmc_scalar' for matrix-valued R."
             )
 
-        time_orderings = list(spatial.time_orderings)
+        # Split at kinks until none is left: ordering one pair can give a
+        # variable two unordered parents, so the pairs are re-detected under
+        # the orderings added so far.  Each pass orders at least one more
+        # pair, so this terminates.
+        time_orderings = list(spatial.time_orderings) + list(_extra_orderings)
+        pairs = _kink_pairs(spatial, _c_has_diagonal_kink(cache),
+                            time_orderings)
+        if pairs:
+            total = 0.0
+            for extra in _kink_orientations(spatial, pairs, time_orderings):
+                val, _ = self.integrate_moment_gauss_legendre(
+                    lambda_f, cache, t_min=t_min, direction=direction,
+                    n_gauss=n_gauss, positions=positions,
+                    integrate_over=integrate_over,
+                    external_times=external_times,
+                    _extra_orderings=tuple(_extra_orderings) + extra,
+                )
+                total += val
+            return (total, 0.0)
         if _extra_orderings:
-            time_orderings += list(_extra_orderings)
             int_vars_pf = list(reversed(_topological_sort_times(
                 tuple(spatial.time_integration_vars), time_orderings)))
             gl_vars = ext_integrated + int_vars_pf
-        else:
-            pairs = _kink_pairs(spatial, _c_has_diagonal_kink(cache))
-            if pairs:
-                total = 0.0
-                for extra in _kink_orientations(spatial, pairs):
-                    val, _ = self.integrate_moment_gauss_legendre(
-                        lambda_f, cache, t_min=t_min, direction=direction,
-                        n_gauss=n_gauss, positions=positions,
-                        integrate_over=integrate_over,
-                        external_times=external_times,
-                        _extra_orderings=extra,
-                    )
-                    total += val
-                return (total, 0.0)
 
         # 1-D Gauss-Legendre nodes / weights mapped from [-1, 1] to [0, 1].
         nodes_1d, weights_1d = leggauss(n_gauss)
