@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1385 tests** in 49 files (parametrised
+The suite has **1477 tests** in 54 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -191,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*585 tests in 19 files.*
+*677 tests in 24 files.*
 
 .. list-table::
    :header-rows: 1
@@ -227,6 +227,31 @@ Integrators
      - exact Itô moment hierarchy (Markov embedding of the coloured noise)
      - 1e-10 (GL, nquad) / 1e-3 - 1e-4 (QMC) / 1e-8 (order 4)
      - 37
+   * - ``test_demo8_kernels.py``
+     - demo 8 (c): Matérn-3/2 and damped-cosine CustomKernels inside interacting diagrams, and GaussianTemporal, which has no finite embedding
+     - moment hierarchy of each kernel's 2-D linear-SDE embedding; hand-contracted diagrams with C in closed form (erf); time-translation invariance
+     - 1e-10 / 1e-3 (table)
+     - 25
+   * - ``test_demo8_oscillator.py``
+     - demo 8 (b): ExplicitR with a damped-oscillator response that changes sign, quadratic and cubic local vertices, white force, channels at orders 0-2 and at unequal external times
+     - exact Itô moment hierarchy of the (x, v) embedding, conditioned at the earlier time for the two-time rows
+     - 1e-8 (GL) / 1e-7 (QMC) / 1e-4 (table)
+     - 15
+   * - ``test_demo8_reference.py``
+     - demo 8's reference: the moment hierarchy with a time-dependent generator, the free C by quadrature of its definition, the erf C of a Gaussian temporal kernel, and the hand-contracted orders 1 and 2
+     - ito_moments (expm_multiply) where the coefficients are constant; the two-time hierarchy of every embedding; dblquad; the hierarchy for a kernel that has one
+     - 1e-10 - 1e-11
+     - 22
+   * - ``test_demo8_time_dependent_rate.py``
+     - demo 8 (a): a callable DiagonalA rate, unequal and time-varying (so a matrix R), t_min below and above 0, orders 0-2 of 1-, 2- and 3-point functions; the rate-cache spacing; the package's C table
+     - exact Itô moment hierarchy with a time-dependent generator (solve_ivp, rtol 1e-12)
+     - 1e-10 (GL) / 1e-7 (nquad) / 1e-4 (table)
+     - 19
+   * - ``test_demo8_white_noise_table.py``
+     - demo 8 (d): a white-noise amplitude varying in time (CustomImpulse), orders 0-2, and how the spline-table C converges in its step where white noise kinks C
+     - exact Itô moment hierarchy with a time-dependent diffusion; the quadrature C at the same points
+     - 1e-10 (exact C) / 2e-3 (table)
+     - 11
    * - ``test_diag_fast_component_labels.py``
      - observable component labels pinned through fixed_indices on a C propagator in the iso_R + diag_C scalar fast path; the Kronecker delta between C legs when il != ir
      - numpy hand contraction over the full C matrices; all five backends against each other; the label-blind value shown to differ

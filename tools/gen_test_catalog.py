@@ -254,6 +254,48 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "matrix R",
         "exact Itô moment hierarchy (Markov embedding of the coloured "
         "noise)", "1e-10 (GL, nquad) / 1e-3 - 1e-4 (QMC) / 1e-8 (order 4)"),
+    "tests/test_demo8_reference.py": (
+        "Integrators",
+        "demo 8's reference: the moment hierarchy with a time-dependent "
+        "generator, the free C by quadrature of its definition, the erf C of "
+        "a Gaussian temporal kernel, and the hand-contracted orders 1 and 2",
+        "ito_moments (expm_multiply) where the coefficients are constant; the "
+        "two-time hierarchy of every embedding; dblquad; the hierarchy for a "
+        "kernel that has one",
+        "1e-10 - 1e-11"),
+    "tests/test_demo8_time_dependent_rate.py": (
+        "Integrators",
+        "demo 8 (a): a callable DiagonalA rate, unequal and time-varying (so "
+        "a matrix R), t_min below and above 0, orders 0-2 of 1-, 2- and "
+        "3-point functions; the rate-cache spacing; the package's C table",
+        "exact Itô moment hierarchy with a time-dependent generator "
+        "(solve_ivp, rtol 1e-12)",
+        "1e-10 (GL) / 1e-7 (nquad) / 1e-4 (table)"),
+    "tests/test_demo8_oscillator.py": (
+        "Integrators",
+        "demo 8 (b): ExplicitR with a damped-oscillator response that changes "
+        "sign, quadratic and cubic local vertices, white force, channels at "
+        "orders 0-2 and at unequal external times",
+        "exact Itô moment hierarchy of the (x, v) embedding, conditioned at "
+        "the earlier time for the two-time rows",
+        "1e-8 (GL) / 1e-7 (QMC) / 1e-4 (table)"),
+    "tests/test_demo8_kernels.py": (
+        "Integrators",
+        "demo 8 (c): Matérn-3/2 and damped-cosine CustomKernels inside "
+        "interacting diagrams, and GaussianTemporal, which has no finite "
+        "embedding",
+        "moment hierarchy of each kernel's 2-D linear-SDE embedding; "
+        "hand-contracted diagrams with C in closed form (erf); "
+        "time-translation invariance",
+        "1e-10 / 1e-3 (table)"),
+    "tests/test_demo8_white_noise_table.py": (
+        "Integrators",
+        "demo 8 (d): a white-noise amplitude varying in time "
+        "(CustomImpulse), orders 0-2, and how the spline-table C converges in "
+        "its step where white noise kinks C",
+        "exact Itô moment hierarchy with a time-dependent diffusion; the "
+        "quadrature C at the same points",
+        "1e-10 (exact C) / 2e-3 (table)"),
     "tests/test_iso_c_value.py": (
         "Integrators",
         "an index-free (iso_C=True) C propagator stands for c of "
