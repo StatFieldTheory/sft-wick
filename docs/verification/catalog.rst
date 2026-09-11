@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1383 tests** in 49 files (parametrised
+The suite has **1434 tests** in 51 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -191,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*585 tests in 19 files.*
+*592 tests in 20 files.*
 
 .. list-table::
    :header-rows: 1
@@ -262,6 +262,11 @@ Integrators
      - brute-force Wick counting; MSR prefactors
      - exact / 1e-10
      - 19
+   * - ``test_hormander_moments_reference.py``
+     - the vector-field (Hörmander-form) moment reference used by demo 5 part C (examples/reference/hormander_moments.py; no sft-wick code): Stratonovich and Itô moments of affine noise in one and two dimensions, the Itô branch against ito_moments, the tag expansion, two-time moments
+     - closed forms; the linear moment equations of the Itô form (solve_ivp); ito_moments.PolySDE
+     - 1e-9 - 1e-13
+     - 7
    * - ``test_iso_c_value.py``
      - an index-free (iso_C=True) C propagator stands for c of C_ab = δ_ab c, not the trace N c: orders 0-2 at N = 2 on four backends; a non-isotropic C is refused
      - the iso_C=False expansion of the same system
@@ -301,7 +306,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*97 tests in 6 files.*
+*141 tests in 7 files.*
 
 .. list-table::
    :header-rows: 1
@@ -327,6 +332,11 @@ Workflow and YAML
      - scipy quad of the rate; Lyapunov equation of the Markov embedding
      - 1e-5 (spline) / 1e-10
      - 19
+   * - ``test_multiplicative_noise_l1.py``
+     - multiplicative white noise at L1 (MultiplicativeImpulse): D = g gᵀ and the noise-induced drift, the vertices and their MSR factors, ⟨φ_a⟩ and ⟨φ_a φ_b⟩ per bookkeeping tag at vertex orders 0-3 (Itô and Stratonovich, scalar and matrix R, two times), the YAML route, the one-site and ito=False refusals
+     - exact moment hierarchy in Hörmander form (no noise-induced drift formed); finite differences of g
+     - 1e-9 (GL) / 2e-3 (qmc_scalar)
+     - 44
    * - ``test_system_t_min.py``
      - System.t_min reaches the integrators through Expansion.evaluate and sweep; a cache built for another t_min is refused
      - time-translation invariance (stationary noise, constant drift)

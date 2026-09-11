@@ -669,6 +669,241 @@ class CustomImpulse(Sigma2):
         return self.fn
 
 
+def _nested_tuple(arr: np.ndarray) -> Any:
+    """``arr`` as nested tuples of floats: a full, deterministic ``repr``
+    (it enters the expansion and propagator cache keys) and a hashable,
+    comparable dataclass field."""
+    def conv(x):
+        return tuple(conv(v) for v in x) if isinstance(x, list) else float(x)
+    return conv(np.asarray(arr, dtype=float).tolist())
+
+
+def _real_array(value: Any, what: str) -> np.ndarray:
+    arr = np.asarray(value)
+    if np.iscomplexobj(arr):
+        raise ValueError(f"MultiplicativeImpulse: {what} must be real.")
+    arr = arr.astype(float)
+    if not np.all(np.isfinite(arr)):
+        raise ValueError(f"MultiplicativeImpulse: {what} must be finite.")
+    return arr
+
+
+@dataclass(frozen=True, eq=False)
+class MultiplicativeVertex:
+    """A local vertex that :class:`MultiplicativeImpulse` lowers to.
+
+    Read-only; produced by :meth:`MultiplicativeImpulse.vertices` and
+    added to the action by :class:`~sft_wick.workflow.System`.
+
+    Attributes:
+        name: coupling-symbol name, a key of
+            ``System.build_coupling_values()``.
+        n_psi: number of ψ legs; the first ``n_psi`` axes of ``coupling``
+            are ψ legs, the remaining axes φ legs.
+        coupling: the bare tensor (a Taylor coefficient of the noise
+            covariance ``D(φ)``, or of the noise-induced drift).
+        msr_factor: ``1/2`` (``−i²/2!``) for the two-ψ vertices of
+            ``D(φ)``; ``−i`` for the one-ψ vertices of the drift.
+        g1_power: the power of ``g1`` that ``coupling`` carries.
+    """
+
+    name: str
+    n_psi: int
+    coupling: np.ndarray
+    msr_factor: complex
+    g1_power: int
+
+    @property
+    def msr_coupling(self) -> np.ndarray:
+        """``msr_factor * coupling``: the value the raw layer receives."""
+        return self.msr_factor * np.asarray(self.coupling)
+
+
+@dataclass(frozen=True)
+class MultiplicativeImpulse(Sigma2):
+    r"""Gaussian white noise whose amplitude depends linearly on φ.
+
+    .. math::
+
+        dφ_a = \dots + g_{ak}(φ)\,dW_k ,\qquad
+        g_{ak}(φ) = g^{(0)}_{ak} + g^{(1)}_{akb}\,φ_b ,\qquad
+        ⟨dW_k\,dW_l⟩ = δ_{kl}\,dt ,
+
+    read in the Itô or the Stratonovich sense (``interpretation``).  The
+    noise covariance ``D(φ) = g(φ) g(φ)ᵀ`` is a quadratic polynomial in φ:
+
+    * ``D0 = g0 g0ᵀ`` (φ-independent) is the white noise of C, exactly as
+      a ``ConstantImpulse(D0)`` would be (:attr:`amplitude`);
+    * ``D1_abc = g0_ak g1_bkc + g1_akc g0_bk`` becomes a local vertex with
+      two ψ legs and one φ leg (default name ``"G"``);
+    * ``D2_abce = g1_akc g1_bke`` becomes a local vertex with two ψ legs
+      and two φ legs (``"H"``).
+
+    The MSR action carries ``½ ψ_a ψ_b D_ab(φ)``, so both vertices take the
+    factor ``−i²/2! = ½``, applied by :meth:`System.build_coupling_values`
+    like the ``−i`` of a :class:`LocalVertex`.
+
+    ``interpretation='stratonovich'`` converts the SDE to its Itô form,
+    whose drift has the extra term
+    ``½ Σ_jk g_jk ∂_j g_ik = b_i + L_ic φ_c`` with
+    ``b_i = ½ g1_ikj g0_jk`` and ``L_ic = ½ g1_ikj g1_jkc``.  Both become
+    drift vertices with the factor ``−i``: a source with one ψ leg and no
+    φ leg (``"B"``) and a linear vertex with one ψ leg and one φ leg
+    (``"L"``).  R and C stay those of the Itô part, so every integrator
+    that runs the Itô model runs the Stratonovich one.  Folding ``L`` into
+    the linear operator would resum it, but a generic ``L`` is not
+    diagonal, and a dense R runs only on the scalar-loop integrators and
+    has no closed-form C.
+
+    **Orders count vertices.**  Each vertex is one order, whatever power
+    of ``g1`` it carries:
+
+    ======  ========  =====================  ============  ============
+    vertex  legs      bare coupling          MSR factor    power of g1
+    ======  ========  =====================  ============  ============
+    ``G``   ψ ψ φ     ``D1``                 ``1/2``       1
+    ``H``   ψ ψ φ φ   ``D2``                 ``1/2``       2
+    ``B``   ψ         ``b`` (Stratonovich)   ``−i``        1
+    ``L``   ψ φ       ``L`` (Stratonovich)   ``−i``        2
+    ======  ========  =====================  ============  ============
+
+    To collect the terms of a given power of ``g1``, sum the channels of
+    :meth:`Expansion.by_vertex_type` whose vertex powers add up to it (at
+    ``g1²``: ``H`` at order 1, ``GG``, ``GB``, ``BB`` at order 2, and
+    ``L`` at order 1).  A vertex whose coupling is identically zero is not
+    generated.
+
+    Expand with ``ito=True`` (the default): the Itô form is what the
+    numerical layer evaluates, and under ``ito=False`` it refuses the
+    equal-point R of a two-ψ vertex.
+
+    The vertices are local, so the model is one SDE per spatial point:
+    :meth:`Expansion.evaluate` refuses external points at different
+    positions when a response chain joins them (the value would depend on
+    how the noise at different points is correlated, which the local
+    vertices do not describe).  External points may carry distinct labels
+    and distinct times.
+
+    A quadratic term in ``g`` is not supported: it would add vertices with
+    two ψ legs and three and four φ legs, and a quadratic and a cubic
+    noise-induced drift.
+
+    Args:
+        g0: ``(N, M)`` amplitude at ``φ = 0``; ``M`` is the number of
+            independent Wiener processes.  Additive white noise is a
+            column of ``g0`` whose ``g1`` column is zero (for a covariance
+            ``S`` use any factor ``S = s sᵀ``).
+        g1: ``(N, M, N)``, ``g1[a, k, b] = ∂g_ak/∂φ_b``.
+        interpretation: ``'ito'`` (default) or ``'stratonovich'``.
+        vertex_names: names of the ``ψψφ`` and ``ψψφφ`` vertices.
+        drift_names: names of the Stratonovich ``ψ`` and ``ψφ`` vertices.
+    """
+
+    g0: Any
+    g1: Any
+    interpretation: str = "ito"
+    vertex_names: tuple = ("G", "H")
+    drift_names: tuple = ("B", "L")
+
+    def __post_init__(self) -> None:
+        g0 = _real_array(self.g0, "g0")
+        g1 = _real_array(self.g1, "g1")
+        if g0.ndim != 2:
+            raise ValueError(
+                f"MultiplicativeImpulse: g0 must have shape (N, M); got "
+                f"{g0.shape}.")
+        n, m = g0.shape
+        if g1.shape != (n, m, n):
+            raise ValueError(
+                f"MultiplicativeImpulse: g1 must have shape (N, M, N) = "
+                f"{(n, m, n)} to match g0 {g0.shape}; got {g1.shape}.")
+        if self.interpretation not in ("ito", "stratonovich"):
+            raise ValueError(
+                f"MultiplicativeImpulse: interpretation must be 'ito' or "
+                f"'stratonovich'; got {self.interpretation!r}.")
+        vnames, dnames = tuple(self.vertex_names), tuple(self.drift_names)
+        names = vnames + dnames
+        if (len(vnames) != 2 or len(dnames) != 2
+                or not all(isinstance(s, str) and s for s in names)
+                or len(set(names)) != 4):
+            raise ValueError(
+                f"MultiplicativeImpulse: vertex_names and drift_names must be "
+                f"two non-empty strings each, all four distinct; got "
+                f"{vnames} and {dnames}.")
+        object.__setattr__(self, "g0", _nested_tuple(g0))
+        object.__setattr__(self, "g1", _nested_tuple(g1))
+        object.__setattr__(self, "vertex_names", vnames)
+        object.__setattr__(self, "drift_names", dnames)
+
+    # -- the noise covariance D(φ) = g(φ) g(φ)ᵀ ---------------------------
+
+    @property
+    def g0_array(self) -> np.ndarray:
+        return np.array(self.g0, dtype=float)
+
+    @property
+    def g1_array(self) -> np.ndarray:
+        return np.array(self.g1, dtype=float)
+
+    @property
+    def n_components(self) -> int:
+        return self.g0_array.shape[0]
+
+    @property
+    def amplitude(self) -> np.ndarray:
+        """``D0 = g0 g0ᵀ``, the covariance at ``φ = 0``: the white noise
+        of C (the ``amplitude`` a ``ConstantImpulse`` would carry)."""
+        g0 = self.g0_array
+        return g0 @ g0.T
+
+    @property
+    def D1(self) -> np.ndarray:
+        """``D1_abc = g0_ak g1_bkc + g1_akc g0_bk`` (``D ⊃ D1_abc φ_c``)."""
+        g0, g1 = self.g0_array, self.g1_array
+        return (np.einsum("ak,bkc->abc", g0, g1)
+                + np.einsum("akc,bk->abc", g1, g0))
+
+    @property
+    def D2(self) -> np.ndarray:
+        """``D2_abce = g1_akc g1_bke`` (``D ⊃ D2_abce φ_c φ_e``)."""
+        g1 = self.g1_array
+        return np.einsum("akc,bke->abce", g1, g1)
+
+    @property
+    def noise_induced_drift(self) -> tuple[np.ndarray, np.ndarray]:
+        """``(b, L)`` of the Itô form's extra drift ``b + L φ``: zero for
+        ``'ito'``; ``b_i = ½ g1_ikj g0_jk``, ``L_ic = ½ g1_ikj g1_jkc`` for
+        ``'stratonovich'``."""
+        g0, g1 = self.g0_array, self.g1_array
+        n = g0.shape[0]
+        if self.interpretation == "ito":
+            return np.zeros(n), np.zeros((n, n))
+        return (0.5 * np.einsum("ikj,jk->i", g1, g0),
+                0.5 * np.einsum("ikj,jkc->ic", g1, g1))
+
+    def vertices(self) -> tuple[MultiplicativeVertex, ...]:
+        """The local vertices this noise lowers to; see the class docstring.
+        Vertices with an identically zero coupling are omitted."""
+        g_name, h_name = self.vertex_names
+        out = [
+            MultiplicativeVertex(g_name, 2, self.D1, 0.5, 1),
+            MultiplicativeVertex(h_name, 2, self.D2, 0.5, 2),
+        ]
+        if self.interpretation == "stratonovich":
+            b, L = self.noise_induced_drift
+            b_name, l_name = self.drift_names
+            out += [MultiplicativeVertex(b_name, 1, b, -1j, 1),
+                    MultiplicativeVertex(l_name, 1, L, -1j, 2)]
+        return tuple(v for v in out if np.any(np.asarray(v.coupling) != 0.0))
+
+    def build_callable(self, n_components: int) -> Callable:
+        if int(n_components) != self.n_components:
+            raise ValueError(
+                f"MultiplicativeImpulse has N = {self.n_components} "
+                f"components but the field has {n_components}.")
+        return _ConstantImpulseMat(matrix=self.amplitude)
+
+
 # =========================================================================
 # GaussianNoise (wraps κ² + optional σ²)
 # =========================================================================

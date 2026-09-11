@@ -778,10 +778,28 @@ def _build_noise(d: dict, base_dir: Path | None = None):
             attr = sig_d.get("attr", "sigma2")
             fn = _load_callable_from_module(mod_path, attr)
             sigma2 = sp.CustomImpulse(fn=fn)
+        elif st == "multiplicative":
+            # White noise with amplitude g(phi) = g0 + g1 phi; see
+            # MultiplicativeImpulse.  D0 = g0 g0^T enters C, the rest lowers
+            # to local vertices.
+            missing = [k for k in ("g0", "g1") if k not in sig_d]
+            if missing:
+                raise ValueError(
+                    f"noise.sigma2.type='multiplicative' requires {missing}: "
+                    f"g0 as an N x M nested list, g1 as N x M x N."
+                )
+            names = {k: tuple(sig_d[k]) for k in ("vertex_names", "drift_names")
+                     if k in sig_d}
+            sigma2 = sp.MultiplicativeImpulse(
+                g0=np.asarray(sig_d["g0"], dtype=float),
+                g1=np.asarray(sig_d["g1"], dtype=float),
+                interpretation=str(sig_d.get("interpretation", "ito")),
+                **names,
+            )
         else:
             raise ValueError(
                 f"Unsupported sigma2.type {st!r}.  Supported: "
-                f"'constant', 'callable_module'."
+                f"'constant', 'callable_module', 'multiplicative'."
             )
 
     return sp.GaussianNoise(kappa2=kappa2, sigma2=sigma2)

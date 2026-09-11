@@ -142,13 +142,55 @@ since the retarded propagator :math:`R \propto \Theta(t - t')` would
 require a cyclic time ordering :math:`t_a > t_b > \cdots > t_a`, which
 is impossible.
 
-Pass ``ito=False`` to keep all R terms symbolic.  This affects the
-*expression* only: the numerical layer applies :math:`\Theta(0)=0`
-unconditionally, and because sft-wick does not emit the Stratonovich
-functional Jacobian that would cancel a :math:`\Theta(0)=1/2`
-prescription, :math:`\Theta(0)=0` is the self-consistent choice — and
-the correct one, since Itô and Stratonovich agree for additive noise.
-``ito=False`` therefore evaluates to exactly the ``ito=True`` value.
+Pass ``ito=False`` to keep all R terms symbolic.  The numerical layer
+applies :math:`\Theta(0)=0` at every R evaluation, so it computes the
+Itô SDE.  Whether that is also the value ``ito=False`` asks for depends
+on where the equal-point R sits, and the numerical layer applies this
+rule:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 66
+
+   * - Equal-point ``R(y, y)``
+     - What happens
+   * - on a local vertex with **one** ψ leg (a drift term
+       :math:`\psi_a f_a(\varphi)`)
+     - Evaluated (it gives 0).  The term is
+       :math:`\Theta(0)\,\partial_a f_a`, which the Jacobian of the
+       Stratonovich path integral
+       :math:`-\tfrac12\int\mathrm{d}s\,\partial f/\partial\varphi`
+       cancels; sft-wick emits neither, which is exact, so the number
+       equals the ``ito=True`` one.
+   * - on a local vertex with **two or more** ψ legs (a
+       :math:`\varphi`-dependent noise covariance: multiplicative noise)
+     - ``ValueError``.  The term is the drift
+       :math:`\Theta(0)\,\partial_b D_{ab}(\varphi)`, which no Jacobian
+       cancels; the Itô and Stratonovich moments differ, and the
+       Stratonovich value needs the amplitude :math:`g` of
+       :math:`D = g g^{\mathsf T}`, which the diagram does not carry.
+   * - between two **external** operators at one label
+     - ``ValueError``.  It is the equal-time response
+       :math:`\Theta(0)` itself: 0 under Itô, 1/2 under Stratonovich.
+
+The refusals come from
+:meth:`~sft_wick.perturbation.DiagramTerm.build_integrand` and
+:func:`~sft_wick.evaluate.integrate_diagrams`, so every integrator
+raises the same message rather than returning the Itô value under
+another name.
+
+A Stratonovich SDE is therefore computed in its Itô form, with the
+noise-induced drift
+:math:`\tfrac12\sum_{jk} g_{jk}\,\partial_j g_{ik}` written into the
+drift, and expanded with ``ito=True``.  At L1
+:class:`~sft_wick.workflow.MultiplicativeImpulse` with
+``interpretation='stratonovich'`` does that conversion; see
+:doc:`workflow`.
+
+Do **not** set :math:`\Theta(0)=1/2` without the Jacobian: for the
+linear vertex that adds a spurious :math:`-k\,C(T,T)\,T/2`, 200 % /
+400 % / 800 % of the exact answer at :math:`T = 4/8/16`
+(``test_F15_ito_false_changes_the_expression_not_the_number``).
 
 
 Response Phase Convention
