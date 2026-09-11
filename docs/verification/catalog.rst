@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1979 tests** in 65 files (parametrised
+The suite has **1982 tests** in 66 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -196,7 +196,7 @@ Propagator numerics
 Integrators
 -----------
 
-*902 tests in 30 files.*
+*905 tests in 31 files.*
 
 .. list-table::
    :header-rows: 1
@@ -266,7 +266,7 @@ Integrators
      - demo 7: the two-time <phi_a(x,t) phi_b(y,t')> at orders 0-2 on every integrator (external_times, both time orders, matrix R, a mixing white noise); a four-coefficient Legendre angular kernel at three angles; the quadrature tables of a custom and a general kappa2; integrate_over and the three-point function at order 2
      - the exact Ito moment hierarchy of the Markov embedding at the observation points, whose two-time propagation and integrated fields are themselves checked against quadrature
      - 1e-6 (GL, nquad) / 1e-4 - 1e-2 (QMC, coarse tables)
-     - 54
+     - 55
    * - ``test_diag_fast_component_labels.py``
      - observable component labels pinned through fixed_indices on a C propagator in the iso_R + diag_C scalar fast path; the Kronecker delta between C legs when il != ir
      - numpy hand contraction over the full C matrices; all five backends against each other; the label-blind value shown to differ
@@ -352,6 +352,11 @@ Integrators
      - gauss_legendre on the same diagrams; demo 4's closed form and exact moment hierarchy; numpy hand contraction
      - 1e-10 - 1e-12
      - 38
+   * - ``test_qmc_sobol_bits.py``
+     - the Sobol samplers pass bits=64: scipy's default 30-bit points bias every QMC mean by -(f(1) - f(0))/2^31, the same for every seed and sample count, and an AST guard keeps a new call site from inheriting the default
+     - the closed-form bias of exp(2u) on [0, 1] (scipy only); demo 7's two-time channel against its exact moment hierarchy
+     - 1e-2 (the formula) / 1e-11 (the channel)
+     - 2
    * - ``test_r_cache_mismatch.py``
      - R-propagator indices vs the cache's R type: two-index R with a scalar-R cache, index-free R with a matrix-R cache and a two-index absorbed R raise at every entry point; matching pairs on every backend, N = 1, and L1 flag overrides
      - numpy hand contraction of the coupling (R = Θ is 1 on the domain)

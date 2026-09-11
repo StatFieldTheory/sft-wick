@@ -376,6 +376,15 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Gaussian overlap integrals against coordinate-by-coordinate "
         "quadrature; the exact Ito moment hierarchy at the three points",
         "1e-10 (GL) / 3e-3 (QMC)"),
+    "tests/test_qmc_sobol_bits.py": (
+        "Integrators",
+        "the Sobol samplers pass bits=64: scipy's default 30-bit points "
+        "bias every QMC mean by -(f(1) - f(0))/2^31, the same for every "
+        "seed and sample count, and an AST guard keeps a new call site "
+        "from inheriting the default",
+        "the closed-form bias of exp(2u) on [0, 1] (scipy only); demo 7's "
+        "two-time channel against its exact moment hierarchy",
+        "1e-2 (the formula) / 1e-11 (the channel)"),
     "tests/test_iso_c_value.py": (
         "Integrators",
         "an index-free (iso_C=True) C propagator stands for c of "

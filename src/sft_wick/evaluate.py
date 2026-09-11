@@ -5105,8 +5105,12 @@ class DiagramIntegrand:
             spatial, ext_integrated, fixed_times, lambda_f, t_min,
         )
 
-        # Generate Sobol samples in [0,1]^d
-        sampler = qmc.Sobol(d=n_total, seed=seed)
+        # Generate Sobol samples in [0,1]^d.  bits=64 rather than scipy's
+        # default 30: 30-bit points are multiples of 2^-30, so the sample
+        # mean carries a left-Riemann bias -(f(1) - f(0)) / 2^31, the same
+        # for every seed and every sample count (1.4e-09 relative on demo
+        # 7's two-time channel, where the statistical error is smaller).
+        sampler = qmc.Sobol(d=n_total, seed=seed, bits=64)
         u_samples = sampler.random(n_samples)  # (n_samples, n_total)
 
         # Evaluate integrand at each sample point
@@ -5281,8 +5285,8 @@ class DiagramIntegrand:
             spatial, int_vars_pf, fixed_times, t_min, swept=ext_integrated,
         )
 
-        # Sobol samples
-        sampler = qmc.Sobol(d=n_total, seed=seed)
+        # Sobol samples (bits=64: see integrate_moment_qmc_vectorized)
+        sampler = qmc.Sobol(d=n_total, seed=seed, bits=64)
         u = sampler.random(n_samples)
         span = lambda_f - t_min
 
@@ -6502,7 +6506,8 @@ def integrate_two_point_qmc(
         t_s = np.zeros((n_eval, ni))
         jac = np.ones(n_eval)
         if ni:
-            u = _qmc.Sobol(d=ni, seed=seed).random(n_samples)
+            # bits=64: see integrate_moment_qmc_vectorized
+            u = _qmc.Sobol(d=ni, seed=seed, bits=64).random(n_samples)
             for k, var in enumerate(ivs):
                 ps = pm.get(var, [])
                 pi = [ivs.index(p) for p in ps if p in ivs]
