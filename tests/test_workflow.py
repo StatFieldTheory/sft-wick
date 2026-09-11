@@ -21,10 +21,11 @@ WF2        ``Expansion.summary`` reports correct per-order
 WF3        ``Expansion.by_vertex_type`` correctly separates
            ``'F'`` vs ``'FK'`` when a ``NonLocalVertex`` is
            present — 6 F + 2 FK at order 2 in demo2's setup.
-WF4        End-to-end: ``system.propagators(c_closed_form=...)`` +
-           ``expansion.sweep`` produces numbers bit-matching the
-           raw-API path (``validate_phase5.py``'s Method B
-           κ²-ratio reference) to < 1e-6 relative.
+WF4        End-to-end: ``system.propagators(c_closed_form=...)``
+           + ``expansion.sweep`` reproduces six recorded values of
+           the whole path to 1e-5 relative -- a golden-file pin at
+           fixed sampler settings, not a physics reference; see the
+           test's docstring.
 WF5        ``SweepResult.totals()`` returns a pandas DataFrame
            with one row per (positions, t_final, a, b, order)
            and the correct summed values.
@@ -188,41 +189,65 @@ def test_WF3_FF_FK_classification():
 
 
 def test_WF4_end_to_end_matches_validate_phase5(demo1_expansion, demo1_system):
-    """Sweep via the wrapper and assert a handful of well-tested
-    reference values from ``examples/demo1/validate_phase5.py`` match to
-    < 1e-6 rel."""
+    """Sweep via the wrapper and assert six recorded end-to-end values to
+    1e-5 relative.
+
+    A golden-file pin of the whole path -- expansion, propagator cache,
+    spatial tables, QMC integration, sweep assembly -- at fixed sampler
+    settings, not a physics reference: the configuration's own seed
+    scatter is 3 % to 18 % at orders 2 and 4, which is why demo 1's paper
+    sweep uses ``gauss_legendre`` instead
+    (``examples/demo1/L2/INTEGRATION_ERROR.md``).  The values came from a
+    ``validate_phase5.py`` run; that script stopped reporting
+    time-integrated moments in 0.4.x and no longer produces them.  The
+    L1-versus-raw-API equivalence they used to stand for is checked
+    deterministically elsewhere (``test_system_t_min``,
+    ``test_nonlocal_leg_order``, ``test_matrix_r_batched``,
+    ``test_equal_time_nonlocal`` all drive both routes)."""
     exp = demo1_expansion
     props = demo1_system.propagators(
         t_max=15.0, n_grid_t=60,
         c_closed_form=_C_demo1,
     )
 
-    # Reference values from examples/demo1/validate_phase5.py run.
+    # Re-pinned twice, each time against the current value rather than by
+    # loosening the 1e-5 tolerance.
     #
-    # The four INTERACTING entries were re-pinned when the C-table diagonal
-    # kink was fixed (see test_F21_* in test_msr_numerics_regressions.py).
-    # C(t1,t2) has a derivative discontinuity of exactly -sigma2(t) on
-    # t1 == t2, which a tensor-product spline cannot represent; on the
-    # diagonal the table did not converge at all (22.3% relative error at
-    # n_grid=41, still 21.4% at 321), while staying clean O(h^4) off it.
-    # Harvesting the grid's own i == j entries into a 1-D spline restores
-    # O(h^4) there.  Re-pinned against the MORE ACCURATE value, not by
-    # loosening the 1e-5 tolerance:
+    # 1. When the C-table diagonal kink was fixed (see test_F21_* in
+    #    test_msr_numerics_regressions.py): C(t1,t2) has a derivative
+    #    discontinuity of exactly -sigma2(t) on t1 == t2, which a
+    #    tensor-product spline cannot represent, and on the diagonal the
+    #    table did not converge at all (22.3% at n_grid=41, still 21.4% at
+    #    321) while staying clean O(h^4) off it.  The four INTERACTING
+    #    entries moved; both order-0 entries did not, which is the
+    #    consistency check -- order 0 has no tadpole, so it never
+    #    evaluates C on the diagonal:
     #
-    #   (0,0,0.5,2): 3.212865e-02 -> 3.222453e-02   (rel 2.98e-03)
-    #   (0,0,0.5,4): 2.231587e-03 -> 2.236403e-03   (rel 2.16e-03)
-    #   (1,1,1.0,2): 9.620743e-03 -> 9.627814e-03   (rel 7.35e-04)
-    #   (1,1,1.0,4): 7.882002e-04 -> 7.887824e-04   (rel 7.39e-04)
+    #      (0,0,0.5,2): 3.212865e-02 -> 3.222453e-02   (rel 2.98e-03)
+    #      (0,0,0.5,4): 2.231587e-03 -> 2.236403e-03   (rel 2.16e-03)
+    #      (1,1,1.0,2): 9.620743e-03 -> 9.627814e-03   (rel 7.35e-04)
+    #      (1,1,1.0,4): 7.882002e-04 -> 7.887824e-04   (rel 7.39e-04)
     #
-    # Both order-0 entries are UNCHANGED, which is the consistency check:
-    # order 0 has no tadpole, so it never evaluates C on the diagonal.
+    # 2. When the Sobol samplers moved to 64-bit points (see
+    #    tests/test_qmc_sobol_bits.py).  scipy scrambles the sequence, so a
+    #    different `bits` is a different point set and every QMC draw moves
+    #    by its own sampling error -- here 5.0e-04 at order 0, 3.3e-02 and
+    #    2.8e-02 at r = 0.5, and 1.2e-01 and 1.9e-01 at r = 1.0.  All six
+    #    entries moved:
+    #
+    #      (0,0,0.0,0): 3.996863e-01 -> 3.994859e-01
+    #      (0,0,0.5,0): 2.424220e-01 -> 2.423005e-01
+    #      (0,0,0.5,2): 3.222453e-02 -> 3.116579e-02
+    #      (0,0,0.5,4): 2.236403e-03 -> 2.298346e-03
+    #      (1,1,1.0,2): 9.627814e-03 -> 8.460075e-03
+    #      (1,1,1.0,4): 7.887824e-04 -> 9.350323e-04
     reference = {
-        (0, 0, 0.0, 15.0, 0): 3.996863e-01,
-        (0, 0, 0.5, 15.0, 0): 2.424220e-01,
-        (0, 0, 0.5, 15.0, 2): 3.222453e-02,
-        (0, 0, 0.5, 15.0, 4): 2.236403e-03,
-        (1, 1, 1.0, 15.0, 2): 9.627814e-03,
-        (1, 1, 1.0, 15.0, 4): 7.887824e-04,
+        (0, 0, 0.0, 15.0, 0): 3.994859e-01,
+        (0, 0, 0.5, 15.0, 0): 2.423005e-01,
+        (0, 0, 0.5, 15.0, 2): 3.116579e-02,
+        (0, 0, 0.5, 15.0, 4): 2.298346e-03,
+        (1, 1, 1.0, 15.0, 2): 8.460075e-03,
+        (1, 1, 1.0, 15.0, 4): 9.350323e-04,
     }
 
     # The grid is DERIVED from the reference table rather than being a

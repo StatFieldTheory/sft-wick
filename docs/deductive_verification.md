@@ -422,7 +422,7 @@ test files themselves.
   `tests/test_workflow.py` (WF1–WF5) and
   `tests/test_workflow_config.py` (CF1–CF6).  The L1 wrapper's
   `System`/`Expansion`/`Propagators`/`SweepResult` chain is compared
-  to `validate_phase5.py` reference values (WF4).  YAML round-trip
+  to six recorded end-to-end values, originally from `validate_phase5.py` (WF4).  YAML round-trip
   tests (CF1–CF6) check that YAML → Python → numerical sweep
   matches the equivalent pure-Python L1 pipeline to rtol=1e-10 —
   this is an equivalence test (bit-identity), not a precision
