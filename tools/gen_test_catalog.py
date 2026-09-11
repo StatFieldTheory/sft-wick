@@ -357,6 +357,25 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "demo 4 at order 4: the F^3 kappa^3 channel of <phi_a phi_b> (30 "
         "diagrams), white and exponential pulses",
         "exact Itô moment hierarchy at tag F^3 mu^1", "1e-9 / 1e-6"),
+    "tests/test_demo7_space.py": (
+        "Integrators",
+        "demo 7: the two-time <phi_a(x,t) phi_b(y,t')> at orders 0-2 on every "
+        "integrator (external_times, both time orders, matrix R, a mixing "
+        "white noise); a four-coefficient Legendre angular kernel at three "
+        "angles; the quadrature tables of a custom and a general kappa2; "
+        "integrate_over and the three-point function at order 2",
+        "the exact Ito moment hierarchy of the Markov embedding at the "
+        "observation points, whose two-time propagation and integrated fields "
+        "are themselves checked against quadrature",
+        "1e-6 (GL, nquad) / 1e-4 - 1e-2 (QMC, coarse tables)"),
+    "tests/test_demo7_shot3d.py": (
+        "Integrators",
+        "demo 7: 3-D positions with a callable kappa3 (compound-Poisson shot "
+        "noise in R^3) at orders 0-2, off-diagonal component pairs, raw "
+        "equal-time and R-contracted vertices, scalar and matrix R",
+        "Gaussian overlap integrals against coordinate-by-coordinate "
+        "quadrature; the exact Ito moment hierarchy at the three points",
+        "1e-10 (GL) / 3e-3 (QMC)"),
     "tests/test_iso_c_value.py": (
         "Integrators",
         "an index-free (iso_C=True) C propagator stands for c of "
