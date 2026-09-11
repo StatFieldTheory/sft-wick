@@ -10,7 +10,8 @@ Each is exercised here twice: once as YAML and once as the equivalent L1
 against a reference that shares no code with the package:
 
 * a two-exponential temporal kernel: the defining double integral of C by
-  ``scipy.integrate.dblquad`` on the two triangles;
+  Gauss-Legendre on the two triangles the kernel's cusp cuts the square
+  into (numpy; pinned against scipy's adaptive rule);
 * demo 3's spatial envelope: the Campbell closed form ``K_R`` of
   ``examples/demo3/shot_noise.py``, which is exact at ``F = 0``;
 * a dense (non-normal) drift: ``C(T, T) = ∫ e^{A(T-s)} S e^{A'(T-s)} ds``
@@ -94,18 +95,50 @@ def _value(totals, comp, **coords) -> float:
     return float(totals.loc[mask, "value"].iloc[0])
 
 
-def _ou_double_integral(kernel, g_a, g_b, t0=T_MIN, T=T_FINAL) -> float:
-    """``∫∫_{t0}^{T} e^{-g_a (T-s1)} κ_t(s1-s2) e^{-g_b (T-s2)} ds1 ds2``,
-    split on the diagonal where κ_t has its cusp."""
-    def f(s2, s1):
-        return (np.exp(-g_a * (T - s1)) * float(kernel(s1 - s2))
-                * np.exp(-g_b * (T - s2)))
+def _ou_double_integral(kernel, g_a, g_b, t0=T_MIN, T=T_FINAL,
+                        n=80) -> float:
+    """``∫∫_{t0}^{T} e^{-g_a (T-s1)} κ_t(s1-s2) e^{-g_b (T-s2)} ds1 ds2``.
 
-    below = dblquad(f, t0, T, lambda s1: t0, lambda s1: s1,
-                    epsabs=1e-13, epsrel=1e-13)[0]
-    above = dblquad(f, t0, T, lambda s1: s1, lambda s1: T,
-                    epsabs=1e-13, epsrel=1e-13)[0]
-    return below + above
+    Gauss-Legendre on each of the two triangles that the kernel's cusp at
+    ``s1 = s2`` cuts the square into, in numpy.  The package reaches a C
+    built from a custom kernel through scipy's adaptive rule with the same
+    split, so an adaptive reference here would agree with it bit for bit
+    and say nothing; this one is a different rule.
+    ``test_YC1_reference_quadrature_is_converged`` pins it against the
+    adaptive one.
+    """
+    x, w = np.polynomial.legendre.leggauss(n)
+    s1 = 0.5 * (T - t0) * (x + 1.0) + t0
+    w1 = 0.5 * (T - t0) * w
+    total = 0.0
+    for a, wa in zip(s1, w1):
+        for lo, hi in ((t0, a), (a, T)):
+            if hi <= lo:
+                continue
+            s2 = 0.5 * (hi - lo) * (x + 1.0) + lo
+            w2 = 0.5 * (hi - lo) * w
+            k = np.array([float(kernel(a - v)) for v in s2])
+            total += wa * np.exp(-g_a * (T - a)) * float(
+                np.sum(w2 * k * np.exp(-g_b * (T - s2))))
+    return total
+
+
+def test_YC1_reference_quadrature_is_converged():
+    """The numpy Gauss-Legendre reference above against scipy's adaptive
+    rule on the same integral."""
+    kernel = sw.ExponentialTemporal(lam=0.25, sigma_t=0.45)
+
+    def f(s2, s1):
+        return (np.exp(-GAMMAS[0] * (T_FINAL - s1)) * float(kernel(s1 - s2))
+                * np.exp(-GAMMAS[1] * (T_FINAL - s2)))
+
+    adaptive = (dblquad(f, T_MIN, T_FINAL, lambda s1: T_MIN, lambda s1: s1,
+                        epsabs=1e-14, epsrel=1e-13)[0]
+                + dblquad(f, T_MIN, T_FINAL, lambda s1: s1,
+                          lambda s1: T_FINAL, epsabs=1e-14,
+                          epsrel=1e-13)[0])
+    assert _ou_double_integral(kernel, GAMMAS[0], GAMMAS[1]) == pytest.approx(
+        adaptive, rel=1e-11, abs=0.0)
 
 
 def _base_config(**overrides) -> dict:
@@ -202,6 +235,7 @@ def test_YC1_custom_temporal_kernel_matches_L1_and_quadrature(tmp_path):
     kappa_x = float(np.exp(-0.45 ** 2 / (2 * 0.8 ** 2)))
     for a in (0, 1):
         ref = kappa_x * _ou_double_integral(kernel, GAMMAS[a], GAMMAS[a])
+        assert abs(ref) > 1e-3, "a comparison against ~0 would be vacuous"
         assert _value(totals, (a, a)) == pytest.approx(ref, rel=1e-6,
                                                        abs=0.0)
     assert _value(totals, (0, 1)) == 0.0
@@ -283,6 +317,7 @@ def test_YC2_custom_spatial_kernel_runs_demo3_level_a_from_yaml(tmp_path):
     totals = _run(tmp_path, cfg)
     xs = np.array([_DEMO3_POS[k] for k in "xyz"])
     ref = float(sn.K_R(xs, np.full(3, _DEMO3_T), sn.PARAMS)[0])
+    assert abs(ref) > 1e-3, "a comparison against ~0 would be vacuous"
     for comp in [(0, 0, 0), (1, 1, 1)]:
         got = _value(totals, comp)
         assert got == pytest.approx(ref, rel=1e-12, abs=0.0), comp
