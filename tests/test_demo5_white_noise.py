@@ -121,6 +121,30 @@ def test_multiplicative_channels(gammas, method, rel, kw):
             assert r["rel"] < rel, r
 
 
+def test_mixing_variant_through_quadrature_tables():
+    """Part A's mixing variant with C from quadrature tables instead of the
+    closed form: the route ``System.propagators(diag_C=False)`` used to
+    refuse.  What separates it from the hierarchy is the table error."""
+    p = m5.variant("mixing")
+    system = m5.make_system(p)
+    props = m5.quadrature_propagators_for(system, p, t_max=p.t_min + T + 0.5)
+    assert props.c_source.startswith("quadrature"), props.c_source
+    H = {1: Hierarchy(p, [POS["x"]], m5.F_TENSOR),
+         2: Hierarchy(p, [POS["x"], POS["y"]], m5.F_TENSOR)}
+    cases = [(("phi_a(x)", "phi_b(y)"), 0, (0, 1), 1e-6),
+             (("phi_a(x)",), 1, (0,), 1e-5),
+             (("phi_a(x)", "phi_b(y)"), 2, (0, 1), 1e-3),
+             (("phi_a(x)", "phi_b(y)"), 2, (1, 1), 5e-3)]
+    for obs, order, comps, rel in cases:
+        exp = system.expand(obs, orders=[order], **m5.expand_flags(p))
+        got = exp.evaluate(props, positions=POS, t_final=p.t_min + T,
+                           component_pair=comps, orders=[order],
+                           method="gauss_legendre", n_gauss=12).total
+        ref = H[len(obs)].moments([(c, i) for i, c in enumerate(comps)],
+                                  [order], T)[order]
+        assert got == pytest.approx(ref, rel=rel, abs=0.0), (order, comps)
+
+
 def test_two_psi_vertex_factor_reproduces_C():
     """A local ψψ vertex with coupling ½ S⁰ at order 1 is the C propagator:
     the convention the multiplicative vertices rely on."""

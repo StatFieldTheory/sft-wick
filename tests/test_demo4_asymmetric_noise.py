@@ -210,6 +210,35 @@ def level_b():
     return out
 
 
+@pytest.mark.parametrize("pulse", [
+    "white", pytest.param("exponential", marks=pytest.mark.slow)])
+def test_level_b_through_quadrature_tables(pulse):
+    """Level B with C tabulated by quadrature instead of taken from the
+    closed form of ``poisson_noise`` -- the route that used to require one,
+    because this noise mixes the components.  The tolerances are the
+    table's; the closed-form route above holds 1e-7."""
+    p = PULSES[pulse]
+    system = dsys.make_system(p, f_amplitude=1.0, cumulants=(3,),
+                              r_contracted=(pulse == "exponential"))
+    props = dsys.quadrature_propagators_for(
+        system, p, t_max=T + 0.5, n_grid_t=21 if pulse == "white" else 17)
+    assert props.c_source.startswith("quadrature"), props.c_source
+    H = Hierarchy(p, [POS["x"], POS["y"]])
+    exp = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0, 2],
+                        diag_C=False)
+    for order, vtype, tag, rel in [(0, None, (0, 0), 1e-5),
+                                   (2, "F", (2, 0), 1e-2)]:
+        for ab in [(0, 1), (1, 1)]:
+            kw = {"vertex_types": {vtype}} if vtype else {}
+            got = exp.evaluate(props, positions=POS, t_final=T,
+                               component_pair=ab, orders=[order],
+                               method="gauss_legendre", n_gauss=16,
+                               **kw).total
+            ref = H.moments([(ab[0], 0), (ab[1], 1)], [tag], T)[tag]
+            assert got == pytest.approx(ref, rel=rel, abs=0.0), (pulse, order,
+                                                                 ab)
+
+
 @pytest.mark.parametrize("pulse", sorted(PULSES))
 @pytest.mark.parametrize("name,order,vtype,tag", CHANNELS,
                          ids=[c[0] for c in CHANNELS])

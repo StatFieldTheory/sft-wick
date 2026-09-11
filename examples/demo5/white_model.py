@@ -115,3 +115,21 @@ def propagators_for(system: sw.System, p: Params, t_max: float):
         t_max=t_max, c_closed_form="auto", c_closed_form_only=True,
         c_closed_form_vectorized=True, diag_C=(p.variant != "mixing"),
         progress=False)
+
+
+def quadrature_propagators_for(system: sw.System, p: Params, t_max: float,
+                               n_grid_t: int = 31, n_gauss: int = 16):
+    """The same propagators from quadrature tables instead of the closed form.
+
+    ``c_closed_form=None`` forces the quadrature.  Under ``diag_C=False``
+    the tables hold every ``C_ab``, which is what the mixing variant needs
+    and what the propagator builder used to refuse without a closed form.
+    The accuracy is then the table's, not machine precision: with
+    ``n_grid_t=31`` the mixing variant lands within 1.2e-08 (order 0),
+    8.8e-08 (order 1) and 2.1e-05 / 1.1e-03 (order 2, the two component
+    pairs) of the hierarchy.  Reached by ``run.py --c-quadrature``.
+    """
+    return system.propagators(
+        t_max=t_max, n_grid_t=n_grid_t, c_closed_form=None,
+        diag_C=(p.variant != "mixing"), c_method="gauss_legendre",
+        c_n_gauss=n_gauss, progress=False)

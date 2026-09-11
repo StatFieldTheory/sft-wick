@@ -140,6 +140,19 @@ class Propagators:
                 ``c_method='gauss_legendre'`` and the starting count
                 for ``'auto'`` (default 20).  Cost scales as
                 ``c_n_gauss²`` per sub-region.
+            diag_C: ``True`` (default): the tables hold ``C_aa`` and C
+                lookups return ``(n, N)`` diagonals.  ``False``: every
+                table holds all ``N²`` entries ``C_ab``, by quadrature or
+                from the closed form (which must then return the full
+                matrix), and lookups return ``(n, N, N)``.  Needed when C
+                has off-diagonal entries: a dense R, a component-mixing
+                κ², a matrix σ².  A Gauss-Legendre cell costs the same
+                either way, since it contracts ``R κ² Rᵀ`` as matrices; a
+                ``dblquad`` cell runs ``N²`` adaptive integrals instead of
+                ``N``.  When κ² and σ² satisfy
+                ``C_ab(t1, t2) = C_ba(t2, t1)`` (checked numerically, see
+                :func:`~sft_wick.evaluate._probe_c_transpose`), half of
+                each table is filled by that relation.
         """
         if c_closed_form_only and c_closed_form is None:
             raise ValueError(
@@ -152,19 +165,6 @@ class Propagators:
                 "c_closed_form_vectorized=True only makes sense with "
                 "c_closed_form_only=True; the vectorised contract is "
                 "specific to the no-spline lookup path."
-            )
-        # diag_C=False propagates the full (N, N) matrix returned by
-        # c_fn through the integrator. The spline-table builders
-        # (precompute_C_table_* in evaluate.py) only fill diagonal
-        # entries, so off-diagonal preservation is meaningless without
-        # the closed-form-only path. Reject the combination early to
-        # avoid silently dropping off-diagonals at lookup time.
-        if (not diag_C) and (not c_closed_form_only):
-            raise ValueError(
-                "diag_C=False requires c_closed_form_only=True. "
-                "Spline-table paths only build diagonal C entries; "
-                "off-diagonal observables (e.g. kappa-gamma cross "
-                "correlations) need the closed-form-only path."
             )
         from .cache import load_or_compute
 

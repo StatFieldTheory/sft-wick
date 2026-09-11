@@ -43,6 +43,12 @@ Worst relative difference over the component tuples (`results.json`):
 | `qmc_vectorized` (2¹⁴), orders 1 / 2 | 2.5e-7 / 9.4e-7 | 1.1e-7 / 1.0e-6 | 1.1e-7 / 9.6e-7 |
 | `qmc_scalar`, `qmc` (2¹¹), orders 1 / 2 | 2.5e-7 / 2.7e-6 | 1.1e-7 / 6.7e-6 | 1.1e-7 / 6.7e-6 |
 
+`run.py --c-quadrature` takes C from quadrature tables instead of the
+closed form; the mixing variant then tabulates every `C_ab`, which is the
+route `System.propagators(diag_C=False)` used to refuse without one.  At 31
+time points it agrees with the hierarchy to 1.2e-8 (order 0), 8.8e-8
+(order 1) and 2.1e-5 / 1.1e-3 (order 2, the two component pairs).
+
 The same script on older code:
 
 | code | what fails |

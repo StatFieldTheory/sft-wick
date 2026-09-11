@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1383 tests** in 49 files (parametrised
+The suite has **1424 tests** in 50 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -126,7 +126,7 @@ Multiplicities and canonical forms
 Propagator numerics
 -------------------
 
-*313 tests in 10 files.*
+*352 tests in 11 files.*
 
 .. list-table::
    :header-rows: 1
@@ -182,6 +182,11 @@ Propagator numerics
      - closed form
      - recorded bounds
      - 4
+   * - ``test_offdiagonal_c_tables.py``
+     - full N x N C tables by quadrature (no closed form): every entry at r != 0 and at both time orders, convergence with the grid, the transposition that fills half of each table and a kernel that forbids it, and every C lookup (scalar loop, batched QMC and Gauss-Legendre, integrate_over, external_times, integrate_two_point_qmc, the legacy time table)
+     - Lyapunov equation of the Markov embedding (scipy only); the built-in closed form, checked against it; direct quadrature
+     - 1e-8 (embedding) / 1e-4 - 1e-3 (tables)
+     - 39
    * - ``test_propagator_dispatch.py``
      - separable-kernel shared temporal table, time-symmetric build, auto node-count selection, progress reporting
      - per-r full build; dblquad
@@ -191,7 +196,7 @@ Propagator numerics
 Integrators
 -----------
 
-*585 tests in 19 files.*
+*587 tests in 19 files.*
 
 .. list-table::
    :header-rows: 1
@@ -221,12 +226,12 @@ Integrators
      - demo 4: compound-Poisson noise asymmetric in points and in components; level A 3- and 4-point functions for every component tuple (raw, R-contracted, unequal times); level B channels FK3, FF, FFK4 of <phi_a phi_b>
      - direct quadrature; Campbell closed form; exact Itô moment hierarchy
      - 1e-12 (level A) / 1e-7 (level B) / 1e-3 (raw QMC)
-     - 22
+     - 23
    * - ``test_demo5_white_noise.py``
      - demo 5: white noise (ConstantImpulse matrix) with coloured noise, t_min = 0.5, the diag_C=False, diag_C=True and iso_C=True paths, orders 0-4 and 1-, 2-, 3-point functions on every integrator; multiplicative noise at L0 with two-psi vertices, scalar and matrix R
      - exact Itô moment hierarchy (Markov embedding of the coloured noise)
      - 1e-10 (GL, nquad) / 1e-3 - 1e-4 (QMC) / 1e-8 (order 4)
-     - 37
+     - 38
    * - ``test_diag_fast_component_labels.py``
      - observable component labels pinned through fixed_indices on a C propagator in the iso_R + diag_C scalar fast path; the Kronecker delta between C legs when il != ir
      - numpy hand contraction over the full C matrices; all five backends against each other; the label-blind value shown to differ

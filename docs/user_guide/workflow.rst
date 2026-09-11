@@ -667,6 +667,10 @@ fields must be present.
      c_method:           auto         # 'auto' | 'dblquad' | 'gauss_legendre'
      c_n_gauss:          20           # GL nodes/dim under c_method='gauss_legendre'
 
+     diag_C:             true         # false: tabulate every C_ab, for a C with
+                                      # off-diagonal entries (dense R, mixing
+                                      # kappa2, matrix sigma2); sets expand.diag_C
+
      interp_method:      linear       # 'linear' | 'cubic'
      n_jobs:             1
      cache_path:         null         # dir for joblib cache
@@ -733,7 +737,7 @@ Section reference: ``system``
    * - ``linear.type``
      - ``str``
      - ``"diagonal"``
-     - ``"diagonal"`` -> :class:`~sft_wick.workflow.DiagonalA`; ``"explicit"`` -> :class:`~sft_wick.workflow.ExplicitR` with a scalar R.  A dense (matrix-valued) R needs L1 Python: ``ExplicitR(iso_R=False)`` with ``diag_R=False`` and ``diag_C=False``.
+     - ``"diagonal"`` -> :class:`~sft_wick.workflow.DiagonalA`; ``"explicit"`` -> :class:`~sft_wick.workflow.ExplicitR` with a scalar R.  A dense (matrix-valued) R needs L1 Python: ``ExplicitR(iso_R=False)`` with ``diag_R=False`` and ``diag_C=False``.  The C tables then hold every entry :math:`C_{ab}`, by quadrature; no closed form is needed.
    * - ``linear.gamma``
      - ``list[float]`` of length N
      - **required** unless ``gamma_module`` set (``type: diagonal``)
@@ -880,7 +884,7 @@ Section reference: ``expand``
    * - ``diag_R`` / ``diag_C``
      - ``bool``
      - ``true``
-     - Apply diagonal-propagator simplification (collapses index sums where R/C is component-diagonal)
+     - Apply diagonal-propagator simplification (collapses index sums where R/C is component-diagonal). ``diag_C: false`` is required when C has off-diagonal entries, and ``propagators.diag_C: false`` sets it
    * - ``iso_R`` / ``iso_C``
      - ``bool`` or ``null``
      - ``null`` / ``false``
@@ -1002,6 +1006,10 @@ Section reference: ``propagators``
      - ``int``
      - ``20``
      - GL nodes per dimension when ``c_method: gauss_legendre`` (cost ``c_n_gauss²`` per sub-region)
+   * - ``diag_C``
+     - ``bool``
+     - ``true``
+     - ``false`` keeps the off-diagonal entries of C: every table holds all :math:`N^2` entries :math:`C_{ab}` and every lookup returns them. Needed when C is not component-diagonal — a dense R, a component-mixing :math:`\kappa^2`, a matrix :math:`\sigma^2` — for which ``true`` is refused. No closed form is required: a Gauss-Legendre cell costs what a diagonal one costs, a ``dblquad`` cell :math:`N^2` adaptive integrals instead of :math:`N`. Sets ``expand.diag_C`` to ``false`` with it
    * - ``interp_method``
      - ``str``
      - ``"linear"``
