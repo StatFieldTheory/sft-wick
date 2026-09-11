@@ -235,6 +235,14 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "orientations are the consistent total orders",
         "linear extensions of the causal order; the exact Itô moment "
         "hierarchy", "exact / 1e-11"),
+    "tests/test_demo4_asymmetric_noise.py": (
+        "Integrators",
+        "demo 4: compound-Poisson noise asymmetric in points and in "
+        "components; level A 3- and 4-point functions for every component "
+        "tuple (raw, R-contracted, unequal times); level B channels FK3, "
+        "FF, FFK4 of <phi_a phi_b>",
+        "direct quadrature; Campbell closed form; exact Itô moment "
+        "hierarchy", "1e-12 (level A) / 1e-7 (level B) / 1e-3 (raw QMC)"),
     "tests/test_iso_c_value.py": (
         "Integrators",
         "an index-free (iso_C=True) C propagator stands for c of "

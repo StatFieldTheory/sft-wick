@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1324 tests** in 47 files (parametrised
+The suite has **1346 tests** in 48 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -191,7 +191,7 @@ Propagator numerics
 Integrators
 -----------
 
-*526 tests in 17 files.*
+*548 tests in 18 files.*
 
 .. list-table::
    :header-rows: 1
@@ -217,6 +217,11 @@ Integrators
      - cusp-aware adaptive quadrature and randomised-Sobol QMC of the raw leg integrals; the cumulant generating function
      - 1e-6 - 2e-2 (measured per configuration)
      - 16
+   * - ``test_demo4_asymmetric_noise.py``
+     - demo 4: compound-Poisson noise asymmetric in points and in components; level A 3- and 4-point functions for every component tuple (raw, R-contracted, unequal times); level B channels FK3, FF, FFK4 of <phi_a phi_b>
+     - direct quadrature; Campbell closed form; exact Itô moment hierarchy
+     - 1e-12 (level A) / 1e-7 (level B) / 1e-3 (raw QMC)
+     - 22
    * - ``test_diag_fast_component_labels.py``
      - observable component labels pinned through fixed_indices on a C propagator in the iso_R + diag_C scalar fast path; the Kronecker delta between C legs when il != ir
      - numpy hand contraction over the full C matrices; all five backends against each other; the label-blind value shown to differ
