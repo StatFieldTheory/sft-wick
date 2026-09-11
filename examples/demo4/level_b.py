@@ -40,9 +40,9 @@ import time
 
 os.environ.setdefault("SFT_WICK_QUIET_CACHE", "1")
 
-import noise as nz  # noqa: E402
-import system as dsys  # noqa: E402
-from reference import Hierarchy  # noqa: E402
+import poisson_noise as nz  # noqa: E402
+import poisson_system as dsys  # noqa: E402
+from poisson_reference import Hierarchy  # noqa: E402
 
 T = 1.7
 POS = {"x": 0.0, "y": 0.8}

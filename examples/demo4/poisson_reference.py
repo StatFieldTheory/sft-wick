@@ -28,7 +28,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "reference"))
 import ito_moments as im  # noqa: E402
 
-import noise as nz  # noqa: E402
+import poisson_noise as nz  # noqa: E402
 
 __all__ = ["Hierarchy"]
 

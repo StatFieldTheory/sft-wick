@@ -472,7 +472,7 @@ answer.
   leg times cross, and QMC at 2^18 samples reaches 2.9e-5.
 - Level B (`F ≠ 0`): `⟨φ_a(x) φ_b(y)⟩` channel by channel (order 0, FK3, FF,
   FFK4) and the tadpole, against an exact moment hierarchy of the Markov
-  process at the observation points (`examples/demo4/reference.py` on
+  process at the observation points (`examples/demo4/poisson_reference.py` on
   `examples/reference/ito_moments.py`, no sft-wick code): at most 1.3e-15
   for white pulses and 5.6e-15 for exponential pulses, except FFK4 at
   4.0e-9 (a kink inside the R-contracted callable).

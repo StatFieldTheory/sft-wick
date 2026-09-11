@@ -2,7 +2,7 @@
 
 Every callable is a frozen dataclass, for two reasons the other demos give:
 a stable ``repr`` keeps the expansion cache working, and joblib can pickle
-it.  The C propagator comes from the closed form in :mod:`noise`
+it.  The C propagator comes from the closed form in :mod:`poisson_noise`
 (``c_closed_form_only=True``, ``diag_C=False``): the noise mixes the
 components, so C has off-diagonal entries, which the quadrature tables do
 not hold.
@@ -19,7 +19,7 @@ from sft_wick.workflow.specs import (CustomImpulse, ExponentialTemporal,
                                      GaussianSpatial, GeneralKappa2,
                                      SeparableTranslation)
 
-import noise as nz
+import poisson_noise as nz
 
 __all__ = ["RawKappa", "RContractedKappa", "ClosedFormC", "make_system",
            "propagators_for"]
