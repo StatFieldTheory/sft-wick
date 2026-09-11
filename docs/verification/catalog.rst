@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **1424 tests** in 50 files (parametrised
+The suite has **1427 tests** in 50 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -126,7 +126,7 @@ Multiplicities and canonical forms
 Propagator numerics
 -------------------
 
-*352 tests in 11 files.*
+*355 tests in 11 files.*
 
 .. list-table::
    :header-rows: 1
@@ -186,7 +186,7 @@ Propagator numerics
      - full N x N C tables by quadrature (no closed form): every entry at r != 0 and at both time orders, convergence with the grid, the transposition that fills half of each table and a kernel that forbids it, and every C lookup (scalar loop, batched QMC and Gauss-Legendre, integrate_over, external_times, integrate_two_point_qmc, the legacy time table)
      - Lyapunov equation of the Markov embedding (scipy only); the built-in closed form, checked against it; direct quadrature
      - 1e-8 (embedding) / 1e-4 - 1e-3 (tables)
-     - 39
+     - 42
    * - ``test_propagator_dispatch.py``
      - separable-kernel shared temporal table, time-symmetric build, auto node-count selection, progress reporting
      - per-r full build; dblquad
