@@ -83,6 +83,65 @@ differ from the correct one by more than 1e-2.  On 0.4.2, 42 cases fail; the
 29 that pass are the two point-symmetric controls, the kernel-symmetry checks
 and the static-coupling control.
 
+### Fixed: L0 terms evaluated against a cache with the other kind of R
+
+`compute_moment` writes an R propagator with two component indices, `R_{a i}`
+(the default), with one repeated index (`diag_R=True`), or with none
+(`iso_R=True`).  A `PropagatorCache` holds either a scalar R (`model.iso_R`,
+meaning `R_ab = δ_ab R`) or an N × N matrix R.  The evaluators read an R
+propagator's indices only when R is a matrix, and they skip the factor of an R
+absorbed into an `already_R_contracted` vertex.  Three pairings therefore
+returned a wrong number without an error:
+
+| terms | cache R | what the evaluators did |
+|---|---|---|
+| two indices (the L0 default flags) | scalar | dropped `δ_ab` and summed the leg components |
+| no index (`iso_R=True`) | matrix | evaluated each R as `trace(R)`, N times too large for R proportional to the identity |
+| an absorbed R with two indices | either | summed the leg components |
+
+Measured on order-1 `<φ_a(x1) φ_b(x2) φ_c(z)>` with N = 3, one non-local ψψψ
+vertex with a static random coupling `K = (i/6) A`, R = Θ and every time 1.
+Each R factor is 1 on the integration domain, so the correct value is the
+coupling contraction `(1/6) Σ_β A[β(0), β(1), β(2)]` = −0.589070:
+
+| pairing | qmc_scalar | gauss_legendre | qmc_vectorized | nquad |
+|---|---|---|---|---|
+| two indices, scalar R | −2.193211 | −2.193211 | −2.193211 | −2.193211 |
+| no index, matrix R | −15.904889 | refused | refused | −15.904889 |
+| absorbed, two indices, either R | −2.193211 | −2.193211 | −2.193211 | −2.193211 |
+
+−2.193211 is `Σ_ijk A_ijk` and −15.904889 is 27 times the correct value.
+`integrate_two_point_qmc` also returned −2.193211 for the first pairing.
+
+The three pairings now raise `ValueError`, naming the flags that match the
+cache, at every entry point that evaluates R: `integrate_diagrams`,
+`integrate_moment`, the four `DiagramIntegrand.integrate_moment_*` methods,
+`DiagramIntegrand.evaluate` and `integrate_two_point_qmc`.  With those flags
+every backend returns the correct value on the example above.
+
+The terms are not repaired.  `dt.apply_diagonal(diag_R=True, iso_R=True)` is
+exact for a scalar R (it reproduces `compute_moment(iso_R=True)` term for
+term), but only `integrate_diagrams` still holds the terms.  An integrand
+carries its coupling already evaluated on the terms' indices (or a callable's
+promise), so a repair there would need a second implementation of the delta;
+refusing at every entry point keeps one input from succeeding at one entry
+point and failing at another.  With one component the delta is 1 and the
+trace is R's only entry, so
+N = 1 is not checked.  Each integrand's verdict is computed once; the check
+left in `DiagramIntegrand.evaluate` measured 0.4% of `qmc_scalar` time on an
+order-2 diagram with two C propagators and 4% on a constant integrand of three
+R factors.
+
+L1 builds the terms and the cache from the same `LinearOp`, so
+`Expansion.evaluate` met these pairings only through `System.expand` flags
+that contradict it (`iso_R=False` with `diag_R=False` on a scalar-R system,
+`iso_R=True` on a matrix-R system); those raise now as well.
+
+Locked by `tests/test_r_cache_mismatch.py` (80 cases): the correct value for
+matching pairs on every backend and entry point, each refusal above, the
+order-0 response function `<φ_a ψ_b> = δ_ab`, N = 1, the L1 overrides, and a
+refusal on the `n_jobs` path before any joblib worker starts.
+
 ## 0.4.2 — 2026-09-03
 
 > **One `src/` fix, a documentation catch-up, and the test suite's tolerances
