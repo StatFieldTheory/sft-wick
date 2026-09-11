@@ -289,6 +289,21 @@ def _topological_sort_times(
     return result
 
 
+def _declares(fn: Any, attr: str) -> bool:
+    """Whether the callable ``fn`` sets ``attr`` to a true value, looking
+    through ``__wrapped__`` when ``fn`` itself does not set it (the MSR
+    factor wrapper :attr:`NonLocalVertex.msr_coupling` returns, or a
+    ``functools.wraps`` wrapper)."""
+    seen: set[int] = set()
+    while fn is not None and id(fn) not in seen:
+        seen.add(id(fn))
+        value = getattr(fn, attr, None)
+        if value is not None:
+            return bool(value)
+        fn = getattr(fn, "__wrapped__", None)
+    return False
+
+
 def _c_has_diagonal_kink(cache: Any) -> bool:
     """Whether ``C(t1, t2)`` has a derivative jump on ``t1 = t2``.
 
@@ -303,7 +318,38 @@ def _c_has_diagonal_kink(cache: Any) -> bool:
     # ``c_value_fn`` on a PropagatorCache; ``_c_fn`` on the closed-form-only
     # cache that ``System.propagators(c_closed_form_only=True)`` builds.
     fn = getattr(cache, "c_value_fn", None) or getattr(cache, "_c_fn", None)
-    return bool(getattr(fn, "has_diagonal_kink", False))
+    return _declares(fn, "has_diagonal_kink")
+
+
+def _coupling_kink_candidates(
+    spatial: "SpatialStructure", dynamic_coupling: Any,
+) -> tuple[tuple[str, str], ...]:
+    """Pairs of time variables at which a callable coupling is kinked.
+
+    A coupling callable that sets ``has_coincident_time_kinks = True``
+    declares that it is kinked wherever two of its time arguments
+    coincide, as a ``min`` over leg times makes it (a raw cumulant of
+    exponential pulses) or a ``min`` over partner times (an R-contracted
+    cumulant).  Its time arguments are the legs of each of its occurrences
+    (``DynamicCouplingPromise.spatial_args_by_name``) resolved through
+    ``equal_time_aliases``, the way the integrators resolve them: a raw
+    vertex's own leg times, the partner times of an
+    ``already_R_contracted`` vertex, and the one shared time of an
+    ``equal_time`` vertex, which gives no pair.  :func:`_kink_pairs` keeps
+    the pairs of distinct integration variables that are still unordered.
+    """
+    if dynamic_coupling is None:
+        return ()
+    from itertools import combinations
+
+    alias = dict(spatial.equal_time_aliases or ())
+    out: list[tuple[str, str]] = []
+    for key, fn in dynamic_coupling.dynamic_values.items():
+        if not _declares(fn, "has_coincident_time_kinks"):
+            continue
+        legs = dynamic_coupling.spatial_args_by_name[key]
+        out.extend(combinations([alias.get(leg, leg) for leg in legs], 2))
+    return tuple(out)
 
 
 def _later_sets(ivars: set, orderings) -> dict[str, set]:
@@ -331,7 +377,8 @@ def _later_sets(ivars: set, orderings) -> dict[str, set]:
 
 
 def _kink_pairs(spatial: "SpatialStructure", c_kink: bool,
-                orderings=None) -> list[tuple[str, str]]:
+                orderings=None,
+                coupling_pairs=()) -> list[tuple[str, str]]:
     """Internal time variables that ``orderings`` (default: the causal
     structure) leave unordered and whose crossing kinks the integrand
     inside the domain:
@@ -342,7 +389,10 @@ def _kink_pairs(spatial: "SpatialStructure", c_kink: bool,
       legs) has such parents, and so can a variable that an earlier split
       placed below two others;
     * with ``c_kink``, the two ends of a C propagator, when C is kinked on
-      its time diagonal (see :func:`_c_has_diagonal_kink`).
+      its time diagonal (see :func:`_c_has_diagonal_kink`);
+    * ``coupling_pairs``: two time arguments of a coupling callable that
+      declares ``has_coincident_time_kinks`` (see
+      :func:`_coupling_kink_candidates`).
     """
     from itertools import combinations
 
@@ -360,6 +410,7 @@ def _kink_pairs(spatial: "SpatialStructure", c_kink: bool,
     if c_kink:
         candidates += [(alias.get(sp_l, sp_l), alias.get(sp_r, sp_r))
                        for sp_l, sp_r, _il, _ir in spatial.c_propagators]
+    candidates += list(coupling_pairs)
     pairs: list[tuple[str, str]] = []
     for a, b in candidates:
         if a == b or a not in ivars or b not in ivars:
@@ -3665,6 +3716,21 @@ class DiagramIntegrand:
         if iso_R is not None and self._r_index_mismatches[iso_R]:
             raise ValueError(self._r_index_mismatches[iso_R])
 
+    @cached_property
+    def _coupling_kink_pairs(self) -> tuple[tuple[str, str], ...]:
+        """:func:`_coupling_kink_candidates` of this integrand: the pairs of
+        time arguments of its callable couplings that declare
+        ``has_coincident_time_kinks``.  Empty for a static coupling."""
+        return _coupling_kink_candidates(self.spatial, self.dynamic_coupling)
+
+    def _kink_pairs_under(self, cache: Any,
+                          time_orderings) -> list[tuple[str, str]]:
+        """:func:`_kink_pairs` of this integrand under ``time_orderings``:
+        the pairs at which :meth:`integrate_moment_gauss_legendre` and
+        :meth:`integrate_moment_nquad` split the time domain."""
+        return _kink_pairs(self.spatial, _c_has_diagonal_kink(cache),
+                           time_orderings, self._coupling_kink_pairs)
+
     def evaluate(
         self,
         times: dict[str, float],
@@ -4994,14 +5060,19 @@ class DiagramIntegrand:
 
         The integrand is kinked where two internal times that the causal
         structure leaves unordered cross, if they are the two parents of
-        one variable (a vertex with several ψ legs at one time) or, when C
-        has a derivative jump on its time diagonal (white noise; see
-        :func:`_c_has_diagonal_kink`), the two ends of a C propagator.  The
-        domain is then split at those diagonals: each consistent order of
-        such pairs is integrated as its own causal sub-simplex
-        (``_extra_orderings``) and the results are added.  Each piece is
-        smooth, and the convergence in ``n_gauss`` stays exponential
-        instead of ``n^-2``.
+        one variable (a vertex with several ψ legs at one time), the two
+        ends of a C propagator when C has a derivative jump on its time
+        diagonal (white noise, or a closed-form C that sets
+        ``has_diagonal_kink``; see :func:`_c_has_diagonal_kink`), or two
+        time arguments of a coupling callable that sets
+        ``has_coincident_time_kinks`` (see
+        :func:`_coupling_kink_candidates`).  The domain is then split at
+        those diagonals: each consistent order of such pairs is integrated
+        as its own causal sub-simplex (``_extra_orderings``) and the
+        results are added.  Each piece is smooth, and the convergence in
+        ``n_gauss`` stays exponential instead of ``n^-2``.  The cost is
+        one integration per consistent order, up to ``k!`` for ``k``
+        mutually unordered times.
 
         Mirrors :meth:`integrate_moment_qmc_vectorized` node-for-node
         -- the SAME causal-simplex mapping (parents → upper bounds →
@@ -5080,8 +5151,7 @@ class DiagramIntegrand:
         # the orderings added so far.  Each pass orders at least one more
         # pair, so this terminates.
         time_orderings = list(spatial.time_orderings) + list(_extra_orderings)
-        pairs = _kink_pairs(spatial, _c_has_diagonal_kink(cache),
-                            time_orderings)
+        pairs = self._kink_pairs_under(cache, time_orderings)
         if pairs:
             total = 0.0
             for extra in _kink_orientations(spatial, pairs, time_orderings):
@@ -5319,9 +5389,19 @@ class DiagramIntegrand:
         positions: dict[str, float] | None = None,
         integrate_over: Any = None,
         external_times: dict[str, float] | None = None,
+        _extra_orderings: tuple = (),
     ) -> tuple[float, float]:
         """Integrate over time variables using nested adaptive
         quadrature.
+
+        The time domain is split where the integrand is kinked, as in
+        :meth:`integrate_moment_gauss_legendre`: each consistent order
+        of the kink pairs is integrated as its own causal sub-simplex
+        (``_extra_orderings``), the split repeats inside each piece until
+        no pair is left, and the values and error estimates are added.
+        Each piece is smooth, so the adaptive rule reaches its tolerance
+        without subdividing along a kink.  A diagram with no kink pair
+        takes the unsplit path unchanged.
 
         See :meth:`integrate_moment_qmc_vectorized` for the
         ``integrate_over`` kwarg semantics (external-time partition
@@ -5394,6 +5474,29 @@ class DiagramIntegrand:
                 "for high-d diagrams) instead."
             )
 
+        # Split at kinks until none is left (see
+        # integrate_moment_gauss_legendre).  An extra ordering bounds its
+        # earlier variable by the later one, so the internals are re-sorted
+        # innermost-first under the orderings added so far.
+        time_orderings = list(spatial.time_orderings) + list(_extra_orderings)
+        pairs = self._kink_pairs_under(cache, time_orderings)
+        if pairs:
+            total, total_err = 0.0, 0.0
+            for extra in _kink_orientations(spatial, pairs, time_orderings):
+                val, err = self.integrate_moment_nquad(
+                    lambda_f, cache, t_min=t_min, direction=direction,
+                    positions=positions, integrate_over=integrate_over,
+                    external_times=external_times,
+                    _extra_orderings=tuple(_extra_orderings) + extra,
+                )
+                total += val
+                total_err += err
+            return (total, total_err)
+        if _extra_orderings:
+            int_vars = _topological_sort_times(
+                tuple(spatial.time_integration_vars), time_orderings)
+            all_vars = int_vars + ext_ordered
+
         def f(*args: float) -> float:
             times = dict(fixed_times)
             for i, var in enumerate(all_vars):
@@ -5403,7 +5506,7 @@ class DiagramIntegrand:
 
         # Causal bounds for internal vars
         upper_bounds: dict[str, list[str]] = defaultdict(list)
-        for earlier, later in spatial.time_orderings:
+        for earlier, later in time_orderings:
             if earlier in int_vars:
                 upper_bounds[earlier].append(later)
 

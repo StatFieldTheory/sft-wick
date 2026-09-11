@@ -756,6 +756,14 @@ class NonLocalVertex:
             only for a kernel symmetric under a permutation of its
             leg points at fixed component indices (see
             ``CHANGELOG.md``).
+            A callable that is kinked wherever two of its time
+            arguments coincide (a ``min`` over them, as in a cumulant
+            of exponential pulses) should set the attribute
+            ``has_coincident_time_kinks = True``.  Gauss-Legendre and
+            nquad then split the time domain at every pair of those
+            arguments the diagram leaves unordered: the leg times, or
+            the partner times under ``already_R_contracted=True``.
+            See the user guide, *Declaring kinks*.
         coupling_vectorized: only meaningful when ``coupling`` is a
             callable. ``False`` (default) signals the per-sample
             contract -- the workflow calls ``fn`` with 1-D length-m
