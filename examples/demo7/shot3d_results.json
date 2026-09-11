@@ -1,0 +1,2300 @@
+{
+ "summary": {
+  "white | gauss_legendre | order 0": {
+   "worst": 1.756148313594512e-16,
+   "n": 3,
+   "refused": 0
+  },
+  "white | qmc_vectorized | order 0": {
+   "worst": 1.756148313594512e-16,
+   "n": 3,
+   "refused": 0
+  },
+  "white | qmc_scalar | order 0": {
+   "worst": 1.756148313594512e-16,
+   "n": 3,
+   "refused": 0
+  },
+  "white | gauss_legendre | order 2": {
+   "worst": 4.1964748228621395e-16,
+   "n": 3,
+   "refused": 0
+  },
+  "white | qmc_vectorized | order 2": {
+   "worst": 8.076993852916869e-07,
+   "n": 3,
+   "refused": 0
+  },
+  "white | qmc_scalar | order 2": {
+   "worst": 2.2387022901181634e-05,
+   "n": 3,
+   "refused": 0
+  },
+  "white | gauss_legendre | order 1 | 3-point": {
+   "worst": 6.268677615038445e-16,
+   "n": 3,
+   "refused": 0
+  },
+  "white | qmc_vectorized | order 1 | 3-point": {
+   "worst": 1.8344313395379677e-09,
+   "n": 3,
+   "refused": 0
+  },
+  "white | qmc_scalar | order 1 | 3-point": {
+   "worst": 1.8139766444800974e-09,
+   "n": 3,
+   "refused": 0
+  },
+  "exponential | gauss_legendre | order 0": {
+   "worst": 3.519444824954775e-15,
+   "n": 3,
+   "refused": 0
+  },
+  "exponential | qmc_vectorized | order 0": {
+   "worst": 3.519444824954775e-15,
+   "n": 3,
+   "refused": 0
+  },
+  "exponential | qmc_scalar | order 0": {
+   "worst": 3.519444824954775e-15,
+   "n": 3,
+   "refused": 0
+  },
+  "exponential | gauss_legendre | order 2": {
+   "worst": 6.193696623043935e-15,
+   "n": 3,
+   "refused": 0
+  },
+  "exponential | qmc_vectorized | order 2": {
+   "worst": 1.0041969764012978e-07,
+   "n": 3,
+   "refused": 0
+  },
+  "exponential | qmc_scalar | order 2": {
+   "worst": 2.429228266876407e-05,
+   "n": 3,
+   "refused": 0
+  },
+  "exponential | gauss_legendre | order 1 | 3-point": {
+   "worst": 2.0770977287426097e-14,
+   "n": 3,
+   "refused": 0
+  },
+  "exponential | qmc_vectorized | order 1 | 3-point": {
+   "worst": 1.5551719873840575e-09,
+   "n": 3,
+   "refused": 0
+  },
+  "exponential | qmc_scalar | order 1 | 3-point": {
+   "worst": 1.3977926712614406e-09,
+   "n": 3,
+   "refused": 0
+  },
+  "white-matrixR | qmc_scalar | order 0": {
+   "worst": 1.8284890732462133e-16,
+   "n": 3,
+   "refused": 0
+  },
+  "white-matrixR | gauss_legendre | order 0": {
+   "worst": 1.8284890732462133e-16,
+   "n": 3,
+   "refused": 0
+  },
+  "white-matrixR | qmc_vectorized | order 0": {
+   "worst": 1.8284890732462133e-16,
+   "n": 3,
+   "refused": 0
+  },
+  "white-matrixR | qmc_scalar | order 2": {
+   "worst": 4.799038253515761e-05,
+   "n": 3,
+   "refused": 0
+  },
+  "white-matrixR | gauss_legendre | order 2": {
+   "worst": 0.0,
+   "n": 0,
+   "refused": 3
+  },
+  "white-matrixR | qmc_vectorized | order 2": {
+   "worst": 0.0,
+   "n": 0,
+   "refused": 3
+  },
+  "white-matrixR | qmc_scalar | order 1 | 3-point": {
+   "worst": 2.1772640418604456e-09,
+   "n": 3,
+   "refused": 0
+  },
+  "white-matrixR | gauss_legendre | order 1 | 3-point": {
+   "worst": 0.0,
+   "n": 0,
+   "refused": 3
+  },
+  "white-matrixR | qmc_vectorized | order 1 | 3-point": {
+   "worst": 0.0,
+   "n": 0,
+   "refused": 3
+  }
+ },
+ "seconds": {
+  "white": 20.3,
+  "exponential": 50.9,
+  "white-matrixR": 24.1
+ },
+ "rows": [
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    0,
+    1
+   ],
+   "order": 0,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": -0.3160960313063578,
+   "reference": -0.31609603130635777,
+   "error": 1.756148313594512e-16,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     -0.3160960313063578,
+     -0.31609603130635777
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    0,
+    1
+   ],
+   "order": 0,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.37,
+   "package": -0.3160960313063578,
+   "reference": -0.31609603130635777,
+   "error": 1.756148313594512e-16,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     -0.3160960313063578,
+     -0.31609603130635777
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    0,
+    1
+   ],
+   "order": 0,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": -0.3160960313063578,
+   "reference": -0.31609603130635777,
+   "error": 1.756148313594512e-16,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     -0.3160960313063578,
+     -0.31609603130635777
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    0,
+    1
+   ],
+   "order": 2,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.03,
+   "package": -0.2185243522166658,
+   "reference": -0.2185243522166658,
+   "error": 1.434556764537179e-16,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     -0.048369601506468615,
+     -0.04836960150646862
+    ],
+    "(2, 0)": [
+     -0.17015475071019717,
+     -0.17015475071019717
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    0,
+    1
+   ],
+   "order": 2,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.43,
+   "package": -0.218524233556326,
+   "reference": -0.2185243522166658,
+   "error": 7.05191638378835e-07,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     -0.048369602837836256,
+     -0.04836960150646862
+    ],
+    "(2, 0)": [
+     -0.17015463071848974,
+     -0.17015475071019717
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    0,
+    1
+   ],
+   "order": 2,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 5.02,
+   "package": -0.2185203054246733,
+   "reference": -0.2185243522166658,
+   "error": 2.100490644078891e-05,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     -0.04836912879909525,
+     -0.04836960150646862
+    ],
+    "(2, 0)": [
+     -0.17015117662557805,
+     -0.17015475071019717
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    0
+   ],
+   "order": 0,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": -0.3160960313063578,
+   "reference": -0.31609603130635777,
+   "error": 1.756148313594512e-16,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     -0.3160960313063578,
+     -0.31609603130635777
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    0
+   ],
+   "order": 0,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": -0.3160960313063578,
+   "reference": -0.31609603130635777,
+   "error": 1.756148313594512e-16,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     -0.3160960313063578,
+     -0.31609603130635777
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    0
+   ],
+   "order": 0,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": -0.3160960313063578,
+   "reference": -0.31609603130635777,
+   "error": 1.756148313594512e-16,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     -0.3160960313063578,
+     -0.31609603130635777
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    0
+   ],
+   "order": 2,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.03,
+   "package": -0.21852435221666577,
+   "reference": -0.2185243522166658,
+   "error": 1.6311960435886646e-16,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     -0.048369601506468615,
+     -0.04836960150646862
+    ],
+    "(2, 0)": [
+     -0.17015475071019714,
+     -0.17015475071019717
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    0
+   ],
+   "order": 2,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.41,
+   "package": -0.218524233556326,
+   "reference": -0.2185243522166658,
+   "error": 7.051916385419546e-07,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     -0.048369602837836256,
+     -0.04836960150646862
+    ],
+    "(2, 0)": [
+     -0.1701546307184897,
+     -0.17015475071019717
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    0
+   ],
+   "order": 2,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 2.73,
+   "package": -0.21852030542467332,
+   "reference": -0.2185243522166658,
+   "error": 2.1004906440625793e-05,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     -0.04836912879909525,
+     -0.04836960150646862
+    ],
+    "(2, 0)": [
+     -0.17015117662557808,
+     -0.17015475071019717
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    1
+   ],
+   "order": 0,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": 0.7057303032810168,
+   "reference": 0.7057303032810167,
+   "error": 1.5731548148968655e-16,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     0.7057303032810168,
+     0.7057303032810167
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    1
+   ],
+   "order": 0,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": 0.7057303032810168,
+   "reference": 0.7057303032810167,
+   "error": 1.5731548148968655e-16,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     0.7057303032810168,
+     0.7057303032810167
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    1
+   ],
+   "order": 0,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": 0.7057303032810168,
+   "reference": 0.7057303032810167,
+   "error": 1.5731548148968655e-16,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     0.7057303032810168,
+     0.7057303032810167
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    1
+   ],
+   "order": 2,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.03,
+   "package": 0.5341715388485684,
+   "reference": 0.5341715388485684,
+   "error": 4.1964748228621395e-16,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     0.0992103257634892,
+     0.09921032576348925
+    ],
+    "(2, 0)": [
+     0.4349612130850792,
+     0.4349612130850792
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    1
+   ],
+   "order": 2,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.43,
+   "package": 0.5341711902614166,
+   "reference": 0.5341715388485684,
+   "error": 8.076993852916869e-07,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     0.09921032849424186,
+     0.09921032576348925
+    ],
+    "(2, 0)": [
+     0.43496086176717474,
+     0.4349612130850792
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    1
+   ],
+   "order": 2,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 2.75,
+   "package": 0.5341608317973472,
+   "reference": 0.5341715388485684,
+   "error": 2.2387022901181634e-05,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     0.09920935619890645,
+     0.09921032576348925
+    ],
+    "(2, 0)": [
+     0.4349514755984407,
+     0.4349612130850792
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    0,
+    1,
+    1
+   ],
+   "order": 1,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.01,
+   "package": 0.4631056957325673,
+   "reference": 0.46310569573256744,
+   "error": 6.268677615038445e-16,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.0664149059501252,
+     0.06641490595012524
+    ],
+    "(1, 0)": [
+     0.3966907897824421,
+     0.3966907897824422
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    0,
+    1,
+    1
+   ],
+   "order": 1,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.17,
+   "package": 0.4631056950248321,
+   "reference": 0.46310569573256744,
+   "error": 1.8344313395379677e-09,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.06641490582829165,
+     0.06641490595012524
+    ],
+    "(1, 0)": [
+     0.3966907891965405,
+     0.3966907897824422
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    0,
+    1,
+    1
+   ],
+   "order": 1,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 3.73,
+   "package": 0.463105695036828,
+   "reference": 0.46310569573256744,
+   "error": 1.8139766444800974e-09,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.06641490582965015,
+     0.06641490595012524
+    ],
+    "(1, 0)": [
+     0.3966907892071779,
+     0.3966907897824422
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    1,
+    0,
+    1
+   ],
+   "order": 1,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.01,
+   "package": 0.4188986034852401,
+   "reference": 0.41889860348524016,
+   "error": 1.491173885731558e-16,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.04663382764372584,
+     0.046633827643725846
+    ],
+    "(1, 0)": [
+     0.37226477584151424,
+     0.3722647758415143
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    1,
+    0,
+    1
+   ],
+   "order": 1,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.18,
+   "package": 0.418898602845455,
+   "reference": 0.41889860348524016,
+   "error": 1.8344309154085593e-09,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.04663382755817931,
+     0.046633827643725846
+    ],
+    "(1, 0)": [
+     0.3722647752872757,
+     0.3722647758415143
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    1,
+    0,
+    1
+   ],
+   "order": 1,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 1.88,
+   "package": 0.41889860285634256,
+   "reference": 0.41889860348524016,
+   "error": 1.8139763244950756e-09,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.04663382755913319,
+     0.046633827643725846
+    ],
+    "(1, 0)": [
+     0.37226477529720936,
+     0.3722647758415143
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    1,
+    1,
+    0
+   ],
+   "order": 1,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.01,
+   "package": 0.41757240204696405,
+   "reference": 0.41757240204696383,
+   "error": 5.981569338400183e-16,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.046357771967261575,
+     0.04635777196726158
+    ],
+    "(1, 0)": [
+     0.37121463007970246,
+     0.37121463007970223
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    1,
+    1,
+    0
+   ],
+   "order": 1,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.18,
+   "package": 0.41757240140940904,
+   "reference": 0.41757240204696383,
+   "error": 1.834431014424813e-09,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.04635777188222145,
+     0.04635777196726158
+    ],
+    "(1, 0)": [
+     0.3712146295271876,
+     0.37121463007970223
+    ]
+   }
+  },
+  {
+   "variant": "white",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    1,
+    1,
+    0
+   ],
+   "order": 1,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 1.85,
+   "package": 0.4175724014202647,
+   "reference": 0.41757240204696383,
+   "error": 1.8139763095026677e-09,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.04635777188316968,
+     0.04635777196726158
+    ],
+    "(1, 0)": [
+     0.371214629537095,
+     0.37121463007970223
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    0,
+    1
+   ],
+   "order": 0,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": -0.0670339796379324,
+   "reference": -0.06703397963793263,
+   "error": 3.519444824954775e-15,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     -0.0670339796379324,
+     -0.06703397963793263
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    0,
+    1
+   ],
+   "order": 0,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": -0.0670339796379324,
+   "reference": -0.06703397963793263,
+   "error": 3.519444824954775e-15,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     -0.0670339796379324,
+     -0.06703397963793263
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    0,
+    1
+   ],
+   "order": 0,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": -0.0670339796379324,
+   "reference": -0.06703397963793263,
+   "error": 3.519444824954775e-15,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     -0.0670339796379324,
+     -0.06703397963793263
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    0,
+    1
+   ],
+   "order": 2,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.07,
+   "package": -0.03566217134966573,
+   "reference": -0.035662171349665796,
+   "error": 3.859108831406567e-15,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     -0.006068439100524443,
+     -0.0060684391005244665
+    ],
+    "(2, 0)": [
+     -0.029593732249141292,
+     -0.02959373224914133
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    0,
+    1
+   ],
+   "order": 2,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.9,
+   "package": -0.03566216846100428,
+   "reference": -0.035662171349665796,
+   "error": 9.730669547771558e-08,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     -0.00606843909153124,
+     -0.0060684391005244665
+    ],
+    "(2, 0)": [
+     -0.029593729369473038,
+     -0.02959373224914133
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    0,
+    1
+   ],
+   "order": 2,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 17.73,
+   "package": -0.035661452442083276,
+   "reference": -0.035662171349665796,
+   "error": 2.429228266876407e-05,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     -0.006068439092250963,
+     -0.0060684391005244665
+    ],
+    "(2, 0)": [
+     -0.02959301334983231,
+     -0.02959373224914133
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    0
+   ],
+   "order": 0,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": -0.0670339796379324,
+   "reference": -0.06703397963793263,
+   "error": 3.519444824954775e-15,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     -0.0670339796379324,
+     -0.06703397963793263
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    0
+   ],
+   "order": 0,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": -0.0670339796379324,
+   "reference": -0.06703397963793263,
+   "error": 3.519444824954775e-15,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     -0.0670339796379324,
+     -0.06703397963793263
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    0
+   ],
+   "order": 0,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": -0.0670339796379324,
+   "reference": -0.06703397963793263,
+   "error": 3.519444824954775e-15,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     -0.0670339796379324,
+     -0.06703397963793263
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    0
+   ],
+   "order": 2,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.07,
+   "package": -0.03566217134966573,
+   "reference": -0.035662171349665796,
+   "error": 3.859108831406567e-15,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     -0.006068439100524443,
+     -0.0060684391005244665
+    ],
+    "(2, 0)": [
+     -0.029593732249141295,
+     -0.02959373224914133
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    0
+   ],
+   "order": 2,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.9,
+   "package": -0.03566216836887892,
+   "reference": -0.035662171349665796,
+   "error": 1.0041969764012978e-07,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     -0.00606843909153124,
+     -0.0060684391005244665
+    ],
+    "(2, 0)": [
+     -0.029593729277347686,
+     -0.02959373224914133
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    0
+   ],
+   "order": 2,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 11.36,
+   "package": -0.03566147584024285,
+   "reference": -0.035662171349665796,
+   "error": 2.3501636886760507e-05,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     -0.006068439092250963,
+     -0.0060684391005244665
+    ],
+    "(2, 0)": [
+     -0.029593036747991887,
+     -0.02959373224914133
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    1
+   ],
+   "order": 0,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": 0.6112768242550101,
+   "reference": 0.6112768242550083,
+   "error": 2.9059777320450185e-15,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     0.6112768242550101,
+     0.6112768242550083
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    1
+   ],
+   "order": 0,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": 0.6112768242550101,
+   "reference": 0.6112768242550083,
+   "error": 2.9059777320450185e-15,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     0.6112768242550101,
+     0.6112768242550083
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    1
+   ],
+   "order": 0,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": 0.6112768242550101,
+   "reference": 0.6112768242550083,
+   "error": 2.9059777320450185e-15,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     0.6112768242550101,
+     0.6112768242550083
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    1
+   ],
+   "order": 2,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.07,
+   "package": 0.142497085622454,
+   "reference": 0.1424970856224543,
+   "error": 6.193696623043935e-15,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     0.024086781774062076,
+     0.024086781774062226
+    ],
+    "(2, 0)": [
+     0.11841030384839192,
+     0.11841030384839207
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    1
+   ],
+   "order": 2,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.91,
+   "package": 0.14249707750760582,
+   "reference": 0.1424970856224543,
+   "error": 6.825001880897982e-08,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     0.024086781740719237,
+     0.024086781774062226
+    ],
+    "(2, 0)": [
+     0.11841029576688661,
+     0.11841030384839207
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    1
+   ],
+   "order": 2,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 11.31,
+   "package": 0.14249429995144747,
+   "reference": 0.1424970856224543,
+   "error": 2.3525301706320984e-05,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     0.024086781741178558,
+     0.024086781774062226
+    ],
+    "(2, 0)": [
+     0.1184075182102689,
+     0.11841030384839207
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    0,
+    1,
+    1
+   ],
+   "order": 1,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.02,
+   "package": 0.08865332316872472,
+   "reference": 0.08865332316872461,
+   "error": 2.0770977287426097e-14,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.008184636586581964,
+     0.008184636586581794
+    ],
+    "(1, 0)": [
+     0.08046868658214276,
+     0.08046868658214282
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    0,
+    1,
+    1
+   ],
+   "order": 1,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.3,
+   "package": 0.08865332304381969,
+   "reference": 0.08865332316872461,
+   "error": 1.5522197711831324e-09,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.008184636586581964,
+     0.008184636586581794
+    ],
+    "(1, 0)": [
+     0.08046868645723773,
+     0.08046868658214282
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    0,
+    1,
+    1
+   ],
+   "order": 1,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 5.62,
+   "package": 0.08865332305624624,
+   "reference": 0.08865332316872461,
+   "error": 1.3977926712614406e-09,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.008184636586581964,
+     0.008184636586581794
+    ],
+    "(1, 0)": [
+     0.08046868646966428,
+     0.08046868658214282
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    1,
+    0,
+    1
+   ],
+   "order": 1,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.02,
+   "package": 0.08027211344142865,
+   "reference": 0.0802721134414285,
+   "error": 2.007321790857421e-14,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.005746916696559385,
+     0.00574691669655927
+    ],
+    "(1, 0)": [
+     0.07452519674486927,
+     0.07452519674486922
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    1,
+    0,
+    1
+   ],
+   "order": 1,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.36,
+   "package": 0.08027211332552911,
+   "reference": 0.0802721134414285,
+   "error": 1.5551719873840575e-09,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.005746916696559385,
+     0.00574691669655927
+    ],
+    "(1, 0)": [
+     0.07452519662896973,
+     0.07452519674486922
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    1,
+    0,
+    1
+   ],
+   "order": 1,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.41,
+   "package": 0.08027211333789648,
+   "reference": 0.0802721134414285,
+   "error": 1.3892231330856378e-09,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.005746916696559385,
+     0.00574691669655927
+    ],
+    "(1, 0)": [
+     0.0745251966413371,
+     0.07452519674486922
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    1,
+    1,
+    0
+   ],
+   "order": 1,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.02,
+   "package": 0.08013236523553836,
+   "reference": 0.08013236523553821,
+   "error": 1.958545101213509e-14,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.005712896993343668,
+     0.005712896993343556
+    ],
+    "(1, 0)": [
+     0.0744194682421947,
+     0.07441946824219466
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    1,
+    1,
+    0
+   ],
+   "order": 1,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.33,
+   "package": 0.08013236511982053,
+   "reference": 0.08013236523553821,
+   "error": 1.5549398455729397e-09,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.005712896993343668,
+     0.005712896993343556
+    ],
+    "(1, 0)": [
+     0.07441946812647686,
+     0.07441946824219466
+    ]
+   }
+  },
+  {
+   "variant": "exponential",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    1,
+    1,
+    0
+   ],
+   "order": 1,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.41,
+   "package": 0.08013236513215391,
+   "reference": 0.08013236523553821,
+   "error": 1.3892119170462858e-09,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.005712896993343668,
+     0.005712896993343556
+    ],
+    "(1, 0)": [
+     0.07441946813881024,
+     0.07441946824219466
+    ]
+   }
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    0,
+    1
+   ],
+   "order": 0,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": -0.30359028141582456,
+   "reference": -0.3035902814158246,
+   "error": 1.8284890732462133e-16,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     -0.30359028141582456,
+     -0.3035902814158246
+    ]
+   }
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    0,
+    1
+   ],
+   "order": 0,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": -0.30359028141582456,
+   "reference": -0.3035902814158246,
+   "error": 1.8284890732462133e-16,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     -0.30359028141582456,
+     -0.3035902814158246
+    ]
+   }
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    0,
+    1
+   ],
+   "order": 0,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": -0.30359028141582456,
+   "reference": -0.3035902814158246,
+   "error": 1.8284890732462133e-16,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     -0.30359028141582456,
+     -0.3035902814158246
+    ]
+   }
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    0,
+    1
+   ],
+   "order": 2,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 6.99,
+   "package": -0.193275488323125,
+   "reference": -0.19327912617049572,
+   "error": 2.0951232649318413e-05,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     -0.046059264464128585,
+     -0.04605981788552097
+    ],
+    "(2, 0)": [
+     -0.1472162238589964,
+     -0.14721930828497476
+    ]
+   }
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    0,
+    1
+   ],
+   "order": 2,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "refused",
+   "reason": "method='gauss_legendre' currently supports scalar iso_R=True response propagators only"
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    0,
+    1
+   ],
+   "order": 2,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "refused",
+   "reason": "method='qmc_vectorized' currently supports scalar iso_R=True response propagators only"
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    0
+   ],
+   "order": 0,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": -0.30359028141582456,
+   "reference": -0.3035902814158246,
+   "error": 1.8284890732462133e-16,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     -0.30359028141582456,
+     -0.3035902814158246
+    ]
+   }
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    0
+   ],
+   "order": 0,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": -0.30359028141582456,
+   "reference": -0.3035902814158246,
+   "error": 1.8284890732462133e-16,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     -0.30359028141582456,
+     -0.3035902814158246
+    ]
+   }
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    0
+   ],
+   "order": 0,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": -0.30359028141582456,
+   "reference": -0.3035902814158246,
+   "error": 1.8284890732462133e-16,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     -0.30359028141582456,
+     -0.3035902814158246
+    ]
+   }
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    0
+   ],
+   "order": 2,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 4.52,
+   "package": -0.19327499295737197,
+   "reference": -0.19327912617049572,
+   "error": 2.43160477595031e-05,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     -0.046059264464128585,
+     -0.04605981788552097
+    ],
+    "(2, 0)": [
+     -0.14721572849324338,
+     -0.14721930828497476
+    ]
+   }
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    0
+   ],
+   "order": 2,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "refused",
+   "reason": "method='gauss_legendre' currently supports scalar iso_R=True response propagators only"
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    0
+   ],
+   "order": 2,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "refused",
+   "reason": "method='qmc_vectorized' currently supports scalar iso_R=True response propagators only"
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    1
+   ],
+   "order": 0,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": 0.5628444759969184,
+   "reference": 0.5628444759969184,
+   "error": 0.0,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     0.5628444759969184,
+     0.5628444759969184
+    ]
+   }
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    1
+   ],
+   "order": 0,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": 0.5628444759969184,
+   "reference": 0.5628444759969184,
+   "error": 0.0,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     0.5628444759969184,
+     0.5628444759969184
+    ]
+   }
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    1
+   ],
+   "order": 0,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 0.0,
+   "package": 0.5628444759969184,
+   "reference": 0.5628444759969184,
+   "error": 0.0,
+   "zero": 0.0,
+   "channels": {
+    "(0, 0)": [
+     0.5628444759969184,
+     0.5628444759969184
+    ]
+   }
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    1
+   ],
+   "order": 2,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 4.46,
+   "package": 0.36362003848975044,
+   "reference": 0.36363686356316216,
+   "error": 4.799038253515761e-05,
+   "zero": 0.0,
+   "channels": {
+    "(1, 1)": [
+     0.07228185755376985,
+     0.07228470052542488
+    ],
+    "(2, 0)": [
+     0.29133818093598063,
+     0.29135216303773726
+    ]
+   }
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    1
+   ],
+   "order": 2,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "refused",
+   "reason": "method='gauss_legendre' currently supports scalar iso_R=True response propagators only"
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y)",
+   "comps": [
+    1,
+    1
+   ],
+   "order": 2,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "refused",
+   "reason": "method='qmc_vectorized' currently supports scalar iso_R=True response propagators only"
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    0,
+    1,
+    1
+   ],
+   "order": 1,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 3.95,
+   "package": 0.3739355319702447,
+   "reference": 0.37393553260300916,
+   "error": 2.1772637473715016e-09,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.05898392891745,
+     0.05898392904587357
+    ],
+    "(1, 0)": [
+     0.3149516030527947,
+     0.3149516035571356
+    ]
+   }
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    0,
+    1,
+    1
+   ],
+   "order": 1,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "refused",
+   "reason": "method='gauss_legendre' currently supports scalar iso_R=True response propagators only"
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    0,
+    1,
+    1
+   ],
+   "order": 1,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "refused",
+   "reason": "method='qmc_vectorized' currently supports scalar iso_R=True response propagators only"
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    1,
+    0,
+    1
+   ],
+   "order": 1,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 2.06,
+   "package": 0.3402276062291323,
+   "reference": 0.34022760679848374,
+   "error": 2.1772640418604456e-09,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.04141609982782718,
+     0.041416099918000965
+    ],
+    "(1, 0)": [
+     0.2988115064013051,
+     0.2988115068804828
+    ]
+   }
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    1,
+    0,
+    1
+   ],
+   "order": 1,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "refused",
+   "reason": "method='gauss_legendre' currently supports scalar iso_R=True response propagators only"
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    1,
+    0,
+    1
+   ],
+   "order": 1,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "refused",
+   "reason": "method='qmc_vectorized' currently supports scalar iso_R=True response propagators only"
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    1,
+    1,
+    0
+   ],
+   "order": 1,
+   "method": "qmc_scalar",
+   "settings": {
+    "n_samples": 2048,
+    "seed": 5
+   },
+   "status": "ok",
+   "seconds": 2.08,
+   "package": 0.33916049719800717,
+   "reference": 0.3391604977651768,
+   "error": 2.1772635729549393e-09,
+   "zero": 0.0,
+   "channels": {
+    "(0, 1)": [
+     0.04117093124458694,
+     0.04117093133422691
+    ],
+    "(1, 0)": [
+     0.29798956595342024,
+     0.2979895664309499
+    ]
+   }
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    1,
+    1,
+    0
+   ],
+   "order": 1,
+   "method": "gauss_legendre",
+   "settings": {
+    "n_gauss": 16
+   },
+   "status": "refused",
+   "reason": "method='gauss_legendre' currently supports scalar iso_R=True response propagators only"
+  },
+  {
+   "variant": "white-matrixR",
+   "observable": "phi_a(x) phi_b(y) phi_c(z)",
+   "comps": [
+    1,
+    1,
+    0
+   ],
+   "order": 1,
+   "method": "qmc_vectorized",
+   "settings": {
+    "n_samples": 16384,
+    "seed": 5
+   },
+   "status": "refused",
+   "reason": "method='qmc_vectorized' currently supports scalar iso_R=True response propagators only"
+  }
+ ]
+}
