@@ -298,9 +298,25 @@ def _canonical_edge(
     return (kind, spatial_left, spatial_right)
 
 
+def _same_time_edges(
+    same_time_groups: tuple[tuple[str, ...], ...],
+    mapping: dict[str, str],
+) -> list[tuple[str, str, str]]:
+    """``("E", u, v)`` for every pair of legs in one equal-time group,
+    after relabeling by ``mapping``."""
+    edges: list[tuple[str, str, str]] = []
+    for group in same_time_groups:
+        mapped = sorted(mapping.get(v, v) for v in group)
+        for i, u in enumerate(mapped):
+            for v in mapped[i + 1:]:
+                edges.append(("E", u, v))
+    return edges
+
+
 def _canonical_diagram_form(
     props: list[Propagator],
     integration_vars: frozenset[str],
+    same_time_groups: tuple[tuple[str, ...], ...] = (),
 ) -> tuple[tuple[tuple[str, str, str], ...], dict[str, str]]:
     """Compute canonical graph form for a set of propagators.
 
@@ -308,6 +324,16 @@ def _canonical_diagram_form(
     points), keeping external spatial variables fixed.  For each
     permutation, computes the sorted edge list using
     :func:`_canonical_edge`, then picks the lexicographically smallest.
+
+    ``same_time_groups`` lists the leg labels of each ``equal_time``
+    non-local vertex instance: the legs of one group share one time
+    variable.  Each group enters the form as a clique of ``("E", u, v)``
+    edges, so two contractions have the same form only if a relabeling
+    maps every group onto a group.  The propagators alone do not record
+    which legs share a time: two copies of an equal-time vertex whose
+    legs meet six external points as {x1,x2,x3}{x4,x5,x6} and as
+    {x1,x2,x4}{x3,x5,x6} have isomorphic propagator graphs and different
+    time integrals.
 
     Returns ``(canonical_edges, best_mapping)`` where *best_mapping*
     maps original internal spatial variable names to the permuted names
@@ -325,8 +351,8 @@ def _canonical_diagram_form(
     # Trivial case: no internal variables to permute
     if not internal:
         form = tuple(sorted(
-            _canonical_edge(p.kind, p.spatial_left, p.spatial_right)
-            for p in props
+            [_canonical_edge(p.kind, p.spatial_left, p.spatial_right)
+             for p in props] + _same_time_edges(same_time_groups, {})
         ))
         return form, {}
 
@@ -347,6 +373,7 @@ def _canonical_diagram_form(
             sl = mapping.get(p.spatial_left, p.spatial_left)
             sr = mapping.get(p.spatial_right, p.spatial_right)
             edges_list.append(_canonical_edge(p.kind, sl, sr))
+        edges_list.extend(_same_time_edges(same_time_groups, mapping))
         form = tuple(sorted(edges_list))
         if best_form is None or form < best_form:
             best_form = form
