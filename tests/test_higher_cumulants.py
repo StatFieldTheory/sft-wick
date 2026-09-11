@@ -159,6 +159,12 @@ def test_HC3_a_callable_coupling_works_with_matrix_valued_R(order):
                                 gammas=(1.0, 1.3)), order, method="qmc").total
     assert np.isfinite(static) and abs(static) > 0.0
     assert dynamic == pytest.approx(static, rel=1e-12, abs=0.0)
+    # The batched backend on the same Sobol points: a matrix R ran on the
+    # scalar loop only until the batched integrators learned it.
+    batched = _evaluate(_system(order, lambda n_list, t_list: K,
+                                gammas=(1.0, 1.3)), order,
+                        method="qmc_vectorized").total
+    assert batched == pytest.approx(static, rel=1e-12, abs=0.0)
 
 
 @pytest.mark.parametrize("order", [3, 4])
@@ -225,8 +231,8 @@ def test_HC4_a_vectorized_callable_works_under_the_scalar_loop():
     callable ``(m_legs,)`` arrays instead -- and some batched callables
     broadcast happily and return a plausible WRONG shape rather than raising.
 
-    Matrix-valued R forces the scalar loop, so before this the combination
-    "vectorized callable + matrix R" had no correct path at all.
+    Matrix-valued R used to force the scalar loop, so before this the
+    combination "vectorized callable + matrix R" had no correct path at all.
     """
     K = _kappa(3)
 
@@ -249,12 +255,17 @@ def test_HC4_a_vectorized_callable_works_under_the_scalar_loop():
                 spatial=sw.ExponentialSpatial(sigma_x=1.0))),
         )
 
-    # matrix R: only the scalar loop is legal, and both contracts must agree
+    # matrix R on the scalar loop ('qmc' picks it for this cache): both
+    # contracts must agree, and so must the batched backend on the same
+    # Sobol points
     plain = _evaluate(system(per_sample, False, (1.0, 1.3)), 3,
                       method="qmc").total
     vec = _evaluate(system(batched, True, (1.0, 1.3)), 3, method="qmc").total
     assert np.isfinite(plain) and abs(plain) > 0.0
     assert vec == pytest.approx(plain, rel=1e-12, abs=0.0)
+    vec_batched = _evaluate(system(batched, True, (1.0, 1.3)), 3,
+                            method="qmc_vectorized").total
+    assert vec_batched == pytest.approx(plain, rel=1e-12, abs=0.0)
 
     # isotropic R: cross-check the scalar loop against the batched backend,
     # which has its own independent vectorised materialisation

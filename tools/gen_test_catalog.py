@@ -203,6 +203,18 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "backend, N = 1, and L1 flag overrides",
         "numpy hand contraction of the coupling (R = Θ is 1 on the domain)",
         "1e-12"),
+    "tests/test_matrix_r_batched.py": (
+        "Integrators",
+        "matrix-valued R (DiagonalA with distinct rates, a non-normal dense "
+        "ExplicitR) on gauss_legendre, qmc_vectorized, "
+        "integrate_two_point_qmc and the method='qmc' dispatch: static, "
+        "callable, equal_time and already_R_contracted vertices, "
+        "integrate_over, unequal external times; absorbed-R leg indices "
+        "pinned to their partners'",
+        "exact Itô moment hierarchy (Markov embedding; a constant random "
+        "source for κ³), closed form Σ κ M M M, scipy expm + quad_vec hand "
+        "contractions; the scalar loop on the same Sobol points; nquad",
+        "1e-10 (vs exact) / 1e-12 (same points, GL vs nquad)"),
     "tests/test_matrix_r_index_and_zero_dim.py": (
         "Integrators",
         "matrix-valued R component indices when two R propagators share one "
