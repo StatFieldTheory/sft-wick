@@ -24,7 +24,9 @@ Run::
 
 Cross-check target (from demo2/analysis.ipynb cell 12, r=0.5, t_f=3,
 without the α³ term and with the un-converged 4-D rule of the time):
-    ξ^{FK}_{01} = +1.884322e-04
+    xi^{FK}_{01} = +1.797229e-04   (the R-contracted route; demo 2's
+                                   notebook prints +1.884322e-04,
+                                   4.6 % high -- see REF_NOTEBOOK)
 The converged value from the R-contracted kernel (``k3_R_coupling.py``)
 at r = 0.5, t = 3.48 is 1.816e-04.
 """
@@ -156,6 +158,21 @@ props = system.propagators(
 # Evaluate FK at (a=0, b=1, r=0.5, t_f=3.0)
 # =====================================================================
 
+#: demo 2's FK channel at (a, b) = (0, 1), r = 0.5, t_f = 3.0 through its
+#: production route: the R-contracted kernel of
+#: ``examples/demo2/L2/config_FK.yaml`` at 32 Gauss-Legendre nodes.  Stable
+#: to seven digits from 16 to 64 nodes, and unchanged between 0.5.0 and
+#: 0.6.0.  This is what the raw route below is checked against.
+REF_RC = 1.797229e-04
+
+#: The number demo 2's analysis notebook prints in cell 12, which this
+#: script compared against until 2026-09-12.  It is 4.6 % above both
+#: package routes: the notebook integrates the raw 4-D kappa3 rule with its
+#: own hand-written Gauss-Legendre, which is the rule that is not converged
+#: (see CLAUDE.md and examples/demo2/INTERPRETATION.md).  The notebook is
+#: not re-run here.
+REF_NOTEBOOK = 1.884322e-04
+
 print()
 print(f"Evaluating FK at r=0.5, t_f=3.0 via "
       f"expansion.evaluate(vertex_types={{'FK'}}) …")
@@ -167,15 +184,18 @@ res_01 = expansion.evaluate(
     component_pair=(0, 1),
     orders=[2],
     vertex_types={"FK"},
-    n_samples=2 ** 13, seed=42,
+    n_samples=2 ** 18, seed=42,
 )
 elapsed = time.perf_counter() - t0
 print(f"  FK (0,1, r=0.5, t=3):  got {res_01.total: .6e} in {elapsed:.1f}s")
-print(f"  demo2 reference      : +1.884322e-04")
+print(f"  R-contracted route   : {REF_RC: .6e}")
 
-ref = 1.884322e-04
+ref = REF_RC
 rel = abs(res_01.total - ref) / abs(ref)
 print(f"  relative error       : {rel:.2e}")
+print(f"  demo 2's notebook    : {REF_NOTEBOOK: .6e}  "
+      f"({abs(ref - REF_NOTEBOOK) / REF_NOTEBOOK:.1%} above the two package "
+      f"routes)")
 
 
 # Selection rule: FK=0 for (0,0) and (1,1)
@@ -195,9 +215,12 @@ print(f"  FK (0,0) [should be 0]: {res_00.total: .6e}")
 print(f"  FK (1,1) [should be 0]: {res_11.total: .6e}")
 
 # Verdict
-if rel < 5e-2 and abs(res_00.total) < 1e-8 and abs(res_11.total) < 1e-8:
+# 2**18 Sobol points put the seed-to-seed spread at 0.4 % on this
+# integrand (2**13, which this script used until 2026-09-12, spreads 15 %).
+if rel < 2e-2 and abs(res_00.total) < 1e-8 and abs(res_11.total) < 1e-8:
     print("\nPASS — FK channel reproduced via the workflow's dynamic")
-    print("coupling path.  No bespoke integrator needed.")
+    print("coupling path, to 2 % of the R-contracted route.  No bespoke")
+    print("integrator needed.")
     sys.exit(0)
 else:
     print("\nFAIL")
