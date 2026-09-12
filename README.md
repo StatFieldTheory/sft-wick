@@ -710,7 +710,7 @@ If you use `sft-wick`, please cite the paper:
 }
 ```
 
-The software is additionally archived on Zenodo.  [DOI:10.5281/zenodo.20776358](https://doi.org/10.5281/zenodo.20776358) is the *concept* DOI: it covers all versions and always resolves to the most recent release.  To reference the *specific* version your results were produced with, cite that release's own version DOI, listed under "Versions" on the Zenodo record page.  For 0.5.0 that is [DOI:10.5281/zenodo.22715757](https://doi.org/10.5281/zenodo.22715757).
+The software is additionally archived on Zenodo.  [DOI:10.5281/zenodo.20776358](https://doi.org/10.5281/zenodo.20776358) is the *concept* DOI: it covers all versions and always resolves to the most recent release.  To reference the *specific* version your results were produced with, cite that release's own version DOI, listed under "Versions" on the Zenodo record page.  For 0.6.0 that is [DOI:10.5281/zenodo.22724736](https://doi.org/10.5281/zenodo.22724736).
 
 ## License
 
