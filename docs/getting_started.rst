@@ -2,12 +2,11 @@ Getting Started
 ===============
 
 This tutorial walks through a complete perturbative calculation from
-scratch.  By the end you will know how to define fields, build an
-interaction action, compute moments, inspect Feynman diagrams, and
-export results to LaTeX.
+scratch: how to define fields, build an interaction action, compute
+moments, inspect Feynman diagrams, and export results to LaTeX.
 
 
-Step 1 --- Install and Import
+Step 1: Install and Import
 -----------------------------
 
 .. code-block:: bash
@@ -21,7 +20,7 @@ Step 1 --- Install and Import
    )
 
 
-Step 2 --- Define Fields
+Step 2: Define Fields
 ------------------------
 
 Every calculation starts by declaring the field species.  In the MSR
@@ -42,10 +41,10 @@ For multi-component fields, specify ``n_components``:
    psi = Field('psi', 'response', n_components=3)
 
 
-Step 3 --- Create an Observable
+Step 3: Create an Observable
 -------------------------------
 
-An **observable** is a list of field operators --- concrete field
+An **observable** is a list of field operators: concrete field
 instances with bound component indices and spatial arguments.
 
 .. code-block:: python
@@ -60,7 +59,7 @@ For multi-component fields, pass ``(component_index, spatial_arg)``:
    obs = [psi('a', 'x'), phi('b', 'x'), phi('c', 'x'), phi('d', 'x')]
 
 
-Step 4 --- Compute the Zeroth-Order Moment
+Step 4: Compute the Zeroth-Order Moment
 ------------------------------------------
 
 At zeroth order, only the free propagators contribute (no interactions):
@@ -80,7 +79,7 @@ together (giving :math:`C`).  See :doc:`theory/wick_theorem` for the
 combinatorial explanation.
 
 
-Step 5 --- Define an Interaction Vertex
+Step 5: Define an Interaction Vertex
 ---------------------------------------
 
 Vertices represent terms in the interaction action
@@ -102,7 +101,7 @@ A **non-local vertex** gives each field its own spatial argument:
    v_nl = Vertex(fields=[psi, psi], coupling='K', local=False)
 
 
-Step 6 --- Compute to First Order
+Step 6: Compute to First Order
 ----------------------------------
 
 Wrap vertices in an :class:`~sft_wick.action.Action` and request a
@@ -125,7 +124,7 @@ higher-order expansion:
    print("Total:", result.total.to_latex())
 
 
-Step 7 --- Inspect Feynman Diagrams
+Step 7: Inspect Feynman Diagrams
 ------------------------------------
 
 Every non-vanishing contraction is stored as a
@@ -150,7 +149,7 @@ Render diagrams with ``matplotlib``:
    result.draw_diagrams()
 
 
-Step 8 --- Format as LaTeX
+Step 8: Format as LaTeX
 --------------------------
 
 Every expression has a ``.to_latex()`` method:
@@ -176,7 +175,7 @@ Generate a complete ``align`` environment for a paper:
    print(fmt.format_aligned(result.order_terms))
 
 
-Step 9 --- Conventions: Itô and Response Phase
+Step 9: Conventions: Itô and Response Phase
 -----------------------------------------------
 
 By default, two physics conventions are active:
@@ -194,7 +193,7 @@ equal points :math:`R(x,x) = 0`, and causal R-loops are eliminated.
    ``ito=False`` is a **symbolic** switch.  It keeps the equal-point R
    terms in the expression tree; the numerical layer applies
    :math:`\Theta(0)=0` everywhere, so it computes the Itô SDE.  On a
-   vertex with one ψ leg that is exact — sft-wick emits neither the
+   vertex with one ψ leg that is exact: sft-wick emits neither the
    equal-point term nor the Stratonovich functional Jacobian
    :math:`-\tfrac{1}{2}\int\mathrm{d}s\,\partial F/\partial\phi` that
    cancels it, and the number equals the ``ito=True`` one.  On a vertex
@@ -234,7 +233,7 @@ relabeling further reduces the number of distinct terms.
 Next Steps
 ----------
 
-- :doc:`user_guide/index` --- detailed coverage of every feature
-- :doc:`examples/index` --- worked examples with multi-component fields,
+- :doc:`user_guide/index`: detailed coverage of every feature
+- :doc:`examples/index`: worked examples with multi-component fields,
   non-local vertices, and higher orders
-- :doc:`api/index` --- complete API reference
+- :doc:`api/index`: complete API reference

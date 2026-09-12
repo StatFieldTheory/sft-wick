@@ -2,13 +2,13 @@ The Expression Tree
 ===================
 
 **sft-wick** uses a custom lightweight expression tree instead of
-relying on SymPy.  All expression types are **frozen dataclasses**
---- immutable and hashable --- with exact rational arithmetic via
+relying on SymPy.  All expression types are **frozen dataclasses**,
+immutable and hashable, with exact rational arithmetic via
 ``fractions.Fraction``.
 
 
-Design Philosophy
------------------
+Design
+------
 
 - **No external symbolic algebra dependency.**  The expression tree is
   self-contained in :mod:`sft_wick.expressions`.
@@ -27,11 +27,11 @@ The ``Expr`` Base Class
 All expression types inherit from :class:`~sft_wick.expressions.Expr`,
 which provides operator overloads:
 
-- ``expr + expr`` --- creates a :class:`~sft_wick.expressions.Sum`
-- ``expr * expr`` --- creates a :class:`~sft_wick.expressions.Product`
-- ``-expr`` --- multiplies by :math:`-1`
-- ``expr - expr`` --- addition of negation
-- ``repr(expr)`` --- delegates to ``to_latex()``
+- ``expr + expr``: creates a :class:`~sft_wick.expressions.Sum`
+- ``expr * expr``: creates a :class:`~sft_wick.expressions.Product`
+- ``-expr``: multiplies by :math:`-1`
+- ``expr - expr``: addition of negation
+- ``repr(expr)``: delegates to ``to_latex()``
 
 
 Numeric: ``Rational``
@@ -82,7 +82,7 @@ Propagators
    c = Propagator('C', 'a', 'b', 'x', 'y')  # C_{ab}(x, y)
    r = Propagator('R', 'a', 'b', 'x', 'y')  # R_{ab}(x, y)
 
-- ``kind`` --- ``'C'`` (correlation) or ``'R'`` (response)
+- ``kind``: ``'C'`` (correlation) or ``'R'`` (response)
 - For **R**, the physical field is always on the left by convention.
 - For scalar fields, ``index_left`` and ``index_right`` are ``None``.
 
@@ -134,10 +134,10 @@ spatial delta functions respectively.  Their equality and hashing are
 :meth:`DiagramTerm.apply_diagonal
 <sft_wick.perturbation.DiagramTerm.apply_diagonal>` whenever
 ``diag_R=True`` or ``diag_C=True`` constraints merge a pair of
-**external** (non-summation) indices: the simplifier collapses
+**external** (non-summation) indices.  The simplifier collapses
 ``C[a, b] -> delta_{a, b} C[a, a]`` so that pinning the
 observable indices to different values via ``fixed_indices``
-correctly returns 0.  ``_eval_symbolic`` evaluates a
+returns 0.  ``_eval_symbolic`` evaluates a
 ``KroneckerDelta`` to ``1.0`` when both indices resolve to the
 same integer (via ``index_map`` or as a literal numeric label),
 and ``0.0`` otherwise.

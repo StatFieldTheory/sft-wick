@@ -1,4 +1,4 @@
-``sft_wick.render_style`` --- Visual Style Specifications
+``sft_wick.render_style``: Visual Style Specifications
 =========================================================
 
 .. automodule:: sft_wick.render_style
@@ -8,7 +8,7 @@
    :member-order: bysource
 
 
-``sft_wick.render_layout`` --- Layout Computation
+``sft_wick.render_layout``: Layout Computation
 -------------------------------------------------
 
 .. automodule:: sft_wick.render_layout
@@ -18,7 +18,7 @@
    :member-order: bysource
 
 
-``sft_wick.render_labels`` --- Label Formatting
+``sft_wick.render_labels``: Label Formatting
 -----------------------------------------------
 
 .. automodule:: sft_wick.render_labels

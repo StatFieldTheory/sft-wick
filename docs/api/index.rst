@@ -3,8 +3,8 @@ API Reference
 
 Complete reference for every public class and function in **sft-wick**.
 
-The top-level package re-exports the user-facing API — every name in
-``sft_wick.workflow.__all__`` and the L0 public types — so most objects
+The top-level package re-exports the user-facing API: every name in
+``sft_wick.workflow.__all__`` and the L0 public types.  Most objects
 listed below are accessible directly from ``sft_wick``:
 
 .. code-block:: python
@@ -17,7 +17,7 @@ The remaining helpers are imported from their own module:
 
 .. toctree::
    :maxdepth: 2
-   :caption: L1 + L2 — User-facing workflow API
+   :caption: L1 + L2 user-facing workflow API
 
    workflow
    closed_forms
@@ -25,7 +25,7 @@ The remaining helpers are imported from their own module:
 
 .. toctree::
    :maxdepth: 2
-   :caption: L0 — Raw API
+   :caption: L0 raw API
 
    fields
    expressions

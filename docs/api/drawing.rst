@@ -1,4 +1,4 @@
-``sft_wick.drawing`` --- Diagram Rendering
+``sft_wick.drawing``: Diagram Rendering
 ==========================================
 
 .. automodule:: sft_wick.drawing
