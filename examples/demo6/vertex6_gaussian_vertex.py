@@ -1,9 +1,9 @@
-r"""Demo 6, part F: a non-local ``m = 2`` vertex — Gaussian noise entered as
+r"""Demo 6, part F: a non-local ``m = 2`` vertex, Gaussian noise entered as
 a vertex.
 
 ``NonLocalVertex(order=2)`` carries the MSR factor ``−i²/2! = ½``, so its
 order-1 contribution to ``⟨φ_a(x, t_x) φ_b(y, t_y)⟩`` is
-``∫∫ R κ² R`` — the C propagator of that noise, exactly.  Four kernels, one
+``∫∫ R κ² R``, the C propagator of that noise, exactly.  Four kernels, one
 per route:
 
 =======================  ==================================================

@@ -1,9 +1,9 @@
-"""FK channel via the new dynamic-coupling path — the Plan-A
+"""FK channel via the new dynamic-coupling path, the Plan-A
 follow-up to ``validate_wrapper_demo2.py``.
 
-Proves the workflow can compute the FK channel of demo2 natively:
+Shows the workflow computing the FK channel of demo2 natively:
 no hand-coded ``_fk_spatial_integral``, no bespoke 4-D
-Gauss-Legendre — user writes a single ``K_fn(n_list, t_list)``
+Gauss-Legendre.  The user writes a single ``K_fn(n_list, t_list)``
 callable that computes the third cumulant at the three ψ-leg
 spacetime points, passes it as ``sw.NonLocalVertex("K", 3,
 coupling=K_fn)``, and the workflow picks up the per-sample
@@ -26,7 +26,7 @@ Cross-check target (from demo2/analysis.ipynb cell 12, r=0.5, t_f=3,
 without the α³ term and with the un-converged 4-D rule of the time):
     xi^{FK}_{01} = +1.797229e-04   (the R-contracted route; demo 2's
                                    notebook prints +1.884322e-04,
-                                   4.6 % high -- see REF_NOTEBOOK)
+                                   4.6 % high; see REF_NOTEBOOK)
 The converged value from the R-contracted kernel (``k3_R_coupling.py``)
 at r = 0.5, t = 3.48 is 1.816e-04.
 """
@@ -58,7 +58,7 @@ GAMMA = 1.0
 ALPHA = 0.6
 N_COMP = 2
 
-# Cubic F tensor (bare — wrapper applies MSR -i).
+# Cubic F tensor (bare; the wrapper applies the MSR -i).
 F = np.zeros((N_COMP, N_COMP, N_COMP))
 F[0, 1, 1] = 1.0
 F[1, 0, 1] = 0.5
@@ -77,7 +77,7 @@ def K_fn(n_list, t_list):
         t_list: length-3 array of ψ-leg times.
 
     Returns:
-        ``(N, N, N)`` array — the tensor
+        ``(N, N, N)`` array, the tensor
         ``κ^{(3)}_{abc}(1,2,3) = 2αλ² δ_{ab}δ_{bc} · […]``.
 
     The three ``κ(i, j) κ(j, k)`` terms in the bracket are the
@@ -116,7 +116,7 @@ from validate_wrapper_demo2 import _C_demo2_eff  # noqa: E402
 
 
 # =====================================================================
-# Build the system — K is a callable now
+# Build the system: K is a callable now
 # =====================================================================
 
 LAM_EFF = LAM * (1.0 + 2.0 * ALPHA ** 2 * LAM)
@@ -125,7 +125,7 @@ system = sw.System(
     field=sw.FieldSpec("phi", n_components=N_COMP),
     linear=sw.DiagonalA(gamma=[GAMMA] * N_COMP),
     vertices=[sw.LocalVertex("F", coupling=F)],
-    # K as a callable — wrapper multiplies by the MSR
+    # K as a callable; the wrapper multiplies by the MSR
     # -(i^3)/3! = +i/6 factor internally.
     nonlocal_vertices=[
         sw.NonLocalVertex("K", order=3, coupling=K_fn),
@@ -218,7 +218,7 @@ print(f"  FK (1,1) [should be 0]: {res_11.total: .6e}")
 # 2**18 Sobol points put the seed-to-seed spread at 0.4 % on this
 # integrand (2**13, which this script used until 2026-09-12, spreads 15 %).
 if rel < 2e-2 and abs(res_00.total) < 1e-8 and abs(res_11.total) < 1e-8:
-    print("\nPASS — FK channel reproduced via the workflow's dynamic")
+    print("\nPASS: FK channel reproduced via the workflow's dynamic")
     print("coupling path, to 2 % of the R-contracted route.  No bespoke")
     print("integrator needed.")
     sys.exit(0)

@@ -7,22 +7,22 @@ vertices ``X3`` and ``X4``.  Channels of ``⟨φ_a(x, t_x) φ_b(y, t_y)⟩``:
 ============  =======  =====================  ===========================
 channel       order    composition            what it contains
 ============  =======  =====================  ===========================
-order 0       0        —                      the C propagator
+order 0       0        (none)                 the C propagator
 F X3          2        F X3                   no C: an R tree
 F F           2        F F                    one C, two F vertices
 F F X4        3        F F X4                 no C: an R tree
 ============  =======  =====================  ===========================
 
 and, with ``--two-copies``, the order-3 ``F X3 X3`` channel of the
-five-point function ``⟨φ_a(x) … φ_e(v)⟩`` — two copies of one static vertex
-together with an interaction — and its ``equal_time`` counterpart
+five-point function ``⟨φ_a(x) … φ_e(v)⟩`` (two copies of one static vertex
+together with an interaction) and its ``equal_time`` counterpart
 ``F J3 J3``.
 
 Reference: the moment hierarchy (:mod:`vertex6_reference`) at the tag with
 the same vertex counts, at the same distinct times.
 
-A kink between an internal time and a **fixed external** time — the ends of
-a white-noise C, or two parents of one equal-time vertex — is not an
+A kink between an internal time and a **fixed external** time (the ends of
+a white-noise C, or two parents of one equal-time vertex) is not an
 ordering between two variables, so the Gauss-Legendre split cuts the
 internal variable's range at that time instead (since 2026-09-12).  Before
 the cut those channels converged algebraically at distinct external times

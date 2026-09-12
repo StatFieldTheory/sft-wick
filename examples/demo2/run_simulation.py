@@ -63,10 +63,10 @@ def simulate_correlators(
     Returns
     -------
     r_arr, t_arr : measurement grids.
-    xi_all : shape (3, n_t, n_r) — two-point correlators for PAIRS.
-    var0_all : shape (3, n_t)    — variance at origin.
-    mu2_all : shape (2, n_t)     — <eta_tilde_a(0, t)^2> per component.
-    mu3_all : shape (2, n_t)     — <eta_tilde_a(0, t)^3> per component.
+    xi_all : shape (3, n_t, n_r), two-point correlators for PAIRS.
+    var0_all : shape (3, n_t), variance at origin.
+    mu2_all : shape (2, n_t), <eta_tilde_a(0, t)^2> per component.
+    mu3_all : shape (2, n_t), <eta_tilde_a(0, t)^3> per component.
     n_good  : number of non-blown realisations.
     """
     rng = np.random.default_rng(seed)
@@ -155,7 +155,7 @@ def simulate_correlators(
                             phi[a, good, 0] * phi[b, good, 0]
                         )
                     # Noise moments at x=0 (use the *next-step* noise, which is
-                    # what drives phi at this measurement time — consistent with
+                    # what drives phi at this measurement time, consistent with
                     # the Heun predictor evaluation above).
                     for a in range(2):
                         eta_a0 = (eta1_kn if a == 0 else eta2_kn)[good, 0]

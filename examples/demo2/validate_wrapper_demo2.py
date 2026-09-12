@@ -7,9 +7,9 @@ field driven by a **non-Gaussian** noise
 ``η̃_a = η_a + α(η_a² − λ)``.  The non-Gaussian deformation adds
 
 - an order-α² shift to the effective κ² that raises the bare
-  variance to ``λ_eff = λ(1 + 2α²λ)`` — this alters the **FF
+  variance to ``λ_eff = λ(1 + 2α²λ)``, which alters the **FF
   channel** (all-local diagrams).
-- a **non-local** third cumulant ``κ^{(3)}`` — this creates the
+- a **non-local** third cumulant ``κ^{(3)}``, which creates the
   **FK channel** (one local F + one non-local K vertex).
 
 Selection rule:
@@ -20,7 +20,7 @@ Demo2's channel decomposition (order 2):
 
 How much of this is inside the new workflow?
 
-- **FF**: YES.  Local-only — goes through the exact same path as
+- **FF**: YES.  Local-only, so it goes through the same path as
   demo1.  We just build a ``System`` whose κ² has ``lam = lam_eff``
   and call ``expansion.sweep(..., vertex_types={'F'})``.
 - **FK**: NO (in this iteration).  Demo2's ``κ^{(3)}`` is
@@ -103,7 +103,7 @@ def _C_demo2_eff(n1, t1, n2, t2):
 
 def _C_demo2_bare(n1, t1, n2, t2):
     """Closed-form C under the **bare** Gaussian: ``lam`` (no
-    α-shift).  Used for order-0 evaluation — order-0 does not see
+    α-shift).  Used for order-0 evaluation; order 0 does not see
     the non-Gaussian deformation."""
     r = abs(float(np.asarray(n1).sum()) - float(np.asarray(n2).sum()))
     return (
@@ -123,7 +123,7 @@ def _fk_spatial_integral(r, t_f, n_gauss=15):
 
     This is verbatim from ``examples/demo2/analysis.ipynb`` cell 12
     and is the reference the new workflow API does **not** yet
-    reproduce directly — see the FK discussion in the module
+    reproduce directly; see the FK discussion in the module
     docstring.
 
     Returns the (real) value of::
@@ -193,7 +193,7 @@ def _fk_spatial_integral(r, t_f, n_gauss=15):
 
 
 def _xi_FK_pair(a, b, r, t_f, n_gauss=15):
-    """ξ^{FK}_{ab}(r, t_f) — applies the F-tensor selection rule
+    """ξ^{FK}_{ab}(r, t_f), applying the F-tensor selection rule
     ``F_{abb} + F_{baa}`` to the bespoke integral."""
     return (F[a, b, b] + F[b, a, a]) * _fk_spatial_integral(r, t_f, n_gauss)
 
@@ -222,13 +222,13 @@ system = sw.System(
     linear=sw.DiagonalA(gamma=[GAMMA] * N_COMP),
     vertices=[sw.LocalVertex("F", coupling=F)],
     # Non-local K present in the symbolic side so FK diagrams get
-    # enumerated.  Evaluation value is a placeholder — see module
+    # enumerated.  Evaluation value is a placeholder; see module
     # docstring; actual FK integration is done via
     # ``_xi_FK_pair`` below.
     nonlocal_vertices=[
         sw.NonLocalVertex("K", order=3, coupling=K_placeholder),
     ],
-    # FF-channel effective κ² via the λ_eff scalar shift — same as
+    # FF-channel effective κ² via the λ_eff scalar shift, the same as
     # demo2's ``cache_eff``.  (Demo2 also has an "exact" two-kernel
     # κ²_eff mode for the scrutiny section; the scalar shift is the
     # production FF prescription and matches their Figure-1 outputs
@@ -278,7 +278,7 @@ print(f"  built in {time.perf_counter() - t0:.2f}s")
 # =====================================================================
 
 TEST_POINTS = [
-    # (a, b, r, t_f) — a subset chosen to hit the selection rule
+    # (a, b, r, t_f): a subset chosen to hit the selection rule
     (1, 1, 0.5, 3.0),
     (1, 1, 1.0, 3.0),
     (0, 1, 0.5, 3.0),
@@ -294,8 +294,8 @@ sweep = expansion.sweep(
     component_pairs=list({(a, b) for (a, b, _, _) in TEST_POINTS}),
     orders=[2],
     vertex_types={"F"},   # FF channel only
-    # Default (integrate_over=None) holds external times at t_final
-    # — matches demo2's fixed-time equal-time correlator convention.
+    # Default (integrate_over=None) holds external times at t_final,
+    # matching demo2's fixed-time equal-time correlator convention.
     n_samples=2 ** 13, seed=42,
 )
 print(f"  sweep done in {time.perf_counter() - t0:.1f}s "
@@ -391,17 +391,17 @@ REFERENCE = {
 }
 
 # Per-channel expected tolerance.  Rationale:
-#   - FF is the WRAPPER's contribution — tight tolerance ensures the
+#   - FF is the WRAPPER's contribution; the tight tolerance checks the
 #     new API reproduces demo2's channel to QMC precision.
 #   - order 0 uses a bare-λ closed-form C here while demo2's
 #     ``cache_exact`` uses the two-kernel
-#     ``κ²_eff = λκ + 2α²λ² κ²`` — same α-shift that produces
+#     ``κ²_eff = λκ + 2α²λ² κ²``, the same α-shift that produces
 #     ``lam_eff`` in FF.  The two agree up to the size of the
 #     α²-correction on C (~1-2% for α=0.6, λ=0.05).  This is a
 #     convention choice, not a wrapper bug.
 #   - FK here uses a verbatim-but-manually-transcribed
 #     ``_fk_spatial_integral``.  ~4.5% residual vs demo2's notebook
-#     value is expected and not a wrapper concern — the wrapper
+#     value is expected and not a wrapper concern: the wrapper
 #     ONLY classifies FK diagrams via ``by_vertex_type``; the
 #     numerical integrator is user-provided.  See module docstring.
 TOLERANCE = {
@@ -441,7 +441,7 @@ for key, expected in REFERENCE.items():
         mismatches.append(f"{channel}({a},{b},{r},{t_f})")
 
 print(
-    f"\nmax rel_err = {max_rel:.2e}  —  "
+    f"\nmax rel_err = {max_rel:.2e}  "
     f"{'PASS' if not mismatches else 'FAIL'}"
 )
 if mismatches:
@@ -453,7 +453,7 @@ The new workflow API reproduces demo2's FF channel (selection-rule-aware)
 to demo2's printed precision.  The FK channel still requires a bespoke
 integrator because κ^{(3)} is spacetime-dependent and the package's
 DiagramTerm.evaluate_coupling treats non-local couplings as constant
-tensors — lifting that is a future Phase-8 task.  The workflow makes
+tensors; lifting that is a future Phase-8 task.  The workflow makes
 this split explicit: use `vertex_types={'F'}` for the parts it can
 compute, and loop over `expansion.by_vertex_type(2)['FK']` with your
 own integrator for the rest.

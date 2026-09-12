@@ -52,7 +52,7 @@ from sft_wick.evaluate import (  # noqa: E402
 
 
 # =========================================================================
-# Physical parameters — match examples/demo1/analysis_combined.ipynb
+# Physical parameters: match examples/demo1/analysis_combined.ipynb
 # =========================================================================
 
 LAM = 0.05
@@ -61,7 +61,7 @@ SIGMA_X = 1.0
 GAMMA = 1.0
 N_COMP = 2
 
-# Grid for cross-check — corresponds to Figure-2 reduced set.
+# Grid for cross-check: corresponds to Figure-2 reduced set.
 R_GRID = [0.0, 0.5, 1.0, 2.5]
 T_GRID = [1.0, 15.0]
 AB_GRID = [(0, 0), (1, 1)]
@@ -83,7 +83,7 @@ REL_TOL = 5e-3
 # =========================================================================
 
 def C_t_closed_form(t1: float, t2: float) -> float:
-    """Analytic ``C(t1, t2; 0, 0)`` for OU κ² — the same formula
+    """Analytic ``C(t1, t2; 0, 0)`` for OU κ², the same formula
     demo1's ``AnalyticalCache._C_scalar`` uses (notebook cell 2)."""
     g, a = GAMMA, 1.0 / SIGMA_T
     t_lo = min(t1, t2)
@@ -124,7 +124,7 @@ def _make_model() -> PropagatorModel:
 class FastCache(PropagatorCache):
     """``PropagatorCache`` subclass whose ``_C_value_direct`` uses the
     closed-form OU kernel.  Avoids a ~30-minute ``dblquad`` build of
-    the spline table — same trick as
+    the spline table, the same trick as
     :class:`tests.test_deductive_numerics.TestSpatialAwareCache`'s
     ``_FastCache``.
     """
@@ -171,7 +171,7 @@ def main() -> int:
     print("Phase-5 acceptance: reimplement demo1's ξ(r, t) via new API")
     print("=" * 92)
 
-    # 1. compute_moment(order=4) once — same flags as demo1 notebook.
+    # 1. compute_moment(order=4) once, same flags as demo1 notebook.
     print("\n[1/4] Generating diagram terms via compute_moment(order=4)…")
     t0 = time.perf_counter()
     reset_uid_counter()
@@ -207,7 +207,7 @@ def main() -> int:
     t_max = max(T_GRID)
 
     # Method A: translation-homogeneity cache, lazy mode.  No r-grid
-    # precomputed — per-r 2-D spline built on-demand during
+    # precomputed: per-r 2-D spline built on-demand during
     # integrate_moment calls.  Needs t_max ≥ max(T_GRID).
     cache_A = FastCache(model=_make_model())  # default homogeneity='translation'
     cache_A.precompute_C_table_translation(
@@ -217,7 +217,7 @@ def main() -> int:
           f"{time.perf_counter() - t0:.2f}s")
 
     # Method B: legacy time-only cache at reference x=0.  No spatial
-    # awareness — integrate_moment(positions=None) ignores x (same as
+    # awareness: integrate_moment(positions=None) ignores x (same as
     # pre-Phase-5 behaviour).  We will manually multiply by
     # exp(-r/σ_x)**n_cross after integration.
     t0 = time.perf_counter()
@@ -267,7 +267,7 @@ def main() -> int:
                             ig, lambda_f=t_f, cache=cache_B,
                             method="qmc_vectorized",
                             n_samples=N_SAMPLES, seed=SEED,
-                            # no positions — legacy cache ignores them
+                            # no positions: the legacy cache ignores them
                         )
                         n_cross = count_cross_group_c(dt)
                         B_val += val0 * (factor_unit ** n_cross)
@@ -308,8 +308,8 @@ def main() -> int:
 
     print("\nAll comparisons passed.  The new Phase-5 spatial-aware API")
     print("reproduces demo1's κ²-ratio reference to within "
-          f"{max_rel:.2e} relative error — no manual spatial-factor")
-    print("post-processing needed.")
+          f"{max_rel:.2e} relative error, with no manual")
+    print("spatial-factor post-processing.")
     return 0
 
 

@@ -231,7 +231,7 @@ def order1_diagrams():
           f"the topology engine groups those into the {len(unique)} distinct "
           f"topologies here, with pairing multiplicities {mults} summing to "
           f"{sum(mults)}, already folded into each term's rational prefactor.  "
-          "(<psi psi> = 0 removes nothing at order 1 -- there is only one psi "
+          "(<psi psi> = 0 removes nothing at order 1: there is only one psi "
           "in the expression; it starts pruning at order 2.)  Each line is the "
           "term's full LaTeX: coefficient (rational prefactor times the MSR "
           "phase), coupling sum, propagators, integrals and index sums.", ""]
