@@ -189,7 +189,8 @@ relative difference the Gauss-Legendre check then sees, tolerance 1e-9):
 - Gauss-Legendre converges algebraically when the two external points are
   at different times (part C); `nquad` and QMC do not.
 - Part C is one SDE per point: `Expansion.evaluate` refuses external points
-  at different positions that a response chain joins.
+  at different positions that a response chain joins, and since 0.5.x so do
+  the L0 entry points, for any system rather than this noise alone.
 
 ## Files
 

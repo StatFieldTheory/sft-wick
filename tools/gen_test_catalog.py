@@ -227,6 +227,14 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "external operators sharing a spatial label are refused at L1 "
         "and L0 rather than silently mis-counted",
         "the distinct-label spelling of the same observable", "exact"),
+    "tests/test_group_position_conflict.py": (
+        "Integrators",
+        "two points of ONE R-connected direction group at two positions "
+        "are refused at every entry point (an external ψ leg, a local "
+        "two-ψ vertex); the label-independence of the refusal, the "
+        "separated φφ control on every integrator",
+        "the two coincident-position configurations the arbitrary pick "
+        "was choosing between", "1e-12"),
     "tests/test_higher_cumulants.py": (
         "Integrators",
         "non-Gaussian driving at cumulant order m ≥ 4 (κ⁴, κ⁵)",
