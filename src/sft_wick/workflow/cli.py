@@ -1,4 +1,4 @@
-"""``sft-wick`` CLI — run a full workflow from a YAML config.
+"""``sft-wick`` CLI: run a full workflow from a YAML config.
 
 Usage::
 
@@ -152,8 +152,8 @@ def _parse_overrides(strs: list[str]) -> dict:
     """Parse ``key=value`` strings, auto-coercing values with
     conservative, safe rules (bool → int → float → string).
 
-    Deliberately avoids any arbitrary-expression parsing — only
-    scalar literals are accepted.
+    No arbitrary-expression parsing: only scalar literals are
+    accepted.
     """
     out: dict = {}
     for s in strs:
@@ -197,7 +197,7 @@ def _maybe_warn_blas_oversubscription(cfg) -> None:
     ``n_jobs = N_cores`` worker processes yields ``N_cores ** 2``
     threads and is usually slower than running serially. The tip
     suppresses itself once any of the three env vars is set, so users
-    who deliberately tune their thread budget see no noise.
+    who tune their thread budget see no noise.
     """
     requested = (
         int(getattr(cfg.propagators, "n_jobs", 1)) != 1

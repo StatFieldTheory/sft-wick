@@ -126,7 +126,7 @@ class FeynmanDiagram:
             Arrow-direction convention for R propagators.  An R edge
             ``R = ⟨φ ψ⟩`` is *directed*: when rendered, the arrowhead
             points **from the response (ψ) end to the physical (φ)
-            end** — i.e. the arrow lands on ``phi_end``.  This encodes
+            end**, i.e. the arrow lands on ``phi_end``.  This encodes
             the causal/retarded flow (a perturbation entering at the ψ
             leg produces the response at the φ leg).  Both renderers
             honour this: :class:`~sft_wick.drawing.DiagramRenderer`
@@ -287,7 +287,7 @@ class FeynmanDiagram:
         ext_nodes = self.external_nodes
         vert_nodes = self.vertex_nodes
 
-        # External nodes are distinguishable — label them 0..N-1
+        # External nodes are distinguishable, so label them 0..N-1
         ext_label: dict[str, int] = {}
         for i, n in enumerate(ext_nodes):
             ext_label[n] = i

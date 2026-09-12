@@ -10,26 +10,26 @@ gets drawn.  The matplotlib renderer in
 
 Three named presets are provided:
 
-* :func:`default_style`     — the colourful on-screen look (blue C,
+* :func:`default_style`: the colourful on-screen look (blue C,
   red R) used for quick inspection in notebooks.
-* :func:`publication_style` — a cleaner, smaller-marker look with
+* :func:`publication_style`: a cleaner, smaller-marker look with
   publication-friendly fonts.  Honours ``usetex`` if the user has a
   LaTeX install.
-* :func:`grayscale_style`   — black/grey palette for printed papers
+* :func:`grayscale_style`: black/grey palette for printed papers
   and B&W reproduction.
-* :func:`minimal_style`     — strips legend / labels / boxes for
+* :func:`minimal_style`: strips legend / labels / boxes for
   inset-style use inside a larger figure.
 
-All four call into the same primitives, so users may freely mix
-parts (e.g. ``publication_style().with_overrides(show_legend=False)``).
+All four call into the same primitives, so parts may be mixed
+(e.g. ``publication_style().with_overrides(show_legend=False)``).
 
 Three label-format flags control the default text of external
 vertices (the ``$\\phi_a(\\cdot)$`` operators):
 
-* :data:`LABEL_COMPACT` — ``$\\phi_a$`` (no spatial argument).  Default.
-* :data:`LABEL_FULL`    — ``$\\phi_a(x_1)$`` (spatial argument
-  retained — the pre-2026-04 default).
-* :data:`LABEL_TIME_F`  — ``$\\phi_a(t_f)$`` (substitute ``t_f`` for
+* :data:`LABEL_COMPACT`: ``$\\phi_a$`` (no spatial argument).  Default.
+* :data:`LABEL_FULL`: ``$\\phi_a(x_1)$`` (spatial argument
+  retained; the pre-2026-04 default).
+* :data:`LABEL_TIME_F`: ``$\\phi_a(t_f)$`` (substitute ``t_f`` for
   the spatial argument).
 
 Override these on a per-diagram or per-renderer basis with the
@@ -144,7 +144,7 @@ class LayoutParams:
                            scaled so it fits within
                            :attr:`target_extent` without distortion.
                            Gives every diagram in a grid roughly the
-                           same visual extent — recommended whenever
+                           same visual extent; recommended whenever
                            drawing multiple diagrams side by side.
         target_extent:     Target ``(width, height)`` for the
                            normalised bounding box, in matplotlib
@@ -211,7 +211,7 @@ class RenderStyle:
                             so matplotlib renders them as math.
         usetex:             Convenience flag.  When ``True``, sets
                             ``"text.usetex": True`` in ``rcparams``
-                            (overriding any prior value) — requires a
+                            (overriding any prior value).  Requires a
                             working LaTeX install on the user's system.
         label_format:       Default external-label format
                             (``LABEL_COMPACT`` etc.).  May be
@@ -315,7 +315,7 @@ def _default_propagators() -> dict[str, PropagatorStyle]:
 def default_style() -> RenderStyle:
     """The colourful on-screen preset (blue C, red R, square vertices).
 
-    Matches the pre-2026-04 visual defaults — use this as the
+    Matches the pre-2026-04 visual defaults, so it is the
     backward-compatible baseline.
     """
     return RenderStyle(
@@ -339,7 +339,7 @@ def publication_style(*, usetex: bool = False) -> RenderStyle:
     Smaller, thinner markers, refined palette (slate-blue C, warm-grey
     R), serif labels via mathtext or LaTeX, compact (no boxed) labels,
     and a discreet legend.  Pass ``usetex=True`` if you have a working
-    LaTeX install — otherwise mathtext renders the math.
+    LaTeX install; otherwise mathtext renders the math.
     """
     rc = {
         "font.family": "serif",

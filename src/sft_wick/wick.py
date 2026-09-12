@@ -195,7 +195,7 @@ def evaluate_pairing(
 
     Vanishing conditions:
 
-    - :math:`\psi`\ --\ :math:`\psi` contraction
+    - Contraction of two :math:`\psi` operators
     - Equal-point :math:`R(x,x)=0` when *ito* is ``True``
     - Causal R-loop: any directed cycle among R propagator spatial
       arguments (e.g. :math:`R(a,b)\,R(b,a)=0`) when *ito* is ``True``
@@ -491,7 +491,7 @@ def _enumerate_c_pairings(
 
     remaining[first_pt] -= 1
 
-    # Self-loop (no ordering constraint — self-loops are distinct from cross)
+    # Self-loop (no ordering constraint; self-loops are distinct from cross)
     if remaining[first_pt] > 0:
         remaining[first_pt] -= 1
         for sub in _enumerate_c_pairings(remaining):

@@ -1,6 +1,6 @@
 """TikZ/PGF rendering for :class:`FeynmanDiagram` objects.
 
-This backend produces LaTeX source — a ``tikzpicture`` environment —
+This backend produces LaTeX source (a ``tikzpicture`` environment)
 that you can drop straight into a paper with ``\\input{fig.tex}``.
 It uses no external Python dependencies (pure string templates) and
 shares the layout, label, and style abstractions with the
@@ -42,8 +42,8 @@ see :mod:`sft_wick.render_labels`.
 Limitations (v1)
 ================
 
-- ``rcparams`` is ignored — TikZ output uses LaTeX-side typography.
-- ``bbox`` on labels is ignored — TikZ labels render without a box
+- ``rcparams`` is ignored; TikZ output uses LaTeX-side typography.
+- ``bbox`` on labels is ignored; TikZ labels render without a box
   by default; users can post-process by editing the generated
   ``every label/.style``.
 - No ``pdflatex`` invocation: the user runs LaTeX themselves.
@@ -156,7 +156,7 @@ class TikzRenderer:
         vertex_label_fn:   Same shape, for interaction vertices.
         label_format: Default external-label format flag
             (overrides ``style.label_format`` when supplied).
-        scale: TikZ ``scale=…`` factor — multiplies every position.
+        scale: TikZ ``scale=…`` factor, multiplying every position.
         standalone: When ``True``, :meth:`to_string` and :meth:`save`
             wrap the figure in a complete ``\\documentclass{standalone}``
             document instead of a bare ``tikzpicture`` environment.

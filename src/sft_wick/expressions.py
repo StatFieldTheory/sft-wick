@@ -142,11 +142,11 @@ class Symbol(Expr):
 
     ``local`` marks a coupling belonging to a *local* vertex, whose legs all
     sit at one spacetime point.  Such a symbol still carries that single point
-    in :attr:`spatial_args` — which is what makes two copies of the same vertex
-    distinguishable, and what lets a callable (time-dependent) coupling be
-    evaluated at the right place — but the point is suppressed when rendering,
-    so ``to_latex()`` is unchanged for the overwhelmingly common case of a
-    constant local coupling.  Equality and hashing always include it.
+    in :attr:`spatial_args`.  That point makes two copies of the same vertex
+    distinguishable and lets a callable (time-dependent) coupling be evaluated
+    at the right place.  It is suppressed when rendering, so ``to_latex()`` is
+    unchanged for a constant local coupling.  Equality and hashing always
+    include it.
     """
 
     name: str
@@ -477,7 +477,7 @@ def apply_response_phase(expr: Expr) -> Expr:
             insert_pos = (rat_idx + 1) if rat_idx is not None else 0
             factors.insert(insert_pos, ImaginaryUnit())
 
-        # Drop Rational(1) — it's the identity and just adds clutter.
+        # Drop Rational(1): it is the multiplicative identity.
         factors = [f for f in factors
                    if not (isinstance(f, Rational) and f.is_one)]
         if not factors:

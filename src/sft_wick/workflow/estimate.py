@@ -1,15 +1,14 @@
 """Cost estimate for a workflow config (``sft-wick run --dry-run``).
 
-The estimate is built from what the config actually implies -- the
-expansion is run (it is the only way to know the diagram counts), the
-grid is enumerated, the C-propagator path is resolved exactly as
-:meth:`~sft_wick.workflow.Propagators.build` would resolve it -- and two
-micro-benchmarks of about a second in total: one C-propagator evaluation
-under the chosen quadrature (skipped when a closed form is in use) and
-one diagram evaluation per order at a single grid point.  The result is
-a rough wall-clock figure, good to a factor of ~2, that tells a user
-BEFORE a run whether it is a coffee or an overnight job -- which is the
-question the package used to answer only by staying silent for an hour.
+The estimate is built from what the config implies.  The expansion is
+run (the only way to know the diagram counts), the grid is enumerated,
+and the C-propagator path is resolved exactly as
+:meth:`~sft_wick.workflow.Propagators.build` would resolve it.  Two
+micro-benchmarks of about a second in total follow: one C-propagator
+evaluation under the chosen quadrature (skipped when a closed form is in
+use) and one diagram evaluation per order at a single grid point.  The
+result is a wall-clock figure good to a factor of ~2, reported BEFORE a
+run.
 """
 
 from __future__ import annotations
@@ -205,7 +204,7 @@ def _estimate(cfg, bench_seconds, build_system, load_c) -> CostEstimate:
         kw = cache._direct_kwargs(method, n_g)
         mid = 0.5 * (system.t_min + pc.t_max)
         n1, n2 = cache._probe_positions()
-        # Warm-up, then time the deep cell -- the slowest for adaptive rules.
+        # Warm-up, then time the deep cell, slowest for adaptive rules.
         cache._C_value_direct(n1, mid, n2, mid, **kw)
         t0 = time.perf_counter()
         reps = 0

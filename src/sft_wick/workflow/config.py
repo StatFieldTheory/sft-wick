@@ -32,7 +32,7 @@ import numpy as np
 
 
 # =========================================================================
-# Internal dataclasses — a thin typed mirror of the L1 ``System`` spec
+# Internal dataclasses: a thin typed mirror of the L1 ``System`` spec
 # =========================================================================
 
 
@@ -109,7 +109,7 @@ class PropagatorsConfig:
     #                       C_ab. When False, also
     #                       sets expand.diag_C=False so the symbolic
     #                       simplification keeps the (a, b) observable
-    #                       indices distinct -- without that step the
+    #                       indices distinct.  Without that step the
     #                       order-0 cross pair (a != b) collapses to 0
     #                       via the KroneckerDelta(a, b) inserted by
     #                       DiagramTerm.apply_diagonal.
@@ -135,7 +135,7 @@ class SweepConfig:
     n_gauss: int = 8  # used only when method='gauss_legendre'
     #: ``{point: [times]}`` pinning externals at UNEQUAL times, swept as a
     #: further Cartesian axis (mirrors ``positions_grid``).  Omit to pin every
-    #: external at ``t_final``, which is what every sweep did before -- and
+    #: external at ``t_final``, which is what every sweep did before and
     #: which makes any observable with a response leg identically 0, since
     #: Theta kills the R joining two externals at the same time.
     external_times_grid: dict | None = None
@@ -336,9 +336,9 @@ _VERTEX_FLAGS = ("coupling_vectorized", "equal_time", "already_R_contracted")
 
 
 def _vertex_keys(cls) -> set:
-    """The keys of a vertex block: every field of ``cls`` -- so a field
-    added to :class:`LocalVertex` / :class:`NonLocalVertex` is accepted
-    without a change here -- plus the coupling sources."""
+    """The keys of a vertex block: every field of ``cls``, plus the
+    coupling sources.  A field added to :class:`LocalVertex` /
+    :class:`NonLocalVertex` is accepted without a change here."""
     return ({f.name for f in _dc_fields(cls)} | set(_COUPLING_SOURCES)
             | {"coupling_attr"})
 
@@ -350,10 +350,10 @@ def _parse_vertex(v: Any, base_dir: Path, *, kind: str, index: int,
     its coupling to an array or a callable.
 
     Exactly one coupling source:
-      ``coupling``          — inline tensor (nested YAML lists).
-      ``coupling_path``     — path to an ``.npy`` file, loaded as a
+      ``coupling``          : inline tensor (nested YAML lists).
+      ``coupling_path``     : path to an ``.npy`` file, loaded as a
                               numpy array.
-      ``coupling_module``   — path to a ``.py`` module exporting an
+      ``coupling_module``   : path to a ``.py`` module exporting an
                               attribute (``coupling_attr``, default
                               ``coupling_fn``) used as a callable
                               ``fn(n_list, t_list) -> tensor``.
@@ -500,7 +500,7 @@ def _resolve_linear(
         Escape hatch for a closed-form R: the user supplies
         ``R(t1, t2)`` directly, so the wrapper bypasses the
         gamma-spline cache entirely. This unlocks YAML use cases the
-        diagonal lowering can't express -- e.g. a dense drift matrix,
+        diagonal lowering can't express: a dense drift matrix,
         causal kernels with non-exponential decay, or pre-computed
         spline callables loaded from disk.
 
@@ -518,7 +518,7 @@ def _resolve_linear(
 
         γ-spline cache knobs (``gamma``, ``gamma_module``, ``dt``,
         ``n_grid_cache``, ``t_max_cache``, ``t_min_cache``) do not apply
-        under this type and raise if specified -- the propagator is the
+        under this type and raise if specified.  The propagator is the
         user's callable, not a derived spline.
     """
     lt = lin.get("type", "diagonal")
@@ -670,7 +670,7 @@ def _probe_R_time(R, iso_R: bool, n_components: int | None,
     try:
         fwd = np.asarray(R(t1, t2), dtype=float)
         bwd = np.asarray(R(t2, t1), dtype=float)
-    except Exception as e:  # noqa: BLE001 -- a user callable
+    except Exception as e:  # noqa: BLE001 (a user callable)
         raise ValueError(
             f"{where}: R_time({t1:g}, {t2:g}) raised "
             f"{type(e).__name__}: {e}"
@@ -1307,7 +1307,7 @@ def _build_kernel(d: dict, axis: str, base_dir: Path | None = None):
 
 
 def run_workflow(cfg: WorkflowConfig, progress: Any = None):
-    """Execute the full pipeline — expand, build propagators, sweep,
+    """Execute the full pipeline: expand, build propagators, sweep,
     emit outputs.
 
     Returns ``(sweep, totals_dataframe)`` for programmatic use.
@@ -1341,7 +1341,7 @@ def _run_workflow(cfg: WorkflowConfig, stage):
     # ``expand.diag_C`` must agree: with ``propagators.diag_C=False``
     # the closed-form C returns a full (N, N) matrix per sample, but
     # ``expand.diag_C=True`` would collapse the observable (a, b)
-    # index pair through ``KroneckerDelta(a, b)`` -- zeroing every
+    # index pair through ``KroneckerDelta(a, b)``, zeroing every
     # cross-component pair at order 0. Reject the contradictory
     # combination with a clear pointer instead of silently rounding
     # the result to zero.
@@ -1374,7 +1374,7 @@ def _run_workflow(cfg: WorkflowConfig, stage):
     # User-supplied C_fn modules are loaded via
     # :func:`_load_callable_from_module`, which registers them under
     # their ``.py`` file's bare stem and adds the parent directory to
-    # ``sys.path`` — so the callable is importable in joblib loky
+    # ``sys.path``, so the callable is importable in joblib loky
     # subprocesses. Combined with the module-level
     # ``_ClosedFormPropagatorCache`` class, this lets users opt into
     # parallel C-table builds (``propagators.n_jobs: -1``) when their

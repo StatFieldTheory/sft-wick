@@ -1,14 +1,13 @@
 """Opt-in disk caching for expensive wrapper outputs.
 
-Uses ``joblib.dump/load`` — already a transitive dependency of the
+Uses ``joblib.dump/load``, already a transitive dependency of the
 package (via :func:`integrate_diagrams`'s parallel worker) and the
-standard choice for caching computed Python objects in the
-scientific-Python ecosystem (same backend as ``sklearn``'s
-``Memory``).  Cache files are always produced and consumed by the same
-trusted process; the key check below also rejects files whose content
-hash does not match the declared specification hash.
+same backend as ``sklearn``'s ``Memory``.  Cache files are always
+produced and consumed by the same trusted process; the key check below
+also rejects files whose content hash does not match the declared
+specification hash.
 
-Design: caching is **always explicit**.  The user supplies
+Caching is **always explicit**.  The user supplies
 ``cache_path`` to an operation that can be cached; the cache key is a
 short content hash of the relevant spec objects.  If no
 ``cache_path`` is supplied, a one-line reminder is printed
@@ -42,7 +41,7 @@ def hash_spec(obj: Any, length: int = 12) -> str:
     """Return a short hex hash of ``obj``'s canonical serialisation.
 
     Falls back on ``repr(obj)`` when the object isn't serialisable by
-    joblib — callers should keep spec objects pickle-friendly.
+    joblib.  Callers should keep spec objects pickle-friendly.
     """
     try:
         from joblib import hash as _joblib_hash
@@ -99,7 +98,7 @@ def load_or_compute(
             if isinstance(payload, dict) and payload.get("key") == key:
                 return payload["value"]
         except Exception:
-            pass  # corrupt or stale cache — recompute
+            pass  # corrupt or stale cache: recompute
 
     value = compute_fn()
     file_path.parent.mkdir(parents=True, exist_ok=True)

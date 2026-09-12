@@ -747,7 +747,7 @@ def _collect_inner(
 
     for canonical_form, group in groups.items():
         if len(group) == 1:
-            # Single term — reconstruct with coupling symbols included
+            # Single term: reconstruct with coupling symbols included
             props, non_props, _ = group[0]
             parts: list[Expr] = list(outer_symbols) + non_props + props
             if len(parts) == 1:
@@ -775,7 +775,7 @@ def _collect_inner(
                 ref_props, props, spatial_perm, internal_indices,
             )
             if comp_perm is None:
-                # Cannot merge — add as separate term with coupling
+                # Cannot merge: add as separate term with coupling
                 parts = list(outer_symbols) + non_props + props
                 ungroupable.append(
                     Product(tuple(parts)) if len(parts) > 1 else parts[0]
@@ -925,7 +925,7 @@ def _diag_walk(
         return Product(tuple(new_factors))
 
     if isinstance(expr, Propagator):
-        # Bare propagator (not inside a Product) — wrap and apply
+        # Bare propagator (not inside a Product): wrap and apply
         if (
             expr.index_left is not None
             and expr.index_right is not None
