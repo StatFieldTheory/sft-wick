@@ -5393,7 +5393,7 @@ class DiagramIntegrand:
         # A spacetime-dependent (callable) coupling used to be refused here,
         # which left the combination "callable coupling + MATRIX-valued R"
         # computable by no backend at all: this loop rejected the callable,
-        # and ``qmc_vectorized`` / ``gauss_legendre`` reject matrix R.  The
+        # and ``qmc_vectorized`` / ``gauss_legendre`` rejected matrix R.  The
         # scalar loop is in fact the natural home for the per-sample callable
         # contract -- it already visits one sample at a time -- so it now
         # materialises the coupling per sample instead.

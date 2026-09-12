@@ -308,7 +308,7 @@ End-to-end validation — the demos
 
 For full **inductive** validation against direct simulation on
 physically non-trivial problems, see demos 1-3 in ``examples/``;
-demos 4, 5 and 8 are checked against an exact reference instead:
+demos 4 to 8 are checked against an exact reference instead:
 
 **examples/demo1** — Gaussian driving
   Two-component Langevin system with quadratic self-interactions,
@@ -472,6 +472,14 @@ sft-wick, and ``tests/test_ito_moments_reference.py`` pins it against
 closed forms.  Demo 8 extends it to a generator that depends on time
 (``examples/demo8/time8_reference.py``).
 
+Two more modules sit in ``examples/reference/``.
+``hormander_moments.py`` is demo 5's multiplicative-noise reference: it
+builds the same hierarchy from the drift and the noise columns as
+written, in Hörmander form for the Stratonovich reading, so the
+noise-induced drift is never formed on the reference side.
+``decaying_drift.py`` is a quadratic drift decaying in time, the
+reference behind ``tests/test_local_callable_coupling.py``.
+
 Running the tests
 -----------------
 
@@ -500,9 +508,14 @@ Running the tests
    # Demo 3 — scripts, not a notebook (~3 min + ~6 min)
    cd examples/demo3 && python level_a.py && python level_b.py
 
-   # Demos 4, 5 and 8 — exact references, no simulation
-   cd examples/demo4 && python level_a.py && python level_b.py
+   # Demos 4 to 8 — exact references, no simulation
+   cd examples/demo4 && python level_a.py && python level_b.py && \
+       python poisson_level_b_order4.py
    cd examples/demo5 && python run.py && python multiplicative.py
+   cd examples/demo6 && python vertex6_repeated.py && \
+       python vertex6_interacting.py && python vertex6_cubic.py && \
+       python vertex6_high_cumulants.py && python vertex6_gaussian_vertex.py
+   cd examples/demo7 && python space7_run.py && python space7_shot3d.py
    cd examples/demo8 && python time8_run.py
 
 For the detailed per-test matrix, tolerances, and design rationale,

@@ -139,8 +139,9 @@ orders 0 / 2 / 4 for the cubic vertex), the number of grid points
 temporal kernel family gets a built-in closed form
 (`propagators.c_closed_form: auto`), so its C table costs nothing.  That
 covers the quick start, demo 1 and demo 2; demo 3 is the exception and
-supplies its own (`c_closed_form_module`), because its spatial envelope is
-outside the YAML kernel vocabulary.  Kernels with neither are integrated by
+supplies its own (`c_closed_form_module`) for speed; its spatial envelope
+has been expressible in YAML as `{type: custom}` since 0.6.0.
+Kernels with neither are integrated by
 Gauss-Legendre with a node count checked for convergence at the table's
 extreme cells (`c_method: auto`).
 
@@ -614,15 +615,16 @@ See `docs/verification/index.rst` for the per-phase test matrix, tolerances, and
 | Path | Contents |
 |------|----------|
 | `src/sft_wick/` | Package source: diagram enumeration, propagators, numerical evaluation, drawing, and the `workflow/` high-level API + CLI |
-| `examples/` | Worked examples — `demo1/` (Gaussian noise), `demo2/` (non-Gaussian, non-zero κ³), `demo3/` (filtered Poisson shot noise), `demo4/` (compound-Poisson noise asymmetric in points and components), `demo5/` (white noise on every integrator; multiplicative noise at L0 and L1, Itô and Stratonovich), `demo6/` (repeated and static non-local vertices, cubic plus quartic drift), `demo7/` (observables in space, angle and time), `demo8/` (time-dependent coefficients and non-exponential dynamics), `reference/` (the exact Itô moment hierarchies demos 4-8 are checked against), and tutorial notebooks |
+| `examples/` | Worked examples — `demo1/` (Gaussian noise), `demo2/` (non-Gaussian, non-zero κ³), `demo3/` (filtered Poisson shot noise), `demo4/` (compound-Poisson noise asymmetric in points and components), `demo5/` (white noise on every integrator; multiplicative noise at L0 and L1, Itô and Stratonovich), `demo6/` (repeated and static non-local vertices, cubic plus quartic drift), `demo7/` (observables in space, angle and time), `demo8/` (time-dependent coefficients and non-exponential dynamics), `reference/` (`ito_moments.py`, the exact Itô moment hierarchy demos 4-8 are checked against; `hormander_moments.py`, the same hierarchy from the vector fields as written, for demo 5's multiplicative noise; `decaying_drift.py`, the reference behind `tests/test_local_callable_coupling.py`), and tutorial notebooks |
 | `tests/` | pytest suite (eight deductive phases) |
 | `docs/` | Sphinx documentation (ReadTheDocs source) |
 
 ## Worked examples (reproducible test runs)
 
-Three end-to-end examples ship with committed inputs **and** outputs, each covering
-symbolic diagram expansion *and* numerical evaluation against a direct Langevin
-simulation:
+Three of the eight demos are checked against a direct Langevin simulation,
+each covering symbolic diagram expansion *and* numerical evaluation.  All
+eight ship committed outputs; these three ship the cached simulation as
+well:
 
 ```bash
 # demo1 — Gaussian driving noise
@@ -642,11 +644,13 @@ python make_figures.py            #          figures + TikZ diagram sources
 sft-wick run config_FK.yaml       # the same level-B physics through the L2 CLI
 ```
 
-Demo 3's level A runs through the L1 Python API rather than the CLI —
-`Expansion.sweep` is 2-point only, so a 3-point observable cannot be
-driven from YAML; both of demo 3's configs (`config_FK.yaml`,
-`config_F3K.yaml`) are level B.  See `examples/demo3/INTERPRETATION.md`
-for its validation ledger and error budget.
+Demo 3's level A runs through the L1 Python API; both of demo 3's own
+configs (`config_FK.yaml`, `config_F3K.yaml`) are level B.  An n-point
+observable does go through YAML — `sweep.component_tuples` takes one index
+per operator, as `examples/demo4/config_level_a.yaml` and
+`config_level_a_4pt.yaml` do for a level-A triple and quadruple.  See
+`examples/demo3/INTERPRETATION.md` for demo 3's validation ledger and
+error budget.
 
 The cached simulation outputs (`sim_cache.npz` for demos 1 and 2,
 `level_a_results.npz` / `level_b_results.npz` for demo 3) and the
@@ -662,16 +666,21 @@ is compared with one exact coefficient.  Demo 5's multiplicative-noise part
 uses `examples/reference/hormander_moments.py`, which builds the same
 hierarchy from the drift and the noise columns as written — in Hörmander
 form for the Stratonovich reading, so the noise-induced drift is never
-formed on the reference side.
+formed on the reference side.  A third module there,
+`examples/reference/decaying_drift.py`, is a quadratic drift decaying in
+time; it backs `tests/test_local_callable_coupling.py` rather than a demo.
 
 ```bash
 # demo4 — cumulants asymmetric in points and components (the leg-order defect's class)
 cd examples/demo4 && python level_a.py && python level_b.py     # ~10 s
+cd examples/demo4 && python poisson_level_b_order4.py           # ~3 min, the order-4 F^3kappa^3 channel
 # demo5 — white noise on every integrator; multiplicative noise at L0 and L1
 cd examples/demo5 && python run.py && python multiplicative.py
 cd examples/demo5 && python white_l1_multiplicative.py   # Itô and Stratonovich
 # demo6 — repeated and static non-local vertices, m = 5, quartic plus cubic drift
 cd examples/demo6 && python vertex6_repeated.py && python vertex6_interacting.py
+cd examples/demo6 && python vertex6_cubic.py && python vertex6_high_cumulants.py
+cd examples/demo6 && python vertex6_gaussian_vertex.py
 # demo7 — two-time, angular and 3-D observables
 cd examples/demo7 && python space7_run.py && python space7_shot3d.py
 # demo8 — a rate varying in time, a damped-oscillator R, custom kernels, sigma^2(t)
@@ -704,7 +713,7 @@ If you use `sft-wick`, please cite the paper:
 }
 ```
 
-The software is additionally archived on Zenodo.  [DOI:10.5281/zenodo.20776358](https://doi.org/10.5281/zenodo.20776358) is the *concept* DOI: it covers all versions and always resolves to the most recent release.  To reference the *specific* version your results were produced with, cite that release's own version DOI, listed under "Versions" on the Zenodo record page — for 0.4.1 that is [DOI:10.5281/zenodo.22261750](https://doi.org/10.5281/zenodo.22261750).
+The software is additionally archived on Zenodo.  [DOI:10.5281/zenodo.20776358](https://doi.org/10.5281/zenodo.20776358) is the *concept* DOI: it covers all versions and always resolves to the most recent release.  To reference the *specific* version your results were produced with, cite that release's own version DOI, listed under "Versions" on the Zenodo record page — for 0.5.0 that is [DOI:10.5281/zenodo.22715757](https://doi.org/10.5281/zenodo.22715757).
 
 ## License
 
