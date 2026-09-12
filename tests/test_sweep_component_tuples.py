@@ -292,7 +292,11 @@ def test_NT6_component_pairs_rows_and_columns_are_unchanged(two_point):
                               t_final=1.0, component_pair=(a, b),
                               orders=[order], method="gauss_legendre",
                               n_gauss=6).total
-        assert _row_value(totals, (a, b), y=y, order=order) == direct
+        # The sweep and the direct call integrate the same terms in the
+        # same order, so this is an equality up to the last bit -- which
+        # differs between BLAS builds (identical here, 1 ULP apart on CI).
+        assert _row_value(totals, (a, b), y=y, order=order) == pytest.approx(
+            direct, rel=1e-12, abs=0.0), (a, b, y, order)
 
 
 def test_NT7_defaults_are_the_zero_tuple(two_point):

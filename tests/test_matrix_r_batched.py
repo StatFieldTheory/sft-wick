@@ -100,7 +100,11 @@ T_MIN = 0.4
 T_F = T_MIN + T
 EXT_TIMES = {"x": T_F, "y": T_F - 0.35, "z": T_F - 0.8}
 _EIG, _VEC = np.linalg.eig(A_DENSE)
-assert not np.iscomplexobj(_EIG)
+# The characteristic polynomial's discriminant is 1.93 > 0, so both
+# eigenvalues are real; some LAPACK builds still hand back a complex dtype
+# with zero imaginary parts, which `np.iscomplexobj` would reject.
+assert np.max(np.abs(np.imag(_EIG))) < 1e-12, _EIG
+_EIG, _VEC = np.real(_EIG), np.real(_VEC)
 _VEC_INV = np.linalg.inv(_VEC)
 _W = _VEC_INV @ S_WHITE @ _VEC_INV.T
 _LSUM = _EIG[:, None] + _EIG[None, :]
