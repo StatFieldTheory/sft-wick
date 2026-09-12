@@ -471,6 +471,19 @@ public API was false for that one name.  It is now `sft_wick.propagators_from_ca
 and the API index says which names live only on their module
 (`workflow.cache.hash_spec`, `load_or_compute`, `workflow.config.run_workflow`).
 
+### Added: a committed file still holds the text its generator writes
+
+Demo 2's error budget, table 1 with its order-1 diagrams, and demo 3's
+diagram README are written by scripts.  Editing one by hand looks like an
+ordinary documentation change, and the next run of the generator writes the
+old text back.  Re-running a generator in a test costs minutes to an hour and
+some need caches that are not in the repository, so
+`tests/test_generated_docs_in_sync.py` (GD1-GD3) parses the generator
+instead: every literal prose run it writes must appear verbatim in its
+committed output.  Interpolated values are not checked, only the fixed text
+around them; docstrings, strings inside a `raise` and strings handed to a
+plotting call are skipped.  GD2 fails on the drift it was written for.
+
 ## 0.5.0 — 2026-09-11
 
 > **Eight defects that returned a wrong number without an error, one crash,
