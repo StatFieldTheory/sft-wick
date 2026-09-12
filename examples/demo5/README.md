@@ -1,4 +1,4 @@
-# Demo 5 — white noise on every integrator, additive and multiplicative
+# Demo 5: white noise on every integrator, additive and multiplicative
 
 Demos 1-4 drive the field with coloured noise or with pulses; none uses the
 package's white-noise path (`GaussianNoise(sigma2=…)`), none starts at
@@ -156,7 +156,7 @@ What the run would have shown on older code:
 
 | code | what fails |
 |---|---|
-| `7034888` (this branch's base) | `MultiplicativeImpulse` does not exist; the L0 route can express the Itô model only, and `ito=False` returns the Itô value in silence — for the ψψφ vertex at order 1 it returns 0 on all four integrators, while the Stratonovich coefficient of that tag is +6.886e-02 (a = 0) and −5.325e-02 (a = 1) |
+| `7034888` (this branch's base) | `MultiplicativeImpulse` does not exist; the L0 route can express the Itô model only, and `ito=False` returns the Itô value in silence: for the ψψφ vertex at order 1 it returns 0 on all four integrators, while the Stratonovich coefficient of that tag is +6.886e-02 (a = 0) and −5.325e-02 (a = 1) |
 
 Margins of the comparison, measured by mutating the lowering (worst
 relative difference the Gauss-Legendre check then sees, tolerance 1e-9):
@@ -185,7 +185,7 @@ relative difference the Gauss-Legendre check then sees, tolerance 1e-9):
   which is exact: it and the Stratonovich Jacobian cancel, and the package
   emits neither); on a vertex with two or more ψ legs, or between two
   external operators, it now raises instead of returning the Itô value.  A
-  Stratonovich model is computed in its Itô form — part C.
+  Stratonovich model is computed in its Itô form (part C).
 - Gauss-Legendre converges algebraically when the two external points are
   at different times (part C); `nquad` and QMC do not.
 - Part C is one SDE per point: `Expansion.evaluate` refuses external points

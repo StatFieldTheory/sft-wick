@@ -1,4 +1,4 @@
-# Demo 4 — compound-Poisson noise asymmetric in points and components
+# Demo 4: compound-Poisson noise asymmetric in points and components
 
 A non-Gaussian example built so that the cumulants have no symmetry beyond
 the one every cumulant has.  In demos 1-3 every cumulant was `δ_{a…}` times

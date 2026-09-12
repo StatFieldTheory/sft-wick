@@ -4,7 +4,7 @@ Everything here was produced on the release candidate of 0.3.0 (Apple M3
 Ultra, 28 cores; conda env `sft-wick`, Python 3.14).  Each directory has a
 script that regenerates its contents.
 
-## `table1/` — Table 1 and the order-1 diagrams
+## `table1/`: Table 1 and the order-1 diagrams
 
 `generate_table1.py` reproduces the scaling table with three corrections
 to the submitted version: for the cubic vertex `F_abc φ_a φ_b ψ_c` the
@@ -24,15 +24,15 @@ significant digits (best of three, single core).
 The submitted table gave 4 and 75 at orders 1 and 3 (reductions 4 and
 139).  Those were the artefact of the label collapse that 0.4.0 made a
 `ValueError`: same-label externals lose the sum over assignments of
-externals to legs.  `3n+m` and the raw pairing count are unaffected —
-`m` is 3 either way — and order 2 never used a repeated label, so its
+externals to legs.  `3n+m` and the raw pairing count are unaffected
+(`m` is 3 either way), and order 2 never used a repeated label, so its
 row is unchanged.  See the 0.4.2 CHANGELOG entry, and
 `tests/test_coincident_external_labels.py::test_CE3_*`, which pins these
 counts so the asset cannot silently drift again.
 
-**Wall-clock is deliberately not quoted here.**  It must be re-measured
-on an otherwise idle machine: the numbers this script last emitted came
-off a heavily loaded one, and the order-3 cell now times an 80-diagram
+**Wall-clock is not quoted here.**  It must be re-measured on an
+otherwise idle machine: the numbers this script last emitted came off a
+heavily loaded one, and the order-3 cell now times an 80-diagram
 enumeration rather than a 75-diagram one, so it is not comparable to the
 submitted value even after re-measurement.  Run the script and take the
 column from `table1.md`.
@@ -50,7 +50,7 @@ fifteen ways; the six that pair the vertex's ψ with one of its own φ's
 vanish under the Itô prescription (`R(x, x) = 0`), leaving nine, which
 group into these six topologies with multiplicities 2, 1, 2, 1, 1, 2,
 folded into the rational prefactors.  ⟨ψψ⟩ = 0 removes nothing at order
-1 — the expression contains a single ψ, so no ψψ pairing exists; it
+1: the expression contains a single ψ, so no ψψ pairing exists.  It
 starts pruning at order 2.  (Checked by re-running with `ito=False`,
 which restores all fifteen.)  Files:
 `order1_diagram_{1..6}.tex` (TikZ, the styles of
@@ -59,7 +59,7 @@ for external points, squares for vertices), `order1_diagram_{k}_standalone.pdf`
 (compiled), `order1_diagrams.pdf` (matplotlib grid with multiplicities),
 `order1_diagrams.md` (each term's full LaTeX).
 
-## `demo2_kappa4/` — the κ⁽³⁾ example, publication grade, with an error budget
+## `demo2_kappa4/`: the κ⁽³⁾ example and its error budget
 
 Parameters throughout: α = 0.6, λ = 0.05, σ_t = 0.3, σ_x = 1, γ = 1,
 N = 2, F[0,1,1] = 1, F[1,0,1] = F[1,1,0] = 1/2.
@@ -110,9 +110,9 @@ the R-contracted `k4_R_contracted.py` (12 + 3 terms, each in
 coordinates that align its cusps; 12-node outer rule, checked against 16
 to 2e-2 at t = 15 and 5e-4 at t ≤ 3.5).  And, because the Gaussian
 theory with this F has a φ₁ → −φ₁ symmetry that only odd cumulants
-break, **FF, FFFF and FFK4 are identically zero for ξ₀₁**: the κ⁽³⁾
-signal there is clean, and κ⁽⁴⁾ cannot touch its residual.  κ⁽⁴⁾ does
-enter ξ₀₀ / ξ₁₁: 5e-6 at t = 1, 1.9e-5 for t ≥ 3.5 (r = 0).
+break, **FF, FFFF and FFK4 are identically zero for ξ₀₁**, so κ⁽⁴⁾
+cannot touch its residual.  κ⁽⁴⁾ does enter ξ₀₀ / ξ₁₁: 5e-6 at t = 1,
+1.9e-5 for t ≥ 3.5 (r = 0).
 
 ### The error budget (`budget.md`, `budget.npz`, `run_budget.py`)
 
@@ -129,8 +129,8 @@ at large t.
   dynamic-coupling path cannot evaluate (a κ⁽³⁾ index sits on a C
   propagator), estimated with κ⁽³⁾ collapsed to an equal-time constant
   and calibrated on FK at order 2, is 3e-6 (2 % of FK) at t = 1, 4.1e-5
-  (12 %) at t = 3.5 and 8.1e-5 (24 %) at t = 15 — the size, sign and
-  t-dependence of the residual.  The estimate carries a ~50 %
+  (12 %) at t = 3.5 and 8.1e-5 (24 %) at t = 15, which matches the size,
+  sign and t-dependence of the residual.  The estimate carries a ~50 %
   uncertainty of its own (calibration ratio 0.42–0.64).  Finite Δt and
   the Monte-Carlo error are an order of magnitude smaller.  The
   submitted figure's ~8e-5 residual at t ≈ 3 was a coincidence of the
@@ -147,12 +147,12 @@ at large t.
 
 ### Figures (paper-ready, matplotlib rcParams of the demo2 notebook)
 
-* `xi01_vs_time.pdf` — ξ₀₁(r = 0, t): simulation vs converged FK, with
+* `xi01_vs_time.pdf`: ξ₀₁(r = 0, t), simulation vs converged FK, with
   the v1 8-node rule for comparison and a residual panel.
-* `xi01_vs_r.pdf` — ξ₀₁(r) at t = 3.48 and 15.
-* `xi00_vs_time.pdf` — ξ₀₀(r = 0, t): simulation vs 0 + FF (+ FFK4 +
+* `xi01_vs_r.pdf`: ξ₀₁(r) at t = 3.48 and 15.
+* `xi00_vs_time.pdf`: ξ₀₀(r = 0, t), simulation vs 0 + FF (+ FFK4 +
   FFFF), residual panel including the λ_eff approximation.
-* `fig_fk_diagrams.tex`, `fk_diagram_{1,2}.tex` / `_standalone.pdf` —
+* `fig_fk_diagrams.tex`, `fk_diagram_{1,2}.tex` / `_standalone.pdf`:
   the two FK diagrams (TikZ); `fk_diagrams.md` their LaTeX terms.
 
 ### Timings (28 workers unless stated)
@@ -174,9 +174,10 @@ wall.
 32768 QMC samples) was run on v0.2.0 (what the referees had) and on the
 0.3.0 release candidate.  Over all 2016 `(y, t_final, a, b, order)`
 totals the maximum relative change is **3.3e-14** (order 2; 1.2e-14 at
-order 0, 2.8e-14 at order 4) — floating-point noise.  The July changelog
-claimed the closed-form path was unaffected by the C-table diagonal fix;
-it is.  Wall-clock 4.6 min (28 workers) on the release candidate.
+order 0, 2.8e-14 at order 4), which is floating-point noise.  The July
+changelog claimed the closed-form path was unaffected by the C-table
+diagonal fix; it is.  Wall-clock 4.6 min (28 workers) on the release
+candidate.
 
 ## Timings of the shipped examples
 
@@ -184,9 +185,9 @@ it is.  Wall-clock 4.6 min (28 workers) on the release candidate.
 |---|---|---|
 | `sft-wick quickstart` | 2 s | 10 s |
 | `examples/demo1_config.yaml` (= README v1 quick start, orders 0–4, 8192 samples) | 50 s | 5.2 min |
-| `examples/demo1/L2/config.yaml` | ~15 min (28 workers); 4.6 min on 0.3.0, when it used 32768 QMC samples | — |
-| `examples/demo2/L2/*.yaml` + figures | 39 s (28 workers) | — |
+| `examples/demo1/L2/config.yaml` | ~15 min (28 workers); 4.6 min on 0.3.0, when it used 32768 QMC samples | |
+| `examples/demo2/L2/*.yaml` + figures | 39 s (28 workers) | |
 
 For comparison, v0.2.0 on the README v1 quick start: dblquad C table
 at 74–245 ms per call × 14 400 calls, not finished after 4 min, projected
-> 1 h — the referee's experience.
+> 1 h.  That was the referee's experience.

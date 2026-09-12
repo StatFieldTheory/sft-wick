@@ -1,4 +1,4 @@
-# Demo 8 — time-dependent coefficients and non-exponential dynamics
+# Demo 8: time-dependent coefficients and non-exponential dynamics
 
 Demos 1-5 all have a constant, diagonal drift and an exponential (OU)
 temporal kernel, so `R(t, s) = e^{−γ(t−s)}` and every closed form in the
@@ -45,7 +45,7 @@ each piece is exact:
 | piece | status |
 |---|---|
 | `C(t₁, t₂)` for this kernel and an exponential R | exact, in closed form (`gaussian_kernel_C`, `erf`); checked against `dblquad` to 1e-11 |
-| the order-1 and order-2 diagrams written out from the perturbative solution of the SDE and Wick's theorem (`HandContraction`) | exact as formulas — checked against the hierarchy for the exponential kernel, which does have an embedding (1e-10) |
+| the order-1 and order-2 diagrams written out from the perturbative solution of the SDE and Wick's theorem (`HandContraction`) | exact as formulas; checked against the hierarchy for the exponential kernel, which does have an embedding (1e-10) |
 | their time integrals | Gauss-Legendre, converged: 48 against 64 nodes per dimension agree to 1e-14 |
 | time-translation invariance | an exact identity of the model, but blind to any error that shifts with `t_min` |
 
@@ -61,10 +61,10 @@ two-time order-0 moment for every model (≤ 2e-12).  **table** is the
 package's own route: quadrature on an `n_grid_t × n_grid_t` grid and a
 spline lookup.
 
-A matrix R — what component-dependent rates give — runs on the scalar loops
-only (`nquad`, `qmc_scalar`, `qmc`).  Each rate-dependent model is therefore
-run twice: at unequal rates on those, and at equal rates on Gauss-Legendre
-and `qmc_vectorized`.
+A matrix R, which is what component-dependent rates give, runs on the
+scalar loops only (`nquad`, `qmc_scalar`, `qmc`).  Each rate-dependent
+model is therefore run twice: at unequal rates on those, and at equal
+rates on Gauss-Legendre and `qmc_vectorized`.
 
 ## Results
 
@@ -93,7 +93,7 @@ its spacing `h` (worst of the tadpole and order-2 `⟨φ_a φ_b⟩`, exact C):
 | `h` | 0.50 (the `DiagonalA` default) | 0.015 | 0.0036 |
 |---|---|---|---|
 | now | 6.1e-06 | 4.2e-12 | 1.3e-13 |
-| with the trapezoid Γ this branch replaced | 1.3e-03 | 1.1e-06 | — |
+| with the trapezoid Γ this branch replaced | 1.3e-03 | 1.1e-06 | |
 
 ### (b) a damped oscillator, `R(τ) = e^{−ζωτ} sin(ω_d τ)/ω_d`
 
@@ -180,7 +180,7 @@ relative departure from the exact C over `t ∈ [0.6, 2.1]`):
   cusp), and a constant is not an ordering between two variables, so the
   pair split could not express it; the integrators cut the variable's range
   at that time instead.  It costs nothing while every external sits at
-  `t_final` — the crossing is then the domain boundary — and shows up with
+  `t_final` (the crossing is then the domain boundary), and shows up with
   `external_times`.  Model (b), order-1 `G` channel at `x: 2.60, y: 3.50`,
   against the hierarchy:
 
@@ -217,7 +217,7 @@ relative departure from the exact C over `t ∈ [0.6, 2.1]`):
   | exponential (OU) | before | 7.5e-06 | 1.2e-06 | 4.8e-08 |
   | | now | 3.8e-07 | 1.2e-07 | |
 
-  Gauss-Legendre now lands where QMC does — on the table's own error.  A
+  Gauss-Legendre now lands where QMC does, on the table's own error.  A
   Gaussian kernel is differentiable at `Δt = 0`, leaves C smooth and is kept
   out of the split.  The cost is one integration per unordered C pair: 1.33
   pieces per diagram here, against 1.00.  The `exact C` rows of this demo

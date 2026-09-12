@@ -1,13 +1,13 @@
-# Demo 7 — observables in space, angle and time
+# Demo 7: observables in space, angle and time
 
 `R` is local in space, `R(x, t; z, s) = δ(x − z) R(t − s)`, and every local
 vertex acts at one point.  An n-point function at observation points
 `{x_i}` therefore involves the noise only at those points, and the fields
 there obey a finite-dimensional Itô SDE whose noise covariance is the
-spatial kernel at the points' separations.  One reference — the moment
-hierarchy of that embedding (`space7_reference.py`, on
-`examples/reference/ito_moments.py`) — covers translation, rotation and
-general homogeneity, any spatial kernel and any dimension.
+spatial kernel at the points' separations.  One reference covers
+translation, rotation and general homogeneity, any spatial kernel and any
+dimension: the moment hierarchy of that embedding (`space7_reference.py`,
+on `examples/reference/ito_moments.py`).
 
 ```
 dφ_a/dt = −γ_a φ_a + F_abc φ_b φ_c + G_abcd φ_b φ_c φ_d + η_a(x,t) + ξ_a(t),
@@ -150,8 +150,8 @@ and the white-noise variant of the same channel 1.3e-03 and 1.3e-15.
 
 - **Gauss-Legendre converged as `n^-4` on a two-time integrand** until
   2026-09-12, when the two kinks behind it were declared and cut.  C's
-  third derivative jumps on its time diagonal — the `|Δt|` cusp of the OU
-  kernel, through `∂²C/∂t₁∂t₂ = R κ² R` — and where an internal time
+  third derivative jumps on its time diagonal (the `|Δt|` cusp of the OU
+  kernel, through `∂²C/∂t₁∂t₂ = R κ² R`), and where an internal time
   crosses a *fixed* external time that line sits inside the domain as soon
   as `t ≠ t'`.  On the order-1 channel of `⟨φ_0(x,t) φ_1(y,t')⟩`, coloured
   scalar R:
@@ -166,11 +166,11 @@ and the white-noise variant of the same channel 1.3e-03 and 1.3e-15.
   (the kink is on the boundary) and goes from 5.7e-06 to 1.7e-10 at 8 nodes
   at order 2, where the kink is between two internal times.  The
   white-noise, matrix-R variant went from 4.0e-3, 1.0e-3, 2.6e-4, 6.6e-5 at
-  8, 16, 32, 64 nodes — exactly `n^-2` — to machine precision at 8.  The
-  cost is 2.1 pieces per diagram on the coloured configuration and 2.9 on
-  the two-time white-noise one.  The tables above predate both cuts.
-- **Both QMC routes stall at 1.4e-9 relative** on that channel — the same
-  value for every seed and for 2¹² to 2¹⁸ samples — while `nquad` and the
+  8, 16, 32, 64 nodes (`n^-2`) to machine precision at 8.  The cost is
+  2.1 pieces per diagram on the coloured configuration and 2.9 on the
+  two-time white-noise one.  The tables above predate both cuts.
+- **Both QMC routes stall at 1.4e-9 relative** on that channel, the same
+  value for every seed and for 2¹² to 2¹⁸ samples, while `nquad` and the
   reference agree to 3.6e-16.  scipy's Sobol points carry 30 bits by
   default, so the sample mean has a left-Riemann bias of
   `−(f(1) − f(0))/2^31`.  Measured directly on `∫_0^1 e^{2u} du`: −9.31e-10
