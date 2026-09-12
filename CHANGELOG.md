@@ -392,18 +392,64 @@ The Γ-spline entry above is what this demo found: at the `DiagonalA` default
 spacing the callable-rate route was 6.1e-06 off where it is now 1.3e-13 at
 spacing 0.0036, and 1.3e-03 with the trapezoid rule it replaced.
 
-### Limitation: Gauss-Legendre does not split a kink at a fixed external time
+### Fixed: the domain is cut at a kink against a fixed external time
 
-`_kink_pairs` requires both ends of a kink to be integration variables.  A
-white-noise C propagator, or an equal-time vertex with two parents, can put
-the kink between an internal time and an external point held at its own time:
-with every external at one time the kink lies outside the domain, and at
-distinct external times the convergence falls to algebraic.  Measured on the
-two-time channel of demo 7's matrix-R configuration against the exact
-hierarchy — 4.0e-3, 1.0e-3, 2.6e-4, 6.6e-5, 3.0e-5 at 8, 16, 32, 64 and 96
-nodes, exactly `n^-2`, against 4.5e-16 for `nquad` on the same channel.  The
-values are right; only the rate changes.  `tests/test_demo7_space.py` pins
-the rate, and demo 6 records the same on its `F F` channel.
+`_kink_pairs` splits the domain by ordering two integration times, and all
+three kink sources — the ends of a C propagator kinked on its diagonal, the
+parents of a multi-ψ vertex, a coupling callable declaring
+`has_coincident_time_kinks` — can put the kink between an integration time
+and an external pinned at its own time instead.  `u = t*` with `t*` constant
+is not an ordering, so it was skipped: with every external at `t_final` the
+kink is the domain boundary and nothing is lost; at distinct external times
+Gauss-Legendre fell from spectral to algebraic.  The values were right.
+
+The variable's range `[t_min, min(parents)]` is now cut in two at `t*`
+(`_extra_bounds`), and the cut is carried twice over: `v ≥ t*` holds every
+later variable above `t*` (else the piece's outer variable has a range that
+collapses to zero width there), and `v ≤ t*` leaves `min(parents, t*)`, so a
+variable parent takes the same cut.  Worst relative difference against the
+demos' exact references:
+
+| case | nodes | before | now |
+|---|---|---|---|
+| demo 7, two-time matrix R + mixing white, order 1 | 8 / 32 | 4.0e-03 / 2.6e-04 | 3.0e-16 / 1.2e-15 |
+| demo 6, `F F` at distinct times | 16 | 7.5e-04 | 6.3e-16 |
+| demo 6, `F J3 J3` five-point (equal-time vertex) | 8 | 5.5e-02 | 1.0e-12 |
+| demo 8 (b), oscillator order-1 `G`, two times | 12 | 4.3e-05 | 4.4e-13 |
+| demo 5 part C (MN5), two-time | 12 | 1.5e-03 | 6.4e-16 |
+| demo 4, raw exponential 3-point, three external times | 16 | 1.4e-03 | 4.8e-15 |
+
+`nquad` gains where it was reaching its tolerance the hard way (MN5:
+1.5e-08 in 22.5 s to 6.4e-16 in 1.0 s).  Cost, one integration per cut: 2.0
+to 2.9 pieces per diagram on demos 5-8, 25 against 7 on demo 4's three-leg
+case, and none when the externals share a time — where 44 measured values
+stay bit-identical.  Locked by `tests/test_kink_split_external_time.py`
+(29 cases), which fails on 0.5.0 at 4.5e-03.
+
+### Fixed: a κ² with a `|Δt|` cusp is declared as kinking C
+
+`C = ∫∫ R κ² R` gives `∂²C/∂t1∂t2 = R κ² R`, so a cusped kernel jumps C's
+third derivative on its time diagonal, where white noise jumps the first.
+Only white noise and a closed form declaring `has_diagonal_kink` were known,
+and the OU kernel of demos 1-5 was not.  `_c_has_diagonal_kink` now asks the
+question the C quadrature already asks of the kernel (the built-in kernels
+declare `has_diagonal_cusp`, any other callable is probed); a Gaussian
+kernel is kept out.  A kink against an external swept by `integrate_over` is
+ordered rather than cut, which the same work required.
+
+| case | nodes | before | now |
+|---|---|---|---|
+| demo 8 (c), damped cosine / OU, order 2 on the C table | 12 | 1.4e-05 / 7.5e-06 | 9.5e-07 / 3.8e-07 |
+| demo 7, coloured two-time, order 1 / order 2 | 8 | 4.1e-05 / 6.1e-06 | 3.6e-16 / 6.2e-14 |
+| demo 7, coloured at one external time, order 2 | 8 | 5.7e-06 | 1.7e-10 |
+| demo 7, `integrate_over={'x'}`, order 2 (coloured / white) | 16 | 4.6e-07 / 1.3e-03 | 1.3e-15 / 1.3e-15 |
+
+**Every Gauss-Legendre value on a cusped κ² moves**, towards the converged
+one: demo 1's sweep by 6e-07 (t = 1) to 9.7e-03 (t = 100) relative, at 3.03
+pieces per diagram and 2.3 times the wall clock
+(`examples/demo1/L2/INTEGRATION_ERROR.md` records it cell by cell); demo 2
+the same way.  Demo 1's figures and demo 2's error budget are not re-run
+here.  Locked by `tests/test_gl_white_noise_kinks.py`.
 
 ## 0.5.0 — 2026-09-11
 
