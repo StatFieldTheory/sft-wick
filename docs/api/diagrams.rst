@@ -1,4 +1,4 @@
-``sft_wick.diagrams`` --- Feynman Diagram Representation
+``sft_wick.diagrams``: Feynman Diagram Representation
 ========================================================
 
 .. automodule:: sft_wick.diagrams

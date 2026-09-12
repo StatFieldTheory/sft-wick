@@ -2,10 +2,9 @@ Parallelism (``n_jobs``)
 ========================
 
 The L2 YAML config exposes three independent parallelism knobs, plus an
-implicit fourth layer that runs at expansion time.  This page explains
+implicit fourth layer that runs at expansion time.  This page covers
 which knob to use, the **mutual-exclusion rules** that prevent nested
-process pools, and the BLAS thread-oversubscription pitfall that bites
-every multi-process Python numerics pipeline.
+process pools, and BLAS thread oversubscription.
 
 The four parallelism layers
 ---------------------------
@@ -13,17 +12,17 @@ The four parallelism layers
 ==========================================  ============================  =========================
 Layer                                       YAML knob                      What gets parallelised
 ==========================================  ============================  =========================
-**L1 — C-table builder**                    ``propagators.n_jobs``        Grid points
+**L1: C-table builder**                     ``propagators.n_jobs``        Grid points
                                                                           ``(t1, t2[, r/cos/x])``
                                                                           inside
                                                                           ``precompute_C_table_*``
-**L2 — diagram-term integration**           ``expand.n_jobs``             Per-diagram QMC integration
+**L2: diagram-term integration**            ``expand.n_jobs``             Per-diagram QMC integration
                                                                           inside
                                                                           ``integrate_diagrams``
-**L3 — sweep grid points**                  ``sweep.n_jobs``              Cartesian product of
+**L3: sweep grid points**                   ``sweep.n_jobs``              Cartesian product of
                                                                           ``positions × t_final ×
                                                                           component_tuples``
-**L4 — topology canonicalisation**          (no YAML key yet)             Inside
+**L4: topology canonicalisation**           (no YAML key yet)             Inside
                                                                           ``compute_moment_numerical``
                                                                           when the topology list is
                                                                           long
@@ -69,8 +68,8 @@ risk there either.
 BLAS thread oversubscription
 ----------------------------
 
-NumPy and SciPy operations inside each loky worker -- matrix products,
-``scipy.integrate.dblquad``, ``RectBivariateSpline.__call__`` -- are
+NumPy and SciPy operations inside each loky worker (matrix products,
+``scipy.integrate.dblquad``, ``RectBivariateSpline.__call__``) are
 themselves multi-threaded by default through OpenBLAS or MKL.  Without
 intervention, ``N`` worker processes each running ``N`` BLAS threads
 yields ``N**2`` total threads, leading to lock contention and a slowdown
@@ -86,6 +85,6 @@ yields ``N**2`` total threads, leading to lock contention and a slowdown
     export OMP_NUM_THREADS=1
 
 The CLI prints a one-line tip when it detects ``n_jobs > 1`` without
-those variables set; you can disable the tip by setting any of them
-explicitly (even to ``1`` is enough -- the tip suppresses itself once
-it sees a value).
+those variables set.  Setting any of them explicitly disables the tip;
+even ``1`` is enough, since the tip suppresses itself once it sees a
+value.

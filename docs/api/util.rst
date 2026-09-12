@@ -1,4 +1,4 @@
-``sft_wick._util`` --- Internal Utilities
+``sft_wick._util``: Internal Utilities
 =========================================
 
 .. automodule:: sft_wick._util

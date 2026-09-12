@@ -13,16 +13,16 @@ with domain-specific convenience methods.
 
 **Node types:**
 
-- **External** (``node_type="external"``) --- observable field operators.
+- **External** (``node_type="external"``): observable field operators.
   Rendered as filled circles.
-- **Vertex** (``node_type="vertex"``) --- interaction vertices from
+- **Vertex** (``node_type="vertex"``): interaction vertices from
   :math:`S_{\mathrm{int}}`.  Rendered as filled squares.
 
 **Edge attributes (propagators):**
 
-- ``kind`` --- ``"C"`` (correlation) or ``"R"`` (response)
-- ``index_left``, ``index_right`` --- component indices
-- ``spatial_left``, ``spatial_right`` --- spatial arguments
+- ``kind``: ``"C"`` (correlation) or ``"R"`` (response)
+- ``index_left``, ``index_right``: component indices
+- ``spatial_left``, ``spatial_right``: spatial arguments
 
 
 Building Diagrams
@@ -141,9 +141,9 @@ The renderer uses a hybrid layout:
    (:attr:`~sft_wick.render_style.LayoutParams.min_vertex_dist`).
 
 All four parameters are exposed via
-:class:`~sft_wick.render_style.LayoutParams`.  When the layout
-result is unaesthetic for a particular topology you can pin
-specific nodes by passing the ``positions`` keyword to
+:class:`~sft_wick.render_style.LayoutParams`.  To override the layout
+for a particular topology, pin specific nodes by passing the
+``positions`` keyword to
 :meth:`~sft_wick.drawing.DiagramRenderer.draw`.
 
 
@@ -154,13 +154,13 @@ Every visual aspect of a diagram is controlled by a
 :class:`~sft_wick.render_style.RenderStyle` value.  Four named
 presets are provided:
 
-* :func:`~sft_wick.render_style.default_style`     — the colourful
+* :func:`~sft_wick.render_style.default_style`: the colourful
   on-screen look (blue C, red R).
-* :func:`~sft_wick.render_style.publication_style` — serif fonts,
+* :func:`~sft_wick.render_style.publication_style`: serif fonts,
   thinner lines, smaller markers; honours ``usetex``.
-* :func:`~sft_wick.render_style.grayscale_style`   — black-and-white
+* :func:`~sft_wick.render_style.grayscale_style`: black-and-white
   for printed papers.
-* :func:`~sft_wick.render_style.minimal_style`     — strips legend,
+* :func:`~sft_wick.render_style.minimal_style`: strips legend,
   boxes, and titles for inset use.
 
 The same order-1 tadpole rendered with each preset:
@@ -206,9 +206,9 @@ The label format flag controls the *default* text:
    * - Flag
      - Default text
    * - ``LABEL_COMPACT`` (default)
-     - ``$\phi_a$`` — no spatial argument
+     - ``$\phi_a$``, no spatial argument
    * - ``LABEL_FULL``
-     - ``$\phi_a(x_1)$`` — pre-2026-04 default
+     - ``$\phi_a(x_1)$``, pre-2026-04 default
    * - ``LABEL_TIME_F``
      - ``$\phi_a(t_f)$``
 
@@ -245,8 +245,8 @@ The dictionary form in action:
 Manual node positions
 ~~~~~~~~~~~~~~~~~~~~~
 
-When the spring layout produces something ugly for a specific
-topology, pin nodes explicitly:
+To override the spring layout for a specific topology, pin nodes
+explicitly:
 
 .. code-block:: python
 
@@ -278,7 +278,7 @@ a single cubic vertex
 
 yields six distinct topologies (with multiplicities :math:`2, 4, 4, 8,
 4, 8`).  The grid below was produced by
-:meth:`DiagramRenderer.draw_all` with no per-call tweaking — just
+:meth:`DiagramRenderer.draw_all` with no per-call tweaking, using only
 :func:`publication_style`:
 
 .. image:: /_static/diagrams/order2_publication.png
@@ -311,7 +311,7 @@ default.  Columns are tightened with ``wspace``; row spacing uses a
 compact automatic value that is relaxed if rendered rows would
 overlap.  Pass ``hspace=…`` to take manual control.
 
-``draw_all`` no longer calls ``plt.show()`` implicitly — pass
+``draw_all`` no longer calls ``plt.show()`` implicitly; pass
 ``show=True`` if you want it.  This makes it safe to use inside
 scripts that ``savefig`` afterwards.
 
@@ -342,7 +342,7 @@ For LaTeX-native paper output, use
                for d in result.diagrams_by_order[2]]
    renderer.save_all(diagrams, "fig/order2_{i:02d}.tex")
 
-The output uses standard TikZ — your preamble needs only
+The output uses standard TikZ.  Your preamble needs only
 ``\usepackage{tikz}`` and ``\usetikzlibrary{arrows.meta}``.
 
 The label override hooks (``external_labels``, ``vertex_labels``,

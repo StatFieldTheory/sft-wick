@@ -1,8 +1,8 @@
 The MSR Formalism
 =================
 
-The Martin--Siggia--Rose (MSR) formalism (also known as the
-Janssen--de Dominicis formalism) provides a field-theoretic framework
+The Martin-Siggia-Rose (MSR) formalism (also known as the
+Janssen-de Dominicis formalism) provides a field-theoretic framework
 for studying stochastic differential equations (SDEs) using
 path-integral methods.
 
@@ -40,8 +40,8 @@ field** :math:`\psi_i` (sometimes written :math:`\tilde\phi_i` or
 
 The two field types in **sft-wick** correspond to:
 
-- :math:`\phi` --- the **physical field** (``FieldType.PHYSICAL``)
-- :math:`\psi` --- the **response field** (``FieldType.RESPONSE``)
+- :math:`\phi`: the **physical field** (``FieldType.PHYSICAL``)
+- :math:`\psi`: the **response field** (``FieldType.RESPONSE``)
 
 
 Free and Interaction Actions
@@ -55,8 +55,8 @@ The MSR action splits into a free (Gaussian) part and an interaction part:
 
 The **free action** :math:`S_0` is quadratic in the fields and determines
 the two-point functions (propagators).  The **interaction action**
-:math:`S_{\mathrm{int}}` contains all nonlinear terms --- these are the
-terms represented by :class:`~sft_wick.vertices.Vertex` objects in
+:math:`S_{\mathrm{int}}` contains all nonlinear terms, the terms
+represented by :class:`~sft_wick.vertices.Vertex` objects in
 **sft-wick**.
 
 
@@ -82,10 +82,9 @@ The free two-point functions derived from :math:`S_0` are:
      - :math:`0`
      - Vanishes by construction
 
-The vanishing of the :math:`\psi`--:math:`\psi` contraction is a
-fundamental consequence of the MSR construction (the noise is integrated
-out exactly) and is the key constraint exploited by **sft-wick** for
-efficient enumeration of Wick contractions.
+The :math:`\psi`-:math:`\psi` contraction vanishes as a consequence of
+the MSR construction (the noise is integrated out exactly).  **sft-wick**
+uses this constraint to enumerate Wick contractions efficiently.
 
 .. note::
 
@@ -109,8 +108,8 @@ convention sets :math:`\Theta(0) = 0`, which implies:
    R(x,x) = 0
 
 This eliminates equal-point response contractions (self-response
-tadpoles).  More generally, **any closed loop of response propagators
-vanishes** by causality:
+tadpoles).  More generally, any closed loop of response propagators
+vanishes by causality:
 
 .. math::
 
@@ -142,17 +141,15 @@ number of response propagators in that term.
 The Partition Function :math:`Z=1`
 -----------------------------------
 
-A remarkable property of the MSR formalism is that the partition function
-equals unity:
+In the MSR formalism the partition function equals unity:
 
 .. math::
 
    Z = \int \mathcal{D}\phi\,\mathcal{D}\psi\;
        e^{-S[\phi,\psi]} = 1.
 
-This means there is no denominator in the perturbative expansion of
-moments, greatly simplifying the diagrammatic analysis (no vacuum
-diagram subtraction is needed).
+There is therefore no denominator in the perturbative expansion of
+moments, and no vacuum diagram subtraction is needed.
 
 
 Perturbative Expansion

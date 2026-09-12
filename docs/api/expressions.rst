@@ -1,7 +1,7 @@
-``sft_wick.expressions`` --- Symbolic Expression Tree
+``sft_wick.expressions``: Symbolic Expression Tree
 =====================================================
 
-All expression types are frozen dataclasses --- immutable and hashable.
+All expression types are frozen dataclasses, immutable and hashable.
 Uses exact rational arithmetic via ``fractions.Fraction``.
 
 .. autosummary::

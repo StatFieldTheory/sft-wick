@@ -59,7 +59,7 @@ operators:
 Second-Order Perturbation Theory
 ---------------------------------
 
-Higher orders work identically --- just increase the ``order`` argument:
+Higher orders work identically; increase the ``order`` argument:
 
 .. code-block:: python
 
@@ -128,7 +128,7 @@ and causal R-loops:
    phi = Field('phi', 'physical')
    psi = Field('psi', 'response')
 
-   # <psi(x) phi(x)^3> — all at the same point
+   # <psi(x) phi(x)^3>, all at the same point
    obs = [psi('x'), phi('x'), phi('x'), phi('x')]
 
    # With Itô (default): R(x,x) = 0, entire result vanishes

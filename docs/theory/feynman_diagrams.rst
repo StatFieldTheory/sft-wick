@@ -2,7 +2,7 @@ Feynman Diagram Rules
 =====================
 
 Every non-vanishing Wick contraction corresponds to a **Feynman
-diagram** --- a graph that encodes the topology of the contraction.
+diagram**, a graph that encodes the topology of the contraction.
 **sft-wick** automatically constructs these diagrams as
 :class:`~sft_wick.diagrams.FeynmanDiagram` objects backed by a
 ``networkx.MultiGraph``.

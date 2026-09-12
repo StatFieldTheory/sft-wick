@@ -1,4 +1,4 @@
-``sft_wick.perturbation`` --- Perturbative Expansion Driver
+``sft_wick.perturbation``: Perturbative Expansion Driver
 ===========================================================
 
 .. automodule:: sft_wick.perturbation

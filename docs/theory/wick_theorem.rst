@@ -18,7 +18,7 @@ For :math:`2n` field operators and a Gaussian (free) action :math:`S_0`:
      \prod_{\text{pairs } (i,j)}
      \langle \Phi_i\,\Phi_j \rangle_{S_0}
 
-The sum runs over all *complete pairings* --- every operator must be
+The sum runs over all *complete pairings*: every operator must be
 paired with exactly one other.  If the total number of operators is
 odd, the result vanishes.
 
@@ -47,22 +47,21 @@ these.
 The MSR Constraint
 ------------------
 
-In the MSR formalism, the :math:`\psi`--:math:`\psi` contraction
+In the MSR formalism, the :math:`\psi`-:math:`\psi` contraction
 vanishes:
 
 .. math::
 
    \langle \psi_i(x)\,\psi_j(x') \rangle_{S_0} = 0
 
-This has a powerful combinatorial consequence: **every response field**
-:math:`\psi` **must be paired with a physical field** :math:`\phi`,
-producing a response propagator :math:`R`.  The remaining
-:math:`\phi`'s then pair among themselves, producing correlation
-propagators :math:`C`.
+The combinatorial consequence: **every response field** :math:`\psi`
+**must be paired with a physical field** :math:`\phi`, producing a
+response propagator :math:`R`.  The remaining :math:`\phi`'s then pair
+among themselves, producing correlation propagators :math:`C`.
 
-This constraint dramatically reduces the number of non-vanishing
-pairings.  If there are :math:`n_\phi` physical operators and
-:math:`n_\psi` response operators:
+This constraint reduces the number of non-vanishing pairings.  If there
+are :math:`n_\phi` physical operators and :math:`n_\psi` response
+operators:
 
 - **Feasibility check:** :math:`n_\psi \le n_\phi` and
   :math:`(n_\phi - n_\psi)` must be even.
@@ -72,8 +71,9 @@ pairings.  If there are :math:`n_\phi` physical operators and
   :math:`(n_\phi - n_\psi - 1)!!` sub-pairings each.
 
 The function :func:`~sft_wick.wick.generate_valid_pairings` implements
-this optimised enumeration, skipping all vanishing :math:`\psi`--:math:`\psi`
-pairings at construction time rather than generating and discarding them.
+this optimised enumeration.  It skips all vanishing
+:math:`\psi`-:math:`\psi` pairings at construction time rather than
+generating and discarding them.
 
 
 Worked Example
@@ -119,8 +119,8 @@ Low-Level Access
 For direct control over the Wick contraction machinery (without the
 perturbative wrapper), use:
 
-- :func:`~sft_wick.wick.wick_contract` --- applies Wick's theorem to
+- :func:`~sft_wick.wick.wick_contract`: applies Wick's theorem to
   any list of field operators and returns the symbolic sum plus the
   list of surviving pairings.
-- :func:`~sft_wick.propagators.contract_pair` --- contracts a single
+- :func:`~sft_wick.propagators.contract_pair`: contracts a single
   pair of operators into a propagator (or ``None`` if it vanishes).
