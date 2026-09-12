@@ -32,8 +32,14 @@ Key Features
 - **LaTeX output** --- every expression renders to publication-ready LaTeX,
   with configurable propagator names.
 - **Numerical evaluation** --- QMC with causal simplex mapping and
-  O(1/N) convergence; separable / rotational / general spatial
+  :math:`1/\sqrt{N}` convergence, tensor-product Gauss-Legendre, and
+  adaptive quadrature; separable / rotational / general spatial
   homogeneity modes; optional closed-form C bypass.
+- **Matrix-valued R and off-diagonal C** --- every integrator evaluates
+  a dense response, and the C tables hold all :math:`C_{ab}`.
+- **Multiplicative noise** --- Itô and Stratonovich, at L0 and L1.
+- **n-point observables** --- swept from the L1 API and from YAML, one
+  component index per operator.
 - **Time-dependent linear operator** and **spacetime-dependent
   non-local couplings** both supported end-to-end through the L1
   API.

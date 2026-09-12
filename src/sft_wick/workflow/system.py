@@ -600,8 +600,7 @@ class System:
                 :class:`DiagonalA` with a callable rate (the
                 cumulative-rate spline behind R would be extrapolated);
                 with ``diag_C=True``, when C has off-diagonal entries
-                (see :meth:`expand`); with ``diag_C=False`` and
-                ``c_closed_form_only=False``.
+                (see :meth:`expand`).
         """
         from sft_wick.progress import progress as _progress_scope
 

@@ -207,10 +207,13 @@ behaviour, so nothing needs editing at the rebase.
    both allocated uids 0,1,2.  Affects *rendering only* — the level-A
    diagram cannot be drawn, while its numbers are exact.  Level B renders
    42/42.
-5. **L2 spatial-kernel gap.**  `config.py::_build_kernel(axis="space")`
-   accepts only `exponential` and `gaussian`, and demo 3's envelope
-   `σ_x(1+r/σ_x)e^{−r/σ_x}` is neither, so `κ²` cannot be declared as
-   `SeparableTranslation` in YAML.  The configs use the general
+5. **L2 spatial-kernel gap, closed in 0.6.0.**
+   `config.py::_build_kernel(axis="space")` used to accept only
+   `exponential` and `gaussian`, and demo 3's envelope
+   `σ_x(1+r/σ_x)e^{−r/σ_x}` is neither, so `κ²` could not be declared as
+   `SeparableTranslation` in YAML.  Every axis now takes
+   `{type: custom, module: <path>, attr: <name>}`, which loads the kernel
+   as a `CustomKernel`.  The configs here still use the general
    `callable_module` hatch plus a closed-form `C`; the L1 API needs
    neither.
 6. **Plain functions in kernel spec fields silently defeat the caches.**
