@@ -55,11 +55,11 @@ on 0.5.0.
 
 The same family, one level down and not limited to `equal_time`.  The
 coupling sum of a merged diagram routes the legs between the copies term by
-term — the order-2 six-point function with two κ³ vertices is one
+term.  The order-2 six-point function with two κ³ vertices is one
 `DiagramTerm` whose 360 terms spread six leg labels over 10 partitions and
-36 leg orders — while the leg structure of an `equal_time` vertex (its legs
-share a time) and of an `already_R_contracted` one (its legs take their
-partners' times and drop their R factors) was read off the vertex instances.
+36 leg orders.  The leg structure of an `equal_time` vertex (its legs share a
+time) and of an `already_R_contracted` one (its legs take their partners'
+times and drop their R factors) was read off the vertex instances.
 Every term was integrated with the measure of one routing.  `compute_moment`
 now splits such a record by leg structure, one `DiagramTerm` per structure
 with its own aliases and absorbed pairs
@@ -78,7 +78,7 @@ couplings, `gauss_legendre`, against a numpy hand contraction:
 The two fixes are complementary rather than redundant: the canonical form
 keeps the equal-time copies apart at the merge, and the split covers what it
 does not describe.  Instrumented over both suites, the split is called 160
-times and separates structures once, into 20 of them — the
+times and separates structures once, into 20 of them, in the
 `already_R_contracted` case.  Locked by `tests/test_callable_vertex_copies.py`
 (55 cases, VC0-VC4); 44 fail on 0.5.0.
 
@@ -162,9 +162,9 @@ absorbed versus closed form agree to 1.6e-15).
 
 The numerical layer evaluates every R at equal times as 0, so it computes the
 Itô SDE whatever `ito=` says.  That is exact for an equal-point R on a local
-vertex with one ψ leg — it and the Stratonovich functional Jacobian cancel,
-and the package emits neither — but on a vertex with two or more ψ legs the
-term is the drift `Θ(0) ∂_b D_ab(φ)`, which no Jacobian cancels and whose
+vertex with one ψ leg, where it and the Stratonovich functional Jacobian
+cancel and the package emits neither.  On a vertex with two or more ψ legs
+the term is the drift `Θ(0) ∂_b D_ab(φ)`, which no Jacobian cancels and whose
 Stratonovich value needs `g`, not `D`.  Both that case and an equal-point R
 between two external operators now raise.  Measured on `⟨φ_a⟩` at order 1
 with a ψψφ vertex on four integrators: 0.4.x returned 0 on all four, where
@@ -229,7 +229,7 @@ quadrature used to stop short of its tolerance along a kink:
 A coupling callable can set `has_coincident_time_kinks = True`: it is kinked
 wherever two of its time arguments coincide (a `min` over them).
 Gauss-Legendre and `nquad` then also split at the pairs of those arguments
-the causal structure leaves unordered — the leg times of a raw vertex, the
+the causal structure leaves unordered: the leg times of a raw vertex, the
 partner times of an `already_R_contracted` one.  The attribute is read
 through `__wrapped__`, so the MSR factor wrapper passes it on.  Demo 4's
 kernels declare it; against Campbell's closed form and the hierarchy:
@@ -283,7 +283,7 @@ an AST guard that requires `bits=64` at every `Sobol` construction in
 ### Added: demo 6, repeated and static non-local vertices, cubic plus quartic drift
 
 `examples/demo6/`: five structures the package supports and no test had
-evaluated — two copies of one non-local vertex, a static (ndarray) non-local
+evaluated: two copies of one non-local vertex, a static (ndarray) non-local
 coupling, `m = 5`, `m = 2`, and a quartic local vertex next to a cubic one.
 References: the closed form of the model, Campbell's theorem through demo 4,
 and a moment hierarchy that observes at several times by freezing each point
@@ -343,7 +343,7 @@ closed-form C, on order 2 of `⟨φ_a(x, 3.0) ψ_b(y, 1.2)⟩` at
 A factor 2.25 apart, and each is bit for bit the value of a different
 one-position configuration: the request for two positions was answered as a
 one-position question.  Renaming the externals to `('u', 'v')` flips which
-one comes out, and so does `PYTHONHASHSEED` — the same program on the same
+one comes out, and so does `PYTHONHASHSEED`.  The same program on the same
 input returned either number.
 
 At two positions the diagram is a delta function rather than a value, so it
@@ -379,7 +379,7 @@ of 8).
 ### Added: demo 8, time-dependent coefficients and non-exponential dynamics
 
 `examples/demo8/`: the four routes that leave the constant-diagonal-drift,
-exponential-kernel family every earlier demo stays in — a callable `γ(t)`
+exponential-kernel family every earlier demo stays in: a callable `γ(t)`
 with unequal, time-varying components and `t_min` of either sign; the
 response of a damped oscillator through `ExplicitR`, which oscillates and
 changes sign; Matérn-3/2, damped-cosine and Gaussian temporal kernels through
@@ -406,9 +406,9 @@ spacing 0.0036, and 1.3e-03 with the trapezoid rule it replaced.
 ### Fixed: the domain is cut at a kink against a fixed external time
 
 `_kink_pairs` splits the domain by ordering two integration times, and all
-three kink sources — the ends of a C propagator kinked on its diagonal, the
+three kink sources (the ends of a C propagator kinked on its diagonal, the
 parents of a multi-ψ vertex, a coupling callable declaring
-`has_coincident_time_kinks` — can put the kink between an integration time
+`has_coincident_time_kinks`) can put the kink between an integration time
 and an external pinned at its own time instead.  `u = t*` with `t*` constant
 is not an ordering, so it was skipped: with every external at `t_final` the
 kink is the domain boundary and nothing is lost; at distinct external times
@@ -433,7 +433,7 @@ demos' exact references:
 `nquad` gains where it was reaching its tolerance the hard way (MN5:
 1.5e-08 in 22.5 s to 6.4e-16 in 1.0 s).  Cost, one integration per cut: 2.0
 to 2.9 pieces per diagram on demos 5-8, 25 against 7 on demo 4's three-leg
-case, and none when the externals share a time — where 44 measured values
+case, and none when the externals share a time, where 44 measured values
 stay bit-identical.  Locked by `tests/test_kink_split_external_time.py`
 (29 cases), which fails on 0.5.0 at 4.5e-03.
 
