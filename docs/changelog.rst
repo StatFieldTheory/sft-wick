@@ -61,6 +61,10 @@ Added
   coefficients and non-exponential dynamics.  Each is checked against the
   moment hierarchy of the same process, which shares no code with the
   package.
+- A check that a committed file still holds the text its generator writes
+  (``tests/test_generated_docs_in_sync.py``): demo 2's error budget, table 1
+  with its order-1 diagrams, and demo 3's diagram README are written by
+  scripts, and a hand edit to one of them is reverted by the next run.
 
 
 Version 0.5.0 (2026-09-11)
