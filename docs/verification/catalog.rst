@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **2142 tests** in 73 files (parametrised
+The suite has **2145 tests** in 74 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -401,7 +401,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*336 tests in 10 files.*
+*339 tests in 11 files.*
 
 .. list-table::
    :header-rows: 1
@@ -422,6 +422,11 @@ Workflow and YAML
      - closed form (level A is a single diagram, hence exact); QMC on the raw-vertex path
      - exact / 2e-4
      - 18
+   * - ``test_generated_docs_in_sync.py``
+     - every committed file that a script writes (demo 2's error budget, table 1 and its order-1 diagrams, demo 3's diagram README) still holds the text its generator would write
+     - the generator's own source, parsed
+     - exact
+     - 3
    * - ``test_l1_structure_guards.py``
      - callable-γ scalar/matrix R decided on the whole spline grid; the Γ spline reaches a negative t_min; t_max beyond t_max_cache refused; diag_R / diag_C refused when R or C has off-diagonal entries (dense R, mixing κ² or σ²), diagonal structures accepted
      - scipy quad of the rate; Lyapunov equation of the Markov embedding
