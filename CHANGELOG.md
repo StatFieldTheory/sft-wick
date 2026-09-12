@@ -1,6 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 — 2026-09-12
+
+> **Eight inputs that returned a wrong number without an error, seven
+> limitations removed, and three demos built to look for them.**  Breaking:
+> two points of one R-connected group may not sit at different positions,
+> and `ito=False` raises where it returned the Itô value for multiplicative
+> noise.  Values move where they were least converged: every Gauss-Legendre
+> integral on a cusped κ² (demo 1: 6e-07 at `t = 1` to 3.9e-04 at `t = 15`,
+> towards the converged value) and every QMC draw (the Sobol points are
+> 64-bit now, which redraws the sequence).  Demo 1's figures and demo 2's
+> error budget are not re-run; both say so where their numbers are.
 
 > **Five limitations removed, seven more defects that returned a wrong
 > number without an error, and three demos built to look for them.**  Each

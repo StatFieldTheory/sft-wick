@@ -10,6 +10,59 @@ Changelog
    differ, the Markdown file is correct.
 
 
+Version 0.6.0 — 2026-09-12
+--------------------------
+
+*Eight inputs that returned a wrong number without an error, seven
+limitations removed, and three demos built to look for them.*
+
+Breaking
+~~~~~~~~
+
+- Two points of one R-connected direction group may not sit at different
+  positions.  R carries :math:`\delta(n - n')`, so such a group is one
+  spatial point; the evaluator took whichever point a ``frozenset`` yielded
+  first, and the answer changed with ``PYTHONHASHSEED``.  Reached only by an
+  external response leg (``("phi_a(x)", "psi_b(y)")``) or a local vertex
+  with two or more ψ legs.
+- ``ito=False`` raises instead of returning the Itô value where the
+  interpretation matters (an equal-point R on a vertex with two or more ψ
+  legs, or between two external operators).
+
+Fixed
+~~~~~
+
+- **Two copies of an** ``equal_time`` **vertex shared one contraction's time
+  structure** (40 % on the order-2 six-point function), and the copies of
+  any vertex shared a leg structure (60 % to 104 %).
+- **An off-diagonal C was truncated to its diagonal in the batched
+  lookups** (12 %: three backends, two answers), and
+  ``integrate_two_point_qmc`` returned 0 for a callable coupling.
+- **An absorbed R with a matrix R** was only reachable through
+  ``diag_R=True``, which zeroes the off-diagonal entries (280 %).
+- **A callable** ``DiagonalA`` **rate was integrated by the trapezoid rule**
+  (2.0e-2 in R at the default grid); it is now the exact integral of the
+  cubic spline of γ.
+- **The Sobol samplers used scipy's 30-bit points**, whose sample mean
+  carries a fixed bias of :math:`-(f(1) - f(0))/2^{31}` (1.4e-9 relative
+  where the sampling error was smaller).
+
+Added
+~~~~~
+
+- A matrix-valued R on ``gauss_legendre`` and ``qmc_vectorized`` (20.5 s to
+  0.07 s on demo 5's part B), an off-diagonal C by quadrature with no closed
+  form, ``nquad`` and coupling-callable kink splitting, the domain cut at a
+  kink against a fixed external time, multiplicative white noise at L1 with
+  an Itô/Stratonovich switch, ``Expansion.sweep`` over n-point observables,
+  and the L1 specs YAML could not express.
+- **Demos 6, 7 and 8**: repeated and static non-local vertices with a cubic
+  plus a quartic drift; observables in space, angle and time; time-dependent
+  coefficients and non-exponential dynamics.  Each is checked against the
+  moment hierarchy of the same process, which shares no code with the
+  package.
+
+
 Version 0.5.0 — 2026-09-11
 --------------------------
 

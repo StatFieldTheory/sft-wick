@@ -1,5 +1,11 @@
 # Demo 2 error budget
 
+> **Every theory number below predates the C-diagonal split of
+> 2026-09-12.**  `gauss_legendre` now splits the domain where the OU
+> kernel's `|Δt|` cusp kinks C, which moves them towards their converged
+> values; on demo 1, same kernel and node count, the move is 6e-07 at
+> `t = 1` and 3.9e-04 at `t = 15`.  The simulation columns are unaffected.
+
 Parameters: alpha = 0.6, lambda = 0.05, sigma_t = 0.3, sigma_x = 1.0, gamma = 1.0; lam_eff = 0.0518.
 
 **Simulation.** 1,999,884 realisations at dt = 0.02 and 1,999,886 at dt = 0.01 (20 seeds each, `sim_dt_study.py`), measured at exactly the theory times; 'extrap' = Richardson (4 xi(0.01) - xi(0.02)) / 3 (Heun is O(dt^2)); the shipped cache is 199,986 realisations at dt = 0.05 on the nominal (unsnapped) times.
