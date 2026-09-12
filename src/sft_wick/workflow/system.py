@@ -1,4 +1,4 @@
-"""``System`` — the top-level user-facing spec for a stochastic-field
+"""``System``: the top-level user-facing spec for a stochastic-field
 problem.  Lowers high-level specification objects to raw
 ``PropagatorModel`` / ``Field`` / ``Vertex`` / ``Action`` / etc.
 """
@@ -80,7 +80,7 @@ def _probe_offdiagonal(fn: Callable, arg_sets: Iterable[tuple]) -> bool | None:
     """
     try:
         return any(_offdiagonal(fn(*args)) for args in arg_sets)
-    except Exception:  # noqa: BLE001 -- a user callable; see the docstring
+    except Exception:  # noqa: BLE001 (a user callable; see the docstring)
         return None
 
 
@@ -108,25 +108,25 @@ class System:
     :meth:`propagators` to get to the computational layer.
 
     Args:
-        field: :class:`FieldSpec` — the physical field (φ) spec; the
+        field: :class:`FieldSpec`, the physical field (φ) spec; the
             response field (ψ) is derived automatically.
-        linear: :class:`LinearOp` variant — defines R.  Required
+        linear: :class:`LinearOp` variant, defining R.  Required
             unless ``explicit_R`` is supplied.
-        noise: :class:`GaussianNoise` — κ² (+ optional σ²) defines C
+        noise: :class:`GaussianNoise`; κ² (+ optional σ²) defines C
             together with R.  A :class:`MultiplicativeImpulse` σ² also
             adds local vertices (two ψ legs, and for the Stratonovich
             interpretation a source and a linear drift vertex); see
             :attr:`multiplicative_vertices`.
-        vertices: list of :class:`LocalVertex` — F^(n) local
+        vertices: list of :class:`LocalVertex`, the F^(n) local
             interactions.  May be empty (linear theory).
-        nonlocal_vertices: list of :class:`NonLocalVertex` — κ^(m) for
+        nonlocal_vertices: list of :class:`NonLocalVertex`, κ^(m) for
             m ≥ 3 non-Gaussian driving contributions.  May be empty.
         t_min: lower time bound of the propagator integrals and of every
             diagram time integral;
             :meth:`~sft_wick.workflow.Expansion.evaluate` (and so
             ``sweep``) refuses a propagator cache built for another
             ``t_min``.
-        explicit_R: escape hatch — if set, overrides ``linear``.  The
+        explicit_R: escape hatch; if set, overrides ``linear``.  The
             structured alternative is the :class:`ExplicitR` LinearOp
             variant; both work, but ``ExplicitR`` is preferred for
             serialisation and YAML configs.
@@ -266,7 +266,7 @@ class System:
         Args:
             diag_C: when ``True`` (default), the numerical C propagator is
                 represented as a diagonal vector ``(n, N)``. When ``False``,
-                the full ``(n, N, N)`` matrix is preserved -- required for
+                the full ``(n, N, N)`` matrix is preserved, required for
                 observables that probe cross-component C entries
                 (e.g. lensing kappa-gamma cross-correlation) and for any
                 system whose C has off-diagonal entries.  Every C table
@@ -506,13 +506,13 @@ class System:
         spatial table matching ``self.homogeneity``.
 
         By default (all grid args ``None``) the cache enters **lazy
-        mode** for the inferred homogeneity — recommended for moment
+        mode** for the inferred homogeneity, recommended for moment
         calculations at a small fixed set of external positions.
 
         How C is obtained is decided in two steps, both ``'auto'`` by
         default: ``c_closed_form`` (built-in closed form when the kernel
-        family has one -- diagonal constant drift with a separable
-        exponential-temporal noise, the demo1/demo2 family -- so no
+        family has one: diagonal constant drift with a separable
+        exponential-temporal noise, the demo1/demo2 family, so no
         quadrature at all), then ``c_method`` (Gauss-Legendre with a
         converged node count for the package's own kernels, ``dblquad``
         for user callables).  The result is reported in
@@ -545,7 +545,7 @@ class System:
                 smooth grids. Forwarded to :class:`PropagatorCache`.
             c_closed_form_only: when True (with ``c_closed_form`` set),
                 skip every spline and route C lookups directly through
-                the user's c_fn -- machine-precision agreement with
+                the user's c_fn, for machine-precision agreement with
                 the analytical form. Forwarded to
                 :meth:`Propagators.build`.
             c_closed_form_vectorized: c_fn accepts batched arrays and
@@ -554,12 +554,12 @@ class System:
             c_method: Quadrature method for the inner C-propagator
                 ``∫ R κ² R`` integral when no closed form applies.
 
-                - ``'auto'`` (default) -- Gauss-Legendre with a node
+                - ``'auto'`` (default): Gauss-Legendre with a node
                   count refined from ``c_n_gauss`` until the rule is
                   converged at the table's extreme cells (falling back
                   to ``dblquad`` if it never is) for the package's own
                   kernel families; ``dblquad`` for any user callable.
-                - ``'gauss_legendre'`` -- tensor-product GL with a
+                - ``'gauss_legendre'``: tensor-product GL with a
                   diagonal-aware sub-region split and exactly
                   ``c_n_gauss`` nodes.  18-100× faster than dblquad on
                   piecewise-analytic κ²; accuracy at fixed node count
@@ -567,7 +567,7 @@ class System:
                   tool for non-smooth κ² (discontinuous, oscillatory
                   at high frequency, integrable singularities like
                   ``1/√t``).
-                - ``'dblquad'`` -- adaptive Gauss-Kronrod; robust on
+                - ``'dblquad'``: adaptive Gauss-Kronrod; robust on
                   any κ² but slow (10-250 ms / cell).
 
                 Ignored when a closed form is in use.  See
@@ -651,7 +651,7 @@ def _parse_observable(observable, system: System, _max_order: int = 1):
 
     Accepts:
 
-    - ``("phi_a(x)", "phi_b(y)")`` — string form; each string is
+    - ``("phi_a(x)", "phi_b(y)")``: string form; each string is
       ``name_component(spatial)``.
     - an iterable of ``FieldOperator`` objects (advanced).
 
@@ -674,7 +674,7 @@ def _parse_observable(observable, system: System, _max_order: int = 1):
             comp = m.group("comp")
             spatial = m.group("spatial")
             # The RESPONSE field is nameable too.  Without it the declarative
-            # API cannot express R(t, t') at all -- an observable needs a psi
+            # API cannot express R(t, t') at all: an observable needs a psi
             # leg, and only the physical field used to be accepted.
             if name == system.field.name:
                 field = phi

@@ -1,8 +1,8 @@
-"""``Expansion`` — diagram-level view of the perturbative expansion.
+"""``Expansion``: diagram-level view of the perturbative expansion.
 
-Everything a user wants to do between ``compute_moment`` and the final
-numeric result: inspect diagrams, classify by vertex composition,
-draw, render LaTeX, integrate point-by-point or as a sweep.
+Covers the steps between ``compute_moment`` and the final numeric
+result: inspect diagrams, classify by vertex composition, draw, render
+LaTeX, integrate point-by-point or as a sweep.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ def _guard_external_times(expansion, propagators, ext_times, label):
     # 2. A time past the propagator table's horizon silently CLAMPS to the
     #    table edge, which is indistinguishable from a correct answer.
     #    ``Propagators`` exposes only build/cache/homogeneity/is_lazy, so read
-    #    the horizon from the cache itself -- it is the object that clamps.
+    #    the horizon from the cache itself, which is the object that clamps.
     t_range = getattr(getattr(propagators, "cache", None),
                       "_c_table_range", None)
     t_max = t_range[1] if t_range else None
@@ -176,8 +176,8 @@ class Expansion:
           (demo2 FK channel) → ``"FK"``.
         - Pure-``K`` diagram → ``"K"``.
 
-        The label is a *set* of vertex types, not a multiset — this
-        matches demo2's classification convention.
+        The label is a *set* of vertex types, not a multiset, matching
+        demo2's classification convention.
         """
         groups: dict[str, list] = defaultdict(list)
         for dt in self.dts_by_order[order]:
@@ -250,7 +250,7 @@ class Expansion:
         Args:
             propagators: :class:`Propagators` from
                 :meth:`System.propagators`.
-            positions: ``{spatial_arg: x_value}`` mapping — e.g.
+            positions: ``{spatial_arg: x_value}`` mapping, e.g.
                 ``{"x": 0.0, "y": 0.5}``.
             t_final: upper time bound for external-time integration
                 (``lambda_f``).
@@ -263,7 +263,7 @@ class Expansion:
             orders: subset of the expansion's orders; ``None`` uses
                 all.
             vertex_types: subset of the vertex-composition labels
-                (e.g. ``{"F"}``, ``{"FK"}``) to include — labels
+                (e.g. ``{"F"}``, ``{"FK"}``) to include; labels
                 match :meth:`by_vertex_type` keys.  ``None`` ⇒ all.
                 Useful for computing a single channel, or for
                 skipping channels that require a bespoke
@@ -272,15 +272,15 @@ class Expansion:
             integrate_over: Controls which **external** points have
                 their time integrated.
 
-                - ``None`` (default — **physics observable**): all
+                - ``None`` (default, the **physics observable**): all
                   externals held fixed at ``t_final``.  Matches the
                   equal-time correlator ``⟨φ(t_f) · φ(t_f)⟩`` that
                   is compared to MC data and demo notebooks.
                 - ``"all"``: all externals integrated over
-                  ``[t_min, t_final]`` — the time-integrated moment
+                  ``[t_min, t_final]``, the time-integrated moment
                   ``⟨∫φ(t)dt · ∫φ(t')dt'⟩``.  Natural e.g. for
                   weak-lensing line-of-sight integrals.
-                - Iterable of external-point names: mixed — those
+                - Iterable of external-point names: mixed, where those
                   listed are integrated, others fixed.  E.g.
                   ``{"x"}`` for a source integrated along the line
                   of sight × a detector field at ``t_final``.
@@ -317,7 +317,7 @@ class Expansion:
 
             n_samples, seed: forwarded to the integrator (QMC only).
             n_gauss: nodes per dimension for ``method='gauss_legendre'``
-                (default 8 — exact for polynomials up to degree 15).
+                (default 8, exact for polynomials up to degree 15).
                 Cost scales as ``n_gauss^d`` per consistent order of
                 kinked time pairs; bump to 12-20 for stiff integrands
                 at large ``t_final``.
@@ -483,7 +483,7 @@ class Expansion:
                 ``(0, ..., 0)``.  A tuple of the wrong length, an index
                 outside ``0..N-1`` or a repeated tuple raises
                 ``ValueError``.
-            vertex_types: optional filter — same semantics as in
+            vertex_types: optional filter with the same semantics as in
                 :meth:`evaluate`; only diagrams whose
                 :meth:`_vertex_type_label` lies in this set are
                 integrated.  ``None`` ⇒ all channels.
@@ -491,7 +491,7 @@ class Expansion:
                 (``positions × t_final × external times × component
                 tuples``).
                 ``1`` (default) preserves the original sequential
-                behaviour — bit-identical when seed is fixed.
+                behaviour, bit-identical when seed is fixed.
                 ``-1`` uses all CPU cores via joblib loky.
             evaluate_n_jobs: parallelise over diagrams **inside** each
                 grid point's :meth:`evaluate` call.  Mutually
@@ -500,7 +500,7 @@ class Expansion:
                 set.  Use ``n_jobs > 1`` when the sweep grid is
                 large; use ``evaluate_n_jobs > 1`` when each grid
                 point has many diagrams (typical at orders >= 2).
-            method, n_samples, seed, n_gauss: integrator knobs --
+            method, n_samples, seed, n_gauss: integrator knobs;
                 see :meth:`evaluate` for the recommendation matrix
                 and :doc:`/user_guide/workflow` "Choosing an
                 integrator".  ``'gauss_legendre'`` with ``n_gauss=8``
@@ -584,8 +584,8 @@ class Expansion:
 
         # ``external_times_grid`` mirrors ``positions_grid``: one list per
         # external point, swept as a further Cartesian axis.  This is what
-        # makes two-time observables -- R(t, t') and C(t, t'), the DMFT order
-        # parameters -- reachable declaratively; with every external pinned at
+        # makes two-time observables (R(t, t') and C(t, t'), the DMFT order
+        # parameters) reachable declaratively; with every external pinned at
         # a single ``t_final``, Theta kills the R joining them and any
         # observable carrying an external response leg is identically 0.
         et_keys = list(external_times_grid.keys()) if external_times_grid else []
@@ -607,7 +607,7 @@ class Expansion:
             _check_axis(f"external_times_grid[{k!r}]", v)
 
         # The row dict is flat, so a column that coincides with another
-        # would silently OVERWRITE it -- e.g. an external named `final`
+        # would silently OVERWRITE it: an external named `final`
         # shadowing the sweep's own `t_final`, a spatial point literally
         # named `t_x`, or a spatial label `c` in a 3-point sweep, whose
         # third component column is `c`.
@@ -655,7 +655,7 @@ class Expansion:
         # silent mistake for anyone who expected a separation dependence.
         #
         # The question is "does this SWEEP cover more than one distinct
-        # configuration of external positions" -- which is knowable only here,
+        # configuration of external positions", which is knowable only here,
         # from the grid.  Asking it per grid point instead (does this one
         # point put its two externals at different places?) gets both halves
         # wrong: it says nothing about a sweep over a single position key, and
@@ -709,7 +709,7 @@ class Expansion:
         desc = f"sweep ({len(grid_tasks)} grid points x {n_diag} diagrams)"
         with progress_bar(len(grid_tasks) * n_diag, desc, unit="diagram") as tick:
             if int(n_jobs) == 1 or len(grid_tasks) <= 2:
-                # Sequential — bit-identical to the pre-refactor nested loops.
+                # Sequential: bit-identical to the pre-refactor nested loops.
                 results = [_eval_grid_point(t, tick) for t in grid_tasks]
             else:
                 from joblib import Parallel, delayed

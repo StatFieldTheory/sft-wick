@@ -12,7 +12,7 @@ Example::
     system = sw.System(
         field=sw.FieldSpec("phi", n_components=2),
         linear=sw.DiagonalA(gamma=[1.0, 1.0]),
-        # Pass the BARE F tensor — the wrapper applies the MSR
+        # Pass the BARE F tensor; the wrapper applies the MSR
         # factor (F_MSR = −i · F) automatically.
         vertices=[sw.LocalVertex("F", coupling=F)],
         noise=sw.GaussianNoise(kappa2=sw.SeparableTranslation(

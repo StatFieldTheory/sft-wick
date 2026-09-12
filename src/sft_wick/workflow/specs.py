@@ -64,11 +64,11 @@ class FieldSpec:
 # the resulting objects can be serialised with the standard protocol.
 # This is required for:
 #
-# 1. ``Propagators.cache_path`` -- ``joblib.dump`` uses the standard
+# 1. ``Propagators.cache_path``: ``joblib.dump`` uses the standard
 #    serialisation protocol and cannot persist local functions or
 #    closures defined inside another function body.
 # 2. ``loky`` (joblib's parallel backend) when distributing tasks across
-#    worker processes -- cloudpickle is more forgiving, but module-level
+#    worker processes.  cloudpickle is more forgiving, but module-level
 #    classes work everywhere.
 #
 # Each class stores its parameters as instance attributes and implements
@@ -156,7 +156,7 @@ class _SeparableTranslationKappa2:
         self.spatial = spatial
         self._n = int(n_components)
 
-    #: ``κ²(1, 2) = κ_t(t1 − t2) · κ_x(r)`` -- the L0 lazy cache uses this to
+    #: ``κ²(1, 2) = κ_t(t1 − t2) · κ_x(r)``; the L0 lazy cache uses this to
     #: build one temporal table and scale it by ``κ_x(r)`` per separation.
     separable_translation: bool = True
 
@@ -238,9 +238,9 @@ class _MSRWrappedCoupling:
     ``factor * np.asarray(bare(*args, **kwargs))``.
 
     Replaces the ``_wrapped`` closure that
-    :attr:`NonLocalVertex.msr_coupling` used to return -- a closure
-    cannot be persisted via the standard serialisation protocol, but
-    a module-level class with explicit attributes can.
+    :attr:`NonLocalVertex.msr_coupling` used to return.  A closure
+    cannot be persisted via the standard serialisation protocol; a
+    module-level class with explicit attributes can.
 
     The ``vectorized`` attribute is the channel through which
     :class:`NonLocalVertex(coupling_vectorized=True)` reaches
@@ -271,7 +271,7 @@ class _MSRWrappedCoupling:
 
 @dataclass(frozen=True)
 class LinearOp:
-    """Base class — do not instantiate.  See subclasses."""
+    """Base class.  Do not instantiate; see subclasses."""
 
     def build_R_callable(self) -> Callable:
         """Return an ``R_time(t1, t2) -> float | (N, N)`` callable
@@ -309,8 +309,8 @@ class DiagonalA(LinearOp):
         ``γ(t) = 1 + 0.5 sin t`` at the default grid (``h = 0.50``) R is
         4e-4 off, at ``h = 0.12`` 1e-6.  The build costs
         ``n_grid_cache`` calls to ``γ(t)``.  For the
-        full-matrix (non-diagonal) time-dependent case — which
-        requires a time-ordered matrix exponential — use
+        full-matrix (non-diagonal) time-dependent case, which
+        requires a time-ordered matrix exponential, use
         :class:`ExplicitR` with your own R callable.
 
     Args:
@@ -439,7 +439,7 @@ class ExponentialTemporal:
 
     lam: float
     sigma_t: float
-    #: Even in ``Δt`` -- lets the propagator-table builders fill the
+    #: Even in ``Δt``, which lets the propagator-table builders fill the
     #: ``(t1, t2)`` grid from its upper triangle.
     is_even: bool = True
     #: ``|Δt|`` gives a derivative jump at ``Δt = 0``; the dblquad path
@@ -488,7 +488,7 @@ class LegendreAngular:
     """Angular kernel on the sphere: ``κ²_x(cos θ) = Σ_ℓ C_ℓ P_ℓ(cos θ)``.
 
     Args:
-        coeffs: ``[C_0, C_1, …, C_L]`` — ℓ-th entry is the Legendre
+        coeffs: ``[C_0, C_1, …, C_L]``; the ℓ-th entry is the Legendre
             coefficient for order ℓ.
     """
 
@@ -509,7 +509,7 @@ class CustomKernel:
        **Pass a callable OBJECT, not a bare function, if you use
        ``cache_path``.**  The expansion and propagator cache keys are
        built from ``repr()`` of the spec, and ``repr()`` of a plain
-       function embeds its memory address — so the key changes every
+       function embeds its memory address, so the key changes every
        process and the cache never hits.  A module-level ``def`` is
        affected exactly as much as a ``lambda``; what fixes it is a
        small frozen dataclass with ``__call__``, whose ``repr`` is its
@@ -526,7 +526,7 @@ class CustomKernel:
        ``repr`` can only cause a cache MISS, never a wrong hit.  The
        same applies to :class:`GeneralKappa2`, :class:`CustomImpulse`,
        :class:`ExplicitR` and a callable :attr:`DiagonalA.gamma`.
-       **Vertex couplings are unaffected** — they never enter the key,
+       **Vertex couplings are unaffected**: they never enter the key,
        because the symbolic enumeration does not depend on coupling
        values.  A frozen dataclass also pickles cleanly for joblib, so
        it is the better choice under ``n_jobs > 1`` regardless.
@@ -545,7 +545,7 @@ class CustomKernel:
 
 @dataclass(frozen=True)
 class Kappa2:
-    """Base class — do not instantiate.  See subclasses."""
+    """Base class.  Do not instantiate; see subclasses."""
 
     def build_callable(self, n_components: int) -> Callable:
         """Lower to a ``kappa2(n1, t1, n2, t2) -> (N, N)`` callable."""
@@ -637,7 +637,7 @@ class GeneralKappa2(Kappa2):
 
 @dataclass(frozen=True)
 class Sigma2:
-    """Base — white-noise ``δ(t1 − t2)·σ²(t; n1, n2)`` component."""
+    """Base class for the white-noise ``δ(t1 − t2)·σ²(t; n1, n2)`` term."""
 
     def build_callable(self, n_components: int) -> Callable:
         """Lower to a ``sigma2(n1, t, n2) -> (N, N)`` callable."""
@@ -841,7 +841,7 @@ class MultiplicativeImpulse(Sigma2):
         object.__setattr__(self, "vertex_names", vnames)
         object.__setattr__(self, "drift_names", dnames)
 
-    # -- the noise covariance D(φ) = g(φ) g(φ)ᵀ ---------------------------
+    # The noise covariance D(φ) = g(φ) g(φ)ᵀ -----------------------------
 
     @property
     def g0_array(self) -> np.ndarray:
@@ -944,7 +944,7 @@ class LocalVertex:
     Args:
         name: symbolic coupling name (e.g. ``"F"``).  Must be unique
             per system (used as a dict key in ``coupling_values``).
-        coupling: the **bare** ``F^(n)`` — the coefficient as it
+        coupling: the **bare** ``F^(n)``, the coefficient as it
             appears in the deterministic equation of motion
             (``dφ_a/dt = … + F^(n)_{a b_1 … b_{n−1}} φ_{b_1} … φ_{b_{n−1}}
             + …``).  Either a tensor of shape ``(N,)*n`` whose first
@@ -968,12 +968,12 @@ class LocalVertex:
 
     Notes:
         Use :attr:`msr_coupling` to retrieve the MSR-factor-applied
-        tensor (or wrapped callable) — that is what is forwarded to the
+        tensor (or wrapped callable), which is what is forwarded to the
         raw ``compute_moment`` / ``DiagramTerm.evaluate_coupling`` layer.
     """
 
     name: str
-    coupling: Any  # np.ndarray or callable — bare F^(n)
+    coupling: Any  # np.ndarray or callable; bare F^(n)
     rank: int | None = None
     coupling_vectorized: bool = False
 
@@ -1029,7 +1029,7 @@ class NonLocalVertex:
     Args:
         name: symbolic coupling name (e.g. ``"K"``).
         order: ``m``, the number of ψ legs (= rank of κ^(m)).
-        coupling: the **bare** ``κ^(m)`` tensor — either a numeric
+        coupling: the **bare** ``κ^(m)`` tensor: either a numeric
             tensor of shape ``(N,)*m`` (when κ^(m) is
             spacetime-independent) or a callable with signature
             ``fn(n_list, t_list) -> np.ndarray(shape=(N,)*m)`` where
@@ -1064,9 +1064,9 @@ class NonLocalVertex:
             See the user guide, *Declaring kinks*.
         coupling_vectorized: only meaningful when ``coupling`` is a
             callable. ``False`` (default) signals the per-sample
-            contract -- the workflow calls ``fn`` with 1-D length-m
-            ``n_list`` / ``t_list`` once per QMC sample. ``True``
-            signals the batched contract -- the workflow calls
+            contract, in which the workflow calls ``fn`` with 1-D
+            length-m ``n_list`` / ``t_list`` once per QMC sample. ``True``
+            signals the batched contract, in which the workflow calls
             ``fn`` with shape ``(m, n_samples)`` ``n_list`` /
             ``t_list`` once per integrand and expects an output of
             shape ``(n_samples,) + (N,)*m``. Use the batched form
@@ -1087,13 +1087,13 @@ class NonLocalVertex:
         =====  =========  =====================
 
         Use :attr:`msr_coupling` to retrieve the MSR-factor-applied
-        tensor or callable — that is what is forwarded to the raw
+        tensor or callable, which is what is forwarded to the raw
         coupling-values dict.
     """
 
     name: str
     order: int
-    coupling: Any  # np.ndarray or callable — bare κ^(m)
+    coupling: Any  # np.ndarray or callable; bare κ^(m)
     coupling_vectorized: bool = False
     equal_time: bool = False
     # When True, the m time legs of this vertex share a SINGLE
@@ -1152,7 +1152,7 @@ class NonLocalVertex:
         """Bare κ^(m) multiplied by :attr:`msr_factor`.
 
         If ``coupling`` is a callable, returns a wrapped callable
-        that applies the factor at evaluation time — preserving the
+        that applies the factor at evaluation time, preserving the
         original signature.
         """
         factor = self.msr_factor

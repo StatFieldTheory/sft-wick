@@ -16,9 +16,8 @@ translate the resulting positions to their own coordinate
 conventions.
 
 The function accepts a ``manual_positions`` map so users can pin
-arbitrary nodes — particularly useful when the spring layout
-produces an aesthetically poor result and the user wants full
-control.
+arbitrary nodes, for instance when the spring layout produces an
+aesthetically poor result and the user wants full control.
 """
 
 from __future__ import annotations
@@ -77,7 +76,7 @@ def compute_layout(
                 pinned.add(node_id)
 
     # ------------------------------------------------------------------
-    # External nodes — circle / mirrored pair
+    # External nodes: circle / mirrored pair
     # ------------------------------------------------------------------
     n_ext = len(ext)
     free_ext = [n for n in ext if n not in pinned]
@@ -163,8 +162,8 @@ def compute_layout(
 
     # ------------------------------------------------------------------
     # Normalise the bounding box so every diagram has a comparable
-    # visual extent.  Skipped whenever the caller pinned any node —
-    # rescaling would move pins away from their intended coordinates.
+    # visual extent.  Skipped whenever the caller pinned any node,
+    # since rescaling would move pins from their intended coordinates.
     # ------------------------------------------------------------------
     if params.normalize_bbox and pos and not pinned:
         _normalize_bbox(pos, params.target_extent)
@@ -194,7 +193,7 @@ def _normalize_bbox(
     target_half_h = target_extent[1] / 2.0
 
     if half_w < 1e-8 and half_h < 1e-8:
-        # All nodes coincident — nothing meaningful to scale.
+        # All nodes coincident: nothing meaningful to scale.
         return
     if half_w < 1e-8:
         scale = target_half_h / half_h
