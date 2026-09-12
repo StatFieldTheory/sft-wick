@@ -321,7 +321,9 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "at a fixed time is cut, not paired: the variable's range is cut "
         "at that time, the cut is carried to the variables ordered "
         "against it and to the parents whose min() bound it enters, and "
-        "no cut is made when every external sits at one time",
+        "no cut is made when every external sits at one time; an external "
+        "swept by integrate_over pairs like an integration variable "
+        "instead, and two swept ones are not a pair",
         "exact Itô moment hierarchy, transported over the lag between "
         "the two external times", "exact / 1e-11"),
     "tests/test_demo4_asymmetric_noise.py": (
