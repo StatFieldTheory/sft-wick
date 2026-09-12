@@ -1,11 +1,11 @@
 # Diagram sources
 
-* `level_b_FK3_*.tex` -- the 2 order-2 F.kappa^(3) diagrams that
+* `level_b_FK3_*.tex`: the 2 order-2 F.kappa^(3) diagrams that
   give the leading non-Gaussian signal in xi_01.
-* `level_a_kappa3_*.tex` -- the level-A diagram (0 rendered).
+* `level_a_kappa3_*.tex`: the level-A diagram (0 rendered).
   On the base commit ac7f201 the 3-point / order-1 / K3-only
   expansion hits a UID collision inside `to_feynman_diagram`, so
-  the drawing is unavailable there. It affects rendering ONLY --
+  the drawing is unavailable there. It affects rendering only;
   the level-A numbers agree with the closed form to 1e-16.
 
 Each has a `_standalone` twin that compiles on its own.

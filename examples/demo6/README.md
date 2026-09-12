@@ -1,4 +1,4 @@
-# Demo 6 — repeated and static non-local vertices, cubic and quartic drift
+# Demo 6: repeated and static non-local vertices, cubic and quartic drift
 
 Five structures the package supports and no test had evaluated: two copies
 of one non-local vertex in a diagram, a static (ndarray) non-local coupling,
@@ -47,8 +47,8 @@ with the package:
   vertex species has its own tag, so a tag is exactly one channel of the
   package.  Observation times may differ: the variables of a point are
   frozen after its time, and the intervals are solved one after another
-  (`solve_multitime`, which works for any `PolySDE` — demo 4's hierarchy
-  included);
+  (`solve_multitime`, which works for any `PolySDE`, including demo 4's
+  hierarchy);
 - **Campbell's theorem** for parts D and F, through demo 4's
   `poisson_noise.py`.
 
@@ -71,7 +71,7 @@ Demo 4 gains one script from the same work,
 Worst relative difference over the component tuples; the results files hold
 every row.
 
-### Part A — two copies of one vertex (`repeated_results.json`)
+### Part A: two copies of one vertex (`repeated_results.json`)
 
 The order-2 six-point function at six distinct points and six distinct
 times, against the closed form (the ten splits) and the hierarchy.
@@ -93,7 +93,7 @@ there the ten contractions were merged into one diagram carrying the time
 structure of the first, 40.4 % and 26.1 % off at these times (fixed in this
 branch; see `tests/test_equal_time_nonlocal.py`).
 
-### Part B — static cumulants with `F ≠ 0` (`interacting_results.json`)
+### Part B: static cumulants with `F ≠ 0` (`interacting_results.json`)
 
 Against the hierarchy at the tag with the same vertices, at distinct points
 and times (three component pairs; five component tuples for the five-point
@@ -122,7 +122,7 @@ parents that include fixed external points, the kink that is cut since
 2026-09-12 (it was 5.5e-02 on the same route before the cut, and QMC was
 the route for it).
 
-### Part E — demo 4 at order 4 (`examples/demo4/level_b_order4_results.json`)
+### Part E: demo 4 at order 4 (`examples/demo4/level_b_order4_results.json`)
 
 `F³κ³` of `⟨φ_a(x) φ_b(y)⟩`, 30 diagrams, against demo 4's hierarchy at tag
 `F³ μ¹`, all four component pairs:
@@ -132,7 +132,7 @@ the route for it).
 | white | raw `equal_time` κ³ | 12 | 7.5e-16 | 8: 3.5e-12, 12: 3.8e-16 |
 | exponential | R-contracted `K_R` | 24 | 2.2e-09 | 12: 1.0e-07, 16: 1.9e-08, 24: 1.8e-09, 32: 3.4e-10 |
 
-### Part C — a quartic and a cubic local vertex (`cubic_results.json`)
+### Part C: a quartic and a cubic local vertex (`cubic_results.json`)
 
 Channel by channel against the hierarchy with a cubic drift term.
 `⟨φ_a⟩` has one external point, so its channels have no external time to
@@ -157,7 +157,7 @@ have 68 and 44 diagrams and take the cheaper settings):
 ("before the cut" is the same run before the domain was cut at a kink
 against a fixed external time; see "Limits, measured" below.)
 
-### Part D — `m = 4` and `m = 5` on every route (`high_cumulants_results.json`)
+### Part D: `m = 4` and `m = 5` on every route (`high_cumulants_results.json`)
 
 Level A (`F = 0`): the connected `m`-point function, every component tuple
 (16 at `m = 4`, 32 at `m = 5`) where the route is cheap, four otherwise.
@@ -166,14 +166,14 @@ demo 4's compound-Poisson noise against Campbell's closed form:
 | m | pulses | route | equal times | distinct times |
 |---|---|---|---|---|
 | 4 | white | R-contracted | 5.4e-16 | 6.6e-16 |
-| 4 | white | raw (`equal_time`), GL 16 | 1.0e-15 | — |
+| 4 | white | raw (`equal_time`), GL 16 | 1.0e-15 | |
 | 4 | exponential | R-contracted | 2.2e-14 | 7.5e-15 |
-| 4 | exponential | raw, `qmc_vectorized` 2¹⁸ | 2.5e-05 | — |
-| 4 | exponential | raw, Gauss-Legendre 16 | 1.2e-01 | — |
+| 4 | exponential | raw, `qmc_vectorized` 2¹⁸ | 2.5e-05 | |
+| 4 | exponential | raw, Gauss-Legendre 16 | 1.2e-01 | |
 | 5 | white | R-contracted | 2.5e-15 | 2.8e-15 |
-| 5 | white | raw (`equal_time`), GL 16 | 3.6e-15 | — |
+| 5 | white | raw (`equal_time`), GL 16 | 3.6e-15 | |
 | 5 | exponential | R-contracted | 8.8e-13 | 3.4e-14 |
-| 5 | exponential | raw, `qmc_vectorized` 2¹⁸ | 1.7e-03 | — |
+| 5 | exponential | raw, `qmc_vectorized` 2¹⁸ | 1.7e-03 | |
 
 demo 4's hierarchy reproduces Campbell's closed form to 1.9e-13 at equal
 times and 3.2e-14 at distinct ones (the latter through the frozen-variable
@@ -191,7 +191,7 @@ form:
 
 demo 6's hierarchy reproduces the same closed form to 1.3e-15.
 
-### Part F — the `m = 2` vertex (`gaussian_vertex_results.json`)
+### Part F: the `m = 2` vertex (`gaussian_vertex_results.json`)
 
 Order 1, which must equal the C of that noise exactly, at distinct points
 and distinct times:
@@ -202,15 +202,15 @@ and distinct times:
 | static `X2`, white `W2` | `nquad` | 0.8, 1.3 | 2.9e-16 |
 | static `X2`, white `W2` | `qmc_vectorized` 2¹⁴ | 1.05, 1.05 | 5.8e-09 |
 | static `X2`, white `W2` | `qmc_scalar`, `qmc` 2¹⁴ | 0.8, 1.3 | 1.6e-08 |
-| demo 4, R-contracted (white, exponential) | Gauss-Legendre 16 | — | 0.0 |
-| demo 4, raw (white, `equal_time`) | Gauss-Legendre 16 | — | 2.0e-16 |
-| demo 4, raw (exponential) | Gauss-Legendre 32 / `qmc_vectorized` 2¹⁶ | — | 2.4e-15 / 4.4e-06 |
+| demo 4, R-contracted (white, exponential) | Gauss-Legendre 16 | | 0.0 |
+| demo 4, raw (white, `equal_time`) | Gauss-Legendre 16 | | 2.0e-16 |
+| demo 4, raw (exponential) | Gauss-Legendre 32 / `qmc_vectorized` 2¹⁶ | | 2.4e-15 / 4.4e-06 |
 
 With `F ≠ 0`, against the hierarchy's tags:
 
 | channel | times | route | worst |
 |---|---|---|---|
-| `F K2`, `F W2` in `⟨φ_a⟩` | — | Gauss-Legendre 12 | 7.5e-16 |
+| `F K2`, `F W2` in `⟨φ_a⟩` | | Gauss-Legendre 12 | 7.5e-16 |
 | `F F K2`, `F F W2` in `⟨φ_a φ_b⟩` | equal | Gauss-Legendre 12 | 7.0e-16 |
 | `F F K2`, `F F W2` in `⟨φ_a φ_b⟩` | distinct | Gauss-Legendre 16 | 5.6e-16 |
 | `F F K2`, `F F W2` in `⟨φ_a φ_b⟩` | distinct | `qmc_vectorized` 2¹⁸ | 1.4e-07 |

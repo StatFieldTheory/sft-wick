@@ -11,7 +11,7 @@
 
 > 📖 **Documentation (API reference · user guide · theory background): <https://sft-wick.readthedocs.io>**
 
-`sft-wick` automates perturbative calculations for **stochastic (partial) differential equations** in the Martin–Siggia–Rose (MSR) response-field formalism. Starting from a Langevin-type field equation — a deterministic drift plus noise that may be non-Gaussian and spatially correlated — it builds the interaction action, applies **Wick's theorem** to expand arbitrary field moments order by order, and writes every term using just two two-point propagators: the correlation function *C* = ⟨φφ⟩ and the response (Green's) function *R* = ⟨φψ⟩. Diagrams are enumerated symbolically, rendered as Feynman graphs, and evaluated numerically — end to end, from a YAML config to theory-vs-simulation curves. For **self-consistent** (DMFT-style) problems, where the propagators define a self-energy that in turn defines the propagators, `solve_self_consistency` supplies the fixed-point iteration and its diagnostics.
+`sft-wick` automates perturbative calculations for **stochastic (partial) differential equations** in the Martin–Siggia–Rose (MSR) response-field formalism. The input is a Langevin-type field equation: a deterministic drift plus noise that may be non-Gaussian and spatially correlated. From it the package builds the interaction action, applies **Wick's theorem** to expand arbitrary field moments order by order, and writes every term using two two-point propagators, the correlation function *C* = ⟨φφ⟩ and the response (Green's) function *R* = ⟨φψ⟩. Diagrams are enumerated symbolically, rendered as Feynman graphs, and evaluated numerically, from a YAML config to theory-vs-simulation curves. For **self-consistent** (DMFT-style) problems, where the propagators define a self-energy that in turn defines the propagators, `solve_self_consistency` supplies the fixed-point iteration and its diagnostics.
 
 ## Installation
 
@@ -36,22 +36,22 @@ sft-wick run config.yaml         # execute a full YAML-configured workflow
 sft-wick run config.yaml --override sweep.seed=7 --dry-run
 ```
 
-## Three-layer API — start with L2
+## Three-layer API: start with L2
 
 `sft-wick` exposes three progressively higher-level entry points.
 **The recommended entry point for any new analysis is L2: write a
 YAML config, run it with the CLI, iterate.**  Drop down only when
-the physics genuinely requires Python-level control.
+the physics requires Python-level control.
 
 | Layer | Entry point | Use when |
 |---|---|---|
-| **L2 — YAML + CLI** ✨ | `sft-wick run config.yaml` | **Default choice.** Reproducible, shareable, diff-able; no Python code at the call site; runs identically on a laptop or a cluster; `--override` lets you scan parameters from the shell. |
-| **L1 — Python workflow** | `System`, `Expansion`, `Propagators`, `SweepResult` | You need to script custom pre/post-processing around the sweep, or compose multiple systems programmatically. |
-| **L0 — raw symbolic** | `compute_moment`, `Field`, `Vertex`, `Action`, `PropagatorCache`, `DiagramIntegrand` | You need fine-grained control over pairings, Itô flags, canonical forms, or custom simplifications. Research into the symbolic machinery. |
+| **L2: YAML + CLI** ✨ | `sft-wick run config.yaml` | **Default choice.** Reproducible, shareable, diff-able; no Python code at the call site; runs identically on a laptop or a cluster; `--override` lets you scan parameters from the shell. |
+| **L1: Python workflow** | `System`, `Expansion`, `Propagators`, `SweepResult` | You need to script custom pre/post-processing around the sweep, or compose multiple systems programmatically. |
+| **L0: raw symbolic** | `compute_moment`, `Field`, `Vertex`, `Action`, `PropagatorCache`, `DiagramIntegrand` | You need fine-grained control over pairings, Itô flags, canonical forms, or custom simplifications. Research into the symbolic machinery. |
 
 The Sphinx docs' "Workflow API" chapter (`docs/user_guide/workflow.rst`) covers L1/L2 end-to-end; the L0 reference below is the complete specification of the underlying symbolic machinery.
 
-## Quick Start — L2 (config file)
+## Quick Start: L2 (config file)
 
 One command writes a small config to the current directory and runs it
 (a few seconds on a laptop, with a progress bar):
@@ -121,10 +121,10 @@ run.  Measured wall-clock, serial, `pip install sft-wick` with no extras:
 |---|---|---|---|---|
 | `sft-wick quickstart` | 2 s | 10 s | 6 s | orders 0–2, 12 grid points, 4096 samples |
 | `examples/demo1_config.yaml` | 50 s | 5.2 min | 1.5 min | orders 0–4 (71 diagrams), 16 grid points, 8192 samples |
-| `examples/demo1/L2/config.yaml` (paper figures) | ~15 min (28 workers) | — | — | 672 grid points × 71 diagrams, `method: gauss_legendre` with `n_gauss: 24`, `sweep.n_jobs: -1` |
-| `examples/demo2/L2/*.yaml` (κ⁽³⁾ figures) | 39 s (28 workers) | — | — | FF (QMC) + FK (R-contracted κ⁽³⁾, 1-D Gauss-Legendre), `sweep.n_jobs: -1` |
-| `examples/demo3/config_FK.yaml` | 0.6 s | — | — | order-2 `Fκ³` channel (2 diagrams), 5 separations × 6 times |
-| `examples/demo3/config_F3K.yaml` | 178 s (cold, `sweep.n_jobs: -1`) | — | — | the order-4 `F³κ³ + F³κ⁵` channels (36 diagrams, 3 times); 143 s of that is the one-off order-4 enumeration, cached afterwards |
+| `examples/demo1/L2/config.yaml` (paper figures) | ~15 min (28 workers) | | | 672 grid points × 71 diagrams, `method: gauss_legendre` with `n_gauss: 24`, `sweep.n_jobs: -1` |
+| `examples/demo2/L2/*.yaml` (κ⁽³⁾ figures) | 39 s (28 workers) | | | FF (QMC) + FK (R-contracted κ⁽³⁾, 1-D Gauss-Legendre), `sweep.n_jobs: -1` |
+| `examples/demo3/config_FK.yaml` | 0.6 s | | | order-2 `Fκ³` channel (2 diagrams), 5 separations × 6 times |
+| `examples/demo3/config_F3K.yaml` | 178 s (cold, `sweep.n_jobs: -1`) | | | the order-4 `F³κ³ + F³κ⁵` channels (36 diagrams, 3 times); 143 s of that is the one-off order-4 enumeration, cached afterwards |
 
 ¹ the same machine throttled with `taskpolicy -c background` and
 `OMP_NUM_THREADS=1`; a 2023 MacBook Pro should be within a factor of two.
@@ -134,7 +134,7 @@ run.  Measured wall-clock, serial, `pip install sft-wick` with no extras:
 What drives the cost, in order: `expand.orders` (1 / 6 / 64 diagrams at
 orders 0 / 2 / 4 for the cubic vertex), the number of grid points
 (`sweep.positions_grid` × `t_final_grid` × `component_pairs`),
-`sweep.n_samples` per diagram, and — only when no closed form applies —
+`sweep.n_samples` per diagram, and, only when no closed form applies,
 `propagators.n_grid_t²` quadrature calls for the C table.  The exponential-
 temporal kernel family gets a built-in closed form
 (`propagators.c_closed_form: auto`), so its C table costs nothing.  That
@@ -145,10 +145,9 @@ Kernels with neither are integrated by
 Gauss-Legendre with a node count checked for convergence at the table's
 extreme cells (`c_method: auto`).
 
-## Quick Start — L1 (Python, for programmatic use)
+## Quick Start: L1 (Python, for programmatic use)
 
-The exact same workflow above, written directly in Python when you
-need to integrate it into a larger script:
+The same workflow in Python, for use inside a larger script:
 
 ```python
 import numpy as np
@@ -201,7 +200,7 @@ print(result.order(0).to_latex())
 
 Some problems are a **fixed point**: propagators define a self-energy, the
 self-energy defines new propagators, repeat. `solve_self_consistency` runs
-that loop, mixes, and reports what actually happened.
+that loop, mixes, and reports what the loop did.
 
 ```python
 from sft_wick import solve_self_consistency
@@ -216,17 +215,16 @@ if not result:                       # bool(result) is result.converged
 R, C = result.state
 ```
 
-The **Dyson solve is deliberately not provided**: it is model-specific and is
-genuinely an integral-equation solve rather than a diagram evaluation, so a
-wrong general one would be worse than none.
+The **Dyson solve is not provided**: it is model-specific, and it is an
+integral-equation solve rather than a diagram evaluation.
 
-The result is never a bare state, because a non-converged iteration looks
-exactly like a converged one if you only print the last state. It carries
-`converged`, the full residual history, and a `reason` — `converged`,
-`diverged`, `oscillating` (use damping) or `max_iter`. See
+The result is not a bare state: a non-converged iteration looks like a
+converged one if you print only the last state. It carries `converged`, the
+full residual history, and a `reason`: `converged`, `diverged`,
+`oscillating` (use damping) or `max_iter`. See
 [the API page](https://sft-wick.readthedocs.io/en/latest/api/selfconsistency.html)
-for the four specific ways a fixed-point loop can report a solution it never
-found, and what this one does about each.
+for the four ways a fixed-point loop can report a solution it never found,
+and what this one does about each.
 
 ## Background
 
@@ -499,20 +497,19 @@ expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0, 2])
 expansion.evaluate(props, positions={"x": 0.0, "y": 0.0}, ...)
 ```
 
-Coincident external *points* are, and always were, fully supported — it
-is the shared *label* that is not.  The spatial contraction is keyed by
-label, so two operators sharing one were collapsed without their
-distinct component-index routings, giving a silently wrong answer:
-measured on demo 2's system, the order-2 `F` channel was low by a factor
-2 while its `FK` channel was exactly right.  The 0.4.0 entry in
-`CHANGELOG.md` explains why the spelling is refused rather than repaired
-with a multiplicity factor.
+Coincident external *points* are supported; the shared *label* is not.
+The spatial contraction is keyed by label, so two operators sharing one
+were collapsed without their distinct component-index routings, giving a
+silently wrong answer: measured on demo 2's system, the order-2 `F`
+channel was low by a factor 2 while its `FK` channel was right.  The
+0.4.0 entry in `CHANGELOG.md` says why the spelling is refused rather
+than repaired with a multiplicity factor.
 
 ### Itô prescription (`ito=True`, default)
 
 By default, the Itô discretisation convention Θ(0)=0 is applied:
 
-- **Equal-point R vanishes**: R(x,x) = 0 — eliminates self-response contractions and intra-vertex tadpoles in local vertices.
+- **Equal-point R vanishes**: R(x,x) = 0, which eliminates self-response contractions and intra-vertex tadpoles in local vertices.
 - **Causal R-loops vanish**: Any closed loop of response propagators R(a,b)R(b,c)...R(z,a) = 0, since this would require a cyclic time ordering t\_a > t\_b > ... > t\_a, which is impossible for the retarded propagator.
 
 Pass `ito=False` to keep these terms symbolic.  The numerical layer
@@ -521,8 +518,8 @@ local vertex with one ψ leg that is exact: the equal-point term and the
 Stratonovich functional Jacobian cancel, and sft-wick emits neither, so the
 number is the `ito=True` one.  On a local vertex with two or more ψ legs (a
 φ-dependent noise covariance) or between two external operators, the Itô and
-Stratonovich values differ and the numerical layer raises rather than return
-the Itô value under another name.
+Stratonovich values differ, and the numerical layer raises instead of
+returning the Itô value.
 
 A Stratonovich SDE is computed in its Itô form.  At L1,
 `GaussianNoise(sigma2=MultiplicativeImpulse(g0, g1, interpretation=...))`
@@ -540,7 +537,7 @@ Pass `response_phase=False` to get raw R propagators without the phase factor.
 
 ### Diagram-based term collection (`collect_topology=True`, default)
 
-Terms whose Feynman diagrams are isomorphic — under relabeling of dummy integration variables and accounting for C propagator symmetry C(x,y) = C(y,x) — are grouped together. The algorithm computes a canonical graph form for each term by trying all permutations of internal spatial variables. Propagators are factored out with canonical component indices, and coupling coefficients are summed with appropriately permuted indices to produce expressions like (F\_{ijk} + F\_{ikj}) R C.
+Terms whose Feynman diagrams are isomorphic are grouped together, under relabeling of dummy integration variables and accounting for C propagator symmetry C(x,y) = C(y,x). The algorithm computes a canonical graph form for each term by trying all permutations of internal spatial variables. Propagators are factored out with canonical component indices, and coupling coefficients are summed with appropriately permuted indices to produce expressions like (F\_{ijk} + F\_{ikj}) R C.
 
 At second order and above, spatial-variable relabeling (e.g. y\_0 ↔ y\_1 for two copies of the same vertex) merges additional equivalent pairings.
 
@@ -551,7 +548,7 @@ Pass `collect_topology=False` to keep all pairings expanded individually.
 - **No SymPy dependency**: Uses a custom lightweight expression tree with `fractions.Fraction` for exact rational arithmetic.
 - **Frozen dataclasses**: All expression types are immutable and hashable, safe for use in sets and dicts.
 - **Unique operator IDs**: Each `FieldOperator` carries a unique integer ID, so that two copies of φ\_a(x) in the same product are properly distinguished during contraction.
-- **Optimized contraction**: Two engines are available. The operator-level engine (`generate_valid_pairings`) skips ψ-ψ pairings at construction time. The spatial-level engine (`wick_contract_spatial`, used by default when `collect_topology=True`) enumerates spatial topologies instead of operator-level pairings, computing a multiplicity for each — this avoids the combinatorial explosion from component-index routing and provides orders-of-magnitude speedup at high perturbative orders.
+- **Optimized contraction**: Two engines are available. The operator-level engine (`generate_valid_pairings`) skips ψ-ψ pairings at construction time. The spatial-level engine (`wick_contract_spatial`, used by default when `collect_topology=True`) enumerates spatial topologies instead of operator-level pairings, computing a multiplicity for each. This avoids the combinatorial explosion from component-index routing and is orders of magnitude faster at high perturbative orders.
 - **Feynman diagrams**: Built on `networkx.MultiGraph` (supporting multiple edges between the same pair of nodes) with `matplotlib` rendering.
 
 ## Performance
@@ -598,15 +595,15 @@ tolerance are listed in the generated validation catalogue,
 `docs/verification/catalog.rst` (`python tools/gen_test_catalog.py`).
 The core is organised into eight deductive phases:
 
-1. Phase 1 — Symbolic expansion (`test_deductive_expansion.py`)
-2. Phase 2 — Propagator numerics (`test_deductive_numerics.py::TestClosedFormC` etc.)
-3. Phase 3 — Full diagram evaluation
-4. Phase 4 — Alternative-path consistency (vectorised, parallel, nauty)
-5. Phase 5 — Spatial homogeneity modes (translation / rotation / general)
-6. Phase 6 — White-noise component
-7. Phase 7 — Dynamic non-local coupling + L1/L2 workflow round-trip
+1. Phase 1: Symbolic expansion (`test_deductive_expansion.py`)
+2. Phase 2: Propagator numerics (`test_deductive_numerics.py::TestClosedFormC` etc.)
+3. Phase 3: Full diagram evaluation
+4. Phase 4: Alternative-path consistency (vectorised, parallel, nauty)
+5. Phase 5: Spatial homogeneity modes (translation / rotation / general)
+6. Phase 6: White-noise component
+7. Phase 7: Dynamic non-local coupling + L1/L2 workflow round-trip
    (`test_workflow.py`, `test_workflow_config.py`)
-8. Phase 8 — Time-dependent linear operator (`test_diagonal_A_time_dependent.py`)
+8. Phase 8: Time-dependent linear operator (`test_diagonal_A_time_dependent.py`)
 
 See `docs/verification/index.rst` for the per-phase test matrix, tolerances, and design rationale.
 
@@ -615,28 +612,28 @@ See `docs/verification/index.rst` for the per-phase test matrix, tolerances, and
 | Path | Contents |
 |------|----------|
 | `src/sft_wick/` | Package source: diagram enumeration, propagators, numerical evaluation, drawing, and the `workflow/` high-level API + CLI |
-| `examples/` | Worked examples — `demo1/` (Gaussian noise), `demo2/` (non-Gaussian, non-zero κ³), `demo3/` (filtered Poisson shot noise), `demo4/` (compound-Poisson noise asymmetric in points and components), `demo5/` (white noise on every integrator; multiplicative noise at L0 and L1, Itô and Stratonovich), `demo6/` (repeated and static non-local vertices, cubic plus quartic drift), `demo7/` (observables in space, angle and time), `demo8/` (time-dependent coefficients and non-exponential dynamics), `reference/` (`ito_moments.py`, the exact Itô moment hierarchy demos 4-8 are checked against; `hormander_moments.py`, the same hierarchy from the vector fields as written, for demo 5's multiplicative noise; `decaying_drift.py`, the reference behind `tests/test_local_callable_coupling.py`), and tutorial notebooks |
+| `examples/` | Worked examples: `demo1/` (Gaussian noise), `demo2/` (non-Gaussian, non-zero κ³), `demo3/` (filtered Poisson shot noise), `demo4/` (compound-Poisson noise asymmetric in points and components), `demo5/` (white noise on every integrator; multiplicative noise at L0 and L1, Itô and Stratonovich), `demo6/` (repeated and static non-local vertices, cubic plus quartic drift), `demo7/` (observables in space, angle and time), `demo8/` (time-dependent coefficients and non-exponential dynamics), `reference/` (`ito_moments.py`, the exact Itô moment hierarchy demos 4-8 are checked against; `hormander_moments.py`, the same hierarchy from the vector fields as written, for demo 5's multiplicative noise; `decaying_drift.py`, the reference behind `tests/test_local_callable_coupling.py`), and tutorial notebooks |
 | `tests/` | pytest suite (eight deductive phases) |
 | `docs/` | Sphinx documentation (ReadTheDocs source) |
 
 ## Worked examples (reproducible test runs)
 
 Three of the eight demos are checked against a direct Langevin simulation,
-each covering symbolic diagram expansion *and* numerical evaluation.  All
-eight ship committed outputs; these three ship the cached simulation as
-well:
+each covering both symbolic diagram expansion and numerical evaluation.
+All eight ship committed outputs; these three ship the cached simulation
+as well:
 
 ```bash
-# demo1 — Gaussian driving noise
+# demo1: Gaussian driving noise
 python examples/demo1/run_simulation.py            # writes sim_cache.npz (~50k realisations)
 # then run examples/demo1/analysis.ipynb           # diagrams + theory-vs-simulation figures
 
-# demo2 — non-Gaussian noise (non-zero third cumulant kappa^3)
+# demo2: non-Gaussian noise (non-zero third cumulant kappa^3)
 python examples/demo2/run_simulation.py --alpha 0.6   # non-Gaussian
 python examples/demo2/run_simulation.py --alpha 0.0   # Gaussian control
 # then run examples/demo2/analysis.ipynb           # kappa^3 cross-check + FK channel
 
-# demo3 — filtered Poisson (shot) noise, exact in the free-field limit
+# demo3: filtered Poisson (shot) noise, exact in the free-field limit
 cd examples/demo3
 python level_a.py                 # ~3 min   level A (F = 0): the exact check
 python level_b.py                 # ~6 min   level B: Fkappa^3 + F^3kappa^3 + F^3kappa^5
@@ -646,7 +643,7 @@ sft-wick run config_FK.yaml       # the same level-B physics through the L2 CLI
 
 Demo 3's level A runs through the L1 Python API; both of demo 3's own
 configs (`config_FK.yaml`, `config_F3K.yaml`) are level B.  An n-point
-observable does go through YAML — `sweep.component_tuples` takes one index
+observable does go through YAML: `sweep.component_tuples` takes one index
 per operator, as `examples/demo4/config_level_a.yaml` and
 `config_level_a_4pt.yaml` do for a level-A triple and quadruple.  See
 `examples/demo3/INTERPRETATION.md` for demo 3's validation ledger and
@@ -664,26 +661,26 @@ hierarchy of the Itô process at the observation points
 sft-wick), solved order by order in the couplings, so each package channel
 is compared with one exact coefficient.  Demo 5's multiplicative-noise part
 uses `examples/reference/hormander_moments.py`, which builds the same
-hierarchy from the drift and the noise columns as written — in Hörmander
+hierarchy from the drift and the noise columns as written, in Hörmander
 form for the Stratonovich reading, so the noise-induced drift is never
 formed on the reference side.  A third module there,
 `examples/reference/decaying_drift.py`, is a quadratic drift decaying in
 time; it backs `tests/test_local_callable_coupling.py` rather than a demo.
 
 ```bash
-# demo4 — cumulants asymmetric in points and components (the leg-order defect's class)
+# demo4: cumulants asymmetric in points and components (the leg-order defect's class)
 cd examples/demo4 && python level_a.py && python level_b.py     # ~10 s
 cd examples/demo4 && python poisson_level_b_order4.py           # ~3 min, the order-4 F^3kappa^3 channel
-# demo5 — white noise on every integrator; multiplicative noise at L0 and L1
+# demo5: white noise on every integrator; multiplicative noise at L0 and L1
 cd examples/demo5 && python run.py && python multiplicative.py
 cd examples/demo5 && python white_l1_multiplicative.py   # Itô and Stratonovich
-# demo6 — repeated and static non-local vertices, m = 5, quartic plus cubic drift
+# demo6: repeated and static non-local vertices, m = 5, quartic plus cubic drift
 cd examples/demo6 && python vertex6_repeated.py && python vertex6_interacting.py
 cd examples/demo6 && python vertex6_cubic.py && python vertex6_high_cumulants.py
 cd examples/demo6 && python vertex6_gaussian_vertex.py
-# demo7 — two-time, angular and 3-D observables
+# demo7: two-time, angular and 3-D observables
 cd examples/demo7 && python space7_run.py && python space7_shot3d.py
-# demo8 — a rate varying in time, a damped-oscillator R, custom kernels, sigma^2(t)
+# demo8: a rate varying in time, a damped-oscillator R, custom kernels, sigma^2(t)
 cd examples/demo8 && python time8_run.py
 ```
 
@@ -713,8 +710,8 @@ If you use `sft-wick`, please cite the paper:
 }
 ```
 
-The software is additionally archived on Zenodo.  [DOI:10.5281/zenodo.20776358](https://doi.org/10.5281/zenodo.20776358) is the *concept* DOI: it covers all versions and always resolves to the most recent release.  To reference the *specific* version your results were produced with, cite that release's own version DOI, listed under "Versions" on the Zenodo record page — for 0.5.0 that is [DOI:10.5281/zenodo.22715757](https://doi.org/10.5281/zenodo.22715757).
+The software is additionally archived on Zenodo.  [DOI:10.5281/zenodo.20776358](https://doi.org/10.5281/zenodo.20776358) is the *concept* DOI: it covers all versions and always resolves to the most recent release.  To reference the *specific* version your results were produced with, cite that release's own version DOI, listed under "Versions" on the Zenodo record page.  For 0.5.0 that is [DOI:10.5281/zenodo.22715757](https://doi.org/10.5281/zenodo.22715757).
 
 ## License
 
-`sft-wick` is released under the BSD 3-Clause License — see [LICENSE](LICENSE).
+`sft-wick` is released under the BSD 3-Clause License.  See [LICENSE](LICENSE).
