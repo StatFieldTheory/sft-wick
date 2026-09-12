@@ -233,12 +233,12 @@ def diagrams():
     n_b = dump(exb, 2, "level_b_FK3", keep="FK3")
     (out / "README.md").write_text(
         "# Diagram sources\n\n"
-        f"* `level_b_FK3_*.tex` -- the {n_b} order-2 F.kappa^(3) diagrams that\n"
+        f"* `level_b_FK3_*.tex`: the {n_b} order-2 F.kappa^(3) diagrams that\n"
         "  give the leading non-Gaussian signal in xi_01.\n"
-        f"* `level_a_kappa3_*.tex` -- the level-A diagram ({n_a} rendered).\n"
+        f"* `level_a_kappa3_*.tex`: the level-A diagram ({n_a} rendered).\n"
         "  On the base commit ac7f201 the 3-point / order-1 / K3-only\n"
         "  expansion hits a UID collision inside `to_feynman_diagram`, so\n"
-        "  the drawing is unavailable there. It affects rendering ONLY --\n"
+        "  the drawing is unavailable there. It affects rendering only;\n"
         "  the level-A numbers agree with the closed form to 1e-16.\n\n"
         "Each has a `_standalone` twin that compiles on its own.\n\n"
         + "\n".join(f"* `{w}`" for w in written) + "\n")
