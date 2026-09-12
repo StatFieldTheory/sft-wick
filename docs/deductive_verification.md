@@ -1,8 +1,8 @@
 # Deductive verification of sft-wick
 
 This document summarises the deductive test programme that accompanies
-the simulation-based demo verification in
-[`examples/demo1`](../examples/demo1) and [`examples/demo2`](../examples/demo2).
+the demo verification in [`examples/`](../examples): demos 1-3 against a
+direct simulation, demos 4-8 against an exact reference.
 
 Where the demo notebooks verify the package inductively (sim and theory
 agree within Monte-Carlo noise over a specific parameter range), this
@@ -14,7 +14,7 @@ offending module.
 
 ## Scope
 
-Two phases, run in sequence:
+Eight phases.  The first two are the core, run in sequence:
 
 1. **Phase 1 — symbolic expansion** (`tests/test_deductive_expansion.py`).
    For the simplest representative actions — a scalar single-vertex
@@ -30,6 +30,10 @@ Two phases, run in sequence:
    formulae, integration methods, and dimensional scaling against
    analytical identities.  Tolerances are chosen from the known
    convergence rates of each method.
+
+Phases 3 and 4 extend them to full Feynman-diagram integration and to the
+alternative entry points; Phases 5-8 cover the workflow layer.  Each has
+its own section below.
 
 The brute-force reference lives in `tests/brute_wick.py` — ~300 lines,
 **zero imports from `sft_wick`**, using only `itertools`, `fractions`,

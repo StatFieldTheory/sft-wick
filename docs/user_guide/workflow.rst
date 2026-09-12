@@ -286,8 +286,8 @@ Two further properties of this spec:
 * ``D0`` reaches C as a ``ConstantImpulse(D0)`` would, so the built-in
   closed form covers it (``DiagonalA`` + separable exponential κ² +
   white noise).  ``D0`` is dense in general, so pass ``diag_C=False`` to
-  ``System.expand`` and to ``System.propagators`` (with
-  ``c_closed_form_only=True``), as for any component-mixing white noise.
+  ``System.expand`` and to ``System.propagators``, as for any
+  component-mixing white noise.
 * The vertices are local, so the model is one SDE per spatial point.
   ``Expansion.evaluate`` refuses external points at different positions
   that a chain of response propagators joins: the answer would depend on
@@ -378,11 +378,9 @@ an acausal time pair inside ``[t_min, t_max]``: the value must have the
 declared shape and must vanish for ``t1 < t2``.  A dense R needs three
 more settings, because C is then dense too: ``expand.diag_R: false`` and
 ``expand.diag_C: false`` (``System.expand`` refuses the diagonal
-simplifications when R or C has off-diagonal entries), C from a closed
-form (``propagators.c_closed_form_module`` with
-``c_closed_form_only: true`` and ``diag_C: false``), and a
-``sweep.method`` that supports a matrix R — one that does not raises
-``NotImplementedError`` and names the ones that do.
+simplifications when R or C has off-diagonal entries), and
+``propagators.diag_C: false``, so the tables hold every ``C_ab``.  Every
+``sweep.method`` evaluates a matrix R.
 
 Dynamic coupling (spacetime-dependent κ^(m))
 --------------------------------------------
@@ -731,9 +729,9 @@ Which time arguments are paired depends on the vertex:
 The attribute is read through the MSR factor wrapper and through any
 wrapper that sets ``__wrapped__``, so it works at L1, from YAML
 (``coupling_module``) and at L0.  Declaring a kink that is not there costs
-time, not accuracy.  ``nquad`` refuses callable couplings (see the
-decision matrix below), so the declared split currently acts on
-Gauss-Legendre only.
+time, not accuracy.  ``gauss_legendre`` and ``nquad`` both split at a
+declared kink; ``qmc_vectorized`` does not (see the decision matrix
+below).
 
 The cost is one integration per consistent order: 2 for one pair, up to
 ``k!`` for ``k`` mutually unordered times.  Measured on demo 4
@@ -949,8 +947,6 @@ fields must be present.
      c_closed_form_attr:      C_fn   # callable name in the module
      c_closed_form_only:      false  # skip spline cache entirely
      c_closed_form_vectorized:false  # c_fn accepts (n,) arrays, returns (n, N, N)
-     diag_C:             true         # false keeps off-diagonal C; needs c_closed_form_only: true
-                                      # and a closed form returning the full (N, N) C
 
      # quadrature for the inner ∫ R κ² R when no closed form is given
      c_method:           auto         # 'auto' | 'dblquad' | 'gauss_legendre'
@@ -1058,7 +1054,7 @@ Section reference: ``system``
    * - ``linear.R_time_module``
      - ``str`` (path)
      - **required when** ``type: explicit``
-     - Path to a ``.py`` file exporting a scalar callable ``R_time(t1, t2) -> float``. Must enforce causality (return 0 when ``t1 < t2``).
+     - Path to a ``.py`` file exporting a callable ``R_time(t1, t2) -> float``, or ``-> (N, N)`` under ``iso_R: false``. Must enforce causality (return 0 when ``t1 < t2``).
    * - ``linear.R_time_attr``
      - ``str``
      - ``"R_time"``
@@ -1330,10 +1326,6 @@ Section reference: ``propagators``
      - ``bool``
      - ``false``
      - ``C_fn`` accepts ``(n,)``-shaped time/position arrays and returns ``(n, N, N)`` (only with ``c_closed_form_only: true``)
-   * - ``diag_C``
-     - ``bool``
-     - ``true``
-     - ``false`` keeps the off-diagonal entries of C and sets ``expand.diag_C: false`` with it.  Requires ``c_closed_form_only: true`` and a closed form returning the full ``(N, N)`` C (``c_closed_form: auto`` supplies one for ``DiagonalA`` + ``SeparableTranslation(ExponentialTemporal)`` + ``ConstantImpulse``); the quadrature tables hold :math:`C_{aa}` only
    * - ``c_method``
      - ``str``
      - ``"auto"``
@@ -1551,7 +1543,7 @@ batch of nodes, as they do for C.  Before, ``gauss_legendre`` and
 User-Python hooks
 ~~~~~~~~~~~~~~~~~
 
-The YAML block can defer to user Python in seven places — each
+The YAML block can defer to user Python in eight places — each
 loads a callable from a ``.py`` module relative to the YAML file
 and registers it for joblib's worker-safe by-value module
 loading (so it composes cleanly with any of the
@@ -1568,8 +1560,8 @@ loading (so it composes cleanly with any of the
      - ``γ(t) → ndarray(N,)``
      - Time-dependent linear drift (replaces ``linear.gamma`` under ``linear.type: diagonal``)
    * - ``system.linear.R_time_module``
-     - ``R_time(t1, t2) → float``
-     - Scalar closed-form ``R`` (escape hatch via ``linear.type: explicit``; bypasses the γ-spline cache)
+     - ``R_time(t1, t2) → float`` or ``→ (N, N)`` (matrix; opt-in via ``linear.iso_R: false``)
+     - Closed-form ``R`` (escape hatch via ``linear.type: explicit``; bypasses the γ-spline cache)
    * - ``system.noise.kappa2.type: callable_module``
      - ``κ²(n1,t1,n2,t2) → (N, N)``
      - Non-separable noise correlator (replaces ``separable_translation``/``separable_rotation``)
