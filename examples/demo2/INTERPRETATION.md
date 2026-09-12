@@ -4,6 +4,17 @@
 carries every number quoted here.  Written in a fixed shape so it can be
 set against demo 3's.*
 
+
+> **The theory columns here predate the C-diagonal split of 2026-09-12.**
+> The OU kernel's `|Δt|` cusp leaves a jump in C's third derivative on its
+> time diagonal, and `gauss_legendre` now splits the domain there, which
+> moves every Gauss-Legendre number in this demo towards its converged
+> value.  The size is not re-measured here; on demo 1, which uses the same
+> kernel and node count, it is 6e-07 at `t = 1`, 2.7e-05 at `t = 5` and
+> 3.9e-04 at `t = 15` (`examples/demo1/L2/INTEGRATION_ERROR.md`, cell by
+> cell).  Re-running this budget costs about an hour of CPU and was not
+> done.
+
 ---
 
 ## 1. The physics
