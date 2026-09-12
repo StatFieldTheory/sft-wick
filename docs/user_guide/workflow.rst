@@ -295,6 +295,14 @@ Two further properties of this spec:
   not describe.  Distinct labels and distinct ``external_times`` at one
   position are fine.
 
+  The L0 entry points refuse the same spelling, for any system rather than
+  this noise alone (``evaluate.py::_require_one_position_per_group``): R
+  carries ``δ(n − n')``, so the points an R chain joins are one spatial
+  point and have one coordinate.  The other way to write such a chain is
+  an observable with an external response leg, ``("phi_a(x)",
+  "psi_b(y)")`` — that one reaches L0 with no multiplicative noise in
+  sight.
+
 A quadratic term in ``g`` is not supported; it would add vertices with two
 ψ legs and three and four φ legs, and a quadratic and a cubic
 noise-induced drift.

@@ -79,9 +79,13 @@ def _guard_single_site(expansion, diagram_terms, positions) -> None:
     position.  A group holds two external points only through a vertex with
     two ψ legs (or an external ψ), and a :class:`MultiplicativeImpulse`
     brings such vertices.  They are local: they describe one SDE per point,
-    and say nothing about how the noise at two points is correlated.  The
-    evaluators take one position per group, whichever external point they
-    meet first, so the value would depend on that choice.
+    and say nothing about how the noise at two points is correlated.
+
+    ``evaluate.py::_require_one_position_per_group`` refuses the same
+    spelling for any system at the L0 entry points, so this is not the only
+    thing standing between the user and the arbitrary pick; it fires first
+    and says what the local vertices do not describe, which the general
+    message cannot.
     """
     from .specs import MultiplicativeImpulse
 

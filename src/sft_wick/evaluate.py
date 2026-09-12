@@ -635,6 +635,73 @@ def analyze_spatial(dt: "DiagramTerm") -> SpatialStructure:
     )
 
 
+def _conflicting_group_positions(
+    spatial: "SpatialStructure",
+    positions: Any,
+) -> tuple[str, str] | None:
+    """The first pair of points of ONE direction group that ``positions``
+    places at different coordinates, or ``None`` when every group has a
+    single position.
+
+    A direction group is a set of points that R-propagators identify.  R
+    carries ``δ(n − n')``, so all of them sit at the same spatial point
+    and the group has one coordinate.  Candidates are compared in sorted
+    order, so the pair the caller is told about does not itself depend on
+    set iteration order.
+    """
+    if not positions:
+        return None
+    for group in spatial.direction_groups:
+        named = [p for p in sorted(group) if p in positions]
+        if len(named) < 2:
+            continue
+        first = np.asarray(positions[named[0]])
+        for p in named[1:]:
+            if not np.array_equal(np.asarray(positions[p]), first):
+                return (named[0], p)
+    return None
+
+
+def _require_one_position_per_group(
+    spatial: "SpatialStructure",
+    positions: Any,
+    *,
+    where: str,
+) -> None:
+    """Refuse two points of one direction group placed at two positions.
+
+    The group has one coordinate, and the resolver would take whichever
+    of the two it met first in a ``frozenset`` — an order that changes
+    with the labels and with ``PYTHONHASHSEED``, so the same physics
+    spelled with different external names returns different numbers.
+
+    Two *external* points share a group only when the observable carries
+    a response leg (a ψ operator) or the action has a local vertex with
+    two or more ψ legs (what
+    :class:`~sft_wick.workflow.specs.MultiplicativeImpulse` lowers to);
+    with one ψ leg per vertex no R chain can join two φ externals.
+    """
+    pair = _conflicting_group_positions(spatial, positions)
+    if pair is None:
+        return
+    p, q = pair
+    raise ValueError(
+        f"{where}: the spatial points '{p}' and '{q}' are at different "
+        f"positions ({positions[p]!r} and {positions[q]!r}), and a chain of "
+        f"response propagators joins them in this diagram.  R carries "
+        f"delta(n - n'), so the points of an R-connected group are one "
+        f"spatial point with one coordinate; at two positions the diagram is "
+        f"a delta function rather than a value, and the resolver would use "
+        f"whichever of the two positions it met first in a frozenset, an "
+        f"order that changes with the labels and with PYTHONHASHSEED.  Put "
+        f"both points at one position, positions={{{p!r}: v, {q!r}: v}}; "
+        f"distinct labels and distinct external_times are fine.  An R chain "
+        f"joins two external points only when the observable carries a "
+        f"response leg (a 'psi' operator) or a local vertex has two or more "
+        f"psi legs (what MultiplicativeImpulse lowers to)."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Step 3: Propagator Model and Cache
 # ---------------------------------------------------------------------------
@@ -4119,7 +4186,10 @@ class DiagramIntegrand:
                 it would otherwise read the zeros placeholder and return 0.
             ValueError: if this diagram's R-propagator component indices
                 contradict ``cache``'s R type, as for
-                :func:`integrate_diagrams`.
+                :func:`integrate_diagrams`.  Also if ``directions`` is
+                written in the point-keyed spelling and places two points
+                of one direction group at different coordinates; see
+                :func:`_require_one_position_per_group`.
         """
         if self.dynamic_coupling is not None and coupling_array is None:
             raise NotImplementedError(
@@ -4134,6 +4204,13 @@ class DiagramIntegrand:
         self._require_r_indices_match(cache)
         dt = self.diagram_term
         spatial = self.spatial
+        # ``directions`` is normally keyed by direction variable, one entry
+        # per group, and cannot express two positions in one group.  The C
+        # lookups below fall back to the POINT's own name when the direction
+        # variable is absent (``directions.get(dir_l, directions.get(sp_l))``),
+        # which can -- so check the point-keyed spelling here.
+        _require_one_position_per_group(
+            spatial, directions, where="DiagramIntegrand.evaluate")
         coeff = (self.coupling_array if coupling_array is None
                  else coupling_array)
         model = cache.model
@@ -4679,6 +4756,8 @@ class DiagramIntegrand:
         spatial: "SpatialStructure",
         positions: dict[str, Any] | None,
         default: Any,
+        *,
+        where: str = "this evaluation",
     ) -> dict[str, Any]:
         """Map each direction group (by its direction-variable name) to
         a single spatial coordinate.
@@ -4701,8 +4780,16 @@ class DiagramIntegrand:
         ``PropagatorCache.C_at_batch`` and the spatial Kappa2
         wrappers (``_SeparableTranslationKappa2``, ``_rotation_cos``,
         ...) all accept either form.
+
+        Raises:
+            ValueError: if ``positions`` places two points of one group at
+                different coordinates.  Step 1 would then take whichever
+                the ``frozenset`` yielded first, and that order changes
+                with the labels and with ``PYTHONHASHSEED``; see
+                :func:`_require_one_position_per_group`.
         """
         positions = positions or {}
+        _require_one_position_per_group(spatial, positions, where=where)
         group_x: dict[str, Any] = {}
         for group in spatial.direction_groups:
             dvar_sample = spatial.direction_map[next(iter(group))]
@@ -4730,8 +4817,10 @@ class DiagramIntegrand:
         directly onto fixed external points.
         """
         spatial = self.spatial
+        _where = "DiagramIntegrand._evaluate_zero_dimensional"
         if _cache_has_spatial_table(cache):
-            directions = self._resolve_group_x(spatial, positions, direction)
+            directions = self._resolve_group_x(
+                spatial, positions, direction, where=_where)
         else:
             dir_vars = set(spatial.direction_map.values())
             directions = {d: direction for d in dir_vars}
@@ -4776,7 +4865,8 @@ class DiagramIntegrand:
         spatial_aware = _cache_has_spatial_table(cache)
         group_x: dict[str, Any] | None = None
         if spatial_aware:
-            group_x = self._resolve_group_x(spatial, positions, direction)
+            group_x = self._resolve_group_x(
+                spatial, positions, direction, where=_where)
 
         def _lookup_C(sp_l, sp_r, t_l, t_r):
             if not spatial_aware:
@@ -5073,7 +5163,9 @@ class DiagramIntegrand:
         n_total = len(sobol_vars)
 
         if _cache_has_spatial_table(cache):
-            directions = self._resolve_group_x(spatial, positions, direction)
+            directions = self._resolve_group_x(
+                spatial, positions, direction,
+                where="DiagramIntegrand.integrate_moment_qmc")
         else:
             dir_vars = set(spatial.direction_map.values())
             directions = {d: direction for d in dir_vars}
@@ -5388,7 +5480,9 @@ class DiagramIntegrand:
         spatial_aware = _cache_has_spatial_table(cache)
         group_x: dict[str, float] | None = None
         if spatial_aware:
-            group_x = self._resolve_group_x(spatial, positions, direction)
+            group_x = self._resolve_group_x(
+                spatial, positions, direction,
+                where="DiagramIntegrand.integrate_moment_qmc_vectorized")
 
         def _lookup_C(sp_l: str, sp_r: str, t_l: np.ndarray,
                       t_r: np.ndarray) -> np.ndarray:
@@ -5706,7 +5800,9 @@ class DiagramIntegrand:
         spatial_aware = _cache_has_spatial_table(cache)
         group_x: dict[str, float] | None = None
         if spatial_aware:
-            group_x = self._resolve_group_x(spatial, positions, direction)
+            group_x = self._resolve_group_x(
+                spatial, positions, direction,
+                where="DiagramIntegrand.integrate_moment_gauss_legendre")
 
         def _lookup_C(sp_l, sp_r, t_l, t_r):
             if not spatial_aware:
@@ -5830,7 +5926,9 @@ class DiagramIntegrand:
         n_total = len(all_vars)
 
         if _cache_has_spatial_table(cache):
-            directions = self._resolve_group_x(spatial, positions, direction)
+            directions = self._resolve_group_x(
+                spatial, positions, direction,
+                where="DiagramIntegrand.integrate_moment_nquad")
         else:
             dir_vars = set(spatial.direction_map.values())
             directions = {d: direction for d in dir_vars}
@@ -6239,7 +6337,10 @@ def integrate_diagrams(
             has an equal-point R whose value depends on the Itô or
             Stratonovich reading: on a local vertex with two or more ψ
             legs, or between two external operators (see
-            ``_interpretation_dependent_r``).
+            ``_interpretation_dependent_r``).  Also when ``positions``
+            places two points of one R-connected direction group at
+            different coordinates and the cache has a spatial table (see
+            ``_require_one_position_per_group``).
     """
     if not diagram_terms:
         return (0.0, [])
@@ -6257,6 +6358,15 @@ def integrate_diagrams(
         problem = _interpretation_dependent_r(dt)
         if problem:
             raise ValueError(problem)
+    # Also checked per integrand, inside ``_resolve_group_x``; checking here
+    # first reports it before any integrand is built or any joblib worker is
+    # started.  Gated on the cache the same way the integrators are: without
+    # a spatial table they ignore ``positions`` for every diagram alike, and
+    # no group's coordinate is read.
+    if positions and _cache_has_spatial_table(cache):
+        for dt in diagram_terms:
+            _require_one_position_per_group(
+                dt.analyze_spatial(), positions, where="integrate_diagrams")
 
     tick = progress_tick or (lambda n=1: None)
 
@@ -6351,6 +6461,14 @@ def integrate_two_point_qmc(
 
     Returns:
         ``(estimate, std_error)`` for the summed two-point function.
+
+    Raises:
+        ValueError: if *positions* places two points of one R-connected
+            direction group at different coordinates.  ``⟨φ(x) φ(y)⟩``
+            never does -- with one ψ leg per vertex no R chain joins two
+            φ externals -- but an observable with a response leg or a
+            local vertex with two ψ legs does; see
+            :func:`_require_one_position_per_group`.
     """
     from scipy.stats import qmc as _qmc
 
@@ -6360,6 +6478,12 @@ def integrate_two_point_qmc(
     for ig in integrands:
         ig._require_r_indices_match(cache)
         sp = ig.spatial
+        # Unconditional, unlike the ``integrate_moment_*`` methods: BOTH
+        # branches below consume ``positions`` -- the spatial-aware one
+        # through ``_resolve_group_x``, the other through the kappa2 ratio
+        # -- so neither is safe with two positions in one group.
+        _require_one_position_per_group(
+            sp, positions, where="integrate_two_point_qmc")
         ivs = list(reversed(sp.time_integration_vars))
         evs = list(sp.external_points)
 
@@ -6384,7 +6508,8 @@ def integrate_two_point_qmc(
         model = cache.model
         spatial_aware = _cache_has_spatial_table(cache)
         group_x = (
-            DiagramIntegrand._resolve_group_x(sp, positions, 0.0)
+            DiagramIntegrand._resolve_group_x(
+                sp, positions, 0.0, where="integrate_two_point_qmc")
             if spatial_aware else None
         )
 

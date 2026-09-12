@@ -786,7 +786,9 @@ class MultiplicativeImpulse(Sigma2):
     positions when a response chain joins them (the value would depend on
     how the noise at different points is correlated, which the local
     vertices do not describe).  External points may carry distinct labels
-    and distinct times.
+    and distinct times.  The L0 entry points refuse the same spelling for
+    any system, this noise included
+    (``evaluate.py::_require_one_position_per_group``).
 
     A quadratic term in ``g`` is not supported: it would add vertices with
     two ψ legs and three and four φ legs, and a quadratic and a cubic

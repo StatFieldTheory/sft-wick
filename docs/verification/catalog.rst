@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **2076 tests** in 71 files (parametrised
+The suite has **2109 tests** in 72 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -196,7 +196,7 @@ Propagator numerics
 Integrators
 -----------
 
-*997 tests in 36 files.*
+*1030 tests in 37 files.*
 
 .. list-table::
    :header-rows: 1
@@ -322,6 +322,11 @@ Integrators
      - linear extensions of the causal order; the exact Itô moment hierarchy
      - exact / 1e-11
      - 7
+   * - ``test_group_position_conflict.py``
+     - two points of ONE R-connected direction group at two positions are refused at every entry point (an external ψ leg, a local two-ψ vertex); the label-independence of the refusal, the separated φφ control on every integrator
+     - the two coincident-position configurations the arbitrary pick was choosing between
+     - 1e-12
+     - 33
    * - ``test_higher_cumulants.py``
      - non-Gaussian driving at cumulant order m ≥ 4 (κ⁴, κ⁵)
      - brute-force Wick counting; MSR prefactors
