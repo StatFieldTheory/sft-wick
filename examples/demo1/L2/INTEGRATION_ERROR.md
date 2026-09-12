@@ -79,7 +79,8 @@ in the direction of the converged value: order 4 at `t = 15, 30, 50` now
 reads 2.32789e-05, 2.32789e-05 and 2.32848e-05 where it drifted from
 2.32860e-05 to 2.33704e-05 across those times.  The cost is 3.03 pieces
 per diagram and 2.3x the wall clock (80 s against 35 s per grid point,
-one core).  The sweep and the figures have not been re-run.
+one core).  The sweep and the figures in `figures/` were re-run with
+the split in place on 2026-09-12; the tables in this file predate it.
 
 ## Why n_gauss = 24 and not 14
 
