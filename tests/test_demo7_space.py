@@ -198,7 +198,7 @@ def test_two_time_scalar_R(setups, ab, times, route, rel):
                                "y": s.cfg.t_min + ty})
 
 
-@pytest.mark.parametrize("route,rel", [(run7.GL(32), 3e-4), (run7.NQ, 1e-6),
+@pytest.mark.parametrize("route,rel", [(run7.GL(32), 1e-6), (run7.NQ, 1e-6),
                                        (run7.QV(14), 1e-5),
                                        (run7.QS(10), 1e-3)])
 @pytest.mark.parametrize("order", [0, 1])
@@ -206,12 +206,11 @@ def test_two_time_matrix_R_and_mixing_white_noise(setups, order, route, rel):
     """(a) with a rate per component (matrix R) and a dense ``ConstantImpulse``:
     ``C_{01}`` is then non-zero at order 0 and asymmetric in the two times.
 
-    Gauss-Legendre is held to 3e-4 at order 1, not to 1e-6: white noise
-    kinks C on its time diagonal, which at distinct external times crosses
-    the domain at ``u = t_y``, and the splitter pairs internal variables
-    only, so the rate is ``n^-2`` (the test below measures it).  The value
-    is right -- ``nquad`` reaches 4.5e-16 on the same channel.  Order 0 has
-    no internal time and is exact."""
+    White noise kinks C on its time diagonal, which at distinct external
+    times crosses the domain at ``u = t_y``; the integrators cut the
+    internal variable's range there and Gauss-Legendre reaches machine
+    precision (the test below measures it).  Order 0 has no internal time
+    and is exact."""
     s = setups["mix"]
     H = s.cfg.hierarchy([POS["x"], POS["y"]])
     for ab in [(0, 1), (1, 0)]:
@@ -222,25 +221,21 @@ def test_two_time_matrix_R_and_mixing_white_noise(setups, order, route, rel):
                                "y": s.cfg.t_min + T_EARLY})
 
 
-def test_two_time_gauss_legendre_converges_as_n_squared(setups):
-    """The kink at a fixed external time, measured rather than worked
-    around: C is kinked on its diagonal, and at ``t_x != t_y`` the line
-    ``u = t_y`` runs through the domain of the internal time.
-    ``_kink_pairs`` requires both ends of a kink to be integration
-    variables, so this one is not split and each doubling of ``n_gauss``
-    divides the error by 4 instead of exhausting it."""
+def test_two_time_gauss_legendre_is_exact_at_the_lowest_node_count(setups):
+    """The kink at a fixed external time, measured: C is kinked on its
+    diagonal, and at ``t_x != t_y`` the line ``u = t_y`` runs through the
+    domain of the internal time.  The internal variable's range is cut
+    there, so the rate is exhausted at the lowest node count tried rather
+    than falling to ``n^-2`` (4.0e-3, 1.0e-3, 2.6e-4, 6.6e-5 at 8, 16, 32
+    and 64 nodes before the cut)."""
     s = setups["mix"]
     H = s.cfg.hierarchy([POS["x"], POS["y"]])
     ref = H.two_time([(0, 0)], [(1, 1)], TAGS[1], T, T_EARLY)
     ext = {"x": s.cfg.t_min + T, "y": s.cfg.t_min + T_EARLY}
-    errs = []
-    for n in (16, 32, 64):
-        row = _check(s, TWO, (0, 1), 1, run7.GL(n), ref, 2e-3,
+    for n in (8, 16, 32, 64):
+        row = _check(s, TWO, (0, 1), 1, run7.GL(n), ref, 1e-13,
                      t_final=s.cfg.t_min + T, external_times=ext)
-        errs.append(row["error"])
-    for coarse, fine in zip(errs, errs[1:]):
-        assert 3.5 <= coarse / fine <= 4.5, errs
-    assert errs[-1] > 1e-6, errs      # still algebraic: it is not split
+        assert row["error"] <= 1e-13, (n, row["error"])
 
 
 @pytest.mark.slow

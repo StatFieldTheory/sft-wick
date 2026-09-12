@@ -439,7 +439,9 @@ demos 4, 5 and 8 are checked against an exact reference instead:
   3.9e-08 (two-time, Gauss-Legendre), 2.6e-07 (four Legendre
   coefficients), 6.5e-08 (Gaussian tables) and 4.2e-16 (3-D shot
   noise).  No route it accepts returned a wrong number; it measured the
-  QMC bias floor and the Gauss-Legendre rate at a fixed external time.
+  QMC bias floor, and the Gauss-Legendre rate at a fixed external time
+  that the domain cut of 2026-09-12 removed (its two-time channel is at
+  machine precision from 8 nodes since).
   Open: ``examples/demo7/README.md``.
 
 **examples/demo8** — time-dependent coefficients and non-exponential dynamics

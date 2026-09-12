@@ -103,24 +103,24 @@ channels):
 |---|---|---|---|---|
 | order 0 | distinct | Gauss-Legendre 8 | 1.05, 1.05 | 0.0 |
 | `F X3` | distinct | Gauss-Legendre 8 | 1.05, 1.05 | 3.8e-16 |
-| `F X3` | distinct | `qmc_vectorized` 2¹⁶ | 1.05, 1.05 | 1.6e-06 |
-| `F X3` | distinct | `qmc_scalar` 2¹⁴ | 0.8, 1.3 | 1.9e-05 |
+| `F X3` | distinct | `qmc_vectorized` 2¹⁶ | 1.05, 1.05 | 8.1e-06 |
+| `F X3` | distinct | `qmc_scalar` 2¹⁴ | 0.8, 1.3 | 7.9e-05 |
 | `F F X4` | distinct | Gauss-Legendre 8 | 1.05, 1.05 | 4.3e-16 |
-| `F F X4` | distinct | `qmc_scalar` 2¹⁴ | 0.8, 1.3 | 5.2e-05 |
+| `F F X4` | distinct | `qmc_scalar` 2¹⁴ | 0.8, 1.3 | 2.5e-04 |
 | `F F` | equal | Gauss-Legendre 12 | 1.05, 1.05 | 5.4e-16 |
-| `F F` | distinct | Gauss-Legendre 16 | 1.05, 1.05 | 7.5e-04 |
-| `F F` | distinct | `qmc_vectorized` 2¹⁸ | 1.05, 1.05 | 2.4e-07 |
+| `F F` | distinct | Gauss-Legendre 16 | 1.05, 1.05 | 6.3e-16 |
+| `F F` | distinct | `qmc_vectorized` 2¹⁸ | 1.05, 1.05 | 1.7e-08 |
 | `F X3 X3` (5-point, order 3) | distinct | Gauss-Legendre 8 | 1.05, 1.05 | 1.6e-15 |
-| `F X3 X3` (5-point, order 3) | distinct | `qmc_vectorized` 2¹⁸ | 1.05, 1.05 | 6.4e-07 |
-| `F J3 J3` (5-point, order 3) | distinct | `qmc_vectorized` 2¹⁸ | 1.05, 1.05 | 9.9e-07 |
-| `F J3 J3` (5-point, order 3) | distinct | Gauss-Legendre 8 | 1.05, 1.05 | 5.5e-02 |
+| `F X3 X3` (5-point, order 3) | distinct | `qmc_vectorized` 2¹⁸ | 1.05, 1.05 | 9.2e-08 |
+| `F J3 J3` (5-point, order 3) | distinct | `qmc_vectorized` 2¹⁸ | 1.05, 1.05 | 1.7e-06 |
+| `F J3 J3` (5-point, order 3) | distinct | Gauss-Legendre 8 | 1.05, 1.05 | 1.0e-12 |
 
 The two five-point channels are two copies of one vertex with an
 interaction: 5 diagrams of `F X3 X3` and 35 of `F J3 J3`.  The static one
-has no C propagator and no equal-time vertex, so Gauss-Legendre is exact
-there; the equal-time one has parents that include fixed external points,
-which is the kink the split does not reach (see below), so QMC is the route
-for it.
+has no C propagator and no equal-time vertex; the equal-time one has
+parents that include fixed external points, the kink that is cut since
+2026-09-12 (it was 5.5e-02 on the same route before the cut, and QMC was
+the route for it).
 
 ### Part E — demo 4 at order 4 (`examples/demo4/level_b_order4_results.json`)
 
@@ -147,12 +147,15 @@ cross:
 `⟨φ_a φ_b⟩`, at equal and at distinct external times (the order-3 channels
 have 68 and 44 diagrams and take the cheaper settings):
 
-| channel (order) | GL, equal times | GL, distinct times | QMC, distinct times |
-|---|---|---|---|
-| `F F` (2) | 5.8e-16 (12) | 7.5e-04 (16) | 2.4e-07 (2¹⁸) |
-| `G G` (2) | 6.7e-16 (12) | 3.3e-02 (16) | 5.6e-06 (2¹⁸) |
-| `F F G` (3) | 2.6e-15 (10) | 1.6e-03 (10) | 1.2e-04 (2¹⁴) |
-| `G G G` (3) | 1.4e-13 (10) | 1.2e-03 (10) | 6.0e-05 (2¹⁴) |
+| channel (order) | GL, equal times | GL, distinct times | GL, distinct, before the cut | QMC, distinct times |
+|---|---|---|---|---|
+| `F F` (2) | 5.8e-16 (12) | 3.1e-16 (16) | 7.5e-04 | 1.7e-08 (2¹⁸) |
+| `G G` (2) | 6.7e-16 (12) | 5.5e-15 (16) | 3.3e-02 | 3.0e-06 (2¹⁸) |
+| `F F G` (3) | 2.6e-15 (10) | 2.0e-15 (10) | 1.6e-03 | 9.3e-05 (2¹⁴) |
+| `G G G` (3) | 1.4e-13 (10) | 3.5e-15 (10) | 1.2e-03 | 4.9e-04 (2¹⁴) |
+
+("before the cut" is the same run before the domain was cut at a kink
+against a fixed external time; see "Limits, measured" below.)
 
 ### Part D — `m = 4` and `m = 5` on every route (`high_cumulants_results.json`)
 
@@ -197,11 +200,11 @@ and distinct times:
 |---|---|---|---|
 | static `X2`, white `W2` | Gauss-Legendre 8, `nquad` | 1.05, 1.05 | 2.1e-16 |
 | static `X2`, white `W2` | `nquad` | 0.8, 1.3 | 2.9e-16 |
-| static `X2`, white `W2` | `qmc_vectorized` 2¹⁴ | 1.05, 1.05 | 3.9e-09 |
-| static `X2`, white `W2` | `qmc_scalar`, `qmc` 2¹⁴ | 0.8, 1.3 | 1.1e-08 |
+| static `X2`, white `W2` | `qmc_vectorized` 2¹⁴ | 1.05, 1.05 | 5.8e-09 |
+| static `X2`, white `W2` | `qmc_scalar`, `qmc` 2¹⁴ | 0.8, 1.3 | 1.6e-08 |
 | demo 4, R-contracted (white, exponential) | Gauss-Legendre 16 | — | 0.0 |
 | demo 4, raw (white, `equal_time`) | Gauss-Legendre 16 | — | 2.0e-16 |
-| demo 4, raw (exponential) | Gauss-Legendre 32 / `qmc_vectorized` 2¹⁶ | — | 2.1e-04 / 2.7e-08 |
+| demo 4, raw (exponential) | Gauss-Legendre 32 / `qmc_vectorized` 2¹⁶ | — | 2.4e-15 / 4.4e-06 |
 
 With `F ≠ 0`, against the hierarchy's tags:
 
@@ -209,29 +212,37 @@ With `F ≠ 0`, against the hierarchy's tags:
 |---|---|---|---|
 | `F K2`, `F W2` in `⟨φ_a⟩` | — | Gauss-Legendre 12 | 7.5e-16 |
 | `F F K2`, `F F W2` in `⟨φ_a φ_b⟩` | equal | Gauss-Legendre 12 | 7.0e-16 |
-| `F F K2`, `F F W2` in `⟨φ_a φ_b⟩` | distinct | Gauss-Legendre 16 | 8.5e-04 |
-| `F F K2`, `F F W2` in `⟨φ_a φ_b⟩` | distinct | `qmc_vectorized` 2¹⁸ | 9.0e-06 |
+| `F F K2`, `F F W2` in `⟨φ_a φ_b⟩` | distinct | Gauss-Legendre 16 | 5.6e-16 |
+| `F F K2`, `F F W2` in `⟨φ_a φ_b⟩` | distinct | `qmc_vectorized` 2¹⁸ | 1.4e-07 |
+
+The raw exponential row was 2.1e-04 and the distinct-time `F F K2` /
+`F F W2` row 8.5e-04 before the domain was cut at a kink against a fixed
+external time.
 
 ## Limits, measured
 
-- **Gauss-Legendre does not split at a kink between an internal time and a
-  fixed external time.**  `integrate_moment_gauss_legendre` splits the
-  domain where two *internal* times whose order the causal structure leaves
-  free cross; a C propagator with a kinked diagonal (white noise) or an
-  equal-time vertex with two parents can put the same kink between an
-  internal time and an external point held at its own time, which the split
-  does not reach.  With every external at one time the kink is outside the
-  domain, and the convergence is exponential.  Measured on the `F F`
-  channel of `⟨φ_0(x) φ_1(y)⟩` against the hierarchy:
+- **The kink at a fixed external time is cut** (was a limit until
+  2026-09-12).  `integrate_moment_gauss_legendre` splits the domain where
+  two *internal* times whose order the causal structure leaves free cross;
+  a C propagator with a kinked diagonal (white noise) or an equal-time
+  vertex with two parents can put the same kink between an internal time
+  and an external point held at its own time, where a constant is not an
+  ordering between two variables.  The variable's range is now cut at that
+  time instead.  Measured on the `F F` channel of `⟨φ_0(x) φ_1(y)⟩` against
+  the hierarchy:
 
   | external times | 8 | 16 | 24 | 32 nodes | `qmc_vectorized` 2¹⁸ |
   |---|---|---|---|---|---|
-  | equal (1.9, 1.9) | 6.5e-14 | 5.4e-16 | 1.3e-15 | 4.4e-15 | 2.3e-07 |
-  | distinct (1.9, 1.3) | 4.2e-03 | 6.9e-04 | 4.8e-04 | 1.6e-04 | 2.1e-07 |
+  | equal (1.9, 1.9) | 6.5e-14 | 5.4e-16 | 1.3e-15 | 4.4e-15 | 7.9e-08 |
+  | distinct (1.9, 1.3), before | 4.2e-03 | 6.9e-04 | 4.8e-04 | 1.6e-04 | 7.7e-09 |
+  | distinct (1.9, 1.3), now | 6.3e-16 | 6.3e-16 | 3.1e-16 | 1.9e-15 | |
 
-  Channels with no C propagator and no equal-time vertex (`F X3`,
-  `F F X4`, `F X3 X3`, every level-A `m`-point function) converge
-  exponentially at distinct times as well.  QMC is unaffected throughout.
+  The cost is one integration per cut: 2.0 pieces per diagram on this
+  channel, and none at all with every external at one time, where the kink
+  is the boundary of the domain.  Channels with no C propagator and no
+  equal-time vertex (`F X3`, `F F X4`, `F X3 X3`, every level-A `m`-point
+  function) converged exponentially at distinct times before the cut as
+  well.  QMC is unaffected throughout.
 - **A matrix R runs on the scalar loops only.**  Distinct rates make R a
   diagonal matrix; `gauss_legendre` and `qmc_vectorized` refuse it, so those
   configurations run on `qmc_scalar`, `qmc` and `nquad`
