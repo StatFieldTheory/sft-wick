@@ -461,6 +461,15 @@ pieces per diagram and 2.3 times the wall clock
 the same way.  Demo 1's figures and demo 2's error budget are not re-run
 here.  Locked by `tests/test_gl_white_noise_kinks.py`.
 
+### Added: `propagators_from_cache` at the top level
+
+`sft_wick.workflow.__all__` has listed `propagators_from_cache` since the
+propagator cache landed, but `sft_wick` did not re-export it, so
+`docs/api/index.rst`'s claim that the top-level package re-exports the whole
+public API was false for that one name.  It is now `sft_wick.propagators_from_cache`,
+and the API index says which names live only on their module
+(`workflow.cache.hash_spec`, `load_or_compute`, `workflow.config.run_workflow`).
+
 ## 0.5.0 — 2026-09-11
 
 > **Eight defects that returned a wrong number without an error, one crash,
