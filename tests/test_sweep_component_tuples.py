@@ -292,7 +292,11 @@ def test_NT6_component_pairs_rows_and_columns_are_unchanged(two_point):
                               t_final=1.0, component_pair=(a, b),
                               orders=[order], method="gauss_legendre",
                               n_gauss=6).total
-        assert _row_value(totals, (a, b), y=y, order=order) == direct
+        # The sweep sums the diagrams through pandas and ``evaluate``
+        # through Python, so the two differ in the last bit once a
+        # diagram is integrated in pieces (the kink split).
+        assert _row_value(totals, (a, b), y=y, order=order) == pytest.approx(
+            direct, rel=1e-14, abs=0.0)
 
 
 def test_NT7_defaults_are_the_zero_tuple(two_point):

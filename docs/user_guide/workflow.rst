@@ -667,8 +667,11 @@ the pieces are added.  Three kinds of pair are split:
   time), whose upper bound ``min(parents)`` changes branch where they
   cross; found from the diagram;
 * the two ends of a C propagator when C is kinked on its time diagonal:
-  white noise (``GaussianNoise(sigma2=...)``) is found from the model, and
-  a closed-form C callable declares it with ``has_diagonal_kink = True``;
+  white noise (``GaussianNoise(sigma2=...)``) and a κ² with a ``|Δt|`` cusp
+  (the exponential/OU kernel, a damped cosine, any callable the kernel
+  probe finds cusped -- ``C = ∫∫ R κ² R`` inherits the cusp in its third
+  derivative) are found from the model, and a closed-form C callable
+  declares it with ``has_diagonal_kink = True``;
 * two time arguments of a coupling callable that declares
   ``has_coincident_time_kinks = True``, meaning that it is kinked wherever
   two of its time arguments coincide, for example through a ``min`` over
@@ -683,6 +686,11 @@ between two variables, so that one is not a pair: the variable's range
 orderings put on the same side of it.  With every external at one time the
 crossing is the boundary of the domain and no cut is made, so only unequal
 external times pay for it.
+
+Splitting one kink can expose another: a piece bounds a variable by
+``min(parents, t*)``, which is kinked where a parent crosses ``t*``, so the
+parent takes the same cut.  The split therefore repeats until no pair and
+no cut is left.
 
 The package cannot see inside a callable, so the last two are declared on
 the callable object, for example as a class attribute of a frozen
@@ -750,11 +758,13 @@ Demo 6's ``F F`` channel at two external times takes 2.0 pieces per
 diagram, demo 7's two-time channel 2.9, demo 8's oscillator channels 2.88
 against 1.38.
 
+An external time swept by ``integrate_over`` is drawn before every internal
+variable, so it pairs like an integration variable: a kink against one is
+ordered, not cut.  Two swept externals are not a pair (their relative order
+comes from the causal structure alone).
+
 Limits:
 
-* An external time swept by ``integrate_over`` is not a constant and not
-  an integration variable of the split, so a kink against one is neither
-  cut nor paired.
 * The declaration covers kinks where two time arguments coincide, not a
   kink along another curve.
 * QMC is not split.  At equal cost the split did not reduce the error for
@@ -1453,10 +1463,10 @@ speed** (``gauss_legendre``).
    convergence on each piece. The package's
    ``c_method='gauss_legendre'`` does this split automatically for
    the C table.  ``sweep.method='gauss_legendre'`` does it for the
-   diagram's time domain, where a white-noise C (or a closed-form C
-   that declares ``has_diagonal_kink``) or a vertex with several ψ legs
-   at one time kinks the integrand, and keeps exponential
-   convergence.  A kink
+   diagram's time domain, where a kinked C (white noise, a κ² with a
+   ``|Δt|`` cusp, or a closed-form C that declares
+   ``has_diagonal_kink``) or a vertex with several ψ legs at one time
+   kinks the integrand, and keeps exponential convergence.  A kink
    inside a coupling callable, such as a ``min`` over partner times in
    an R-contracted cumulant, is split once the callable declares
    ``has_coincident_time_kinks`` and keeps the algebraic rate

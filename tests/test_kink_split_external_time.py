@@ -37,7 +37,8 @@ from scipy.sparse.linalg import expm_multiply
 
 import sft_wick as sw
 from sft_wick.evaluate import (_applied_cut_bounds, _constant_bounds,
-                               _kink_constant_cuts)
+                               _kink_constant_cuts, _kink_orientations,
+                               _kink_pairs)
 from sft_wick.workflow.specs import ConstantImpulse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]
@@ -93,9 +94,35 @@ def test_no_cut_without_a_kinked_C():
 
 def test_no_cut_when_no_external_is_pinned():
     """``integrate_over='all'`` sweeps every external, so there is no
-    constant to cut at (those kinks are not covered)."""
+    constant to cut at; those kinks are pairs instead (below)."""
     sp = _spatial([("u", "x")], [("u", "y")], ivars=("u",))
     assert _cuts(sp, {}) == []
+
+
+def test_a_swept_external_pairs_like_an_integration_variable():
+    """A swept external is drawn before every internal variable, so an
+    ordering with one is carried by the mapping: its kinks are pairs, not
+    cuts.  Left unsplit they cost more than the other splits buy -- each
+    piece bounds a variable by another, which bends the unsplit kink line
+    into a curve."""
+    sp = _spatial([("u", "x")], [("u", "y")], ivars=("u",))
+    assert _kink_pairs(sp, True, sp.time_orderings) == []
+    assert _kink_pairs(sp, True, sp.time_orderings, swept=("y",)) \
+        == [("u", "y")]
+    assert len(_kink_orientations(sp, [("u", "y")], sp.time_orderings,
+                                  swept=("y",))) == 2
+
+
+def test_two_swept_externals_are_not_a_pair():
+    """Their relative order comes from the causal structure alone
+    (``_swept_external_order``), which an extra ordering does not reach."""
+    sp = _spatial([], [("x", "y")], ivars=("u",))
+    assert _kink_pairs(sp, True, sp.time_orderings, swept=("x", "y")) == []
+
+
+def test_a_swept_external_already_ordered_is_not_a_pair():
+    sp = _spatial([("u", "y")], [("u", "y")], ivars=("u",))
+    assert _kink_pairs(sp, True, sp.time_orderings, swept=("y",)) == []
 
 
 def test_a_multi_psi_vertex_with_a_fixed_external_parent_is_cut():

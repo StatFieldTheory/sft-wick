@@ -59,6 +59,28 @@ the error is diagnosable by refining.  Convergence of order 4 at
 | 50 | 2.27129e-05 | 2.43839e-05 | 2.36392e-05 | 2.33704e-05 | 1.2 % |
 | 100 | 8.19568e-06 | 2.20174e-05 | 2.46829e-05 | 2.38044e-05 | 3.7 % |
 
+### These tables predate the C-diagonal split (2026-09-12)
+
+The OU kernel's `|Δt|` cusp leaves a jump in C's third derivative on its
+time diagonal; since 2026-09-12 `gauss_legendre` splits the domain there,
+which moves every number in this file.  Measured at the same settings
+(`n_gauss = 24`, `(0,0)`, `r = 0.5`), the change in the value is
+
+| t | order 2 | order 4 |
+|---|---|---|
+| 1 | 6e-07 | 4e-07 |
+| 5 | 2.7e-05 | 1.9e-05 |
+| 15 | 3.9e-04 | 3.1e-04 |
+| 30 | 1.7e-03 | 1.4e-03 |
+| 50 | 4.5e-03 | 3.7e-03 |
+| 100 | 9.7e-03 | 3.8e-03 |
+
+in the direction of the converged value: order 4 at `t = 15, 30, 50` now
+reads 2.32789e-05, 2.32789e-05 and 2.32848e-05 where it drifted from
+2.32860e-05 to 2.33704e-05 across those times.  The cost is 3.03 pieces
+per diagram and 2.3x the wall clock (80 s against 35 s per grid point,
+one core).  The sweep and the figures have not been re-run.
+
 ## Why n_gauss = 24 and not 14
 
 This is the part that is easy to get wrong, and I did get it wrong

@@ -377,10 +377,20 @@ def _declares(fn: Any, attr: str) -> bool:
 def _c_has_diagonal_kink(cache: Any) -> bool:
     """Whether ``C(t1, t2)`` has a derivative jump on ``t1 = t2``.
 
-    White noise gives ``C = ∫_{t_min}^{min(t1, t2)} R σ² R``, whose
-    derivative jumps by ``σ²`` across the diagonal.  True when the model
-    carries ``sigma2``, or when a closed-form C (``cache.c_value_fn``)
-    declares ``has_diagonal_kink``.
+    Three sources, in the order they are checked:
+
+    * **white noise**: ``C = ∫_{t_min}^{min(t1, t2)} R σ² R``, whose first
+      derivative jumps by ``σ² R`` across the diagonal;
+    * a **closed-form C** (``cache.c_value_fn``) that declares
+      ``has_diagonal_kink`` -- the hook for a user closed form whose
+      structure the package cannot see;
+    * a **κ² with a ``|Δt|`` cusp** (:func:`_kappa2_kinks_c`).
+
+    The quadrature tables interpolate C rather than reproducing it, but the
+    kink is in the tabulated values and the split still pays: demo 8
+    measured order-2 ``⟨φ_0 φ_1⟩`` on a table at 1.4e-05 / 1.7e-06 (12 / 20
+    nodes) with a damped-cosine κ² and 9.5e-07 / 1.5e-07 with the kink
+    declared, where QMC sits at 1.9e-07.
     """
     model = getattr(cache, "model", None)
     if getattr(model, "sigma2", None) is not None:
@@ -388,7 +398,39 @@ def _c_has_diagonal_kink(cache: Any) -> bool:
     # ``c_value_fn`` on a PropagatorCache; ``_c_fn`` on the closed-form-only
     # cache that ``System.propagators(c_closed_form_only=True)`` builds.
     fn = getattr(cache, "c_value_fn", None) or getattr(cache, "_c_fn", None)
-    return _declares(fn, "has_diagonal_kink")
+    if _declares(fn, "has_diagonal_kink"):
+        return True
+    return _kappa2_kinks_c(cache)
+
+
+def _kappa2_kinks_c(cache: Any) -> bool:
+    """Whether the model's ``κ²`` leaves a kink on C's time diagonal.
+
+    ``C = ∫∫ R κ² R`` over ``[t_min, t1] × [t_min, t2]``, so
+    ``∂²C/∂t1∂t2 = R(t1, t1) κ²(t1, t2) R(t2, t2)``: a kernel smooth away
+    from ``λ1 = λ2`` and cusped there (``λ e^{−|Δt|/σ_t}``, a damped cosine
+    ``e^{−|Δt|/ℓ} cos(kΔt)``, the exponential-pulse cumulants of demos 3-4)
+    puts a jump in C's **third** derivative on ``t1 = t2``, where white
+    noise puts one in the first.  A Gaussian kernel, or any kernel
+    differentiable at ``Δt = 0``, leaves C smooth and is kept out of the
+    split.
+
+    The question is the one ``PropagatorCache._kappa2_has_diagonal_cusp``
+    already answers for the C quadrature itself -- the built-in kernels
+    declare ``has_diagonal_cusp``, any other callable is probed from
+    one-sided differences at two step sizes -- so this defers to it.  A
+    cache with no κ² (closed-form only, or a custom cache) answers False
+    and leaves the decision to the declarations above.
+    """
+    if getattr(getattr(cache, "model", None), "kappa2", None) is None:
+        return False
+    probe = getattr(cache, "_kappa2_has_diagonal_cusp", None)
+    if not callable(probe):
+        return False
+    try:
+        return bool(probe())
+    except Exception:
+        return False
 
 
 def _coupling_kink_candidates(
@@ -484,26 +526,44 @@ def _kink_candidates(spatial: "SpatialStructure", c_kink: bool, orderings,
     return candidates
 
 
+def _split_vars(spatial: "SpatialStructure", swept=()) -> set:
+    """The times an extra ordering can be placed between: the integration
+    variables, plus the externals ``integrate_over`` sweeps.
+
+    A swept external is drawn before every internal variable, so an
+    ordering with one is carried by the mapping already -- as an upper
+    bound (``min(parents)``, the swept column) or a lower one (a
+    :func:`_causal_lower_bound_sources` source).  Two swept externals are
+    not a pair: their relative order comes from
+    :func:`_swept_external_order`, which reads the causal structure only.
+    """
+    return set(spatial.time_integration_vars) | set(swept)
+
+
 def _kink_pairs(spatial: "SpatialStructure", c_kink: bool,
                 orderings=None,
-                coupling_pairs=()) -> list[tuple[str, str]]:
-    """Internal time variables that ``orderings`` (default: the causal
-    structure) leave unordered and whose crossing kinks the integrand
-    inside the domain (the three sources are listed in
-    :func:`_kink_candidates`).
+                coupling_pairs=(), swept=()) -> list[tuple[str, str]]:
+    """Times that ``orderings`` (default: the causal structure) leave
+    unordered and whose crossing kinks the integrand inside the domain (the
+    three sources are listed in :func:`_kink_candidates`).
 
+    Both ends must be in :func:`_split_vars` and at most one may be swept.
     A kink between an integration variable and an external point pinned at
     a fixed time is a constant cut rather than an ordering; it is
     :func:`_kink_constant_cuts`.
     """
     orderings = (spatial.time_orderings if orderings is None
                  else orderings)
-    ivars = set(spatial.time_integration_vars)
-    later = _later_sets(ivars, orderings)
-    candidates = _kink_candidates(spatial, c_kink, orderings, coupling_pairs)
+    swept = set(swept)
+    nodes = _split_vars(spatial, swept)
+    later = _later_sets(nodes, orderings)
+    candidates = _kink_candidates(spatial, c_kink, orderings, coupling_pairs,
+                                  keep=nodes.__contains__)
     pairs: list[tuple[str, str]] = []
     for a, b in candidates:
-        if a == b or a not in ivars or b not in ivars:
+        if a == b or a not in nodes or b not in nodes:
+            continue
+        if a in swept and b in swept:
             continue
         if b in later[a] or a in later[b]:
             continue
@@ -515,7 +575,7 @@ def _kink_pairs(spatial: "SpatialStructure", c_kink: bool,
 
 def _kink_orientations(spatial: "SpatialStructure",
                        pairs: list[tuple[str, str]],
-                       orderings=None) -> list[tuple]:
+                       orderings=None, swept=()) -> list[tuple]:
     """Every order of the kink pairs consistent with ``orderings`` (default:
     the causal structure), each as a tuple of extra ``(earlier, later)``
     edges.  The sub-domains they define partition the domain."""
@@ -523,14 +583,14 @@ def _kink_orientations(spatial: "SpatialStructure",
 
     orderings = (spatial.time_orderings if orderings is None
                  else orderings)
-    ivars = set(spatial.time_integration_vars)
-    base = [(e, l) for e, l in orderings if e in ivars and l in ivars]
+    nodes = _split_vars(spatial, swept)
+    base = [(e, l) for e, l in orderings if e in nodes and l in nodes]
     out = []
     for bits in product((0, 1), repeat=len(pairs)):
         extra = tuple((a, b) if bit == 0 else (b, a)
                       for (a, b), bit in zip(pairs, bits))
-        later = _later_sets(ivars, base + list(extra))
-        if all(v not in later[v] for v in ivars):      # acyclic
+        later = _later_sets(nodes, base + list(extra))
+        if all(v not in later[v] for v in nodes):      # acyclic
             out.append(extra)
     return out
 
@@ -1735,6 +1795,7 @@ def _causal_lower_bound_sources(
     external_times: dict,
     t_min: float,
     swept: tuple = (),
+    orderings=None,
 ) -> tuple[dict, dict]:
     """Lower bounds split into a constant part and a *variable* part.
 
@@ -1762,13 +1823,25 @@ def _causal_lower_bound_sources(
     any internal variable, and ``nquad`` places them outside every internal
     variable in ``all_vars``, so a source's value is always available by
     the time the bound is needed.
+
+    ``orderings`` defaults to the diagram's causal structure.  The
+    integrators that split the domain pass their own, the causal structure
+    plus the orderings the split added: ``u ≥ t_x`` and ``u ≤ v`` make
+    ``v ≥ t_x`` too, and only the caller knows the second.  Left out, the
+    piece keeps ``v`` down to ``t_min`` and ``u``'s interval ``[t_x, v]``
+    collapses to zero width below ``t_x`` -- a jump in ``v`` where the
+    integrand had a weaker kink before the split, which costs more than
+    the split buys (measured on demo 7's ``integrate_over={'x'}`` channel:
+    3.9e-04 at 16 nodes against 4.6e-07 unsplit, and 1.7e-09 with the
+    bound carried).
     """
     int_set = set(int_vars)
     swept_set = set(swept)
+    orderings = (spatial.time_orderings if orderings is None else orderings)
     lowers: dict = {}
     sources: dict = {}
     # Direct constraints: (external earlier) -> (internal later).
-    for earlier, later in spatial.time_orderings:
+    for earlier, later in orderings:
         if later in int_set and earlier not in int_set:
             t_e = external_times.get(earlier)
             if t_e is None:
@@ -1789,7 +1862,7 @@ def _causal_lower_bound_sources(
     changed = True
     while changed:
         changed = False
-        for earlier, later in spatial.time_orderings:
+        for earlier, later in orderings:
             if earlier in int_set and later in int_set:
                 lo_e = lowers.get(earlier)
                 if lo_e is not None and lo_e > lowers.get(later, t_min):
@@ -4236,21 +4309,26 @@ class DiagramIntegrand:
         ``has_coincident_time_kinks``.  Empty for a static coupling."""
         return _coupling_kink_candidates(self.spatial, self.dynamic_coupling)
 
-    def _kink_pairs_under(self, cache: Any,
-                          time_orderings) -> list[tuple[str, str]]:
+    def _kink_pairs_under(self, cache: Any, time_orderings,
+                          swept=()) -> list[tuple[str, str]]:
         """:func:`_kink_pairs` of this integrand under ``time_orderings``:
         the pairs at which :meth:`integrate_moment_gauss_legendre` and
-        :meth:`integrate_moment_nquad` split the time domain."""
+        :meth:`integrate_moment_nquad` split the time domain.  ``swept``
+        names the externals ``integrate_over`` sweeps, which pair like an
+        integration variable (:func:`_split_vars`)."""
         return _kink_pairs(self.spatial, _c_has_diagonal_kink(cache),
-                           time_orderings, self._coupling_kink_pairs)
+                           time_orderings, self._coupling_kink_pairs,
+                           swept=swept)
 
     def _kink_cuts_under(self, cache: Any, time_orderings, fixed_times,
-                         t_min: float, t_ceiling: float,
-                         extra_bounds=()) -> list[tuple[str, float]]:
+                         t_min: float, t_ceiling: float, extra_bounds=(),
+                         swept=()) -> list[tuple[str, float]]:
         """:func:`_kink_constant_cuts` of this integrand: the ``(variable,
         time)`` cuts at which :meth:`integrate_moment_gauss_legendre` and
         :meth:`integrate_moment_nquad` split the time domain against an
-        external point pinned at a fixed time."""
+        external point pinned at a fixed time.  ``swept`` plays no part
+        here: a cut is a constant, and a swept external's time is not one
+        (its kinks are pairs, see :func:`_split_vars`)."""
         if not fixed_times:
             return []
         bounds = _constant_bounds(self.spatial, time_orderings, fixed_times,
@@ -5768,10 +5846,12 @@ class DiagramIntegrand:
         # the orderings added so far.  Each pass orders at least one more
         # pair, so this terminates.
         time_orderings = list(spatial.time_orderings) + list(_extra_orderings)
-        pairs = self._kink_pairs_under(cache, time_orderings)
+        pairs = self._kink_pairs_under(cache, time_orderings,
+                                       swept=ext_integrated)
         if pairs:
             total = 0.0
-            for extra in _kink_orientations(spatial, pairs, time_orderings):
+            for extra in _kink_orientations(spatial, pairs, time_orderings,
+                                            swept=ext_integrated):
                 val, _ = self.integrate_moment_gauss_legendre(
                     lambda_f, cache, t_min=t_min, direction=direction,
                     n_gauss=n_gauss, positions=positions,
@@ -5786,7 +5866,8 @@ class DiagramIntegrand:
         # pass: the cut resolves that variable against that time and the
         # candidates are a property of the diagram, so this terminates too.
         cuts = self._kink_cuts_under(cache, time_orderings, fixed_times,
-                                     t_min, t_ceiling, _extra_bounds)
+                                     t_min, t_ceiling, _extra_bounds,
+                                     swept=ext_integrated)
         if cuts:
             var, t_star = cuts[0]
             total = 0.0
@@ -5837,6 +5918,7 @@ class DiagramIntegrand:
         # columns and are filled before this loop runs).
         lowers, lower_srcs = _causal_lower_bound_sources(
             spatial, int_vars_pf, fixed_times, t_min, swept=ext_integrated,
+            orderings=time_orderings,
         )
 
         span = lambda_f - t_min
@@ -6073,10 +6155,12 @@ class DiagramIntegrand:
         # earlier variable by the later one, so the internals are re-sorted
         # innermost-first under the orderings added so far.
         time_orderings = list(spatial.time_orderings) + list(_extra_orderings)
-        pairs = self._kink_pairs_under(cache, time_orderings)
+        pairs = self._kink_pairs_under(cache, time_orderings,
+                                       swept=ext_integrated)
         if pairs:
             total, total_err = 0.0, 0.0
-            for extra in _kink_orientations(spatial, pairs, time_orderings):
+            for extra in _kink_orientations(spatial, pairs, time_orderings,
+                                            swept=ext_integrated):
                 val, err = self.integrate_moment_nquad(
                     lambda_f, cache, t_min=t_min, direction=direction,
                     positions=positions, integrate_over=integrate_over,
@@ -6088,7 +6172,8 @@ class DiagramIntegrand:
                 total_err += err
             return (total, total_err)
         cuts = self._kink_cuts_under(cache, time_orderings, fixed_times,
-                                     t_min, t_ceiling, _extra_bounds)
+                                     t_min, t_ceiling, _extra_bounds,
+                                     swept=ext_integrated)
         if cuts:
             var, t_star = cuts[0]
             total, total_err = 0.0, 0.0
@@ -6135,6 +6220,7 @@ class DiagramIntegrand:
         # callable fires -- a variable lower bound is expressible here.
         lowers, lower_srcs = _causal_lower_bound_sources(
             spatial, int_vars, fixed_times, t_min, swept=ext_integrated,
+            orderings=time_orderings,
         )
 
         def make_bound(
