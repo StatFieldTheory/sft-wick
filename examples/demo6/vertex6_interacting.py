@@ -21,13 +21,13 @@ together with an interaction — and its ``equal_time`` counterpart
 Reference: the moment hierarchy (:mod:`vertex6_reference`) at the tag with
 the same vertex counts, at the same distinct times.
 
-Two limits of Gauss-Legendre show up here and are reported rather than
-worked around.  A kink between an internal time and a **fixed external**
-time — the ends of a white-noise C, or two parents of one equal-time vertex
-— is not one of the pairs the Gauss-Legendre kink split orders, so at
-distinct external times those channels converge algebraically; at equal
-external times, and in channels with no C and no equal-time vertex, the
-convergence is exponential.  QMC is unaffected.  The order-4 expansion of a
+A kink between an internal time and a **fixed external** time — the ends of
+a white-noise C, or two parents of one equal-time vertex — is not an
+ordering between two variables, so the Gauss-Legendre split cuts the
+internal variable's range at that time instead (since 2026-09-12).  Before
+the cut those channels converged algebraically at distinct external times
+(``F F`` 7.5e-04 at 16 nodes, ``F J3 J3`` 5.5e-02 at 8) and exponentially at
+equal times; QMC was unaffected either way.  The order-4 expansion of a
 *four*-point observable (which would give ``F F X3 X3``) did not finish in
 20 minutes, so the two-copy channel is taken at order 3 of the five-point
 function instead.

@@ -20,11 +20,11 @@ plus an even number for the C propagators.)
 Reference: the moment hierarchy of the Markov embedding with a cubic drift
 term (:mod:`vertex6_reference`), at the tag that counts the same vertices.
 
-Two external times: the two-point channels are run at equal times, where
-Gauss-Legendre converges exponentially, and at distinct times, where it does
-not — a C propagator between an internal time and a *fixed external* time is
-kinked inside the domain and the Gauss-Legendre kink split only splits pairs
-of internal times.  QMC is unaffected.
+Two external times: the two-point channels are run at equal times and at
+distinct times, where a C propagator between an internal time and a *fixed
+external* time is kinked inside the domain.  Gauss-Legendre cuts the
+internal variable's range at that time (since 2026-09-12) and converges
+exponentially in both; at distinct times it used to fall to 8.5e-04.
 
 Run ``python vertex6_cubic.py``; results go to ``cubic_results.json``.
 """
