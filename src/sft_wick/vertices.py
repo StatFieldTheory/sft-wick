@@ -188,7 +188,7 @@ class VertexInstance:
 
         # Build coupling symbol with appropriate indices and spatial args
         if vertex.local:
-            # A local vertex has exactly ONE spacetime argument — the shared
+            # A local vertex has exactly ONE spacetime argument, the shared
             # point created above.  Recording it (a) makes two copies of the
             # same vertex distinguishable at order >= 2, and (b) is what lets a
             # callable, time-dependent coupling c(t) be evaluated at the right

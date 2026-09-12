@@ -8,7 +8,7 @@ for the available presets (default / publication / grayscale /
 minimal) and :mod:`sft_wick.render_labels` for the label
 override hooks.
 
-The constructor remains backward-compatible — calling
+The constructor remains backward-compatible: calling
 ``DiagramRenderer(figsize=(8, 6))`` keeps working with the
 ``default_style`` preset.
 
@@ -237,8 +237,8 @@ class DiagramRenderer:
                              compact automatic value and relaxes it if
                              rendered rows would overlap.
             show:            If ``True``, call ``plt.show()`` after
-                             building the figure.  Default ``False``
-                             — callers that ``savefig`` should leave
+                             building the figure.  Default ``False``;
+                             callers that ``savefig`` should leave
                              this off.
             external_labels: Optional map keyed by *subplot index*
                              whose values are
@@ -432,7 +432,7 @@ class DiagramRenderer:
 
                 # R propagators are directed: the arrowhead must land
                 # on the physical (φ) end, i.e. the arrow points ψ → φ
-                # (matches the TikZ renderer — see drawing_tikz.py).
+                # (matches the TikZ renderer; see drawing_tikz.py).
                 #
                 # The edge geometry is ALWAYS drawn p1→p2 (the stored
                 # u→v orientation) so that the curvature side of
@@ -511,15 +511,15 @@ class DiagramRenderer:
         margin = style.layout.margin
         # The layout is normalised iff bbox-normalisation is on AND the
         # caller did not pin any nodes (manual positions skip the
-        # normalisation pass — see render_layout.compute_layout).
+        # normalisation pass; see render_layout.compute_layout).
         layout_was_normalised = (
             style.layout.normalize_bbox and not positions
         )
         if layout_was_normalised:
             # Use the standardised target extent so every panel in a
-            # grid has identical coordinate limits — this is what
-            # makes loop radii, edge thicknesses, and marker sizes
-            # look consistent across diagrams.  Very flat diagrams
+            # grid has identical coordinate limits, which keeps
+            # loop radii, edge thicknesses and marker sizes
+            # consistent across diagrams.  Very flat diagrams
             # (for example a bare two-point line) get a shallower
             # y-range anchored near the panel title so they do not
             # float in the middle of an otherwise empty subplot.
@@ -580,7 +580,7 @@ class DiagramRenderer:
 
         # ``head_at_start`` steers a directed edge's arrowhead onto
         # posA (the start) instead of posB (the end), without changing
-        # the geometry — see the directed-edge comment in the edge loop.
+        # the geometry.  See the directed-edge comment in the edge loop.
         if not style.arrow:
             arrowstyle = "-"
         elif head_at_start:

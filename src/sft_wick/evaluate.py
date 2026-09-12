@@ -1,10 +1,10 @@
 """Numerical evaluation pipeline for DiagramTerm objects.
 
 Provides the 4-step workflow:
-1. Coupling coefficients — handled by DiagramTerm.evaluate_coupling() (existing)
-2. Spatial structure analysis — analyze_spatial()
-3. Propagator evaluation — PropagatorModel + PropagatorCache
-4. Contraction & integration — DiagramIntegrand
+1. Coupling coefficients: DiagramTerm.evaluate_coupling() (existing)
+2. Spatial structure analysis: analyze_spatial()
+3. Propagator evaluation: PropagatorModel + PropagatorCache
+4. Contraction and integration: DiagramIntegrand
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ class SpatialStructure:
     time_integration_vars: tuple[str, ...]
 
     #: Surviving direction integration variables (one per R-component that
-    #: contains only integration points — typically empty).
+    #: contains only integration points; typically empty).
     direction_integration_vars: tuple[str, ...]
 
     #: External (non-integration) spatial points.
@@ -342,7 +342,7 @@ def _topological_sort_times(
             adj[later].append(earlier)
             in_degree[earlier] = in_degree.get(earlier, 0) + 1
 
-    # Kahn's algorithm — start from nodes with in_degree 0 (latest times)
+    # Kahn's algorithm: start from nodes with in_degree 0 (latest times)
     queue = [v for v in integration_vars if in_degree[v] == 0]
     result: list[str] = []
     while queue:
@@ -382,7 +382,7 @@ def _c_has_diagonal_kink(cache: Any) -> bool:
     * **white noise**: ``C = ∫_{t_min}^{min(t1, t2)} R σ² R``, whose first
       derivative jumps by ``σ² R`` across the diagonal;
     * a **closed-form C** (``cache.c_value_fn``) that declares
-      ``has_diagonal_kink`` -- the hook for a user closed form whose
+      ``has_diagonal_kink``, the hook for a user closed form whose
       structure the package cannot see;
     * a **κ² with a ``|Δt|`` cusp** (:func:`_kappa2_kinks_c`).
 
@@ -416,9 +416,9 @@ def _kappa2_kinks_c(cache: Any) -> bool:
     split.
 
     The question is the one ``PropagatorCache._kappa2_has_diagonal_cusp``
-    already answers for the C quadrature itself -- the built-in kernels
-    declare ``has_diagonal_cusp``, any other callable is probed from
-    one-sided differences at two step sizes -- so this defers to it.  A
+    already answers for the C quadrature itself: the built-in kernels
+    declare ``has_diagonal_cusp``, and any other callable is probed from
+    one-sided differences at two step sizes.  This defers to it.  A
     cache with no κ² (closed-form only, or a custom cache) answers False
     and leaves the decision to the declarations above.
     """
@@ -531,7 +531,7 @@ def _split_vars(spatial: "SpatialStructure", swept=()) -> set:
     variables, plus the externals ``integrate_over`` sweeps.
 
     A swept external is drawn before every internal variable, so an
-    ordering with one is carried by the mapping already -- as an upper
+    ordering with one is carried by the mapping already, as an upper
     bound (``min(parents)``, the swept column) or a lower one (a
     :func:`_causal_lower_bound_sources` source).  Two swept externals are
     not a pair: their relative order comes from
@@ -618,7 +618,7 @@ def _applied_cut_bounds(spatial: "SpatialStructure", orderings,
     carry that on its own: an upper bound is ``min(parents)``, which carries
     a cut downwards, while a lower bound is per variable.  Left out, the
     piece above ``t*`` gives its outer variable a range that collapses to
-    zero width at ``t*`` -- the kink is moved, not removed (measured on
+    zero width at ``t*``: the kink is moved, not removed (measured on
     demo 6's ``F F`` channel at distinct external times: 5.5e-05 at 16
     nodes, machine precision with the bound carried).  ``v ≤ t*`` carries
     upwards for symmetry, where ``min(parents)`` already holds it.
@@ -692,7 +692,7 @@ def _kink_constant_cuts(spatial: "SpatialStructure", c_kink: bool,
       ``fixed_times`` instead of a second integration variable;
     * a cut already made on a variable ``v`` (``extra_bounds``, ``v ≤ t*``)
       is one more term in ``v``'s upper bound ``min(parents, t*)``, which
-      changes branch where a *variable* parent crosses ``t*`` -- the same
+      changes branch where a *variable* parent crosses ``t*``, the same
       kink the two-parent rule of :func:`_kink_candidates` covers, with a
       constant for one of the parents.  Left out, cutting the inner
       variable only moves the kink onto the outer one.
@@ -829,7 +829,7 @@ def analyze_spatial(dt: "DiagramTerm") -> SpatialStructure:
         earlier_alias = equal_time_aliases.get(earlier, earlier)
         later_alias = equal_time_aliases.get(later, later)
         if earlier_alias == later_alias:
-            # Same physical time after collapse — no ordering needed.
+            # Same physical time after collapse: no ordering needed.
             continue
         time_orderings_collapsed.append((earlier_alias, later_alias))
     sorted_time_vars = _topological_sort_times(
@@ -889,7 +889,7 @@ def _require_one_position_per_group(
     """Refuse two points of one direction group placed at two positions.
 
     The group has one coordinate, and the resolver would take whichever
-    of the two it met first in a ``frozenset`` — an order that changes
+    of the two it met first in a ``frozenset``, an order that changes
     with the labels and with ``PYTHONHASHSEED``, so the same physics
     spelled with different external names returns different numbers.
 
@@ -930,11 +930,11 @@ def _require_one_position_per_group(
 #: more than this, relatively.  C(t1,t2) has a derivative kink of exactly
 #: -sigma2(t) on t1 == t2 (the integral's upper limit is min(t1,t2)), so the
 #: substitution error from using the diagonal spline is bounded by
-#: sigma2 * _DIAG_TOL -- orders below the table's own accuracy, hence never
+#: sigma2 * _DIAG_TOL, orders below the table's own accuracy, hence never
 #: the worse choice.
 #: Entries kept in ``PropagatorCache``'s ``C_value`` memo before the oldest is
-#: evicted.  It used to be unbounded -- described in comments as an LRU while
-#: being a plain dict -- so a long sweep grew it without limit.
+#: evicted.  It used to be unbounded (described in comments as an LRU while
+#: being a plain dict), so a long sweep grew it without limit.
 _C_CACHE_MAXSIZE = 65536
 
 #: Two times are treated as ON the C-table diagonal when they differ by no
@@ -958,7 +958,7 @@ def _real_or_raise(value, e_psi: int = 0, *, scale: float = 0.0,
     ``<phi psi> = -i R``.  Rotating by ``i**E_psi`` therefore lands exactly on
     the real axis.
 
-    Anything left over is a mis-specified action -- most often a missing MSR
+    Anything left over is a mis-specified action, most often a missing MSR
     factor on a multi-psi vertex, for which the required coefficient is
     ``-(i**m)/m!`` (see ``NonLocalVertex.msr_factor``).  That is reported, not
     silently turned into ``abs()`` (which flips the sign of negative
@@ -1053,7 +1053,7 @@ class _LazyTimeSplineCache:
     - ``translation``: key is ``r = |x1 − x2|`` (scalar ≥ 0).
     - ``rotation``: key is ``cos θ = x1·x2 / (|x1| |x2|)`` (scalar
       in ``[-1, 1]``).
-    - ``general``: key is ``(x1_tuple, x2_tuple)`` — a pair of
+    - ``general``: key is ``(x1_tuple, x2_tuple)``, a pair of
       tuples over all x dimensions.
 
     Memoization key is the parameter rounded to ``round_decimals``
@@ -1085,7 +1085,7 @@ class _LazyTimeSplineCache:
         #: ``(t1, t2)`` grids at zero separation divided by ``κ_x(0)``, built
         #: once and rescaled by ``κ_x(r)`` for every later ``r``.
         self._base_grids: list | None = None
-        #: Number of times the full quadrature grid was actually built --
+        #: Number of times the full quadrature grid was actually built,
         #: exposed so tests and the cost estimator can count table builds.
         self.n_grid_builds: int = 0
         #: Parallel-worker count forwarded to :meth:`_build`.  ``1``
@@ -1133,7 +1133,7 @@ class _LazyTimeSplineCache:
           no white noise): ``C(r; t1, t2) = κ_x(r) · C(0; t1, t2)``, so the
           quadrature grid is built ONCE at zero separation and rescaled
           for every further ``r``.  The lazy cache used to redo the full
-          ``n_grid_t²`` quadrature per distinct ``r`` -- 4× the work for a
+          ``n_grid_t²`` quadrature per distinct ``r``: 4× the work for a
           four-point moment, 12×+ in a positions sweep.
         * **Time symmetry** (``κ_t`` even, diagonal C): the grid is
           symmetric in ``(t1, t2)``, so only the upper triangle is
@@ -1257,7 +1257,7 @@ class _LazyTimeSplineCache:
 
         ts = self.ts
         # Wrap each 2-D spline with the diagonal spline harvested from the
-        # SAME grid -- the lazy spatial path carried the identical kink as
+        # SAME grid.  The lazy spatial path carried the identical kink as
         # the legacy table (measured 22.3% at n_grid_t=41, bit-for-bit the
         # same numbers), and this is the path examples/demo1 uses.
         return [
@@ -1277,7 +1277,7 @@ class _DiagLineSpline:
     * ``scipy.interpolate.CubicSpline`` is NOT picklable (scipy 1.18:
       ``TypeError: cannot pickle 'module' object``), so a
       :class:`PropagatorCache` holding one cannot be sent through joblib or
-      saved -- a regression against ``RectBivariateSpline``, which is.
+      saved, a regression against ``RectBivariateSpline``, which is.
     * ``RegularGridInterpolator(method='cubic')`` IS picklable but DIVERGES on
       this data as the grid refines: mid-cell relative error 4.0e-04 at
       n_grid=41 but 8.2e-03 at n_grid=321.  Swapping to it trades a
@@ -1327,7 +1327,7 @@ def _diag_grid_interp(axes, grid, method):
     """Interpolator over ``(t, *extra)`` built from ``grid[i, i, ...]``.
 
     The first two axes of every spatial C table are the SAME time grid, so
-    ``grid[i, i, ...]`` is the diagonal slice -- already computed, no extra
+    ``grid[i, i, ...]`` is the diagonal slice, already computed, with no extra
     quadrature.  See :class:`_DiagAwareGridInterp` for why it is needed.
     """
     from scipy.interpolate import RegularGridInterpolator
@@ -1353,8 +1353,8 @@ class _DiagAwareGridInterp:
     diagonal slice and routes numerically-equal times to it.  ``t -> C(t,t)``
     is smooth, so the diagonal interpolator has no ridge to resolve.
 
-    ``__call__`` matches ``RegularGridInterpolator.__call__`` -- an ``(n, ndim)``
-    array of points -- so it drops into every call site unchanged.
+    ``__call__`` matches ``RegularGridInterpolator.__call__``, an ``(n, ndim)``
+    array of points, so it drops into every call site unchanged.
     """
 
     __slots__ = ("_full", "_diag")
@@ -1406,7 +1406,7 @@ class _DiagAwareSpline:
     tadpole evaluates ``C(s,s)``, exactly on the kink.
 
     This wraps the 2-D spline together with a 1-D spline of the SAME grid's
-    ``i == j`` entries -- no extra quadrature -- and routes equal times to it.
+    ``i == j`` entries (no extra quadrature) and routes equal times to it.
     ``t -> C(t,t)`` is smooth, so the 1-D spline restores O(h^4).
 
     The call signature matches ``RectBivariateSpline.__call__`` exactly, so it
@@ -1471,9 +1471,9 @@ def _C_value_direct_gl(
     the test suite).
 
     Strategy: rather than apply a single tensor-product Gauss-Legendre
-    rule on the rectangle ``[t_min, t1] × [t_min, t2]`` -- where the
+    rule on the rectangle ``[t_min, t1] × [t_min, t2]``, where the
     diagonal cusp ruins polynomial convergence and gives O(10%) error
-    even at ``n_gauss=30`` -- we split the rectangle at ``λ1 = λ2``
+    even at ``n_gauss=30``, we split the rectangle at ``λ1 = λ2``
     into 2 (square case) or 3 (rectangle case) sub-regions on each of
     which the integrand is smooth, then apply a fixed
     ``n_gauss × n_gauss`` rule per sub-region.
@@ -1504,7 +1504,7 @@ def _C_value_direct_gl(
 
     The white-noise δ-correlated piece (when ``model.sigma2`` is set)
     is added via a single 1-D Gauss-Legendre pass on
-    ``[t_min, min(t1, t2)]`` -- the integrand there is smooth (no cusp).
+    ``[t_min, min(t1, t2)]``, where the integrand is smooth (no cusp).
 
     Args:
         model: The propagator model.
@@ -1522,7 +1522,7 @@ def _C_value_direct_gl(
     C_mat = np.zeros((N, N))
 
     if t1 <= t_min or t2 <= t_min:
-        # Empty integration domain along at least one axis -- C = 0.
+        # Empty integration domain along at least one axis, so C = 0.
         return C_mat
 
     # 1-D GL nodes & weights on [-1, 1], reused across sub-regions.
@@ -1534,7 +1534,7 @@ def _C_value_direct_gl(
 
         For ``iso_R`` this is ``R_time * I``.  Otherwise ``R_time`` is
         expected to return the full matrix; note it is **not** in general
-        diagonal in component indices — that holds only when the linear
+        diagonal in component indices; that holds only when the linear
         operator itself is diagonal in the chosen basis.  Using only the
         diagonal here silently corrupts C for any dense drift matrix
         (e.g. ``A = H + lambda`` with ``H = X^T X / N``).
@@ -1555,8 +1555,8 @@ def _C_value_direct_gl(
     ) -> np.ndarray:
         # C_{ab} = sum_{c,d} R_{ac}(t1,l1) kappa_{cd}(l1,l2) R_{bd}(t2,l2)
         #        = [ R1 @ kappa @ R2^T ]_{ab}
-        # The transpose is essential and invisible for symmetric R --
-        # do not "simplify" it away.
+        # The transpose is essential and invisible for symmetric R.
+        # Do not "simplify" it away.
         out = r1 @ np.asarray(kmat, dtype=float) @ r2.T
         if model.diag_C:
             # Project onto the diagonal AFTER contracting, never before.
@@ -1748,7 +1748,7 @@ def _probe_c_transpose(model: "PropagatorModel", x1: Any, x2: Any,
                 w21 = np.asarray(model.sigma2(ya, s1, yb), dtype=float).T
                 if not _same(w12, w21):
                     return False
-    except Exception:  # noqa: BLE001 -- a user callable; see the docstring
+    except Exception:  # noqa: BLE001 (a user callable; see the docstring)
         return False
     return True
 
@@ -1767,7 +1767,7 @@ def select_gl_node_count(
     reaching ``t_max``, or ``None`` if none up to ``n_max`` is.
 
     A fixed-node tensor-product rule loses accuracy as the integrand's
-    exponential rates times the interval length grow -- for the demo1
+    exponential rates times the interval length grow: for the demo1
     kernel (``γ = 1``, ``σ_t = 0.3``) ``n_gauss = 20`` is at 1e-12 for
     ``t_max = 15`` but 1e-5 at 30 and 2e-2 at 100.  Rather than trust a
     number, this probes the table's extreme cells (the deep corner
@@ -1779,7 +1779,7 @@ def select_gl_node_count(
     quadrature runs, applied once per table instead of per cell; it
     costs a handful of GL evaluations.
 
-    Returns ``None`` -- meaning "use dblquad" -- when the cap is reached
+    Returns ``None``, meaning "use dblquad", when the cap is reached
     or the kernel raises on the probe positions.
     """
     import math
@@ -1832,7 +1832,7 @@ def _causal_lower_bounds(
 
     A time ordering ``(earlier, later)`` from an R propagator can be expressed
     as an **upper** bound only when ``earlier`` is itself an integration
-    variable — that is the form every bound-builder in this module uses::
+    variable, the form every bound-builder in this module uses::
 
         for earlier, later in spatial.time_orderings:
             if earlier in int_vars:
@@ -1882,8 +1882,8 @@ def _causal_lower_bound_sources(
       ``max(const[v], *[t(s) for s in sources[v]])``.
 
     Only names in ``swept`` become sources.  A point that is in neither
-    ``external_times`` nor ``swept`` -- an aliased leg of an ``equal_time``
-    non-local vertex, say -- is skipped exactly as before, so the caller
+    ``external_times`` nor ``swept`` (an aliased leg of an ``equal_time``
+    non-local vertex, say) is skipped exactly as before, so the caller
     never receives a name it has no column for.
 
     Every sampler in this module draws the integrated externals *before*
@@ -1896,7 +1896,7 @@ def _causal_lower_bound_sources(
     plus the orderings the split added: ``u ≥ t_x`` and ``u ≤ v`` make
     ``v ≥ t_x`` too, and only the caller knows the second.  Left out, the
     piece keeps ``v`` down to ``t_min`` and ``u``'s interval ``[t_x, v]``
-    collapses to zero width below ``t_x`` -- a jump in ``v`` where the
+    collapses to zero width below ``t_x``, a jump in ``v`` where the
     integrand had a weaker kink before the split, which costs more than
     the split buys (measured on demo 7's ``integrate_over={'x'}`` channel:
     3.9e-04 at 16 nodes against 4.6e-07 unsplit, and 1.7e-09 with the
@@ -1921,7 +1921,7 @@ def _causal_lower_bound_sources(
     # ``ext -> v1 -> v2`` implies ``t_v2 >= t_v1 >= t_ext``, but only ``v1``
     # is named in a direct (external, internal) ordering.  Leaving ``v2`` at
     # ``t_min`` lets it range below ``t_ext``, at which point ``v1``'s interval
-    # ``[t_ext, t_v2]`` inverts -- nquad then integrates backwards and returns
+    # ``[t_ext, t_v2]`` inverts, nquad then integrates backwards and returns
     # a negative volume.  The internal orderings form a DAG, so this fixpoint
     # terminates; it is cheap because diagrams have very few vertices.
     # Variable sources propagate along the same edges and for the same
@@ -1952,18 +1952,18 @@ def _resolve_external_times(
     generalises:
 
     * the **sweep limit** for an integrated external, and the default upper
-      bound for an internal variable with no causal parent -- these stay tied
+      bound for an internal variable with no causal parent; these stay tied
       to ``lambda_f`` (raised to the ceiling below when some external is
       pinned later than it), and
-    * the **time of a fixed external point** -- which ``external_times`` now
+    * the **time of a fixed external point**, which ``external_times`` now
       overrides per point.  Conflating the two is why unequal external times
       were unreachable: an observable such as ``R(t, t')`` needs its two legs
       at different times, and every production integrator pinned them both.
 
     ``external_times=None`` reproduces the old behaviour exactly.
 
-    Returns ``(times, ceiling)`` where ``ceiling = max(lambda_f, *times)`` --
-    an internal variable with no causal parent may still precede an external
+    Returns ``(times, ceiling)`` where ``ceiling = max(lambda_f, *times)``.
+    An internal variable with no causal parent may still precede an external
     pinned beyond ``lambda_f``, so the default upper bound must cover it.
 
     Raises:
@@ -1994,8 +1994,8 @@ def _resolve_external_times(
 def _causal_reachability(time_orderings) -> dict:
     """``{node: set of nodes strictly later than it}``, transitively closed.
 
-    Closing over the WHOLE ordering graph -- not just edges whose endpoints are
-    of one kind -- is what makes the constraint table exhaustive.  Enumerating
+    Closing over the WHOLE ordering graph, not just edges whose endpoints are
+    of one kind, is what makes the constraint table exhaustive.  Enumerating
     edge kinds by endpoint type ({fixed-ext, swept-ext, internal}^2) and
     handling each directly is how the branch previously missed three cells:
     swept -> internal -> swept, fixed-ext -> swept, and swept -> fixed-ext.
@@ -2034,8 +2034,8 @@ def _swept_external_order(
     * **fixed-ext -> swept**: a constant lower bound at the fixed point's time.
     * **swept -> fixed-ext**: a constant upper bound at that time.
 
-    Theta keeps the VALUE right in every case -- the integrand vanishes on the
-    unconstrained part -- so these are quadrature concerns.  But they are the
+    Theta keeps the VALUE right in every case (the integrand vanishes on the
+    unconstrained part), so these are quadrature concerns.  But they are the
     same jump-inside-the-domain that costs ``gauss_legendre`` its spectral
     convergence (measured 22% and 29% at the library default ``n_gauss=8``).
 
@@ -2088,8 +2088,8 @@ def _real_batch_or_raise(values, e_psi: int = 0, *, where: str = "") -> np.ndarr
     """Array counterpart of :func:`_real_or_raise`.
 
     The dynamic-coupling batch sites took a bare ``np.real(...)`` after the
-    ``i**E_psi`` rotation, so a mis-specified action -- a real coupling where
-    the MSR convention wants an imaginary one, say -- silently lost its
+    ``i**E_psi`` rotation, so a mis-specified action (a real coupling where
+    the MSR convention wants an imaginary one, say) silently lost its
     imaginary part instead of being reported.  That is a hole in the reality
     projection on precisely the feature this branch adds.
 
@@ -2141,11 +2141,11 @@ def _resolve_integrate_over(
 
     Accepts:
 
-    - ``None`` — the empty set (all externals fixed at ``lambda_f``).
+    - ``None``: the empty set (all externals fixed at ``lambda_f``).
       This is the physics-observable convention
       ``⟨φ(t_f) · φ(t_f)⟩``.
-    - ``"all"`` — the full set ``ext_vars`` (time-integrated moment).
-    - Iterable of names — used as-is, after validating that each
+    - ``"all"``: the full set ``ext_vars`` (time-integrated moment).
+    - Iterable of names: used as-is, after validating that each
       name appears in ``ext_vars``.
 
     Raises ``ValueError`` on an unknown external name.
@@ -2202,9 +2202,9 @@ class PropagatorCache:
 
                 By default C is *derived* from R and the noise cumulant as
                 ``C = ∫∫ R κ R``.  That relation does not hold for every
-                physically meaningful propagator pair — notably a
+                physically meaningful propagator pair, notably a
                 disorder-averaged (DMFT) solution, where
-                ``⟨R κ R⟩ ≠ ⟨R⟩ κ ⟨R⟩`` — so such a C must be supplied
+                ``⟨R κ R⟩ ≠ ⟨R⟩ κ ⟨R⟩``, so such a C must be supplied
                 directly.  This is the public, L0 equivalent of the L1
                 ``Propagators.build(c_closed_form=..., c_closed_form_only=True)``
                 route; previously it required subclassing and overriding
@@ -2218,15 +2218,15 @@ class PropagatorCache:
 
                 - ``'auto'`` (default): Gauss-Legendre, with the node
                   count chosen at the first table build by
-                  :func:`select_gl_node_count` -- the rule is refined
+                  :func:`select_gl_node_count`, which refines the rule
                   until it agrees with itself at the table's extreme
-                  cells -- and ``'dblquad'`` as the fallback when no
+                  cells, and ``'dblquad'`` as the fallback when no
                   node count up to the cap converges.  Direct
                   :meth:`C_value` calls made *before* any table build
                   use ``'dblquad'``, since no ``t_max`` is known yet.
                 - ``'gauss_legendre'``: tensor-product Gauss-Legendre
                   with diagonal-aware sub-region splitting at
-                  ``λ1 = λ2`` and exactly ``n_gauss`` nodes -- no
+                  ``λ1 = λ2`` and exactly ``n_gauss`` nodes, with no
                   convergence check.  ~10-1000× faster than
                   ``'dblquad'`` on smooth κ² with a single ``|λ1−λ2|``
                   cusp on the diagonal (the demo1/demo2 OU-style
@@ -2255,7 +2255,7 @@ class PropagatorCache:
 
                 - ``'translation'`` (default): C depends only on
                   ``|x1 − x2|``.  Appropriate for translation-invariant
-                  (spatially stationary) noise — the most common case.
+                  (spatially stationary) noise, the most common case.
                   Build via :meth:`precompute_C_table_translation`.
                 - ``'rotation'``: C depends only on ``x1 · x2``.
                   Appropriate when x is a unit direction vector (e.g.
@@ -2279,13 +2279,13 @@ class PropagatorCache:
                 ``precompute_C_table_general``).
 
                 - ``'linear'`` (default, safe): O(h²) accuracy,
-                  monotone -- never overshoots / flips sign even on
+                  monotone, never overshooting or flipping sign even on
                   steeply-decaying C tails. Required when C spans
                   many orders of magnitude across the r-grid (the
                   typical cosmological setting; see
                   ``tests/test_evaluate_interpolation_accuracy.py``).
                 - ``'cubic'``: O(h⁴) accuracy on smooth, well-sampled
-                  grids -- only safe when the user knows their C is
+                  grids; only safe when the user knows their C is
                   bounded away from grid-induced sign-flip artefacts.
 
                 ``RegularGridInterpolator`` accepts any other method
@@ -2334,18 +2334,18 @@ class PropagatorCache:
 
         #: Bounded LRU memo for ``C_value`` (``move_to_end`` on every hit,
         #: eviction from the cold end).  It was an UNBOUNDED plain dict
-        #: described in comments as an LRU -- on a long sweep it grew without
+        #: described in comments as an LRU, so on a long sweep it grew without
         #: limit, which matters in a project whose review agents have already
         #: OOM'd once.  The bound is on entry COUNT: one entry is an
         #: ``(N, N)`` correlator, so the memory ceiling scales as N^2 and a
         #: large-N run should lower :data:`_C_CACHE_MAXSIZE` or call
-        #: :meth:`clear_cache`.  Excluded from pickling -- see
+        #: :meth:`clear_cache`.  Excluded from pickling; see
         #: :meth:`__getstate__`.
         self._c_cache: "OrderedDict[tuple, np.ndarray]" = OrderedDict()
-        # Legacy 2-D (t1, t2) spline at fixed x — still populated by
+        # Legacy 2-D (t1, t2) spline at fixed x, still populated by
         # ``precompute_C_table`` for backward compatibility.
         self._c_splines: list | None = None
-        #: 1-D splines of C(t, t) harvested from the same grid -- see
+        #: 1-D splines of C(t, t) harvested from the same grid; see
         #: ``precompute_C_table``.  The 2-D tensor-product spline is C^2 by
         #: construction and cannot represent the diagonal kink.
         self._c_diag_splines: list | None = None
@@ -2369,13 +2369,13 @@ class PropagatorCache:
         self._lazy_general: _LazyTimeSplineCache | None = None
 
     def R_time(self, t_left: float, t_right: float) -> float | np.ndarray:
-        """Evaluate R_time(t_left, t_right) — the RAW model accessor.
+        """Evaluate R_time(t_left, t_right), the RAW model accessor.
 
         Returns scalar if ``model.iso_R=True``, else ``(N, N)`` array.
 
-        Θ is deliberately **not** applied here.  This is the single
-        authoritative statement of the convention, which used to be
-        described three inconsistent ways across this module:
+        Θ is **not** applied here.  This is the single authoritative
+        statement of the convention, which used to be described three
+        inconsistent ways across this module:
 
         * ``R_time`` is Θ-stripped, so a model author writes only the
           retarded branch and never has to encode the step function.
@@ -2387,7 +2387,7 @@ class PropagatorCache:
           and none of them calls this method for an acausal pair.
         * The older claim that "the integration domain handles causality"
           holds only where an integration domain exists.  An R propagator
-          joining two *fixed external* points has none — see
+          joining two *fixed external* points has none; see
           :meth:`R_product`.
 
         Callers wanting the physical, Θ-enforced propagator should use
@@ -2405,8 +2405,8 @@ class PropagatorCache:
         Only valid when ``model.iso_R=True`` (R is scalar).
 
         Retardation is enforced here.  ``R_time`` itself is the raw model
-        accessor and deliberately does not apply Θ ("the integration domain
-        handles causality") — but that only holds when there *is* an
+        accessor and does not apply Θ ("the integration domain
+        handles causality"), but that only holds when there *is* an
         integration domain.  An R propagator joining two **fixed external**
         points has none: at order 0, ``<phi(t_x) psi(t_y)>`` would otherwise
         evaluate to the unbounded acausal ``exp(+mu (t_y - t_x))`` for
@@ -2441,7 +2441,7 @@ class PropagatorCache:
         """
         # Fast path (spatial-aware): route through C_at_batch which
         # dispatches on ``homogeneity`` + full/lazy table presence.
-        # Only used when a spatial table has actually been built —
+        # Only used when a spatial table has actually been built;
         # otherwise fall through to the legacy/dblquad paths so the
         # plain ``PropagatorCache(model)`` + legacy ``precompute_C_table``
         # flow stays bit-identical to before.
@@ -2491,7 +2491,7 @@ class PropagatorCache:
         # A fixed-size digest, rather than the raw bytes: the digest is 16
         # bytes whatever the array's size, so there is no size cutoff, no
         # escape-hatch sentinel, and no "is this key cacheable" question to
-        # get wrong -- an earlier version answered it with a membership test
+        # get wrong.  An earlier version answered it with a membership test
         # that saw only the key's top level, so an oversized array nested in a
         # list left the sentinel buried inside and two different positions
         # shared a key.  Removing the special case removes that whole class.
@@ -2499,8 +2499,8 @@ class PropagatorCache:
         # memory layout, so it normalises strides on its own.  Do NOT route it
         # through ``np.ascontiguousarray`` first: that downcasts an ndarray
         # SUBCLASS to a base array, discarding the subclass's own ``tobytes``
-        # -- a masked array then keys on its raw buffer and two positions
-        # differing only in their mask share one entry.
+        # (a masked array then keys on its raw buffer, and two positions
+        # differing only in their mask share one entry).
         cacheable = True
 
         def _cache_key_part(obj):
@@ -2508,7 +2508,7 @@ class PropagatorCache:
             if isinstance(obj, np.ndarray):
                 if obj.dtype.kind == "O":
                     # An object array's buffer is raw PyObject POINTERS, and
-                    # an address is unique only among LIVE objects -- CPython
+                    # an address is unique only among LIVE objects.  CPython
                     # recycles a freed temporary's address, so two different
                     # positions would collide.  Refuse rather than guess.
                     cacheable = False
@@ -2540,7 +2540,7 @@ class PropagatorCache:
             #
             # COPY first.  ``_C_value_direct`` ends in ``np.asarray(...)``,
             # which is the identity for a float64 array, so freezing in place
-            # would flip the flag on the USER'S object -- breaking the
+            # would flip the flag on the USER'S object, breaking the
             # idiomatic ``c_value_fn`` that fills and returns one preallocated
             # buffer, or that returns a module-level constant correlator.
             C_mat = np.array(C_mat, copy=True)
@@ -2566,7 +2566,7 @@ class PropagatorCache:
             n_prime = n
         if t2 is None:
             t2 = t1
-        # Fast path: legacy time-only spline table -- but ONLY when there is
+        # Fast path: legacy time-only spline table, but ONLY when there is
         # no spatial table.  `C_value` checks the spatial table FIRST, so
         # taking the legacy one here regardless meant the two accessors
         # disagreed by ~38% whenever both tables were present: this one is
@@ -2587,7 +2587,7 @@ class PropagatorCache:
         ``self``, so the whole cache object is serialised into each worker
         payload.  A full memo is tens of megabytes at a modest number of
         components and grows as N^2, and a worker cannot benefit from the
-        parent's entries anyway -- it recomputes what it needs.
+        parent's entries anyway; it recomputes what it needs.
         """
         state = self.__dict__.copy()
         state["_c_cache"] = OrderedDict()
@@ -2613,7 +2613,7 @@ class PropagatorCache:
         ``C_{aa}(t1, t2)`` depends only on ``(t1, t2)``.  This method
         evaluates C on an ``n_grid × n_grid`` grid via ``dblquad``,
         then builds a :class:`~scipy.interpolate.RectBivariateSpline`
-        for each diagonal component -- for every ``C_ab`` when the model
+        for each diagonal component, and for every ``C_ab`` when the model
         has ``diag_C=False``.
 
         After calling this, :meth:`C_value` and :meth:`C_diagonal`
@@ -2643,14 +2643,14 @@ class PropagatorCache:
         self._c_splines = [RectBivariateSpline(ts, ts, g) for g in grids]
         self._c_splines_entries = entries
         # Harvest the i == j entries into a separate 1-D spline.  Zero extra
-        # quadrature -- they are already in ``grids``.
+        # quadrature: they are already in ``grids``.
         #
         # ``C(t1,t2) = int_0^{min(t1,t2)} R(t1,l) sigma2(l) R(t2,l) dl`` has a
         # derivative discontinuity of exactly ``-sigma2(t)`` on the diagonal:
         # approaching from t1 < t2 the moving upper limit contributes an extra
         # ``R(t1,t1) sigma2(t1) R(t2,t1)``, absent from the other side.  A
         # tensor-product spline is C^2 everywhere, so it smears that kink and
-        # stops converging there -- measured 22.3% relative error at n_grid=41
+        # stops converging there: measured 22.3% relative error at n_grid=41
         # and still 21.4% at n_grid=321, i.e. p = 0.009, no convergence at all,
         # while the same table is clean O(h^4) away from the diagonal.  Every
         # tadpole evaluates C(s,s), exactly on the kink.
@@ -2748,8 +2748,8 @@ class PropagatorCache:
         Requires :meth:`precompute_C_table` to have been called.
 
         Args:
-            t1: Array of shape ``(n,)`` — first time coordinates.
-            t2: Array of shape ``(n,)`` — second time coordinates.
+            t1: Array of shape ``(n,)``, the first time coordinates.
+            t2: Array of shape ``(n,)``, the second time coordinates.
 
         Returns:
             Array of shape ``(n, N)`` where ``N`` is the number of
@@ -2811,8 +2811,8 @@ class PropagatorCache:
         matrix-valued R goes through :meth:`R_matrix_batch`).
 
         Args:
-            t1: Array of shape ``(n,)`` — left times.
-            t2: Array of shape ``(n,)`` — right times.
+            t1: Array of shape ``(n,)``, the left times.
+            t2: Array of shape ``(n,)``, the right times.
 
         Returns:
             Array of shape ``(n,)``.  R(t1, t2) = Θ(t1−t2) × R_time(t1, t2).
@@ -2824,7 +2824,7 @@ class PropagatorCache:
         # R_product and _evaluate_r_product_general, which short-circuit
         # before calling it.  Evaluating everywhere and masking afterwards
         # would make the three sites behave differently for a model whose
-        # R_time raises or overflows on acausal input — the same number,
+        # R_time raises or overflows on acausal input: the same number,
         # but a spurious exception or RuntimeWarning through this path only.
         t1a = np.asarray(t1, dtype=float)
         t2a = np.asarray(t2, dtype=float)
@@ -2848,8 +2848,8 @@ class PropagatorCache:
         other end has nodes, so most samples reuse an evaluation.
 
         Args:
-            t1: Array of shape ``(n,)`` — left times.
-            t2: Array of shape ``(n,)`` — right times.
+            t1: Array of shape ``(n,)``, the left times.
+            t2: Array of shape ``(n,)``, the right times.
 
         Returns:
             Array of shape ``(n, N, N)``.
@@ -2921,7 +2921,7 @@ class PropagatorCache:
         """Decide (and remember) the quadrature for a table reaching ``t_max``.
 
         Explicit settings are returned as they are.  ``'auto'`` runs
-        :func:`select_gl_node_count` once -- later calls with a larger
+        :func:`select_gl_node_count` once; later calls with a larger
         ``t_max`` re-run it, since convergence depends on the horizon.
         """
         if self.c_value_fn is not None:
@@ -2955,11 +2955,10 @@ class PropagatorCache:
 
         This used to time one deep cell under each rule and take the
         winner.  Both rules are verified converged before it is called,
-        so the race could never produce a wrong value -- but it made the
+        so the race could never produce a wrong value, but it made the
         CHOICE depend on machine load, and with it ``c_source`` and the
         spline table.  Two runs of the same config on a busy and an idle
-        machine could resolve differently, which is a bad property for a
-        package that sells reproducibility, and it made
+        machine could resolve differently, and it made
         ``test_direct_calls_before_any_build_use_dblquad_under_auto``
         fail intermittently under load.
 
@@ -2986,7 +2985,7 @@ class PropagatorCache:
 
         The decision is now a function of the inputs alone: prefer
         Gauss-Legendre whenever a converged node count exists, and fall
-        back to dblquad only when none does -- which is what the caller
+        back to dblquad only when none does, which is what the caller
         already does with ``n is None``.  If the short-horizon case ever
         matters, bring it back as a THRESHOLD on the converged ``n``, not
         as a timing measurement.
@@ -2994,7 +2993,7 @@ class PropagatorCache:
         One trap if you re-derive the accuracy bound: compare the two
         rules at the RESOLVED ``n``, not at a fixed ``n = 20``.  At
         ``t_max = 50`` a fixed 20-node rule differs from dblquad by
-        1.7e-04, which looks alarming -- but ``auto`` resolves to
+        1.7e-04, which looks alarming, but ``auto`` resolves to
         ``n = 30`` there, and at 30 the two agree to 2.1e-09.
         """
         return True
@@ -3048,7 +3047,7 @@ class PropagatorCache:
 
         True for a separable translation-invariant ``kappa2`` (the L1
         :class:`~sft_wick.workflow.specs.SeparableTranslation`) without a
-        white-noise impulse -- the impulse adds an ``r``-independent term
+        white-noise impulse, since the impulse adds an ``r``-independent term
         that would break the scaling.  A user ``c_value_fn`` disables it:
         nothing is known about that function's structure.
         """
@@ -3087,8 +3086,8 @@ class PropagatorCache:
     def _c_time_symmetric(self) -> bool:
         """Whether the diagonal C table is symmetric under ``t1 ↔ t2``.
 
-        Requires ``κ_aa(λ1, λ2) = κ_aa(λ2, λ1)`` -- guaranteed only by the
-        built-in even temporal kernels -- and diagonal C (the off-diagonal
+        Requires ``κ_aa(λ1, λ2) = κ_aa(λ2, λ1)`` (guaranteed only by the
+        built-in even temporal kernels) and diagonal C (the off-diagonal
         ``C_ab`` swaps ``R_aa ↔ R_bb`` as well).
         """
         if self.c_value_fn is not None or not self.model.diag_C \
@@ -3206,15 +3205,15 @@ class PropagatorCache:
             ``r = |x1−x2|`` value it builds and caches a 2-D
             ``(t1, t2)`` spline on demand.  For a moment calculation
             at fixed external points ``(x_1, …, x_n)`` there are at
-            most ``O(n²)`` distinct r-values, so lazy mode saves an
-            enormous amount of work vs a densely-sampled r-grid —
-            particularly when the underlying ``_C_value_direct`` is
+            most ``O(n²)`` distinct r-values, so lazy mode does far
+            less work than a densely-sampled r-grid, particularly when
+            the underlying ``_C_value_direct`` is
             ``scipy.integrate.dblquad`` (expensive).
 
         **Full-grid mode (right for sweeping r curves)**
             Both ``r_max`` and ``n_grid_r`` provided.  A 3-D
             ``(t1, t2, r)`` spline is built up-front over the full
-            range, giving O(1) evaluation per query — faster once
+            range, giving O(1) evaluation per query, faster once
             ``n_distinct_r >> n_grid_r``.  Appropriate when the user
             will plot ``C`` or a derived observable as a function of
             r over a continuous range.
@@ -3357,8 +3356,8 @@ class PropagatorCache:
                 grid) and lazy mode (fans out across each on-demand
                 2-D build).  ``1`` serial, ``-1`` all cores via
                 :mod:`joblib`.
-            c_method: ``'dblquad'`` (default) or ``'gauss_legendre'``
-                -- forwarded to :meth:`_C_value_direct` for every
+            c_method: ``'dblquad'`` (default) or ``'gauss_legendre'``,
+                forwarded to :meth:`_C_value_direct` for every
                 full-grid point.  See
                 :meth:`precompute_C_table_translation` for details.
             n_gauss: Per-dim GL node count for
@@ -3466,7 +3465,7 @@ class PropagatorCache:
         - Full-grid: 4-D ``(t1, t2, x1, x2)`` interpolator over the
           pre-allocated grid.  Build cost is
           ``n_grid_t² · n_grid_x²`` independent ``_C_value_direct``
-          calls — strongly consider ``n_jobs=-1``.
+          calls; strongly consider ``n_jobs=-1``.
 
         Args:
             n_jobs: parallel workers for ``_C_value_direct``
@@ -3474,8 +3473,8 @@ class PropagatorCache:
                 across the 4-D grid) and lazy mode (fans out across
                 each on-demand 2-D build).  ``1`` serial, ``-1`` all
                 cores via :mod:`joblib`.
-            c_method: ``'dblquad'`` (default) or ``'gauss_legendre'``
-                -- forwarded to :meth:`_C_value_direct` for every
+            c_method: ``'dblquad'`` (default) or ``'gauss_legendre'``,
+                forwarded to :meth:`_C_value_direct` for every
                 full-grid point.  See
                 :meth:`precompute_C_table_translation` for details.
             n_gauss: Per-dim GL node count for
@@ -3736,7 +3735,7 @@ class PropagatorCache:
           ``precompute_C_table_translation(r_max=..., n_grid_r=...)``;
           otherwise uses a lazy per-r 2-D spline cache; otherwise
           (legacy 2-D spline only) falls back to
-          :meth:`C_diagonal_batch` — x is ignored in that case.
+          :meth:`C_diagonal_batch`, where x is ignored.
         - ``'rotation'``: C depends only on ``x1 · x2 / (|x1| |x2|)``.
           Uses the 3-D ``(t1, t2, cos)`` spline or per-cos lazy cache.
         - ``'general'``: 4-D ``(t1, t2, x1, x2)`` spline, or a lazy
@@ -3802,7 +3801,7 @@ class PropagatorCache:
                 return self._lazy_lookup(
                     self._lazy_translation, t1, t2, x1_b, x2_b, N,
                 )
-            # Fall back to legacy 2-D (t1, t2) spline — x is
+            # Fall back to legacy 2-D (t1, t2) spline, where x is
             # effectively ignored (r=0 assumed).  Matches behaviour
             # of users who only called the legacy
             # :meth:`precompute_C_table`.
@@ -3832,7 +3831,7 @@ class PropagatorCache:
             # (precompute_C_table_general uses ``np.linspace(-x_max,
             # x_max, n_grid_x)``). Extending the grid to d dimensions
             # would yield a (2 + 2d)-D spline whose build cost scales
-            # as ``n_grid_x ** (2d)`` -- exponentially expensive even
+            # as ``n_grid_x ** (2d)``, exponentially expensive even
             # for d=2. Reject vector inputs in full-grid mode and
             # direct the user to lazy mode, which already supports
             # d-dim via dict-keyed memoisation.
@@ -3878,7 +3877,7 @@ class PropagatorCache:
         * **Per-sample** (default): Python loop calling
           ``c_fn(x1_i, t1_i, x2_i, t2_i) -> (N, N)`` per sample.
           Always correct, but ~50-100x slower than the vectorised
-          path on typical workloads -- only practical for small
+          path on typical workloads; only practical for small
           point evaluations or testing.
         """
         N = self.model.n_components
@@ -3971,7 +3970,7 @@ class DynamicCouplingPromise:
     When any entry in ``coupling_values`` is a callable (e.g. a
     spacetime-dependent non-local vertex such as demo2's
     ``κ^{(3)}(x₁,t₁; x₂,t₂; x₃,t₃)``), the usual pre-QMC
-    :meth:`DiagramTerm.evaluate_coupling` path doesn't apply —
+    :meth:`DiagramTerm.evaluate_coupling` path doesn't apply, since
     the callable's output changes with each sample's QMC time
     coordinates.  This class packages everything needed for the
     per-sample path:
@@ -3991,7 +3990,7 @@ class DynamicCouplingPromise:
     dynamic tensors using the sample's ``(times, positions)`` and
     then delegates to the static-path
     :meth:`DiagramTerm.evaluate_coupling` with a fully-numeric
-    ``coupling_values`` dict — so the contraction code stays the
+    ``coupling_values`` dict, so the contraction code stays the
     same.
     """
 
@@ -4000,10 +3999,10 @@ class DynamicCouplingPromise:
     #: :meth:`DiagramTerm.build_integrand`).
     diagram_term: Any
 
-    #: Static coupling values — already materialised arrays.
+    #: Static coupling values: already materialised arrays.
     static_values: dict
 
-    #: Dynamic coupling values — mapping ``key -> callable(n_list,
+    #: Dynamic coupling values: a mapping ``key -> callable(n_list,
     #: t_list)`` returning an ``ndarray``.  One callable appears under
     #: one key per leg order at which its symbol occurs.
     dynamic_values: dict
@@ -4039,8 +4038,9 @@ class DynamicCouplingPromise:
                 # ``(m_legs, n_samples)`` and returns
                 # ``(n_samples,) + kappa_shape``.  Calling it with the
                 # per-sample ``(m_legs,)`` arrays instead would hand it the
-                # wrong contract silently -- some such callables broadcast and
-                # return a plausible wrong shape rather than raising.  Run it
+                # wrong contract silently, and some such callables
+                # broadcast and return a plausible wrong shape rather
+                # than raising.  Run it
                 # as a batch of one and unwrap.
                 stacked = np.asarray(fn(n_list[:, None], t_list[:, None]))
                 if stacked.shape[0] != 1:
@@ -4062,7 +4062,7 @@ class DynamicCouplingPromise:
         label_x: dict,
         n_samples: int,
     ) -> np.ndarray:
-        """Vectorised batch evaluator -- returns the per-sample
+        """Vectorised batch evaluator, returning the per-sample
         coupling as a complex array of shape ``(n_samples,) +
         prop_shape``, where ``prop_shape`` is the shape of the
         diagram's surviving :attr:`DiagramTerm.propagator_indices`
@@ -4072,10 +4072,10 @@ class DynamicCouplingPromise:
         in any dynamic symbol's legs to a ``(n_samples,)`` time
         array / position respectively. Each ``label_x`` entry may be:
 
-        * a scalar (the historical / 1-D translation case) — produces
+        * a scalar (the historical / 1-D translation case), which produces
           a per-leg broadcast of shape ``(n_samples,)``;
         * a ``(d,)`` vector (e.g. a 3-D unit vector under
-          ``homogeneity='rotation'``) — produces a per-leg broadcast
+          ``homogeneity='rotation'``), which produces a per-leg broadcast
           of shape ``(n_samples, d)``.
 
         The user callable then sees per-leg slices of shape ``(m,)`` or
@@ -4088,8 +4088,8 @@ class DynamicCouplingPromise:
         ``vectorized=True`` (e.g. via
         :class:`~sft_wick.workflow.specs.NonLocalVertex(coupling_vectorized=True)`
         or by setting ``fn.vectorized = True``), the wrapped
-        callable receives ``(m_legs, n_samples)`` arrays — or
-        ``(m_legs, n_samples, d)`` for d-dim positions — in a single
+        callable receives ``(m_legs, n_samples)`` arrays (or
+        ``(m_legs, n_samples, d)`` for d-dim positions) in a single
         call and returns a tensor of shape
         ``(n_samples,) + (N,)*order``. Otherwise the callable is
         called directly, once per sample: ``n_samples`` calls per leg
@@ -4104,8 +4104,8 @@ class DynamicCouplingPromise:
         handle.
 
         **Propagator-indexed output.**  When the contraction does not
-        collapse to a scalar -- a κ leg index survives onto a C
-        propagator, as in demo2's order-4 F³κ³ diagrams -- the
+        collapse to a scalar (a κ leg index survives onto a C
+        propagator, as in demo2's order-4 F³κ³ diagrams), the
         returned array keeps those axes.  Callers must then contract
         it against the C-propagator product one index assignment at a
         time, exactly as the static branch does; see
@@ -4132,11 +4132,11 @@ class DynamicCouplingPromise:
                 #
                 # Two regimes:
                 # * scalar position (x_val.ndim == 0): broadcast to
-                #   (n_samples,) -- the historical case; produces a
+                #   (n_samples,), the historical case; produces a
                 #   final n_arr of shape (m, n_samples) and a per-
                 #   sample slice of shape (m,) for the user callable.
                 # * d-dim vector position (x_val.ndim >= 1): broadcast
-                #   to (n_samples, *x_val.shape) -- produces a final
+                #   to (n_samples, *x_val.shape); produces a final
                 #   n_arr of shape (m, n_samples, *vec_shape) and a
                 #   per-sample slice of shape (m, *vec_shape) for the
                 #   user callable.  The user callable is responsible
@@ -4150,7 +4150,7 @@ class DynamicCouplingPromise:
                         )
                     )
             # Mixing scalar and vector legs (or different vector dims
-            # across legs) makes ``np.stack`` raise -- a clear shape
+            # across legs) makes ``np.stack`` raise, a clear shape
             # error that is more useful than a silent broadcast.
             n_arr = np.stack(leg_x_arrs, axis=0)
             # scalar legs -> (m, n_samples)
@@ -4184,7 +4184,7 @@ class DynamicCouplingPromise:
                     stacked[s] = np.asarray(fn(n_arr[:, s], t_2d[:, s]))
             per_sample_tensors[name] = stacked
 
-        # Probe sample 0 to learn the contracted coupling's shape --
+        # Probe sample 0 to learn the contracted coupling's shape:
         # ``()`` for a fully scalar contraction, or the diagram's
         # surviving propagator-index shape.  It also seeds the
         # per-sample fallback loop below.
@@ -4296,7 +4296,7 @@ class DiagramIntegrand:
 
     @property
     def observable_phase(self) -> complex:
-        """``i**E_psi`` — rotates this integrand's raw value onto the reals.
+        """``i**E_psi``: rotates this integrand's raw value onto the reals.
 
         Inverse of :attr:`expected_phase`.  Used where a *batch* of complex
         values must be projected, so :func:`_real_or_raise` (scalar) does not
@@ -4306,7 +4306,7 @@ class DiagramIntegrand:
 
     @property
     def expected_phase(self) -> complex:
-        """``i**(-E_psi)`` — the phase a correctly-specified action produces.
+        """``i**(-E_psi)``: the phase a correctly-specified action produces.
 
         The raw value of this integrand is this phase times a real number; see
         :meth:`~sft_wick.perturbation.DiagramTerm.observable_phase_factor`.
@@ -4331,7 +4331,7 @@ class DiagramIntegrand:
                 non-local vertex are filled in from their representatives
                 here, exactly as :meth:`evaluate` does.
             directions: ``{direction_var: value}``, keyed by
-                ``spatial.direction_map`` values -- mapped back to per-label
+                ``spatial.direction_map`` values, mapped back to per-label
                 positions for the user callable.
             default_position: position for a coupling leg that no propagator
                 attaches to, and which therefore has no ``direction_map``
@@ -4434,8 +4434,8 @@ class DiagramIntegrand:
 
         Raises:
             NotImplementedError: if this integrand carries a spacetime-dependent
-                (callable) coupling and no ``coupling_array`` was supplied --
-                it would otherwise read the zeros placeholder and return 0.
+                (callable) coupling and no ``coupling_array`` was supplied.
+                It would otherwise read the zeros placeholder and return 0.
             ValueError: if this diagram's R-propagator component indices
                 contradict ``cache``'s R type, as for
                 :func:`integrate_diagrams`.  Also if ``directions`` is
@@ -4460,7 +4460,7 @@ class DiagramIntegrand:
         # per group, and cannot express two positions in one group.  The C
         # lookups below fall back to the POINT's own name when the direction
         # variable is absent (``directions.get(dir_l, directions.get(sp_l))``),
-        # which can -- so check the point-keyed spelling here.
+        # which can, so check the point-keyed spelling here.
         _require_one_position_per_group(
             spatial, directions, where="DiagramIntegrand.evaluate")
         coeff = (self.coupling_array if coupling_array is None
@@ -4479,7 +4479,7 @@ class DiagramIntegrand:
 
         # --- R product (scalar when iso_R) ---
         #
-        # ``PropagatorCache.R_product`` is intentionally scalar-only.
+        # ``PropagatorCache.R_product`` is scalar-only.
         # For matrix-valued R, resolve component indices alongside the
         # C contraction below so order-0 R diagrams do not try to cast an
         # (N, N) matrix to float.
@@ -4494,7 +4494,7 @@ class DiagramIntegrand:
             # No propagator indices → scalar coupling, evaluate C without
             # summation, but still honour the integrand's
             # ``fixed_indices`` (observable component labels like
-            # ``a``, ``b``) — without this the C matrix falls through
+            # ``a``, ``b``).  Without this the C matrix falls through
             # to ``C_mat.trace()`` and picks up a spurious factor of
             # N at order 0 for ``⟨φ_a(x) φ_b(y)⟩``-style observables.
             c_val = 1.0
@@ -4624,12 +4624,12 @@ class DiagramIntegrand:
 
         Returns ``(axis, value)`` with at most one of them set:
 
-        * ``(axis, None)`` — the label is a propagator summation index and
+        * ``(axis, None)``: the label is a propagator summation index and
           names an axis of the coupling array, to be contracted over.
-        * ``(None, value)`` — the label is pinned to a definite component,
+        * ``(None, value)``: the label is pinned to a definite component,
           either by :attr:`fixed_indices` (an observable label such as
           ``a``) or as a 1-indexed literal.
-        * ``(None, None)`` — no component information; the caller falls back
+        * ``(None, None)``: no component information; the caller falls back
           to the trace.
 
         Resolving against :attr:`fixed_indices` rather than an empty map is
@@ -4672,7 +4672,7 @@ class DiagramIntegrand:
             # Merge the integrand's fixed component indices (e.g.
             # observable labels like ``a``, ``b``) into the
             # per-iteration summation ``idx_map``, matching the
-            # vectorised path — without this merge, propagator legs
+            # vectorised path.  Without this merge, propagator legs
             # that reference observable labels fall through to
             # ``C_mat.trace()`` (spurious factor of N).
             idx_map = {
@@ -4919,15 +4919,15 @@ class DiagramIntegrand:
         r_batches: list = (),
     ) -> np.ndarray:
         """Combine a per-sample dynamic coupling with the C-propagator
-        product -- the dynamic counterpart of :meth:`_static_values`.
+        product: the dynamic counterpart of :meth:`_static_values`.
 
         ``couplings`` comes from
         :meth:`DynamicCouplingPromise.evaluate_at_batch` and is either
 
-        * ``(n_samples,)`` -- the contraction collapsed to a scalar, so
+        * ``(n_samples,)``: the contraction collapsed to a scalar, so
           the C-propagator components are fixed by
           :attr:`fixed_indices` alone and one C-product suffices; or
-        * ``(n_samples,) + prop_shape`` -- a κ leg index survived onto
+        * ``(n_samples,) + prop_shape``: a κ leg index survived onto
           a C propagator (demo2's order-4 F³κ³), or onto a matrix-valued
           R.  Then the C-product depends on the index assignment, so we
           sum over ``np.ndindex(prop_shape)`` and rebuild it per
@@ -5028,7 +5028,7 @@ class DiagramIntegrand:
         ``positions`` values may be scalars (1-D / legacy) or
         arbitrary-dimensional vectors. The ``default`` likewise may
         be a scalar or a vector. The returned dict preserves whatever
-        shape the user passed -- downstream
+        shape the user passed.  Downstream
         ``PropagatorCache.C_at_batch`` and the spatial Kappa2
         wrappers (``_SeparableTranslationKappa2``, ``_rotation_cos``,
         ...) all accept either form.
@@ -5208,8 +5208,8 @@ class DiagramIntegrand:
         variable-dependent bounds.  For ``nquad``, bounds can be callables.
 
         The variables are ordered as ``spatial.time_integration_vars``,
-        which :func:`_topological_sort_times` emits **earliest time first** —
-        i.e. ``int_vars[0]`` is scipy's *innermost* integral.
+        which :func:`_topological_sort_times` emits **earliest time first**,
+        so ``int_vars[0]`` is scipy's *innermost* integral.
 
         .. important::
            ``scipy.integrate.nquad`` invokes ``ranges[i]`` with the **outer**
@@ -5247,7 +5247,7 @@ class DiagramIntegrand:
             lo_var = lowers.get(var, t_min)
             ub_sources = upper_bounds.get(var, [])
             if not ub_sources:
-                # No causal constraint — integrate up to the latest external
+                # No causal constraint: integrate up to the latest external
                 # time.  Unreachable in practice: every MSR vertex carries a ψ
                 # leg and is therefore the earlier endpoint of at least one R
                 # ordering.
@@ -5395,7 +5395,7 @@ class DiagramIntegrand:
         # computable by no backend at all: this loop rejected the callable,
         # and ``qmc_vectorized`` / ``gauss_legendre`` rejected matrix R.  The
         # scalar loop is in fact the natural home for the per-sample callable
-        # contract -- it already visits one sample at a time -- so it now
+        # contract (it already visits one sample at a time), so it now
         # materialises the coupling per sample instead.
         dyn = self.dynamic_coupling is not None
 
@@ -5538,7 +5538,7 @@ class DiagramIntegrand:
         integrate_over: Any = None,
         external_times: dict[str, float] | None = None,
     ) -> tuple[float, float]:
-        """Vectorized QMC integration — no Python loop over samples.
+        """Vectorized QMC integration, with no Python loop over samples.
 
         Same algorithm as :meth:`integrate_moment_qmc` but evaluates
         all Sobol samples simultaneously using batch propagator lookups.
@@ -5559,17 +5559,17 @@ class DiagramIntegrand:
                 derived from its direction group's external-point
                 position and flows through ``cache.C_at_batch``.
                 Ignored when no spatial table is built (legacy
-                behaviour — ``C_diagonal_batch`` has no x-dependence
+                behaviour, since ``C_diagonal_batch`` has no x-dependence
                 regardless).
             integrate_over: Controls which **external** points have
                 their time integrated over ``[t_min, lambda_f]``.
 
                 - ``None`` (default, physics observable):
-                  **all externals held fixed at ``lambda_f``** —
-                  this gives the equal-time correlator
+                  **all externals held fixed at ``lambda_f``**.
+                  This gives the equal-time correlator
                   ``⟨φ(t_f) φ(t_f)⟩`` that demo notebooks and MC
                   data compare against.
-                - ``"all"``: all externals integrated — the
+                - ``"all"``: all externals integrated, giving the
                   time-integrated moment
                   ``⟨∫₀^{t_f}φ(t) dt · ∫₀^{t_f}φ(t') dt'⟩``.
                   Useful e.g. for weak-lensing line-of-sight
@@ -5664,9 +5664,9 @@ class DiagramIntegrand:
             jacobians = np.where(ok_e, jacobians * w_e, 0.0)
 
         # Internal vars: bounded by parents.  Parents may be
-        # (a) integrated externals — pull from times_arr; (b) fixed
-        # externals — use the fixed ``lambda_f`` value; (c) other
-        # internal vars — pull from times_arr.
+        # (a) integrated externals: pull from times_arr; (b) fixed
+        # externals: use the fixed ``lambda_f`` value; (c) other
+        # internal vars: pull from times_arr.
         for k, var in enumerate(int_vars_pf):
             idx = n_ext_int + k
             parents = parent_map.get(var, [])
@@ -5680,7 +5680,7 @@ class DiagramIntegrand:
                         p_idx = ext_integrated.index(p)
                         hi = np.minimum(hi, times_arr[:, p_idx])
                     else:
-                        # Fixed external — use ITS OWN pinned time.
+                        # Fixed external: use ITS OWN pinned time.
                         hi = np.minimum(hi, fixed_times.get(p, lambda_f))
             else:
                 hi = np.full(n_samples, t_ceiling)
@@ -5704,7 +5704,7 @@ class DiagramIntegrand:
         _et_alias = dict(spatial.equal_time_aliases or ())
 
         def _times(var: str) -> np.ndarray:
-            """Return the per-sample time array for ``var`` — pulls
+            """Return the per-sample time array for ``var``: pulls
             from ``times_arr`` when integrated, or the constant
             ``lambda_f`` array when fixed. Non-representative legs of
             an ``equal_time`` non-local vertex are transparently
@@ -5717,7 +5717,7 @@ class DiagramIntegrand:
             return fixed_t_by.get(var, fixed_t)
 
         # --- Vectorized integrand evaluation ---
-        # R factors (vectorized) — skip absorbed R's per
+        # R factors (vectorized): skip absorbed R's per
         # ``DiagramTerm.r_absorbed_pairs``; those factors are already
         # baked into the κ^(m)_R callable.  A matrix-valued R stays one
         # batch per propagator, selected per component assignment.
@@ -5871,28 +5871,28 @@ class DiagramIntegrand:
         Both repeat inside each piece until no kink is left.
 
         Mirrors :meth:`integrate_moment_qmc_vectorized` node-for-node
-        -- the SAME causal-simplex mapping (parents → upper bounds →
+        with the SAME causal-simplex mapping (parents → upper bounds →
         Jacobians) and the SAME vectorised batch path through
         :meth:`PropagatorCache.R_time_batch` and
-        :meth:`PropagatorCache.C_at_batch` -- but replaces the Sobol
+        :meth:`PropagatorCache.C_at_batch`, but replaces the Sobol
         ``n_samples`` quasi-random nodes with the deterministic
         ``n_gauss^d`` tensor product of 1-D Gauss-Legendre nodes
         (mapped from ``[-1, 1]`` to ``[0, 1]``).
 
-        For smooth integrands (a finite product of exponentials --
+        For smooth integrands (a finite product of exponentials,
         the typical R/C/κ kernel structure) this gives **exponential
-        convergence in n_gauss**, vastly outperforming Sobol QMC at
+        convergence in n_gauss**, outperforming Sobol QMC at
         modest dimensionality.  In particular, demo2's FK channel
         (4D smooth integrand on a causal simplex of area
         ``t_f^2 / 2``) is dominated at large ``t_f`` by a narrow
         peak band of area ``~ σ_t/γ`` near the upper-right corner;
-        Sobol QMC under-resolves it unless ``n_samples`` is enormous,
+        Sobol QMC under-resolves it unless ``n_samples`` is very large,
         while ``n_gauss=8`` (4096 nodes for d=4) recovers the
         notebook's hand-derived value to ~5 sig figs.
 
         **Cost trade-off.**  Tensor-product GL scales as
-        ``n_gauss^d`` -- fine for ``d ≤ 5`` (demo2 FK), fast at
-        ``d ≤ 4``, painful at ``d ≥ 7``.  For high-d integrands
+        ``n_gauss^d``: fine for ``d ≤ 5`` (demo2 FK), fast at
+        ``d ≤ 4``, and slow at ``d ≥ 7``.  For high-d integrands
         prefer ``method='qmc_vectorized'`` with a large ``n_samples``
         instead.
 
@@ -5904,7 +5904,7 @@ class DiagramIntegrand:
                 :meth:`integrate_moment_qmc_vectorized`.
 
         Returns:
-            ``(estimate, 0.0)`` -- GL is deterministic so there is
+            ``(estimate, 0.0)``.  GL is deterministic, so there is
             no statistical error to report.  The 0.0 mirrors the
             return shape of the QMC variants for downstream code.
         """
@@ -6056,7 +6056,7 @@ class DiagramIntegrand:
                         p_idx = ext_integrated.index(p)
                         hi = np.minimum(hi, times_arr[:, p_idx])
                     else:
-                        # Fixed external — use ITS OWN pinned time.
+                        # Fixed external: use ITS OWN pinned time.
                         hi = np.minimum(hi, fixed_times.get(p, lambda_f))
             else:
                 hi = np.full(n_samples, t_ceiling)
@@ -6211,7 +6211,7 @@ class DiagramIntegrand:
 
         # Quadrature variables = internals + integrated externals.
         # scipy's nquad integrates index 0 innermost, and ``ranges[i]`` is
-        # called with the values of ``all_vars[i+1:]`` -- so a variable can
+        # called with the values of ``all_vars[i+1:]``, so a variable can
         # only be bounded by one that sits at a HIGHER index.  A swept-to-swept
         # causal ordering therefore needs the EARLIER external placed last.
         # ``_swept_external_order`` returns earliest-first, so reverse it; with
@@ -6315,7 +6315,7 @@ class DiagramIntegrand:
         # _causal_lower_bound_sources).  ``all_vars`` is internals-first,
         # so every swept external sits *outside* every internal variable
         # and scipy has already bound it by the time an inner range
-        # callable fires -- a variable lower bound is expressible here.
+        # callable fires, so a variable lower bound is expressible here.
         lowers, lower_srcs = _causal_lower_bound_sources(
             spatial, int_vars, fixed_times, t_min, swept=ext_integrated,
             orderings=time_orderings,
@@ -6366,7 +6366,7 @@ class DiagramIntegrand:
                                    max(lo_var, min([t_ceiling] + cut_hi))))
                 else:
                     # A fixed external never shows up in ``later_args``, so
-                    # its bound must be folded into the CONSTANT part -- at
+                    # its bound must be folded into the CONSTANT part, at
                     # ITS OWN time, not a blanket ``lambda_f``.  With every
                     # external pinned together the two coincide, which is why
                     # this stayed invisible until times could differ.
@@ -6402,14 +6402,14 @@ def _cache_supports_batch_c(cache: "PropagatorCache") -> bool:
 
 def _cache_has_spatial_table(cache: "PropagatorCache") -> bool:
     """Whether ``cache`` has been equipped with any spatial
-    (x-aware) table — full or lazy, any homogeneity kind.
+    (x-aware) table: full or lazy, any homogeneity kind.
 
     Used by the integrators to decide whether to route each C
     propagator through the spatial-aware ``C_at_batch`` path or the
     legacy ``C_diagonal_batch`` path (which ignores x).  False when
     the cache was built with only the legacy ``precompute_C_table``
     or when it is a custom cache that doesn't implement the new
-    spatial attributes — in both cases the legacy path is
+    spatial attributes.  In both cases the legacy path is
     bit-identical to pre-Phase-5 behaviour.
     """
     if getattr(cache, "_closed_form_only", False):
@@ -6499,12 +6499,12 @@ def integrate_moment(
 
        "Batch-capable" is a deliberate handshake on ``_c_splines``, so
        a cache carrying only a **spatial** table (rotation /
-       translation / general — built by
+       translation / general, built by
        ``precompute_C_table_rotation`` and friends) reports False and
        ``method='qmc'`` routes it to the scalar loop, even though
        :meth:`integrate_moment_qmc_vectorized` accepts such a cache
        perfectly well via ``C_at_batch``.  The two paths agree, so this
-       costs speed only — but it costs a lot of it (~125× on the
+       costs speed only, but it costs a lot of it (~125× on the
        two-point order-2 rotation workload in
        ``tests/test_diag_fast_component_labels.py``).  Pass
        ``method='qmc_vectorized'`` explicitly for spatial caches; the
@@ -6703,7 +6703,7 @@ def integrate_diagrams(
     tick = progress_tick or (lambda n=1: None)
 
     if n_jobs == 1 or len(diagram_terms) <= 2:
-        # Sequential — no overhead
+        # Sequential: no overhead
         details = []
         for dt in diagram_terms:
             ig = dt.build_integrand(coupling_values, fixed_indices)
@@ -6776,7 +6776,7 @@ def integrate_two_point_qmc(
     Args:
         integrands: List of :class:`DiagramIntegrand` objects (one per
             non-vanishing Feynman diagram).
-        t_f: External (observation) time — the DEFAULT time for every
+        t_f: External (observation) time: the DEFAULT time for every
             external point, and the ceiling for causal upper bounds.
         external_times: ``{point_name: time}`` overriding *t_f* per point,
             so ``C(x, t; y, t')`` and ``R(t, t')`` are reachable here too.
@@ -6797,8 +6797,8 @@ def integrate_two_point_qmc(
     Raises:
         ValueError: if *positions* places two points of one R-connected
             direction group at different coordinates.  ``⟨φ(x) φ(y)⟩``
-            never does -- with one ψ leg per vertex no R chain joins two
-            φ externals -- but an observable with a response leg or a
+            never does (with one ψ leg per vertex no R chain joins two
+            φ externals), but an observable with a response leg or a
             local vertex with two ψ legs does; see
             :func:`_require_one_position_per_group`.
     """
@@ -6811,9 +6811,9 @@ def integrate_two_point_qmc(
         ig._require_r_indices_match(cache)
         sp = ig.spatial
         # Unconditional, unlike the ``integrate_moment_*`` methods: BOTH
-        # branches below consume ``positions`` -- the spatial-aware one
-        # through ``_resolve_group_x``, the other through the kappa2 ratio
-        # -- so neither is safe with two positions in one group.
+        # branches below consume ``positions``, the spatial-aware one
+        # through ``_resolve_group_x`` and the other through the kappa2
+        # ratio, so neither is safe with two positions in one group.
         _require_one_position_per_group(
             sp, positions, where="integrate_two_point_qmc")
         ivs = list(reversed(sp.time_integration_vars))
@@ -6835,8 +6835,8 @@ def integrate_two_point_qmc(
         # ``integrate_moment_qmc_vectorized._lookup_C``.  When the cache has a
         # translation / rotation / general table, ``C_at_batch`` evaluates C at
         # the true endpoint positions and the kappa2 ratio below must NOT also
-        # be applied -- that would double-count the separation.  The ratio is
-        # the fallback for a cache that can only look C up by time.
+        # be applied, since that would double-count the separation.  The
+        # ratio is the fallback for a cache that can only look C up by time.
         model = cache.model
         spatial_aware = _cache_has_spatial_table(cache)
         group_x = (
@@ -6924,7 +6924,7 @@ def integrate_two_point_qmc(
         # ``c_spatial_factors`` (the kappa2 ratio at a single ``t_ref``)
         # exists to patch ONE blind spot: the legacy time-only spline
         # table, which ignores position entirely.  ``ig.evaluate`` ->
-        # ``C_value`` is position-AWARE everywhere else — through the
+        # ``C_value`` is position-AWARE everywhere else: through the
         # spatial fast path when a translation/rotation/general table has
         # been built, and through the ``_C_value_direct`` (dblquad /
         # ``c_value_fn``) fallback when no table has.  In those cases the
@@ -6933,14 +6933,15 @@ def integrate_two_point_qmc(
         # measured 4.9% at r=0.5 rising to 34.3% at r=4 for a kernel whose
         # correlation length grows with time, where delegation reproduces
         # the closed form to every printed digit.  Routing a table-less
-        # cache through the batch path is worse still — ``C_diagonal_batch``
-        # raises, turning a working call into a RuntimeError.
+        # cache through the batch path is worse still, since
+        # ``C_diagonal_batch`` raises, turning a working call into a
+        # RuntimeError.
         #
         # So delegate whenever ``evaluate`` can see the positions, and use
         # the vectorised legacy-table-times-ratio path only when it cannot.
         # That is the *only* configuration in which the order-0 correlator
         # was ever wrong (it returned the coincident-point value at every
-        # separation — a factor e^2 at r = 2 sigma).
+        # separation, a factor e^2 at r = 2 sigma).
         legacy_position_blind = (
             not _cache_has_spatial_table(cache)
             and getattr(cache, "_c_splines", None) is not None

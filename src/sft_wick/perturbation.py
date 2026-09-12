@@ -111,8 +111,8 @@ class PerturbativeResult:
 
         When diagram terms are available (the default ``collect_topology=True``
         path), each order is rendered as a sum of fully-wrapped diagram
-        contributions — with summation indices, integration variables,
-        response phase, and prefactor all explicit.
+        contributions, with summation indices, integration variables,
+        response phase and prefactor all explicit.
 
         Falls back to the raw symbolic expression when diagram terms are
         not populated.
@@ -350,7 +350,7 @@ class DiagramTerm:
         return [1.0, -1j, -1.0, 1j][self.n_response % 4]
 
     def observable_phase_factor(self) -> complex:
-        r"""Return ``i^{E_psi}`` — the factor that rotates this diagram's raw
+        r"""Return ``i^{E_psi}``, the factor that rotates this diagram's raw
         value onto the real axis.
 
         **Reality theorem.**  Let the diagram have vertices ``v`` with
@@ -364,8 +364,8 @@ class DiagramTerm:
 
         so the value equals ``i^{-E_psi}`` times a real number.  Multiplying by
         ``i^{E_psi}`` therefore lands exactly on the real axis.  A residual
-        imaginary part means the *action* is mis-specified — an error to
-        report, never a sign to guess.
+        imaginary part means the *action* is mis-specified.  Report it
+        rather than guessing a sign.
 
         In particular ``E_psi = 0`` (an observable built only from physical
         fields) gives a strictly real value, which is why taking ``.real`` is
@@ -458,7 +458,7 @@ class DiagramTerm:
         there are no propagator indices).
 
         Args:
-            coupling_values_batched: ``{name: ndarray}`` -- arrays may
+            coupling_values_batched: ``{name: ndarray}``; arrays may
                 be either ``(n_samples, *kappa_shape)`` (dynamic /
                 per-sample) or ``(*kappa_shape,)`` (static, broadcast
                 across the sample axis).
@@ -657,7 +657,7 @@ class DiagramTerm:
             if isinstance(substituted_coupling, Rational) \
                     and substituted_coupling.numerator == 1 \
                     and substituted_coupling.denominator == 1:
-                # Plain unity coupling -- replace it with the delta product.
+                # Plain unity coupling: replace it with the delta product.
                 if len(external_deltas) == 1:
                     new_coupling = external_deltas[0]
                 else:
@@ -941,8 +941,8 @@ class DiagramTerm:
         # diagram that doesn't reference the callable's symbol
         # (e.g. the order-0 ``C(x,y)`` diagram when the user has
         # also declared a K non-local vertex for higher orders) can
-        # go through the fully-static fast path — the callable's
-        # value is simply never needed.
+        # go through the fully-static fast path, since the callable's
+        # value is never needed.
         symbol_names_in_coupling = _collect_symbol_names(self.coupling_sum)
         active_dynamic = {
             name: fn for name, fn in dynamic_names.items()
@@ -950,7 +950,7 @@ class DiagramTerm:
         }
 
         if not active_dynamic:
-            # No callable coupling is actually referenced — strip
+            # No callable coupling is actually referenced, so strip
             # callables from coupling_values (they'd crash the
             # static evaluator) and evaluate statically.
             static_cv = {
@@ -1047,7 +1047,7 @@ def _collect_r_absorbed_pairs(
     ``spatial_left``.
 
     Returns:
-        ``(r_absorbed_pairs, leg_to_partner_aliases)`` — the first
+        ``(r_absorbed_pairs, leg_to_partner_aliases)``.  The first
         feeds ``DiagramTerm.r_absorbed_pairs``; the second is a list of
         ``(leg, partner)`` alias pairs to merge into the diagram's
         ``equal_time_aliases`` so the leg's time variable is dropped
@@ -1274,7 +1274,7 @@ def _collect_symbol_occurrences(expr: Expr) -> dict[str, tuple[tuple[str, ...], 
 
     Companion to :func:`_collect_symbol_spatial_args`, which keeps only the
     first.  A name mapping to more than one tuple means the coupling sits at
-    more than one spacetime point in this diagram — two copies of a vertex at
+    more than one spacetime point in this diagram: two copies of a vertex at
     order >= 2, or a permutation-symmetrised non-local coupling sum.  A
     callable coupling then cannot be evaluated from a single coordinate tuple.
 
@@ -1445,9 +1445,9 @@ def check_distinct_external_labels(observable, order: int = 1) -> None:
     (:func:`sft_wick.wick._compute_multiplicity`), which excludes
     observable points on the assumption that each carries exactly one
     operator.  Two externals sharing a label break that assumption, and
-    the result is silently wrong -- by a factor 2 in the order-2 F
-    channel of demo2's system, and not at all in its FK channel, so the
-    error is not even uniform.
+    the result is silently wrong, by a factor 2 in the order-2 F
+    channel of demo2's system and not at all in its FK channel, so the
+    error is not uniform.
 
     **Why this is a refusal and not a multiplicity fix.**  What the
     collapse loses is not a factor but a SUM over the assignments of
@@ -1467,22 +1467,22 @@ def check_distinct_external_labels(observable, order: int = 1) -> None:
 
     **Order 0 is exempt, and is checked rather than assumed.**  The
     free-theory contraction keeps every routing even at coincident
-    labels -- ``<phi_a phi_b phi_c phi_d>`` gives
+    labels: ``<phi_a phi_b phi_c phi_d>`` gives
     ``C_ab C_cd + C_ac C_bd + C_ad C_bc`` either way, and the scalar
     ``<psi phi phi phi>`` gives ``3 R(x,x) C(x,x)`` against the
     distinct-label ``R(x,w)C(y,z) + R(y,w)C(x,z) + R(z,w)C(x,y)``.  The
     loss appears only once vertices are present, when the downstream
     diagram-isomorphism pass merges topologies that the external
-    collapse has made isomorphic.  So order 0 -- which is what the
-    equal-point Itô tests use -- is left alone.
+    collapse has made isomorphic.  Order 0, which is what the
+    equal-point Itô tests use, is left alone.
 
-    The refusal at ``order >= 1`` is deliberately conservative: some
-    channels there are unaffected (demo2's order-2 ``FK`` is exactly
-    right at coincident labels while its ``F`` channel is low by 2).
-    Refusing a case that happens to be correct costs a user one
-    rewrite; returning a silently wrong number costs a paper.
+    The refusal at ``order >= 1`` is conservative: some channels there
+    are unaffected (demo2's order-2 ``FK`` is exactly right at
+    coincident labels while its ``F`` channel is low by 2).  Refusing a
+    case that happens to be correct costs a user one rewrite; a silently
+    wrong number is not detected at all.
 
-    Coincident external POINTS are fully supported -- give them distinct
+    Coincident external POINTS are supported: give them distinct
     labels and equal positions, which is what every demo does.
 
     Args:
@@ -1579,7 +1579,7 @@ def compute_moment(
             :math:`\Theta(0)=\tfrac{1}{2}` without also emitting the
             Jacobian counter-term.  For the linear vertex that adds a
             spurious :math:`-k\,C(T,T)\,T/2`, which grows without bound
-            in :math:`T` — measured at 200%/400%/800% of the exact
+            in :math:`T`, measured at 200%/400%/800% of the exact
             answer for :math:`T=4/8/16`.  See
             ``test_F15_ito_false_changes_the_expression_not_the_number``.
         response_phase: If ``True``, multiply each term by
@@ -1941,7 +1941,7 @@ def _collect_grouped_wick(
                     ref_props_0, ref_props, spatial_perm, internal_indices,
                 )
                 if cross_result is None:
-                    # Cannot merge — add each within-group perm separately
+                    # Cannot merge: add each within-group perm separately
                     for wp in perms:
                         permuted = _apply_perm_to_coupling(pure_coupling, wp)
                         prop_expr = (
@@ -2064,12 +2064,12 @@ def _enumerate_component_routings(
 
     for point in sorted(slots_at_point.keys()):
         if point not in vertex_points:
-            continue  # Observable point — no permutation
+            continue  # Observable point: no permutation
         for ftype in sorted(slots_at_point[point].keys()):
             slots = slots_at_point[point][ftype]
             ops = ops_at_slots[point][ftype]
             if len(ops) <= 1:
-                continue  # Only one operator — no permutation needed
+                continue  # Only one operator: no permutation needed
             # Enumerate all permutations of ops among slots
             point_perms: list[dict[tuple[int, str], int]] = []
             for perm_ops in permutations(ops):
@@ -2082,7 +2082,7 @@ def _enumerate_component_routings(
 
     # Step 3: Cartesian product of per-point permutations
     if not per_point_perms:
-        # No permutations possible — only the reference pairing
+        # No permutations possible: only the reference pairing
         return [(list(ref_props), rep_pairing)]
 
     # Build base assignment: slot → operator (from reference pairing)
@@ -2422,7 +2422,7 @@ def _eval_symbolic(
             def _resolve(i: str) -> int:
                 if i in index_map:
                     return index_map[i]
-                # Literal observable component (e.g. '1', '2') — 1-indexed convention
+                # Literal observable component (e.g. '1', '2'): 1-indexed
                 try:
                     return int(i) - 1
                 except ValueError:
@@ -2531,12 +2531,12 @@ def _eval_symbolic_batched(
             # No component index to address the array by.  Two cases
             # produce this, and they need different handling:
             #
-            # * a genuinely scalar symbol -- ``arr`` is already
+            # * a genuinely scalar symbol: ``arr`` is already
             #   ``(n_samples,)`` or a bare scalar;
             # * a rank-m coupling in a SINGLE-COMPONENT system.  With
             #   ``n_components = 1`` there is nothing to sum over, so
             #   the simplifier elides the indices, but the coupling
-            #   array keeps its rank-m shape -- ``(1,) * m``, or
+            #   array keeps its rank-m shape, ``(1,) * m``, or
             #   ``(n_samples,) + (1,) * m`` from a callable.  Those
             #   trailing axes are length 1 by construction, so
             #   reshaping away is exact.  :func:`_eval_symbolic` has
@@ -2578,7 +2578,7 @@ def _eval_symbolic_batched(
             # Batched: arr shape is (n_samples,) + (N,)*rank.
             return arr[(slice(None),) + idx]
         if arr.ndim == len(idx):
-            # Static: shape is (N,)*rank — return scalar; caller's
+            # Static: shape is (N,)*rank; return scalar, and the caller's
             # Product / Sum logic will broadcast.
             return arr[idx]
         raise ValueError(
@@ -2727,7 +2727,7 @@ def compute_moment_numerical(
             an interacting order.  This engine drives the same
             label-keyed :func:`sft_wick.wick.wick_contract_spatial` as
             :func:`compute_moment`, so it inherits the same collapse and
-            must refuse the same spelling -- see
+            must refuse the same spelling; see
             :func:`check_distinct_external_labels`.
     """
     check_distinct_external_labels(observable, order)

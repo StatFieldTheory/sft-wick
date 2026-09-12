@@ -14,12 +14,12 @@ raw :math:`\\kappa^{(m)}` callable into the R-contracted form by
 brute-force numerical quadrature on a user-supplied :math:`\\chi`-grid.
 Use it as the **reference comparand** when validating the
 ``NonLocalVertex(already_R_contracted=True)`` dispatch (see
-``docs/notes/R_contracted_nonlocal_vertex.md`` §4) — for production work,
+``docs/notes/R_contracted_nonlocal_vertex.md`` §4).  For production work,
 the upstream `canoes` library publishes analytical FFTlog-of-W
 contractions that avoid the narrow-kernel cost entirely.
 
-The utility is intentionally simple (a tensor-product trapezoid rule
-over scalar leg times); it is not optimised for high accuracy. For
+The utility is simple (a tensor-product trapezoid rule over scalar
+leg times); it is not optimised for high accuracy. For
 production validation pass a sufficiently fine ``chi_grid`` to resolve
 the narrow-kernel diagonal of the raw :math:`\\kappa^{(m)}`.
 """
@@ -46,7 +46,7 @@ def build_R_contracted_callable(
     contract: ``fn(n_list, t_list) -> (N,)*m`` with ``t_list[i]``
     interpreted as the **partner (outer)** time ``λ_i'`` rather than
     the leg-internal time ``χ_i``. Spatial positions are passed through
-    unchanged — full spatial R-contraction is left to the user kernel
+    unchanged; full spatial R-contraction is left to the user kernel
     (the analytical FFTlog-of-W chain on the canoes side).
 
     Wrap the result with ``NonLocalVertex(already_R_contracted=True,
@@ -59,14 +59,14 @@ def build_R_contracted_callable(
             sequences and return a ``(N,)*order`` numpy array.
         R_time: Causal scalar response propagator
             ``R_time(t_outer, t_inner) -> float``. The reference does
-            **not** apply ``δ(n − n')`` — n_list is passed unchanged to
+            **not** apply ``δ(n − n')``; n_list is passed unchanged to
             ``raw_coupling_fn`` for every χ-sample.
         chi_grid: 1-D grid of inner times ``χ`` used for the
             tensor-product trapezoid quadrature on each leg.
-        order: ``m`` — the rank of the κ tensor. Defaults to 3 (the
+        order: ``m``, the rank of the κ tensor. Defaults to 3 (the
             squeezed bispectrum case). The implementation is general
             in ``order``.
-        n_components: Optional ``N`` — used only for an early shape
+        n_components: Optional ``N``, used only for an early shape
             assertion on the raw callable's first output. If ``None``,
             the shape is inferred from the first evaluation.
         causal: If ``True`` (default), the R kernel is treated as
@@ -84,7 +84,7 @@ def build_R_contracted_callable(
         Computational cost per call is
         ``O(|chi_grid|^order)`` raw-callable evaluations. For ``m=3``
         and a 200-node χ-grid that's 8 × 10⁶ raw evaluations per
-        outer-time tuple — slow but exact (to trapezoid order) and
+        outer-time tuple: slow but exact (to trapezoid order) and
         easy to debug. Vectorise over outer-time tuples upstream when
         a large `(λ_1', λ_2', λ_3')` table is needed.
     """

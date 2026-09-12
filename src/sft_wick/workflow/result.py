@@ -1,11 +1,10 @@
-"""``Result`` and ``SweepResult`` — structured output from
+"""``Result`` and ``SweepResult``: structured output from
 :meth:`Expansion.evaluate` / :meth:`Expansion.sweep`.
 
-These are what users actually look at.  Accessors are designed around
-three common analyses:
+Accessors cover three common analyses:
 
 1. **Total**: summed moment value.
-2. **By order**: per-perturbative-order contribution.  Reveals
+2. **By order**: per-perturbative-order contribution.  Shows
    convergence.
 3. **By vertex type**: demo2-style FF/FK/KK decomposition.
 """

@@ -1,4 +1,4 @@
-"""``Propagators`` — thin wrapper around :class:`PropagatorCache` that
+"""``Propagators``: thin wrapper around :class:`PropagatorCache` that
 auto-dispatches precompute to the right homogeneity builder.
 """
 
@@ -15,7 +15,7 @@ from sft_wick.evaluate import PropagatorCache
 @dataclass(frozen=True)
 class Propagators:
     """Holds a :class:`PropagatorCache` preconfigured for a
-    :class:`~sft_wick.workflow.System`.  Opaque to the user — the
+    :class:`~sft_wick.workflow.System`.  Opaque to the user: the
     only thing they do with this object is pass it to
     :meth:`Expansion.evaluate` / :meth:`Expansion.sweep`.
 
@@ -25,7 +25,7 @@ class Propagators:
         is_lazy: whether the cache is in lazy-spline mode for its
             spatial dimension.
         c_source: how C is evaluated, after the ``'auto'`` choices were
-            resolved -- ``'closed_form:builtin'``, ``'closed_form:user'``,
+            resolved: ``'closed_form:builtin'``, ``'closed_form:user'``,
             ``'quadrature:gauss_legendre(n=20)'`` or
             ``'quadrature:dblquad'``.  This is what the CLI banner and
             ``--dry-run`` report.
@@ -67,10 +67,10 @@ class Propagators:
 
                 - ``'auto'`` (default): use the built-in closed form
                   (:func:`~sft_wick.workflow.closed_forms.builtin_closed_form_for`)
-                  when the system's kernel family has one -- diagonal
+                  when the system's kernel family has one (diagonal
                   constant drift + separable translation-invariant noise
                   with an exponential temporal kernel, optionally a
-                  constant white-noise impulse -- and fall through to
+                  constant white-noise impulse), and fall through to
                   quadrature (``c_method``) otherwise.
                 - ``None``: never use the built-in form; always run
                   quadrature.
@@ -82,13 +82,13 @@ class Propagators:
                   be batched (``(n,)`` times → ``(n, N, N)``); the
                   built-in form supports both contracts.
 
-                Either closed form collapses the spline-table build from
+                Either closed form cuts the spline-table build from
                 minutes (``dblquad`` on a fine grid) to milliseconds.
             c_closed_form_only: when True (and ``c_closed_form`` is
                 provided), skip the spline interpolator entirely.
                 ``cache.C_at_batch`` then routes every lookup
-                straight through the user's c_fn -- machine-precision
-                agreement with the analytical C, no truncation
+                straight through the user's c_fn, giving machine-precision
+                agreement with the analytical C and no truncation
                 error from grid spacing or spline order. Use this
                 when the closed form is fast and the spline error
                 would dominate over QMC noise (e.g. demo1's OU
@@ -116,14 +116,14 @@ class Propagators:
                   structured kernels (``SeparableTranslation`` /
                   ``SeparableRotation`` built from the built-in temporal
                   and spatial kernels), with the node count chosen by
-                  :func:`~sft_wick.evaluate.select_gl_node_count` --
+                  :func:`~sft_wick.evaluate.select_gl_node_count`,
                   refined from ``c_n_gauss`` until the rule agrees with
                   itself at the table's extreme cells, ``dblquad`` if it
                   never does; plain ``'dblquad'`` for any user callable
                   (``GeneralKappa2``, ``CustomKernel``, ``CustomImpulse``,
                   ``ExplicitR``, callable ``gamma``), whose smoothness
                   is unknown.
-                - ``'gauss_legendre'`` -- tensor-product GL with a
+                - ``'gauss_legendre'``: tensor-product GL with a
                   diagonal-aware sub-region split at ``λ1 = λ2`` and
                   exactly ``c_n_gauss`` nodes, no convergence check.
                   18-100× faster than dblquad on κ² that is **piecewise
@@ -131,7 +131,7 @@ class Propagators:
                   the diagonal; accuracy at fixed ``c_n_gauss`` degrades
                   with ``(γ + 1/σ_t) t_max`` (see
                   :class:`~sft_wick.evaluate.PropagatorCache`).
-                - ``'dblquad'`` -- ``scipy.integrate.dblquad`` adaptive
+                - ``'dblquad'``: ``scipy.integrate.dblquad`` adaptive
                   Gauss-Kronrod, robust on any κ² but slow
                   (10-250 ms / call).
 
@@ -363,15 +363,15 @@ def propagators_from_cache(cache) -> "Propagators":
     :class:`Propagators`, so it can be passed to
     :meth:`~sft_wick.workflow.Expansion.evaluate` / ``sweep``.
 
-    ``System.propagators()`` builds a cache FROM the system's own model, which
-    is the right default -- but it gives no supported way to use a cache that
-    does not come from a ``System`` at all.  The disorder-averaged
+    ``System.propagators()`` builds a cache FROM the system's own model and
+    gives no supported way to use a cache that does not come from a ``System``
+    at all.  The disorder-averaged
     :func:`sft_wick.spectral.spectral_cache` is exactly that: its ``R`` and
     ``C`` come from a spectrum, not from the system's ``kappa2``.
 
-    (``Propagators`` is a plain dataclass, so a determined caller could always
-    have constructed one by hand; what this adds is a supported, named entry
-    point -- not a capability that was absent.)
+    (``Propagators`` is a plain dataclass, so a caller could always have
+    constructed one by hand; this adds a supported, named entry point, not a
+    new capability.)
 
     The component count is NOT checked here, because a cache carries no record
     of which system it was meant for.  It IS checked at use, in
@@ -392,7 +392,7 @@ class _ClosedFormPropagatorCache(PropagatorCache):
 
     This replaces the earlier ``_make_closed_form_cache_cls`` factory which
     returned a class defined inside a function and was therefore not
-    transportable across loky boundaries — forcing ``n_jobs = 1``.
+    transportable across loky boundaries, forcing ``n_jobs = 1``.
     """
 
     def __init__(self, *args, c_fn=None, **kwargs):
