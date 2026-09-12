@@ -1,8 +1,8 @@
 """Minimal demo of the high-level :mod:`sft_wick.workflow` API.
 
-This is **the single-file introduction** to using sft-wick.  Everything
-up to the first plot command is the user-facing API — no monkey
-patching, no subclassing, no direct calls into
+A single-file introduction to sft-wick.  Everything up to the first
+plot command is the user-facing API: no monkey patching, no
+subclassing, no direct calls into
 :class:`PropagatorCache` / :func:`compute_moment` / :func:`integrate_moment`.
 
 Compare to:
@@ -40,11 +40,11 @@ import sft_wick as sw
 
 
 # =====================================================================
-# Step 1 — Describe the physical system (≈ 15 lines).
+# Step 1: describe the physical system (≈ 15 lines).
 # =====================================================================
 
 # Cubic F^(3) interaction tensor: F_{a,b,c} ψ_a φ_b φ_c.
-# (demo1's setup — asymmetric, irreducible under index permutation.)
+# (demo1's setup: asymmetric, irreducible under index permutation.)
 F = np.zeros((2, 2, 2))
 F[0, 1, 1] = 1.0
 F[1, 0, 1] = 0.5
@@ -52,7 +52,7 @@ F[1, 1, 0] = 0.5
 
 system = sw.System(
     # Two-component physical field φ_a, a ∈ {0, 1}.  The response
-    # field ψ_a is introduced automatically — the user never needs
+    # field ψ_a is introduced automatically; the user never needs
     # to reference it.
     field=sw.FieldSpec("phi", n_components=2),
 
@@ -61,8 +61,8 @@ system = sw.System(
     linear=sw.DiagonalA(gamma=[1.0, 1.0]),
 
     # Local cubic vertex.  Pass the **bare** F as it appears in the
-    # equation of motion — the wrapper handles the MSR ``-i`` factor
-    # automatically (see :attr:`LocalVertex.msr_coupling`).
+    # equation of motion; the wrapper applies the MSR ``-i`` factor
+    # (see :attr:`LocalVertex.msr_coupling`).
     vertices=[sw.LocalVertex("F", coupling=F)],
 
     # Gaussian driving with separable OU two-point cumulant:
@@ -79,7 +79,7 @@ system = sw.System(
 
 
 # =====================================================================
-# Step 2 — Closed-form C (optional fast path).
+# Step 2: closed-form C (optional fast path).
 #
 # The demo's OU κ² admits an analytic C = C_t(t1,t2) · exp(−|Δx|/σ_x).
 # Passing this via ``c_closed_form=`` skips the dblquad spline build.
@@ -107,7 +107,7 @@ def C_closed_form(n1, t1, n2, t2):
 
 
 # =====================================================================
-# Step 3 — The three-line workflow.
+# Step 3: the three-line workflow.
 # =====================================================================
 
 print("=== 1) Perturbative expansion ===")
@@ -143,12 +143,12 @@ sweep = expansion.sweep(
     n_samples=2 ** 13,
     seed=42,
 )
-print(f"    {time.perf_counter() - t0:.1f}s — "
+print(f"    {time.perf_counter() - t0:.1f}s, "
       f"{len(sweep.rows)} diagram-level rows produced")
 
 
 # =====================================================================
-# Step 4 — Structured results (pandas-native).
+# Step 4: structured results (pandas-native).
 # =====================================================================
 
 totals = sweep.totals()
@@ -170,7 +170,7 @@ print(f"    cumulative sum   : {cumulative.iloc[-1]: .6e}")
 
 
 # =====================================================================
-# Step 5 — Channel decomposition (useful for FF/FK-style analyses).
+# Step 5: channel decomposition (useful for FF/FK-style analyses).
 # =====================================================================
 
 print("\n=== Channel totals (per vertex type) ===")
@@ -179,7 +179,7 @@ print(vt.head(10).to_string(index=False))
 
 
 # =====================================================================
-# (Optional) Step 6 — Plot ξ(r) at each t_final.
+# (Optional) Step 6: plot ξ(r) at each t_final.
 # =====================================================================
 
 try:

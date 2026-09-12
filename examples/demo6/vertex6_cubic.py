@@ -55,7 +55,7 @@ CHANNELS = [
     ("2pt", 3, {"F": 2, "G": 1}, [(0, 1), (1, 1)]),
     ("2pt", 3, {"G": 3}, [(0, 1), (1, 1)]),
 ]
-#: (name, times, method, kwargs) — "equal" and "distinct" external times.
+#: (name, times, method, kwargs) for "equal" and "distinct" external times.
 #: The order-3 two-point channels have 68 (``F F G``) and 44 (``G G G``)
 #: diagrams, so they take the cheaper settings of :data:`ROUTES_ORDER3`.
 ROUTES = [

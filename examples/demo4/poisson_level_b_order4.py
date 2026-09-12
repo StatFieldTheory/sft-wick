@@ -2,7 +2,7 @@ r"""Demo 4, level B at order 4: the ``F³κ³`` channel of ``⟨φ_a(x) φ_b(y)�
 
 Level B (``level_b.py``) stops at order 3.  The next channel is order 4 with
 three ``F`` vertices and one ``κ³``: 30 diagrams, one C propagator, and the
-moment hierarchy's coefficient of ``ε³ μ¹`` — tag ``(3, 1)`` — is exactly
+moment hierarchy's coefficient of ``ε³ μ¹`` (tag ``(3, 1)``) is exactly
 it.  Demo 2 could only estimate the same channel of its own system.
 
 The other order-4 composition of this observable is ``F⁴`` (64 diagrams,

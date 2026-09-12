@@ -43,7 +43,7 @@ import sft_wick as sw  # noqa: E402
 
 
 # =========================================================================
-# 1. Define the system — this is the whole "spec", ~10 lines of physics.
+# 1. Define the system.  This is the whole "spec", ~10 lines of physics.
 # =========================================================================
 
 F = np.zeros((2, 2, 2))
@@ -68,7 +68,7 @@ system = sw.System(
 
 
 # =========================================================================
-# 2. Closed-form C via ``c_closed_form`` kwarg — lazy spline builds
+# 2. Closed-form C via the ``c_closed_form`` kwarg: lazy spline builds
 #    drop from minutes (dblquad) to sub-second.
 # =========================================================================
 
@@ -85,7 +85,7 @@ def _C_demo1(n1, t1, n2, t2):
 
 
 # =========================================================================
-# 3. Expansion + sweep — one-liner each.
+# 3. Expansion + sweep, one line each.
 # =========================================================================
 
 print("=" * 90)
@@ -205,8 +205,8 @@ print(f"\n{'-' * 90}")
 print(f"max rel_err = {max_rel:.2e}, "
       f"mismatches = {mismatches} / {len(EXPECTED)}")
 if mismatches == 0:
-    print("PASS — the sweep reproduces the stored table.")
+    print("PASS: the sweep reproduces the stored table.")
     sys.exit(0)
 else:
-    print("FAIL — wrapper diverged from validate_phase5.py.")
+    print("FAIL: wrapper diverged from validate_phase5.py.")
     sys.exit(1)

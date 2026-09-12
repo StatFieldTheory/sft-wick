@@ -25,11 +25,11 @@ raw 4-D integral stops converging beyond ``t ≈ 10``.
 
 This module exposes both supported contracts:
 
-* :func:`coupling_fn` -- per-sample contract; expects length-m
+* :func:`coupling_fn`: per-sample contract; expects length-m
   ``n_list`` / ``t_list`` and returns ``(N, N, N)``.  Reference
   this from YAML with ``coupling_attr: coupling_fn`` and **no**
   ``coupling_vectorized`` (or ``false``).
-* :func:`coupling_fn_vectorized` -- batched contract; expects
+* :func:`coupling_fn_vectorized`: batched contract; expects
   ``(m, n_samples)`` ``n_list`` / ``t_list`` and returns
   ``(n_samples, N, N, N)``.  Reference this with
   ``coupling_attr: coupling_fn_vectorized`` *and*
@@ -72,7 +72,7 @@ def coupling_fn(n_list, t_list):
     amplitude = (2.0 * ALPHA * LAM ** 2 * bracket
                  + 8.0 * ALPHA ** 3 * LAM ** 3 * kappa(0, 1) * kappa(1, 2) * kappa(0, 2))
 
-    # Component structure δ_{ab}δ_{bc} — non-zero only on the
+    # Component structure δ_{ab}δ_{bc}: non-zero only on the
     # diagonal (a=b=c).
     K = np.zeros((N_COMP, N_COMP, N_COMP), dtype=float)
     for a in range(N_COMP):

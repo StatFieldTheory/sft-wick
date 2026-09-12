@@ -4,15 +4,15 @@ produces the same physics as "user provides the closed-form C".
 The demo1 system has diagonal A = −γ·I (so R is the trivial
 scalar exponential ``R(t, t') = Θ(t−t') exp(−γ Δt)``) and a separable
 translation-invariant κ², so the wrapper can build C entirely by
-itself — one ``dblquad`` per (t₁, t₂, r) grid point — without the
+itself, one ``dblquad`` per (t₁, t₂, r) grid point, without the
 user supplying any closed form.
 
 This script runs both:
 
-- **Method A**: ``system.propagators(..., c_closed_form=C_analytic)``
-  — the fast path used in ``demo_workflow.py`` / ``validate_wrapper.py``.
-- **Method B**: ``system.propagators(...)`` with **no** ``c_closed_form``
-  — the wrapper falls back to ``dblquad`` for every C evaluation.
+- **Method A**: ``system.propagators(..., c_closed_form=C_analytic)``,
+  the fast path used in ``demo_workflow.py`` / ``validate_wrapper.py``.
+- **Method B**: ``system.propagators(...)`` with **no** ``c_closed_form``,
+  so the wrapper falls back to ``dblquad`` for every C evaluation.
 
 Under the same physical spec they should produce the same moment
 values up to spline-interpolation noise (~1e-4 relative) and
@@ -166,7 +166,7 @@ for (a, b, r, t_f) in TEST_POINTS:
         )
         val_A = res_A.total
 
-        # Method B — first time a new r is queried, this triggers
+        # Method B: the first time a new r is queried, this triggers
         # a lazy dblquad spline build.
         t0 = time.perf_counter()
         res_B = expansion.evaluate(
@@ -200,13 +200,13 @@ print(
     f"(≈ lazy builds on the fly)."
 )
 print(
-    f"max rel_err = {max_rel:.2e}  —  "
+    f"max rel_err = {max_rel:.2e}  "
     f"{'PASS' if n_fail == 0 else 'FAIL'}  "
     f"({len(TEST_POINTS) * 3 - n_fail}/{len(TEST_POINTS) * 3} checks)"
 )
 
 if n_fail > 0:
-    print("\nDivergence detected — the 'R + κ² → C' derivation path is "
+    print("\nDivergence detected: the 'R + κ² → C' derivation path is "
           "producing different numbers from the closed-form-C path.  "
           "Likely bugs: kappa2 callable signature, dblquad bounds, or "
           "spline-table sampling.")

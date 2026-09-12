@@ -4,14 +4,14 @@
 
 Figures (matplotlib rcParams as in ``examples/demo2/L2/reproduce_figures.py``):
 
-* ``xi01_vs_time.pdf`` -- xi_01(r=0, t): simulation (2M realisations per
+* ``xi01_vs_time.pdf``: xi_01(r=0, t), simulation (2M realisations per
   step size, dt -> 0 extrapolated, Monte-Carlo errors) against FK, with
   a residual panel that also shows the paper's un-converged FK rule;
-* ``xi01_vs_r.pdf`` -- xi_01(r) at two times;
-* ``xi00_vs_time.pdf`` -- xi_00(r=0, t): simulation against
+* ``xi01_vs_r.pdf``: xi_01(r) at two times;
+* ``xi00_vs_time.pdf``: xi_00(r=0, t), simulation against
   0 + FF (+ FFK4 + FFFF) with the exact C_eff, and the lam_eff
   approximation, with residual panel;
-* ``fig_fk_diagrams.tex`` -- the two FK diagrams (TikZ), plus their
+* ``fig_fk_diagrams.tex``: the two FK diagrams (TikZ), plus their
   DiagramTerm LaTeX in ``fk_diagrams.md``.
 """
 from __future__ import annotations
@@ -48,7 +48,7 @@ PAIR_IDX = {"00": 0, "01": 1, "11": 2}
 CH_ORDER = ["o0_exact", "ff_exact", "fk", "ffk4", "fffk", "ffff"]
 # Rows of the residual tables.  0.0 and 0.4 are simulation grid sites
 # (dx = sigma_x / 5 = 0.2); 0.5 is off-grid and is the one the paper
-# quotes, so it is kept -- with the theory interpolated exactly as the
+# quotes, so it is kept, with the theory interpolated exactly as the
 # simulation interpolates (see ``interp_weights``).
 R_ROWS = [0.0, 0.4, 0.5]
 
@@ -59,7 +59,7 @@ def interp_weights(r_val):
 
     The simulation measures on ``x_grid`` and reports ``xi(r)`` as
     ``np.interp(r, x_grid, profile)``.  On a convex profile that is
-    biased HIGH off-grid -- the observed +0.6-0.8 % excess in xi_00 at
+    biased HIGH off-grid: the observed +0.6-0.8 % excess in xi_00 at
     r = 0.25/0.5/0.75 versus +0.05-0.3 % at r = 0/0.4/1.0, which used to
     read as a "+3.7 sigma" physical residual.  Applying the SAME weights
     to the theory removes it exactly, because both sides are then the
@@ -111,7 +111,7 @@ def _fscale_section():
     """The D2 amplitude-scaling experiment, if it has been run."""
     path = HERE / "fscale_fit.json"
     if not path.exists():
-        return ["## F-amplitude scaling (`fscale_fit.py`) -- NOT RUN", "",
+        return ["## F-amplitude scaling (`fscale_fit.py`): NOT RUN", "",
                 "Run `./run_fscale.sh` then `python fscale_fit.py`.", ""]
     f = json.loads(path.read_text())
     L = [f"## F-amplitude scaling: is the residual really order 4?", ""]
@@ -121,7 +121,7 @@ def _fscale_section():
         f"`residual(s) = xi_01^sim(s) - s·FK` should be `c3 s³ + c5 s⁵`.  "
         f"All amplitudes at dt = 0.02, at t = {f['t']:g}, r = {f['r']:g}: the "
         "step-size bias is common to all three and does not enter the "
-        "s-dependence.  This is INDEPENDENT of the order-4 calculation -- "
+        "s-dependence.  This is INDEPENDENT of the order-4 calculation: "
         "it uses only the simulation and the validated order-2 channel.")
     L.append("")
     L.append("| s | runs | realisations | blow-ups /100k | xi_01 sim | s·FK | residual | ± MC | σ |")
@@ -135,9 +135,9 @@ def _fscale_section():
              "not used for the fit.  Two independent signs of that, both in the "
              "table: the residual there EXCEEDS the leading term (1.04e-03 "
              "against s·FK = 5.16e-04), and 4.5 % of trajectories blow up in "
-             "finite time against 6e-05 at s = 1 — a 780x jump.  The simulation "
-             "then reports a mean conditioned on the survivors, i.e. with the "
-             "largest excursions removed, which are precisely the realisations "
+             "finite time against 6e-05 at s = 1, a 780x jump.  The simulation "
+             "then reports a mean conditioned on the survivors, with the "
+             "largest excursions removed, and those are the realisations "
              "the higher-order terms describe.  It is kept in the table as a "
              "measured boundary of validity.")
     L.append("")
@@ -147,19 +147,19 @@ def _fscale_section():
              f"{f['c3']:.3e} ± {f['c3_err']:.1e} | {f['c5']:.3e} ± {f['c5_err']:.1e} |")
     L.append(f"| **(b)** | **0.5, 1.0** | **c3 s³** | **{f['chi2_lowblowup']:.2f} / "
              f"{f['ndof_lowblowup']}** | **{f['c3_lowblowup']:.3e} ± "
-             f"{f['c3_lowblowup_err']:.1e}** | — |")
+             f"{f['c3_lowblowup_err']:.1e}** | n/a |")
     L.append("")
     L.append(f"Fit (b) is the one to read.  Its chi² of {f['chi2_lowblowup']:.2f} for "
              f"{f['ndof_lowblowup']} dof says the two clean amplitudes are consistent "
-             f"with a **pure s³ law** — the residual is an order-4 effect.  That is a "
-             f"deductive result: it uses only the simulation and the validated order-2 "
+             f"with a **pure s³ law**, so the residual is an order-4 effect.  The fit "
+             f"uses only the simulation and the validated order-2 "
              f"channel, and assumes nothing about the order-4 calculation.  Fit (a) is "
              f"shown for completeness; its chi² of {f['chi2']:.2f} for {f['ndof']} dof "
              f"is the s = 1.5 point refusing to lie on any c3 s³ + c5 s⁵ curve through "
              f"the other two, which is the same statement as the paragraph above.")
     L.append("")
     L.append(f"Computed F³κ³ at s = 1: **{f['fffk_s1']:.3e}**, against fitted "
-             f"c3 = {f['c3_lowblowup']:.3e} ± {f['c3_lowblowup_err']:.1e} — "
+             f"c3 = {f['c3_lowblowup']:.3e} ± {f['c3_lowblowup_err']:.1e}, "
              f"**{f['pull_lowblowup']:+.1f}σ**.")
     L.append("")
     return L
@@ -190,10 +190,10 @@ def budget_table():
     L.append("**Channels.** 0 = order 0 with the exact two-kernel C_eff; "
              "FF = order 2 F·F (exact C_eff); FK = order 2 F·κ³ (R-contracted, GL32); "
              "FFK4 = order 3 F·F·κ⁴ (R-contracted, GL12); "
-             "**FFFK = order 4 F³·κ³ (R-contracted, GL10) — computed exactly for the "
+             "**FFFK = order 4 F³·κ³ (R-contracted, GL10), computed exactly for the "
              "first time in this revision; it was an equal-time estimate before, "
              "and was assumed to vanish for xi_00 / xi_11, which it does not**; "
-             "FFFF = order 4 F⁴ (exact C_eff, Gauss-Legendre GL10 — it was 32768-sample "
+             "FFFF = order 4 F⁴ (exact C_eff, Gauss-Legendre GL10; it was 32768-sample "
              "Sobol QMC, which scattered 46 % across seeds).  "
              "FFFK and FFFF are computed on r_sub = " + str([float(x) for x in r_sub]) + " only.")
     L.append("")
@@ -241,7 +241,7 @@ def budget_table():
              "24 α λ² σ_t² δ_abc and rescaling by (converged FK)/(collapsed FK) at "
              "the same t.  The estimate's calibration ratio is 0.42-0.64 for the "
              "FK-type partner-time configuration `(t', s, s)` but 1.08-1.50 for three "
-             "distinct partner times, which is what the F³κ³ diagrams actually have — "
+             "distinct partner times, which is what the F³κ³ diagrams actually have, "
              "so it was a factor-of-2 quantity.  Both are now in the table:")
     L.append("")
     L.append("| t | FK converged | FK collapsed | ratio | FFFK collapsed | old ESTIMATE | **exact FFFK** | estimate/exact |")
@@ -288,8 +288,8 @@ def budget_table():
         dq = np.abs(B[f"ffff_qmc_{key}"] - ref)
         L.append(f"  - the superseded 32768-sample Sobol QMC differs from GL14 by "
                  f"up to {dq.max():.2e} absolute "
-                 f"({(dq / np.maximum(np.abs(ref), 1e-300)).max():.0%} relative) — "
-                 f"i.e. AS LARGE AS the residuals, which is why it had to go.")
+                 f"({(dq / np.maximum(np.abs(ref), 1e-300)).max():.0%} relative), "
+                 f"as large as the residuals it was used to interpret.")
     # FFFK: the 3-D rule loses the peak at large t_f exactly as the 4-D
     # FFFF rule does, so the node-count spread is quoted per time rather
     # than as one number over the grid.
@@ -305,26 +305,25 @@ def budget_table():
         i = int(np.argmin(np.abs(t - tv)))
         rel = abs(a14[j, 0] - a10[i, 0]) / abs(a14[j, 0])
         L.append(f"  - t = {tv:.4g}: GL8 {a8[i, 0]:.4e}, GL10 {a10[i, 0]:.4e}, "
-                 f"GL14 {a14[j, 0]:.4e} — **{rel:.1%}**, "
+                 f"GL14 {a14[j, 0]:.4e}; **{rel:.1%}**, "
                  f"{abs(a14[j, 0] - a10[i, 0]):.1e} absolute")
     L.append(f"  - the channel SATURATES: GL14 gives {a14[0, 0]:.3e} at "
              f"t = {t_late[0]:.3g} and {a14[-1, 0]:.3e} at t = {t_late[-1]:.3g}, "
              f"so the physical late-time value is ~{a14[:3, 0].mean():.2e} and the "
              f"slow rise across the last rows is quadrature, not physics.")
     i5 = int(np.argmin(np.abs(t - 5.44)))
-    L.append(f"  - **xi_00 and xi_11 DO receive from this channel** — "
+    L.append(f"  - **xi_00 and xi_11 DO receive from this channel**: "
              f"{B['fffk_00'][i5, 0]:.3e} and {B['fffk_11'][i5, 0]:.3e} at "
-             f"t = {t[i5]:.3g}, r = 0, converged to 0.1 % (GL8 vs GL10) — "
-             f"and the 0.3.0 budget assumed they did not.  The assumption was "
+             f"t = {t[i5]:.3g}, r = 0, converged to 0.1 % (GL8 vs GL10).  "
+             f"The 0.3.0 budget assumed they did not.  The assumption was "
              f"that phi_1 -> -phi_1 parity forbids odd cumulants there, but "
              f"that parity is BROKEN by the deformation itself: "
              f"eta~ = eta + alpha (eta^2 - lambda) is not odd in eta, which is "
-             f"the whole reason xi_01 is non-zero.  The order-2 FK channel does "
+             f"also why xi_01 is non-zero.  The order-2 FK channel does "
              f"vanish for xi_00, but for the narrower reason that its two "
              f"diagrams' index structure does; that does not extend to order 4.  "
              f"This is worth {100 * B['fffk_00'][i5, 0] / 3.5e-5:.0f} % of the "
-             f"xi_00 residual and was found only by computing all three pairs "
-             f"instead of assuming.")
+             f"xi_00 residual, and was found by computing all three pairs.")
     L.append("")
 
     L.append("## Are the simulation error bars right?")
@@ -338,19 +337,19 @@ def budget_table():
              "0.63-0.74 at small t, i.e. if anything conservative there.  "
              "Per-t chi^2/dof across seeds is 0.34-1.62 throughout.")
     L.append("")
-    L.append("One point looks alarming and is worth recording because the "
-             "obvious statistic is the wrong one.  At dt = 0.02, t = 15 the "
-             "plain seed scatter is **6.7x** the quoted error — while "
-             "chi^2/dof at the same point is 0.83, which is contradictory "
+    L.append("One point needs recording, because the obvious statistic is "
+             "the wrong one.  At dt = 0.02, t = 15 the "
+             "plain seed scatter is **6.7x** the quoted error, while "
+             "chi^2/dof at the same point is 0.83.  That is contradictory "
              "unless one seed is a heavy-tailed outlier carrying a "
-             "correspondingly large error.  It is: seed 105 gives "
-             "1.7559e-03 +- 1.30e-03 against a median of 4.2397e-04 (54 MAD) "
-             "— a near-blow-up trajectory.  The inverse-variance weighting "
+             "correspondingly large error, and it is: seed 105 gives "
+             "1.7559e-03 +- 1.30e-03 against a median of 4.2397e-04 (54 MAD), "
+             "a near-blow-up trajectory.  The inverse-variance weighting "
              "downweights it automatically: dropping it moves the combined "
              "mean by **0.02 %** (4.16896e-04 -> 4.16816e-04) and brings the "
              "scatter ratio to 0.91.  So `std/sqrt(n)` over seeds is the "
-             "wrong statistic on this data, not the errors; the `w = 1/e^2` "
-             "combination is doing its job.")
+             "wrong statistic on this data, not the errors; the combination "
+             "weights by `w = 1/e^2`.")
     L.append("")
     L += _fscale_section()
 
@@ -382,7 +381,7 @@ def fig_xi01_vs_time():
     ax.errorbar(t, sx, yerr=ex, fmt="o", ms=4, color="k",
                 label=f"simulation, {META['n_real_sims']['0.01'] / 1e6:.0f}M realisations, $\\Delta t\\to0$", zorder=5)
     ax.set_xscale("log"); ax.set_ylabel(r"$\xi_{01}(r=0,t)$"); ax.grid(alpha=0.3); ax.legend(loc="lower right")
-    ax.set_title(r"Demo 2: $\alpha=%g$, $\lambda=%g$, $\sigma_t=%g$ — the $\kappa^{(3)}$ channel" % (META["alpha"], META["lam"], META["sigma_t"]))
+    ax.set_title(r"Demo 2: $\alpha=%g$, $\lambda=%g$, $\sigma_t=%g$ the $\kappa^{(3)}$ channel" % (META["alpha"], META["lam"], META["sigma_t"]))
     ax.text(0.03, 0.93, "0, FF, FFFF, FFK4 vanish for $\\xi_{01}$\n($\\varphi_1\\to-\\varphi_1$ symmetry; only odd cumulants contribute)",
             transform=ax.transAxes, fontsize=8.5, va="top")
     axr.axhline(0, color="grey", lw=0.8)
@@ -430,7 +429,7 @@ def fig_xi00_vs_time():
     ax.errorbar(t, sx, yerr=ex, fmt="o", ms=4, color="k",
                 label=f"simulation, {META['n_real_sims']['0.01'] / 1e6:.0f}M realisations, $\\Delta t\\to0$", zorder=5)
     ax.set_xscale("log"); ax.set_ylabel(r"$\xi_{00}(r=0,t)$"); ax.grid(alpha=0.3); ax.legend(loc="lower right")
-    ax.set_title(r"Demo 2: $\xi_{00}$ — even cumulants")
+    ax.set_title(r"Demo 2: $\xi_{00}$, even cumulants")
     axr.axhline(0, color="grey", lw=0.8)
     axr.errorbar(t, sx - (o0 + ff), yerr=ex, fmt="^-", ms=3, color="tab:orange", label="sim $-$ (0+FF), exact $C_{\\rm eff}$")
     axr.plot(t, sx - (o0_l + ff_l), "x:", color="tab:gray", label="sim $-$ (0+FF), $\\lambda_{\\rm eff}$ approximation (paper v1)")

@@ -4,7 +4,7 @@ using the L2 (YAML) workflow API.
 Demo2's perturbative breakdown has two channels with different
 caches:
 
-* **FF** uses ``cache_eff`` -- a Gaussian kernel with renormalised
+* **FF** uses ``cache_eff``, a Gaussian kernel with renormalised
   variance ``lam_eff = lam * (1 + 2 * alpha^2 * lam)`` (absorbs
   the leading O(alpha^2) variance shift). Driven by
   ``config_FF.yaml``.
@@ -18,7 +18,7 @@ saved by analysis.ipynb with the same plot setup. The 5th figure
 (``scrutiny_residuals.pdf``) compares alpha=0 vs alpha=0.6 sims
 under various truncation levels including order-4 FF and is left
 out of the L2 reproduction (it would require an additional
-``config_FF_order4.yaml`` and an alpha=0 baseline run -- the
+``config_FF_order4.yaml`` and an alpha=0 baseline run; the
 scope is out of proportion with what the L2 demo aims to show).
 
 Integration method
@@ -181,7 +181,7 @@ def assemble_pert(totals_FF, totals_FK, sweep_FF, sweep_FK,
     # Cross-pair order-0 is identically zero (the package's
     # ``apply_diagonal`` retains the ``delta_{a, b}`` factor under
     # diag_C, so the C[a, b] propagator collapses to 0 when the
-    # observable indices differ -- no hard-code needed).
+    # observable indices differ, so no hard-code is needed).
     for _, row in totals_FF.iterrows():
         pair = (int(row["a"]), int(row["b"]))
         if pair not in pert:
@@ -232,7 +232,7 @@ def load_sim_cache():
 
 
 # =====================================================================
-# Figure 1: kappa3_crosscheck.pdf -- pure simulation vs analytical
+# Figure 1: kappa3_crosscheck.pdf, pure simulation vs analytical
 # =====================================================================
 
 
@@ -280,7 +280,7 @@ def figure_kappa3_crosscheck(sim: dict) -> None:
 
 
 # =====================================================================
-# Figure 2: xi_vs_time.pdf -- 3 pairs at r=0, top + residual panels
+# Figure 2: xi_vs_time.pdf, 3 pairs at r=0, top + residual panels
 # =====================================================================
 
 
@@ -348,7 +348,7 @@ def figure_xi_vs_time(pert: dict, sim: dict, pert_t: np.ndarray,
 
 
 # =====================================================================
-# Figure 3: xi_vs_r.pdf -- 3 pairs at 3 selected times
+# Figure 3: xi_vs_r.pdf, 3 pairs at 3 selected times
 # =====================================================================
 
 
@@ -407,7 +407,7 @@ def figure_xi_vs_r(pert: dict, sim: dict, pert_t: np.ndarray,
 
 
 # =====================================================================
-# Figure 4: xi_FK_only.pdf -- isolated FK channel
+# Figure 4: xi_FK_only.pdf, isolated FK channel
 # =====================================================================
 
 
@@ -433,7 +433,7 @@ def figure_xi_FK_only(pert: dict, sim: dict, pert_t: np.ndarray,
         ax.grid(alpha=0.3)
     fig.suptitle(
         fr"Demo 2  FK only   ($\alpha={sim_alpha}$)  "
-        r"—  non-zero only for the cross pair (0,1)",
+        r":  non-zero only for the cross pair (0,1)",
     )
     fig.tight_layout()
     fig.savefig(FIG_DIR / "xi_FK_only.pdf", bbox_inches="tight")
