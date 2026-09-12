@@ -14,6 +14,19 @@ set against demo 3's.*
 > 3.9e-04 at `t = 15` (`examples/demo1/L2/INTEGRATION_ERROR.md`, cell by
 > cell).  Re-running this budget costs about an hour of CPU and was not
 > done.
+>
+> **Separately: the FK number this demo's notebook prints in cell 12,**
+> `ξ^{FK}_{01}(r = 0.5, t = 3) = +1.884322e-04`, **is 4.6 % above both of
+> the package's routes** — 1.797229e-04 through the R-contracted kernel
+> (Gauss-Legendre 32, stable to seven digits from 16 to 64 nodes) and
+> 1.803059e-04 through the raw dynamic coupling (Sobol 2¹⁸), which agree
+> with each other to 0.3 %.  The notebook integrates the raw 4-D κ³ rule
+> with its own hand-written Gauss-Legendre, the rule this demo documents as
+> the one that is not converged.  The gap predates 0.6.0: the R-contracted
+> value is identical on 0.5.0.  `validate_FK_dynamic.py` compared against
+> the notebook number until 2026-09-12 and passed only because its 2¹³
+> Sobol draw scatters 15 % on this integrand; it now compares the two
+> package routes at 2¹⁸.
 
 ---
 
