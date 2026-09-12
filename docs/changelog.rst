@@ -10,7 +10,7 @@ Changelog
    differ, the Markdown file is correct.
 
 
-Version 0.6.0 — 2026-09-12
+Version 0.6.0 (2026-09-12)
 --------------------------
 
 *Eight inputs that returned a wrong number without an error, seven
@@ -63,7 +63,7 @@ Added
   package.
 
 
-Version 0.5.0 — 2026-09-11
+Version 0.5.0 (2026-09-11)
 --------------------------
 
 *Eight defects that returned a wrong number without an error, one crash, a
@@ -134,7 +134,7 @@ Added
 - WF9 pins the argument shapes a callable coupling receives.
 
 
-Version 0.4.2 — 2026-09-03
+Version 0.4.2 (2026-09-03)
 --------------------------
 
 *One* ``src/`` *fix, paper-asset and documentation corrections, and the test
@@ -151,13 +151,13 @@ Fixed
 
 - **The Table 1 paper asset did not run on the version the paper cites.**
   ``examples/paper_assets/table1/generate_table1.py`` built its odd-order
-  observable as ``phi_a(x) phi_b(x) phi_c(y)`` — two externals sharing the
+  observable as ``phi_a(x) phi_b(x) phi_c(y)``, two externals sharing the
   spatial label ``x``.  0.4.0 made exactly that spelling a ``ValueError``
   at interacting orders, so from 0.4.0 onward the script raised at orders 1
   and 3.  With a distinct label per external it runs, and the diagram
   counts change: order 1 goes from 4 to **6**, order 2 is unchanged at 6
   (``m = 2`` already used distinct labels), and order 3 goes from 75 to
-  **80**.  This is the same collapse the 0.4.0 entry documents — same-label
+  **80**.  This is the same collapse the 0.4.0 entry documents: same-label
   externals lose the sum over assignments of externals to legs.  The script
   no longer hardcodes any count, and the standalone TikZ diagrams and the
   matplotlib rendering are regenerated.  The wall-clock column is not
@@ -176,30 +176,30 @@ Fixed
 
 - **Two figures were misquoted from demo 3's own stored results.**  The
   level-A ``m = 4`` agreement is **6.6e-16**, the maximum over the nine
-  times in ``level_a_results.npz`` — 0.4.0 and 0.4.1 quoted 4.9e-16, which
+  times in ``level_a_results.npz``; 0.4.0 and 0.4.1 quoted 4.9e-16, which
   is the ``t = 3`` cell.  The ETDRK2 ``O(Δt²)`` convergence ratios span
   **4.0–6.9**, not the 4.0–5.1 quoted in both; the 6.9 cell is
   noise-dominated rather than anomalous convergence.  Neither affects a
   released number.
 
 
-Version 0.4.1 — 2026-09-02
+Version 0.4.1 (2026-09-02)
 --------------------------
 
-*Test-suite hardening only — no* ``src/`` *changes, no behaviour change.*
+*Test-suite hardening only: no* ``src/`` *changes, no behaviour change.*
 
 Fixed
 ~~~~~
 
 - **Two assertions that could not fail.**  ``pytest.approx(x, rel=...)``
   compares against ``max(rel * expected, abs)`` with ``abs`` defaulting to
-  **1e-12**, so wherever the compared quantity is small the floor — not the
-  written ``rel`` — is what is enforced.  This cannot be read off the
+  **1e-12**, so wherever the compared quantity is small the floor is what
+  is enforced, not the written ``rel``.  This cannot be read off the
   source, since it depends on each site's runtime magnitude;
   ``tools/approx_audit.py`` measures it during a normal pytest run.  Over
   207 runtime sites: 108 have ``rel`` genuinely in force, 29 pass an
   explicit ``abs=``, 15 compare against ``0.0``, **22 are weakened**, and
-  **2 were vacuous** — one in ``tests/test_demo3_shot_noise.py`` (shipped
+  **2 were vacuous**: one in ``tests/test_demo3_shot_noise.py`` (shipped
   in v0.4.0) and one in ``tests/test_closed_form_dispatch_boundaries.py``.
   In both the code was independently verified correct and only the test was
   empty, so no released number is affected: the suite's *coverage* was
@@ -219,7 +219,7 @@ The 22 weakened sites are documented but not fixed, and no lint guard yet
 stops new bare ``rel=`` sites appearing.  (0.4.2 fixed both.)
 
 
-Version 0.4.0 — 2026-09-02
+Version 0.4.0 (2026-09-02)
 --------------------------
 
 *This is the version the CPC paper refers to.*  v0.3.0 predates the exact
@@ -229,17 +229,17 @@ result can be reproduced against it.
 .. warning::
 
    **Breaking: external operators may no longer share a spatial label.**
-   ``("phi_a(x)", "phi_b(x)")`` — the natural spelling of an equal-point
-   correlator — now raises ``ValueError`` at both ``System.expand`` (L1)
+   ``("phi_a(x)", "phi_b(x)")``, the natural spelling of an equal-point
+   correlator, now raises ``ValueError`` at both ``System.expand`` (L1)
    and ``compute_moment`` (L0), **at interacting orders only**
    (``compute_moment_numerical`` was missed and joined in 0.4.2).  It
    previously returned a number, correct at order 0 and wrong once vertices
    are present: measured on demo 2's system, the order-2 ``F`` channel was
    low by a factor 2 while the order-2 ``FK`` channel was exactly right.
 
-   Order 0 is exempt, and the exemption is measured rather than assumed.
+   Order 0 is exempt, and the exemption is measured.
 
-   **Migration** — give each external a distinct label and set them to the
+   **Migration**: give each external a distinct label and set them to the
    same point through ``positions``:
 
    .. code-block:: python
@@ -247,12 +247,12 @@ result can be reproduced against it.
       system.expand(("phi_a(x)", "phi_b(y)"), orders=[0, 2])
       expansion.evaluate(props, positions={"x": 0.0, "y": 0.0}, ...)
 
-   Coincident external *points* are, and always were, fully supported; it
-   is the shared *label* that is not.  What the collapse loses is not a
-   factor but a sum over the assignments of external operators to legs,
-   each with its own component-index routing, so a multiplicity "fix" would
-   have replaced a silent wrong answer with a subtler one — which is why
-   the spelling is refused rather than repaired.
+   Coincident external *points* are, and always were, supported; the
+   shared *label* is not.  The collapse loses a sum over the assignments
+   of external operators to legs, each with its own component-index
+   routing, not a factor, so a multiplicity "fix" would have replaced a
+   silent wrong answer with a subtler one.  The spelling is refused
+   rather than repaired.
 
 Added
 ~~~~~
@@ -261,11 +261,11 @@ Added
   contraction against the surrounding Wick structure leaves a surviving
   component index on a C propagator used to raise ``NotImplementedError``;
   the integrators now contract it against the C-propagator product one
-  index assignment at a time.  This is what blocked the exact evaluation of
-  demo 2's order-4 ``F³κ³`` channel (30 diagrams).  Every path that worked
+  index assignment at a time.  It blocked the exact evaluation of demo 2's
+  order-4 ``F³κ³`` channel (30 diagrams).  Every path that worked
   before returns bit-identical numbers.
 
-- **Demo 3 (filtered Poisson noise)** — ``examples/demo3/``, a third worked
+- **Demo 3 (filtered Poisson noise)**: ``examples/demo3/``, a third worked
   example whose driving field is a shot process, so Campbell's theorem
   gives every cumulant in closed form.  The one-point law's shape depends
   on ``n = ν σ_t σ_x`` alone, the R-contracted vertex is closed form at any
@@ -289,27 +289,28 @@ Fixed
   rules are verified converged before the choice is made, so the race could
   never produce a wrong value; the decision is now a function of the inputs
   alone (prefer Gauss-Legendre whenever a converged node count exists).
-  The change is bounded by the two rules' agreement — 9.1e-16 at
-  ``t_max = 3`` to 3.6e-09 at 100, all inside the 1e-8 selection tolerance
-  — and no demo can be affected at all, since they set
+  The change is bounded by the two rules' agreement (9.1e-16 at
+  ``t_max = 3`` to 3.6e-09 at 100, all inside the 1e-8 selection
+  tolerance).  No demo is affected, since they set
   ``c_closed_form_only``.
 
-Changed — numbers move
+Changed: numbers move
 ~~~~~~~~~~~~~~~~~~~~~~
 
-- **Demo 2's order-4** ``F³κ³`` **channel is computed, not estimated.**
+- **Demo 2's order-4** ``F³κ³`` **channel is computed rather than
+  estimated.**
   Over the 18 times at ``r = 0`` this takes χ² of (simulation − theory)
   from **340.7 to 44.2**, the mean pull from +3.31 to +1.09, and the
   largest residual from 9.36e-05 to 3.88e-05.  The residual's perturbative
-  order is now measured rather than asserted (a coupling-amplitude scan
-  fits a pure ``s³`` law), ``FFFF`` moved from Sobol QMC — 46 % scatter
-  across seeds — to Gauss-Legendre, the Monte-Carlo error bars in
+  order is measured by a coupling-amplitude scan, which fits a pure ``s³``
+  law; ``FFFF`` moved from Sobol QMC (46 % scatter
+  across seeds) to Gauss-Legendre, the Monte-Carlo error bars in
   ``reproduce_figures.py`` used a formula for the wrong quantity and now
   use the Isserlis estimate, and off-grid separations no longer bias the
   simulation high.  ``tests/test_demo2_kernels.py`` is new: nothing in
   ``tests/`` pinned a demo-2 number before.
 
-- **Demo 1's order-4 channel was resting on one QMC seed** — 39 % scatter
+- **Demo 1's order-4 channel was resting on one QMC seed**: 39 % scatter
   across six seeds, with the published value 69 % high at ``r = 0.5,
   t = 15`` against the converged Gauss-Legendre value.  Order 2 was not
   converged at the largest times either (+20 % at ``t = 100``).  The sweep
@@ -328,14 +329,14 @@ Documented
   every process and never hits the cache.  A small frozen dataclass with
   ``__call__`` fixes it.  No behaviour change: an unstable ``repr`` can
   only cause a cache **miss**, never a wrong hit.  Vertex couplings are
-  unaffected — they never enter the key.
+  unaffected; they never enter the key.
 
 
-Version 0.3.0 — 2026-09-02
+Version 0.3.0 (2026-09-02)
 --------------------------
 
-*Referee revision for CPC round 1* — a fast default path, progress
-reporting and a quick start — plus the fixes that had accumulated on
+*Referee revision for CPC round 1*: a fast default path, progress
+reporting and a quick start, plus the fixes that had accumulated on
 ``main`` since July.
 
 .. warning::
@@ -352,19 +353,18 @@ Added
 
 - **Built-in closed-form C** (``sft_wick.workflow.closed_forms``) for a
   diagonal constant drift driven by separable translation-invariant noise
-  with an exponential temporal kernel — the demo 1, demo 2 and README
-  family.  Selected automatically by ``propagators.c_closed_form: auto``;
-  ``null`` forces quadrature.  Validated at the dispatch boundary rather
-  than at convenient points, agreeing to **1e-10** against Gauss-Legendre
-  and **1e-8** against ``dblquad``.
+  with an exponential temporal kernel (the demo 1, demo 2 and README
+  family).  Selected automatically by ``propagators.c_closed_form: auto``;
+  ``null`` forces quadrature.  Validated at the dispatch boundary, agreeing
+  to **1e-10** against Gauss-Legendre and **1e-8** against ``dblquad``.
 
-- **A faster default C quadrature** — ``c_method`` moved from
+- **A faster default C quadrature**: ``c_method`` moved from
   ``dblquad`` to ``auto``, with the node count
   chosen by ``select_gl_node_count``.  Separable kernels build one temporal
   table and rescale it per separation instead of redoing the quadrature
   grid for every distinct ``r``.  The ``dblquad`` path now splits the
   rectangle at the ``λ₁ = λ₂`` cusp, which makes it both faster and more
-  accurate — numbers on that path move by up to ~2e-6 relative, toward the
+  accurate: numbers on that path move by up to ~2e-6 relative, toward the
   exact value.
 
 - **Progress reporting** (``sft_wick.progress``) for expansion, C-table
@@ -373,7 +373,7 @@ Added
   ``progress=True|False|callable`` on the L1 entry points.  It never
   changes a number.
 
-- **A cost estimate before committing to a run** — ``sft-wick run
+- **A cost estimate before committing to a run**: ``sft-wick run
   --dry-run`` reports diagrams per order, grid points, the resolved C
   source and a rough wall-clock.  ``examples/quickstart.yaml`` and
   ``sft-wick quickstart`` give a run that finishes in seconds.
@@ -385,9 +385,9 @@ Added
 - **The fixed-point driver** ``sft_wick.selfconsistency``, which never
   returns a bare state: the result carries ``converged``, the residual
   history and a ``reason`` in ``converged / diverged / oscillating /
-  max_iter``.  The Dyson solve is deliberately left to the caller.
+  max_iter``.  The Dyson solve is left to the caller.
 
-- **Disorder-averaged (spectral) propagators**, ``sft_wick.spectral`` —
+- **Disorder-averaged (spectral) propagators**, ``sft_wick.spectral``:
   built as superpositions of Ornstein-Uhlenbeck propagators over a spectrum
   and evaluated exactly rather than tabulated (tabulating ``C`` would
   reintroduce the diagonal ridge).  ``propagators_from_cache`` lets the L1
@@ -411,7 +411,7 @@ Fixed
 
 - **Causal lower bounds from external response legs were dropped
   entirely.**  Every bound-builder discarded an ordering whose earlier
-  endpoint is external — exactly the orderings an external ψ leg creates —
+  endpoint is external, exactly the orderings an external ψ leg creates,
   so the O(g) response was integrated over ``[t_min, t_x]`` instead of
   ``[t_y, t_x]``: up to 5× wrong.  Bounds are now transitively closed and
   inverted intervals clamped.
@@ -419,13 +419,13 @@ Fixed
 - **The C table did not converge on its diagonal.**  ``C(t₁, t₂)``
   integrates up to ``min(t₁, t₂)``, so ``∂C/∂t₁`` jumps across
   ``t₁ = t₂``, and a tensor-product spline is C² and cannot represent that
-  ridge: **22.3 % relative error at n_grid = 41, still 21.4 % at 321** —
-  and *every tadpole* evaluates ``C(s, s)``, exactly on it.  The grid's own
+  ridge: **22.3 % relative error at n_grid = 41, still 21.4 % at 321**.
+  Every tadpole evaluates ``C(s, s)``, exactly on it.  The grid's own
   diagonal entries are now harvested into a separate interpolator.  This
   changes every interacting order.
 
 - **The C builder used only the diagonal of a matrix R** instead of the
-  matrix triple product ``R κ Rᵀ`` — 57 % Frobenius error for a dense drift,
+  matrix triple product ``R κ Rᵀ``: 57 % Frobenius error for a dense drift,
   with wrong signs on 6 of 9 matrix elements.  ``iso_R=True`` results are
   bit-for-bit unchanged.
 
@@ -477,7 +477,7 @@ Demo 2 (non-Gaussian noise) corrections
 Version 0.2.0
 -------------
 
-*First release on PyPI —* ``pip install sft-wick``.
+*First release on PyPI:* ``pip install sft-wick``.
 
 Builds two higher-level API layers and a numerical evaluation pipeline
 on top of the L0 symbolic core.
@@ -486,13 +486,13 @@ Added
 ~~~~~
 
 - **L1 workflow API** (``System``, ``Expansion``, ``Propagators``,
-  ``Result``, ``SweepResult``) — immutable, high-level interface for
+  ``Result``, ``SweepResult``): immutable, high-level interface for
   specifying a physics system and expanding / evaluating field moments,
   with single-point ``evaluate`` and grid ``sweep``.
-- **L2 YAML + CLI** (``sft-wick run config.yaml``) — fully declarative,
+- **L2 YAML + CLI** (``sft-wick run config.yaml``): fully declarative,
   reproducible workflows; ``--override key=value`` for parameter scans;
   every L1 constructor argument maps 1:1 onto a YAML field.
-- **Numerical evaluation pipeline** (``evaluate.py``) — propagator
+- **Numerical evaluation pipeline** (``evaluate.py``): propagator
   caches, three spatial-homogeneity modes (translation / rotation /
   general), and three integrators: Sobol QMC (default), tensor-product
   Gauss–Legendre, and adaptive ``nquad``.

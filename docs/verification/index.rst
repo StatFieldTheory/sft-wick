@@ -1,43 +1,39 @@
 Verification
 ============
 
-sft-wick's correctness rests on two complementary layers of evidence:
+sft-wick's correctness rests on two layers of evidence:
 
 1. A **deductive** test suite (Phases 1–8 plus the later feature
    suites; every file, its reference and its collected test count are
    listed in the generated :doc:`catalog`) that pits each elementary
-   transformation in the package against an independent reference —
-   any failure points at a specific module.
+   transformation in the package against an independent reference.
+   A failure points at a specific module.
 2. Eight end-to-end demos.  Three are **inductive** (Gaussian driving,
    and two independent kinds of non-Gaussian driving): they compare the
    package's full pipeline to direct simulation of the same stochastic
    equation over a large parameter grid.  Demos 4 to 8 compare it to an
-   exact reference instead — the moment hierarchy of the same process,
+   exact reference instead, the moment hierarchy of the same process,
    which shares no code with the package.
 
-Both layers are necessary: the deductive suite proves the machinery
-is right *per step*; the demos confirm the output matches physics
-on non-trivial problems.
+The two layers cover different things.  The deductive suite checks the
+machinery *per step*; the demos check the output against physics on
+non-trivial problems.
 
-Overview — why deductive tests prove correctness
+Overview: why deductive tests prove correctness
 ------------------------------------------------
 
 Most scientific software is validated **inductively**: run it on a
-case where you know the expected answer (comparison to simulation, a
-known limit, published numbers), see they agree.  This is a necessary
-sanity check but not a proof — you have shown only that *in the
-tested regime*, the answer happens to be right.  A bug could still
+case where the expected answer is known (comparison to simulation, a
+known limit, published numbers) and check that they agree.  That shows
+only that the answer is right *in the tested regime*.  A bug can still
 hide in any untested regime.
 
-Deductive verification takes a different stance.  For each elementary
-transformation the code performs — expanding products, applying
-Wick's theorem, collapsing component-index sums, integrating a
-diagram numerically — construct an **independent** reference and check
-they agree *exactly* (or within a precisely-defined tolerance set by
-the numerical method, not by convenience).  A pass at this level does
-not just say "the final answer looks plausible"; it says *every
-step* is doing what it should, and any future regression in a
-specific step will surface as a specific failing test.
+Deductive verification checks each elementary transformation the code
+performs (expanding products, applying Wick's theorem, collapsing
+component-index sums, integrating a diagram numerically) against an
+**independent** reference, *exactly* or within a tolerance set by the
+numerical method.  A pass says that each step does what it should, and
+a later regression in one step surfaces as a specific failing test.
 
 The suite has eight phases.  Phases 1–4 cover the symbolic + numerical
 core; Phases 5–8 were added alongside the L1/L2 wrapper layer to cover
@@ -45,7 +41,7 @@ spatial homogeneity, white-noise components, dynamic non-local
 couplings, time-dependent linear operators, and the end-to-end
 workflow and YAML-config layers.
 
-Phase 1 — Symbolic expansion
+Phase 1: Symbolic expansion
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 *File: ``tests/test_deductive_expansion.py``, ~80 tests, <1 s.*
@@ -56,8 +52,8 @@ against a brute-force reference (``tests/brute_wick.py``) that has
 **zero imports from sft-wick** and therefore constitutes an
 independent re-implementation of the same rules.
 
-For the simplest non-trivial case — order 2, scalar / two-component
-field, single cubic vertex — the brute reference enumerates all 105
+For the simplest non-trivial case (order 2, scalar / two-component
+field, single cubic vertex) the brute reference enumerates all 105
 candidate pairings and classifies each by vanishing reason:
 
 =====================================  ======
@@ -83,7 +79,7 @@ it against sft-wick's output.  Topics covered:
 - response-phase :math:`(-i)^{n_R}` (T7)
 - two canonical-form algorithms (nauty vs brute permutation search)
   induce the same equivalence relation (T8)
-- diagram-collection soundness — no false merges, no false splits (T9)
+- diagram-collection soundness: no false merges, no false splits (T9)
 - individual simplification passes (T10)
 - non-local vertex instantiation and leg-count vanishing (T11, T12)
 - FK coupling-sum collapse at N=2 and N=3 (T13, T20)
@@ -97,7 +93,7 @@ it against sft-wick's output.  Topics covered:
   that demo1 / FF tests didn't catch because they only exercise
   diagonal observable pairs).
 
-Phase 2 — Propagator numerics
+Phase 2: Propagator numerics
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 *File: ``tests/test_deductive_numerics.py``, ~22 tests, ~50 s.*
@@ -117,7 +113,7 @@ The closed-form :math:`C(t, t')` formula and the package's
 - Itô flag end-to-end (N8)
 - off-diagonal :math:`\kappa^{(2)}` → non-diagonal C propagator (N9)
 
-Phase 3 — Full diagram evaluation
+Phase 3: Full diagram evaluation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 *~3 tests, ~1 s.*
@@ -131,16 +127,14 @@ two order-1 tadpoles, with no factor :math:`N^2`) within its
 self-reported 3σ error band (P2), and the Sobol convergence rate is
 checked across a scan of ``n_samples`` (P3).
 
-Phase 4 — Alternative-path consistency
+Phase 4: Alternative-path consistency
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 *~7 tests, ~17 s.*
 
 sft-wick exposes multiple paths for the same computation (a nauty-
 based symbolic engine, a vectorised QMC, a parallel batch).  Each
-alternative is pitted against a tested baseline — two independent
-implementations producing the same answer is strong deductive
-evidence that both are correct.
+alternative is compared against a tested baseline.
 
 =====================================  ================================
 Alternative                            Baseline
@@ -152,19 +146,18 @@ parallel ``n_jobs=-1``                 serial ``n_jobs=1`` (C2, C5)
 dispatcher auto-selection              explicit method paths (C6)
 =====================================  ================================
 
-A benchmark-driven outcome of this phase: the default
-``integrate_moment(method='qmc')`` now auto-selects the vectorised
-path whenever the cache supports batch C evaluation, yielding a
-**208× speedup** over the previous scalar default with bit-identical
+The default ``integrate_moment(method='qmc')`` auto-selects the
+vectorised path whenever the cache supports batch C evaluation: a
+**208× speedup** over the previous scalar default, with bit-identical
 results.
 
-Phase 5 — Spatial coordinates (homogeneity modes)
+Phase 5: Spatial coordinates (homogeneity modes)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 *File: ``tests/test_deductive_numerics.py``, ``TestSpatialAwareCache``
 (S1–S8 + S2b/S6b) and ``tests/test_d_dim_spatial.py`` (DD1, DD2).*
 
-The spatial caches add three homogeneity-dependent code paths —
+The spatial caches add three homogeneity-dependent code paths:
 translation (1-D or d-dim, reduces to ``r = ||x1 - x2||``),
 rotation (radial + Legendre, accepts d-dim unit vectors), and
 general (full 2-D, scalar-x only on the full-grid path).  Each
@@ -188,7 +181,7 @@ backend.  Phase 5 verifies that:
   translation-invariant noise (DD2).
 
 ``tests/test_offdiagonal_c_tables.py`` adds the case where C is not
-component-diagonal — a dense R, a component-mixing :math:`\kappa^2`, a
+component-diagonal: a dense R, a component-mixing :math:`\kappa^2`, a
 matrix :math:`\sigma^2`.  Every table then holds all :math:`N^2` entries
 :math:`C_{ab}`, filled from its ``t2 >= t1`` half through
 :math:`C_{ab}(t_1, t_2) = C_{ba}(t_2, t_1)` where the kernel admits it and
@@ -200,18 +193,17 @@ loop, the batched QMC and Gauss-Legendre products, ``integrate_over``,
 ``external_times``, ``integrate_two_point_qmc``, and the legacy time-only
 table.
 
-Phase 6 — White-noise component
+Phase 6: White-noise component
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 *``TestWhiteNoiseComponent``, W1–W3.*
 
 ``GaussianNoise.sigma2`` adds a δ(t-t')·σ²(t) white-noise term to
-κ².  Phase 6 verifies linearity (W2 — smooth + white = sum of both
-evaluated separately) and that the white-noise piece is correctly
-absorbed into the lazy translation spline alongside the smooth
-kernel (W3).
+κ².  Phase 6 verifies linearity (W2: smooth + white = sum of both
+evaluated separately) and that the white-noise piece is absorbed into
+the lazy translation spline alongside the smooth kernel (W3).
 
-Phase 7 — Dynamic non-local coupling
+Phase 7: Dynamic non-local coupling
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 *``tests/test_workflow_config.py``, ``tests/test_dynamic_coupling.py``,
@@ -223,31 +215,31 @@ through :class:`~sft_wick.evaluate.DynamicCouplingPromise` by
 ``integrate_moment_qmc`` and the zero-dimensional path (no time
 variable left to integrate). Two contracts are supported:
 
-* ``fn(n_list, t_list) → tensor`` -- per-sample call (default).
+* ``fn(n_list, t_list) → tensor``: per-sample call (default).
 * ``fn(n_2d, t_2d) → (n_samples, ...)`` when the user opts in via
-  ``NonLocalVertex(coupling_vectorized=True)`` -- one call per
+  ``NonLocalVertex(coupling_vectorized=True)``: one call per
   integrand and leg order, useful for heavy callables;
   ``integrate_moment_qmc`` calls it once per sample and leg order
   instead, as a batch of one (``n_samples = 1``).
 
 Locked invariants:
 
-* **DC1** -- a constant callable κ^(3) and the same constant tensor
+* **DC1**: a constant callable κ^(3) and the same constant tensor
   agree on every order-4 FK diagram, including the propagator-indexed
   ones (rel 1e-12).
-* **WF6** -- a constant callable κ^(3) routed through the dynamic
+* **WF6**: a constant callable κ^(3) routed through the dynamic
   path produces the same FK total as the same constant tensor on
   the static fast path (rtol 1e-10).
-* **WF7** -- per-sample and vectorised callables produce
+* **WF7**: per-sample and vectorised callables produce
   bit-identical totals (rtol 1e-10).
-* **LO0-LO6** (``tests/test_nonlocal_leg_order.py``) -- a callable κ
+* **LO0-LO6** (``tests/test_nonlocal_leg_order.py``): a callable κ
   is evaluated at each coupling-sum term's own leg order: every
   integration route and the order-2 FK channel match a numpy hand
   contraction to 1e-12, for kernels with and without point symmetry.
 * Validated against demo2's FK channel to 0.48 % relative agreement
   against the hand-coded reference integrator.
 
-Phase 8 — Time-dependent linear operator
+Phase 8: Time-dependent linear operator
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 *``tests/test_diagonal_A_time_dependent.py``, T1–T4.*
@@ -264,7 +256,7 @@ grid as a cubic spline, from :math:`t_c` = ``t_min_cache`` (which
 - end-to-end :class:`~sft_wick.workflow.System` round-trip works
   with the time-dependent path (T4).
 
-Phases WF + CF — Workflow and YAML round-trip
+Phases WF + CF: Workflow and YAML round-trip
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 *``tests/test_workflow.py`` (WF1–WF5) and
@@ -280,7 +272,7 @@ DataFrame schema (WF5).
 CF tests verify that a YAML config → Python :class:`System`
 round-trip produces a structurally identical system (CF1, CF2), and
 that the full YAML-driven ``run_workflow`` agrees with the equivalent
-L1 Python pipeline to rtol=1e-10 (CF3 — a bit-identity equivalence
+L1 Python pipeline to rtol=1e-10 (CF3, a bit-identity equivalence
 check).  CF4 exercises ``--override``, CF5 covers malformed-input
 errors.
 
@@ -289,8 +281,7 @@ What the deductive suite buys you
 
 The deductive tests (per-file counts in :doc:`catalog`) do **not**
 prove that every physical observable is computed correctly in every
-regime — that is an infinite claim no test suite can make.  But they
-do prove:
+regime; no test suite can make that claim.  They do establish:
 
 - Every known failure mode at the tested scale has a specific test
   catching it, so a future bug cannot silently pass through.
@@ -303,14 +294,14 @@ do prove:
   depend on Phase 2 passing and vice versa, so a numerical bug
   cannot mask a symbolic bug or vice versa.
 
-End-to-end validation — the demos
+End-to-end validation: the demos
 ---------------------------------
 
 For full **inductive** validation against direct simulation on
 physically non-trivial problems, see demos 1-3 in ``examples/``;
 demos 4 to 8 are checked against an exact reference instead:
 
-**examples/demo1** — Gaussian driving
+**examples/demo1**: Gaussian driving
   Two-component Langevin system with quadratic self-interactions,
   Gaussian :math:`\eta` with exponential space-time covariance,
   compared against a Heun-integrated Monte Carlo simulation with
@@ -319,7 +310,7 @@ demos 4 to 8 are checked against an exact reference instead:
   across the full :math:`(r, t)` grid.  Open:
   ``examples/demo1/analysis.ipynb``.
 
-**examples/demo2** — Non-Gaussian driving, non-local MSR vertex
+**examples/demo2**: Non-Gaussian driving, non-local MSR vertex
   Same Langevin system with a quadratic deformation of the noise
   :math:`\tilde\eta = \eta + \alpha(\eta^2 - \lambda)`.  The
   resulting :math:`\kappa^{(3)}` introduces a non-local ψψψ
@@ -338,9 +329,9 @@ demos 4 to 8 are checked against an exact reference instead:
 
   Open: ``examples/demo2/analysis.ipynb``.
 
-**examples/demo3** — filtered Poisson (shot) noise
+**examples/demo3**: filtered Poisson (shot) noise
   A second, independent kind of non-Gaussian driving: the noise is a
-  filtered Poisson (shot) process — events :math:`(x_k, s_k)` drawn
+  filtered Poisson (shot) process.  Events :math:`(x_k, s_k)` are drawn
   from a Poisson process of rate :math:`\nu`, each contributing a
   pulse :math:`h\,w(x - x_k)\,g(t - s_k)`, with the mean subtracted.
   Campbell's theorem gives *every* cumulant in closed form, and all
@@ -349,27 +340,25 @@ demos 4 to 8 are checked against an exact reference instead:
   (``NonLocalVertex(already_R_contracted=True)``) is **exact** here
   at any leg count :math:`m`.  Two levels:
 
-  - **Level A** (:math:`F = 0`) is an exact test rather than a
-    consistency check: the m-point function is a *single* diagram
-    equal to a closed form, which the package reproduces to
+  - At **Level A** (:math:`F = 0`) the m-point function is a *single*
+    diagram equal to a closed form, which the package reproduces to
     1.4e-16 (3-point) and 6.6e-16 (connected 4-point) relative.
-    Its reference simulation is **event-exact** — no time stepping
-    and no spatial discretisation — so the only error is Monte
-    Carlo; over :math:`1.2\times10^6` realisations every pull on
+    Its reference simulation is **event-exact** (no time stepping, no
+    spatial discretisation), so the only error is Monte
+    Carlo: over :math:`1.2\times10^6` realisations every pull on
     :math:`\langle\phi^3\rangle(t)` is ≤ 0.64σ (≤ 1.12σ for the
     connected 4-point).  Non-Gaussianity is set by the single
     dimensionless knob :math:`n = \nu\sigma_t\sigma_x` at fixed
-    :math:`\kappa^{(2)}` (skewness :math:`\propto 1/\sqrt{n}`),
-    which makes the demo falsifiable: across
-    :math:`n \in \{0.25, 1, 4\}` the measured ratio is 4.0000
+    :math:`\kappa^{(2)}` (skewness :math:`\propto 1/\sqrt{n}`);
+    across :math:`n \in \{0.25, 1, 4\}` the measured ratio is 4.0000
     against 4.0000 predicted.
   - **Level B** (:math:`F \neq 0`) computes all three contributions
     to the cross correlator :math:`\xi_{01} = F\kappa^{(3)} +
     F^3\kappa^{(3)} + F^3\kappa^{(5)}`, so both the leading
-    :math:`F` correction and the neglected-cumulant ladder term
-    (7.9 % and 0.094 % of the :math:`F\kappa^{(3)}` term at
-    :math:`t = 3`) are *computed*, not estimated.  It agrees with an
-    ETD simulation within 0.90σ at every time.
+    :math:`F` correction and the neglected-cumulant ladder term are
+    computed (7.9 % and 0.094 % of the :math:`F\kappa^{(3)}` term at
+    :math:`t = 3`).  It agrees with an ETD simulation within 0.90σ at
+    every time.
 
   Open: ``examples/demo3/README.md``, and
   ``examples/demo3/INTERPRETATION.md`` for the full validation
@@ -377,7 +366,7 @@ demos 4 to 8 are checked against an exact reference instead:
   ``examples/demo3/config_FK.yaml`` (order 2) and
   ``examples/demo3/config_F3K.yaml`` (order 4).
 
-**examples/demo4** — compound-Poisson noise asymmetric in points and components
+**examples/demo4**: compound-Poisson noise asymmetric in points and components
   Events drive both components with their own amplitude, width and
   time profile (white or exponential pulses), so every cumulant is
   symmetric only under joint permutations of (component, point)
@@ -394,7 +383,7 @@ demos 4 to 8 are checked against an exact reference instead:
   (at most 5.6e-15, except 4.0e-9 for FFK4 with exponential pulses).
   Open: ``examples/demo4/README.md``.
 
-**examples/demo5** — white noise on every integrator, additive and multiplicative
+**examples/demo5**: white noise on every integrator, additive and multiplicative
   White noise from a ``ConstantImpulse`` matrix plus coloured noise,
   ``t_min = 0.5``, in three variants that take the ``diag_C=False``,
   ``diag_C=True`` and ``iso_C=True`` paths, against the moment
@@ -407,7 +396,7 @@ demos 4 to 8 are checked against an exact reference instead:
   ``iso_C`` by factors 2 to 8, the diag-C fast path by 64 %, the
   repeated R pair by up to 6.7 %.  Open: ``examples/demo5/README.md``.
 
-**examples/demo6** — repeated and static non-local vertices, cubic plus quartic drift
+**examples/demo6**: repeated and static non-local vertices, cubic plus quartic drift
   Five structures the package supports and no test had evaluated: two
   copies of one non-local vertex (the order-2 six-point function, static
   and ``equal_time``), a static (ndarray) non-local coupling, ``m = 5``,
@@ -422,7 +411,7 @@ demos 4 to 8 are checked against an exact reference instead:
   copies of an ``equal_time`` vertex are 40 % off on the code before
   this demo found the merge defect.  Open: ``examples/demo6/README.md``.
 
-**examples/demo7** — observables in space, angle and time
+**examples/demo7**: observables in space, angle and time
   R is local in space and the local vertices act at one point, so an
   n-point function at the observation points reduces to a
   finite-dimensional Itô SDE there whose noise covariance is the
@@ -444,7 +433,7 @@ demos 4 to 8 are checked against an exact reference instead:
   machine precision from 8 nodes since).
   Open: ``examples/demo7/README.md``.
 
-**examples/demo8** — time-dependent coefficients and non-exponential dynamics
+**examples/demo8**: time-dependent coefficients and non-exponential dynamics
   The four routes that leave the constant-drift, exponential-kernel
   family: a callable ``DiagonalA.gamma``
   (:math:`\gamma(t) = [1 + 0.5\sin t,\; 0.6 + 0.3\cos 2t]`, unequal
@@ -485,7 +474,7 @@ Running the tests
 
 .. code-block:: bash
 
-   # Deductive core (fast, <10 s — Phase 1 only)
+   # Deductive core (fast, <10 s, Phase 1 only)
    pytest tests/test_deductive_expansion.py -v
 
    # Full numerical deductive suite (includes Phases 2–7, ~2 min)
@@ -505,10 +494,10 @@ Running the tests
    cd examples/demo2 && python run_simulation.py --n_real 200000 --alpha 0.6 && \
        jupyter nbconvert --to notebook --execute analysis.ipynb
 
-   # Demo 3 — scripts, not a notebook (~3 min + ~6 min)
+   # Demo 3: scripts, not a notebook (~3 min + ~6 min)
    cd examples/demo3 && python level_a.py && python level_b.py
 
-   # Demos 4 to 8 — exact references, no simulation
+   # Demos 4 to 8: exact references, no simulation
    cd examples/demo4 && python level_a.py && python level_b.py && \
        python poisson_level_b_order4.py
    cd examples/demo5 && python run.py && python multiplicative.py
@@ -520,5 +509,5 @@ Running the tests
 
 For the detailed per-test matrix, tolerances, and design rationale,
 see :download:`deductive_verification.md <../deductive_verification.md>`
-at the project root — it is the authoritative reference that test
-code links back to when explaining a specific check.
+at the project root.  Test code links back to it when explaining a
+specific check.
