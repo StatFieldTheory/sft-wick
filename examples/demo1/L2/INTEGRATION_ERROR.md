@@ -27,8 +27,8 @@ error can be measured by refining it.
 | (0,0) | 0.5 | 1 | 2.362, 2.363, 2.362, 2.361, 2.362, 2.363 (×10⁻⁷) | 0.0 % | 2.3621e-7 |
 
 The published `seed = 42` draw is the FIRST entry of each row.  At
-`t = 15, r = 0.5` it is 3.93e-5 against a converged 2.329e-5 — **69 %
-high**; at `r = 0` it is 6.89e-5 against 3.969e-5 — **74 % high**.  As a
+`t = 15, r = 0.5` it is 3.93e-5 against a converged 2.329e-5, **69 %
+high**; at `r = 0` it is 6.89e-5 against 3.969e-5, **74 % high**.  As a
 fraction of order 2 (2.6429e-4 at `t = 15, r = 0.5`), order 4 is
 **8.8 %**, not the 14.9 % the published draw implies.
 
@@ -39,8 +39,8 @@ the peak falls off as `t_f` grows.  At `t = 1` the peak fills the
 simplex and QMC is exact to 5 digits; by `t = 15` only a handful of
 samples carry the integral; by `t = 100` almost none do, and the
 estimator collapses towards zero from below with occasional large
-excursions.  Averaging seeds does not fix it — the estimator is
-*biased*, not merely noisy, and the bias is one-sided.
+excursions.  Averaging seeds does not fix it: the estimator is biased
+rather than merely noisy, and the bias is one-sided.
 
 A fixed-seed regression check cannot see any of this: it reproduces the
 same wrong number every time.
@@ -84,10 +84,9 @@ the split in place on 2026-09-12; the tables in this file predate it.
 
 ## Why n_gauss = 24 and not 14
 
-This is the part that is easy to get wrong, and I did get it wrong
-first.  One node count has to serve a 2-D integrand (order 2) and a 4-D
-one (order 4).  The obvious move is to keep `n` small because order 4
-costs `n⁴` — but **it is order 2 that needs the finer grid**, because at
+One node count has to serve a 2-D integrand (order 2) and a 4-D
+one (order 4).  Keeping `n` small because order 4 costs `n⁴` is the
+obvious move, but **order 2 needs the finer grid**, because at
 large `t_f` a coarse tensor grid cannot resolve a feature of width
 `sigma_t = 0.3` inside a simplex of side `t_f`, and `n = 14` gives order
 2 only 196 nodes.
@@ -116,8 +115,8 @@ So `n = 14` would have swapped an order-4 error for an order-2 one of
 these cells and is better than the QMC it replaces on **both** orders
 at **every** point of the grid.
 
-*(If you re-run this, use the same cell: at `r = 0.5, (0,0)` — a natural
-choice — GL14 is only +3.1 %, which would understate the problem.)*
+*(If you re-run this, use the same cell: at `r = 0.5, (0,0)`, a natural
+choice, GL14 is only +3.1 %, which would understate the problem.)*
 
 **Quoted integration error of the sweep**, worst case (at `t = 100`,
 falling to < 0.1 % by `t = 15`): **+1.3 % on order 2, +2 % on order 4**.
@@ -126,12 +125,11 @@ Order 4 contributes ~10 % of order 2, so its 2 % is 0.2 % of the total.
 ## The late-time caveat, stated
 
 The tensor rule loses resolution at large `t_f` for the same geometric
-reason QMC does — it just degrades gracefully and visibly instead of
-catastrophically and invisibly.  What makes the late-time points usable
-is that **both channels saturate**: once `t_f` exceeds a few `1/gamma`,
-extending the integration window adds nothing.  Order 2 at
+reason QMC does; its degradation is gradual and visible.  The late-time
+points are usable because **both channels saturate**: once `t_f` exceeds
+a few `1/gamma`, extending the integration window adds nothing.  Order 2 at
 `r = 2.5, (1,1)` is 3.10410e-05 at `t = 15` and 3.10410e-05 at
-`t = 100` — identical to 6 digits.  Order 4 is flat to 2 % from `t = 15`
+`t = 100`, identical to 6 digits.  Order 4 is flat to 2 % from `t = 15`
 to `t = 100`.
 
 Do not read the `t = 100` points as independent measurements: they are
@@ -141,5 +139,5 @@ few-percent level is quadrature, not physics.
 ## Cost
 
 ~15 minutes on 28 cores, against ~2 minutes for the QMC sweep it
-replaces.  That is the price of a deterministic answer with a
-measurable error instead of a 39 %-scatter lottery, and it is paid once.
+replaces.  The extra cost is paid once, and buys a deterministic value
+with a measurable error.
