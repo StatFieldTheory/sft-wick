@@ -7,9 +7,9 @@ whether anything is shown, in this precedence:
 
 1. an explicit :func:`progress` context (what the L1 ``progress=`` kwarg
    and the CLI ``--quiet`` flag set): ``True`` / ``False`` / a callable;
-2. the ``SFT_WICK_PROGRESS`` environment variable -- ``0``, ``false`` or
-   ``off`` silences everything, ``1`` forces the text fallback on even
-   when stderr is not a terminal;
+2. the ``SFT_WICK_PROGRESS`` environment variable, where ``0``,
+   ``false`` or ``off`` silences everything and ``1`` forces the text
+   fallback on even when stderr is not a terminal;
 3. otherwise bars are shown only when stderr is an interactive terminal,
    so library use inside pytest or a batch job stays quiet by default.
 
@@ -191,7 +191,7 @@ def progress_map(
     unit: str = "it",
     serial_below: int = 5,
 ) -> list:
-    """``[fn(t) for t in tasks]`` -- serially or through joblib -- with a bar.
+    """``[fn(t) for t in tasks]`` with a bar, serially or through joblib.
 
     The parallel branch streams results back in submission order
     (``return_as='generator'``), so the bar advances as workers finish

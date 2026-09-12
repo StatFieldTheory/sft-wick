@@ -12,13 +12,13 @@ For a linear problem whose relaxation matrix has spectrum ``rho(h)``, the
         \\left[ e^{-(h+\\lambda)|t_1-t_2|}
                 - e^{-(h+\\lambda)(t_1+t_2-2t_{\\min})} \\right] dh
 
-with the initial condition :math:`x(t_{\\min}) = 0` -- ``t_min`` is this
+with the initial condition :math:`x(t_{\\min}) = 0`.  ``t_min`` is this
 package's only initial-condition control, and hard-coding it at 0 while
 accepting the argument was wrong by 7.4% at ``t_min = 1``.
 
-These are genuinely non-exponential: :math:`R^*` is a superposition of decays,
-so the effective single-site process is non-Markovian.  That is the structural
-feature a DMFT solution has and a closed-form free theory does not.
+These are non-exponential: :math:`R^*` is a superposition of decays, so the
+effective single-site process is non-Markovian.  A DMFT solution has that
+structure and a closed-form free theory does not.
 
 Why this belongs in the library
 -------------------------------
@@ -27,7 +27,7 @@ Two reasons, both of which bite when the construction is attempted by hand:
 * ``C^*`` cannot be rebuilt from ``R^*`` through the package's own
   ``C = ∫∫ R κ R`` relation, because the ensemble average does not factorise:
   :math:`\\langle R \\kappa R\\rangle \\neq \\langle R\\rangle \\kappa \\langle R\\rangle`.
-  So ``C`` must be injected independently -- which is what
+  So ``C`` must be injected independently, which is what
   :class:`~sft_wick.evaluate.PropagatorCache`'s ``c_value_fn`` hook is for.
 * Hand-rolling it invites two specific mistakes.  Tabulating ``C^*`` on a
   ``(t1,t2)`` grid and splining it reintroduces the **diagonal ridge**:
@@ -41,22 +41,22 @@ Validity: this is an ANNEALED substitution above order 0
 --------------------------------------------------------
 Substituting :math:`\\langle R\\rangle` and :math:`\\langle C\\rangle` into an
 interacting diagram is *not* a controlled quenched average.  It is exactly the
-factorisation this module's own construction says fails --
+factorisation this module's own construction says fails,
 :math:`\\langle R \\kappa R\\rangle \\neq
-\\langle R\\rangle \\kappa \\langle R\\rangle` -- applied one level up, at the
+\\langle R\\rangle \\kappa \\langle R\\rangle`, applied one level up, at the
 vertex instead of at the propagator.  It is the annealed / one-loop-with-
 dressed-lines step.
 
 At order 0 there is nothing to average over and the result is exact.  Above
 it, the gap against the exact quenched answer has been measured at **35%**
-on a Marchenko-Pastur spectrum -- not a small correction.  A controlled treatment needs
-replicas or an explicit fluctuation expansion around the saddle, neither of
-which this module provides.  Use it for order 0, for structure, and for cost
+on a Marchenko-Pastur spectrum.  A controlled treatment needs replicas or an
+explicit fluctuation expansion around the saddle, neither of which this
+module provides.  Use it for order 0, for structure, and for cost
 estimates; do not read an interacting order as a quenched result.
 
 Cost
 ----
-The point of the disorder-averaged route is that ``N`` disappears: the
+In the disorder-averaged route ``N`` disappears: the
 effective problem is *scalar*, so the ``O(N^rank)`` coupling-index contraction
 that dominates a per-instance matrix calculation is gone entirely.  What
 replaces it is a sum over spectral nodes, which is why the density is reduced
@@ -92,12 +92,12 @@ class _UniformKappa:
     ``|diag| > 1e-30`` guard and the factor collapses to 0, so **every
     two-point function at a nonzero separation silently returned exactly
     0.0** (measured: 0.4988 at r=0, 0.0 at r=1 and r=2.5).  The identity makes
-    the ratio exactly 1, which is the honest statement here -- the
-    disorder-averaged single-site theory this module represents has no spatial
-    structure, so its ``C`` is the same at every separation.  See
-    :class:`SpectralPropagatorCache` for what that means for the caller.
+    the ratio exactly 1.  The disorder-averaged single-site theory this
+    module represents has no spatial structure, so its ``C`` is the same at
+    every separation.  See :class:`SpectralPropagatorCache` for what that
+    means for the caller.
 
-    A module-level class rather than a lambda so the cache stays picklable --
+    A module-level class rather than a lambda so the cache stays picklable:
     it has to survive ``joblib.dump`` (``propagators.cache_path``) and loky.
     """
 
@@ -115,7 +115,7 @@ class SpectralDensity:
     """A spectral density reduced to nodes and weights.
 
     ``weights`` are normalised to sum to 1, so every spectral average is
-    ``sum_i w_i f(h_i)`` -- an estimator of ``\\int rho(h) f(h) dh``.
+    ``sum_i w_i f(h_i)``, an estimator of ``\\int rho(h) f(h) dh``.
 
     Construct with :meth:`from_samples` (empirical spectra, e.g. sampled
     Marchenko-Pastur eigenvalues), :meth:`from_callable` (an analytic density),
@@ -151,7 +151,7 @@ class SpectralDensity:
         if np.any(weights < 0):
             raise ValueError("weights must be non-negative.")
         # `np.linalg.eigvalsh` on a rank-deficient Gram matrix returns
-        # round-off negatives around -1e-16 -- and a sample covariance
+        # round-off negatives around -1e-16, and a sample covariance
         # spectrum is this module's advertised primary input, so a zero-
         # tolerance rejection would reject the main use case.  Clamp what is
         # numerically zero; reject what is genuinely negative.
@@ -170,7 +170,7 @@ class SpectralDensity:
             raise ValueError("weights must not sum to zero.")
         # Normalise -0.0 to 0.0.  `np.array_equal` treats them as equal but
         # `tobytes()` does not, so without this two densities could compare
-        # equal and hash differently -- which breaks every dict and set.
+        # equal and hash differently, which breaks every dict and set.
         nodes = nodes + 0.0
         weights = weights / total + 0.0
         object.__setattr__(self, "nodes", np.where(nodes == 0.0, 0.0, nodes))
@@ -181,7 +181,7 @@ class SpectralDensity:
 
     @classmethod
     def delta(cls, h: float) -> "SpectralDensity":
-        """A single relaxation rate — the Ornstein-Uhlenbeck limit."""
+        """A single relaxation rate: the Ornstein-Uhlenbeck limit."""
         return cls(np.array([float(h)]), np.array([1.0]))
 
     @classmethod
@@ -192,7 +192,7 @@ class SpectralDensity:
 
         Uses equal-mass (quantile) binning with each node placed at its bin's
         mean, so the reduction is exact for any function that is linear across
-        a bin and needs no assumption about the density's shape -- which
+        a bin and needs no assumption about the density's shape, which
         matters for Marchenko-Pastur, whose edges are sharp.
 
         The observed convergence rate is ~2 for a smooth density at a moderate
@@ -260,7 +260,7 @@ class SpectralDensity:
         """``sum_i w_i f(h_i)``, contracting over the node axis.
 
         ``f`` is called once with the whole node array and must return
-        something whose **last** axis is the node axis -- shape ``(n_nodes,)``
+        something whose **last** axis is the node axis: shape ``(n_nodes,)``
         for a scalar-valued ``f``, or ``(..., n_nodes)`` for a vector-valued
         one.  The natural per-node layout ``(n_nodes, k)`` is the transpose of
         that; it is caught only because its last axis has the wrong LENGTH,
@@ -268,7 +268,7 @@ class SpectralDensity:
         message rather than safety.
 
         When ``k == n_nodes`` the two layouts are indistinguishable by shape,
-        and no check can tell them apart -- so say which axis you mean with
+        and no check can tell them apart, so say which axis you mean with
         ``node_axis`` instead of relying on the default.  Note that in exactly
         that square case the length check above is vacuous, so a wrong
         ``node_axis`` returns a wrong NUMBER rather than raising: the
@@ -304,7 +304,7 @@ class SpectralDensity:
         """Value equality.
 
         The generated dataclass ``__eq__`` compares ndarrays with ``==`` and
-        then calls ``bool()`` on the result, which raises -- so a density could
+        then calls ``bool()`` on the result, which raises, so a density could
         not be compared at all.
         """
         if not isinstance(other, SpectralDensity):
@@ -363,7 +363,7 @@ def _c_star(density: SpectralDensity, t1, t2, noise_D: float,
 
     * the two exponentials nearly cancel for small ``h``, so the difference
       goes through ``expm1``;
-    * ``D/h`` diverges as ``h -> 0``, but ``C`` does not -- the limit is
+    * ``D/h`` diverges as ``h -> 0``, but ``C`` does not: the limit is
       ``2 D (m - t_min)``, free diffusion.  Nodes below ``_H_FLOOR`` take it.
     """
     a = np.asarray(t1, dtype=float)
@@ -388,7 +388,7 @@ def _c_star(density: SpectralDensity, t1, t2, noise_D: float,
 class SpectralPropagatorCache(PropagatorCache):
     """A cache whose ``R`` and ``C`` are spectral superpositions.
 
-    Both are evaluated exactly from the density -- there is no interpolation
+    Both are evaluated exactly from the density.  There is no interpolation
     table, so there is no diagonal ridge to resolve and nothing to keep in
     sync.  The batch accessors are true vectorised reductions rather than
     ``np.vectorize`` over a scalar callable.
@@ -466,14 +466,14 @@ class SpectralPropagatorCache(PropagatorCache):
 
         The inherited ``clear_cache`` sets ``_c_splines = None``, which for a
         table-backed cache means "the table is gone".  Here it is a capability
-        flag -- ``C_diagonal_batch`` is a method, not a table -- so clearing it
+        flag (``C_diagonal_batch`` is a method, not a table), so clearing it
         would silently demote every backend to the scalar Python loop.
         """
         super().clear_cache()
         self._c_splines = True
 
     def C_diagonal_batch(self, t1, t2) -> np.ndarray:
-        """``(..., N)`` -- the component axis is APPENDED.
+        """``(..., N)``, with the component axis APPENDED.
 
         ``np.atleast_1d(vals)[:, None]`` inserted it at position 1 instead,
         which is the same thing for the 1-D time arrays every backend passes

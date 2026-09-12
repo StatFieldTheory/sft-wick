@@ -1,7 +1,7 @@
 """Self-consistency driver.
 
-What this is, and what it is not
---------------------------------
+Scope
+-----
 A DMFT solution is a *fixed point*: propagators define a self-energy, the
 self-energy defines new propagators, repeat.  Three pieces are needed:
 
@@ -10,42 +10,41 @@ self-energy defines new propagators, repeat.  Three pieces are needed:
       solve),
   (c) the iteration itself, with the judgement about when it has converged.
 
-sft-wick computes (a) -- that is what the whole package is for.  (b) is
-model-specific and is genuinely an integral-equation solve, not a diagram
-evaluation; this module does **not** attempt it, because a wrong general Dyson
-solver would be worse than none.  What was missing entirely is (c): nothing in
-the package iterated, so every DMFT use was one pass of a loop the user had to
-write, usually without convergence diagnostics.
+sft-wick computes (a).  (b) is model-specific and is an integral-equation
+solve rather than a diagram evaluation; this module does **not** attempt it.
+This module supplies (c).  Before it, nothing in the package iterated, so
+every DMFT use was one pass of a loop the user had to write, usually without
+convergence diagnostics.
 
-So the contract is deliberately thin.  You supply ``step``, a callable that
-takes a state and returns the next one -- typically "build the diagrams with
-these propagators, get Sigma, solve Dyson, return the new propagators".  This
-module runs it, mixes, measures, and is honest about what happened.
+The contract is thin.  You supply ``step``, a callable that takes a state and
+returns the next one, typically "build the diagrams with these propagators,
+get Sigma, solve Dyson, return the new propagators".  This module runs it,
+mixes and measures.
 
-Being honest about what happened is the point
-----------------------------------------------
+Diagnostics
+-----------
 A fixed-point iteration that has not converged looks exactly like one that
 has, if you only print the last state.  :func:`solve_self_consistency` never
 returns a bare state: it returns a
 :class:`SelfConsistencyResult` carrying ``converged``, the full residual
-history, and a ``reason`` distinguishing the ways it can fail --
+history, and a ``reason`` distinguishing the ways it can fail:
 
-* ``"converged"``   -- the residual ``||step(x) - x||`` fell below ``tol``;
-* ``"diverged"``    -- the residual is growing, so more iterations will not
+* ``"converged"``: the residual ``||step(x) - x||`` fell below ``tol``;
+* ``"diverged"``: the residual is growing, so more iterations will not
   help and the intermediate states may overflow;
-* ``"oscillating"`` -- the state has entered a cycle: it is closer to where it
+* ``"oscillating"``: the state has entered a cycle: it is closer to where it
   was TWO steps ago than to where it was one step ago.  Damping is the usual
-  cure, and the reason string is what tells you to reach for it;
-* ``"max_iter"``    -- none of the above; it simply ran out.
+  cure;
+* ``"max_iter"``: none of the above; it simply ran out.
 
-Four categories, each with a sharp test, rather than more with fuzzy ones.
+Each of the four categories has a sharp test.
 
-Three things this module is deliberately careful about, because each is a way
-to report a solution that was never found:
+Three cases are handled explicitly, because each is a way to report a
+solution that was never found:
 
 **Damping must not shrink the residual.**  The state moves by only
 ``(1 - damping)`` of the step, so a residual read off the state's *movement*
-falls as damping rises -- turn damping up and any iteration "converges"
+falls as damping rises: turn damping up and any iteration "converges"
 sooner, at a point that is not a fixed point.  The residual here always
 measures the step, ``||step(x) - x||``.
 
@@ -60,11 +59,11 @@ has stopped improving.
 
 **Growth must be measured against a recent baseline.**  Comparing against the
 best residual ever seen condemns any run that starts near a repelling point,
-drifts away, and then converges -- "start from the non-interacting solution
+drifts away, and then converges.  "Start from the non-interacting solution
 and find the interacting one" is exactly that shape.
 
-The caller decides what to do about each; the library's job is to tell them
-apart rather than return a plausible-looking number.
+The caller decides what to do about each case; this module reports which one
+occurred.
 """
 
 from __future__ import annotations
@@ -96,7 +95,7 @@ class SelfConsistencyResult:
     """Outcome of a fixed-point iteration.
 
     Attributes:
-        state: the final state -- **not** necessarily a converged one; check
+        state: the final state, **not** necessarily a converged one; check
             :attr:`converged` first.
         converged: whether the residual fell below ``tol``.
         reason: ``"converged"``, ``"diverged"``, ``"oscillating"`` or
@@ -136,7 +135,7 @@ def _as_numeric(x, where: str) -> np.ndarray:
     Deliberately **not** ``dtype=float``: numpy silently discards the
     imaginary part of a complex array (it warns once per source line, after
     which the warning registry mutes it), and DMFT propagators are routinely
-    complex -- sft-wick's own diagram values carry ``i^(-E_psi)`` phases.  A
+    complex, and sft-wick's own diagram values carry ``i^(-E_psi)`` phases.  A
     distance taken on real parts only reports convergence while the imaginary
     parts are still moving.
     """
@@ -180,15 +179,15 @@ def _rebuild_mapping(template: Any, pairs: dict) -> Any:
 def _copy_state(x: Any) -> Any:
     """A copy deep enough that ``step`` cannot corrupt the iteration.
 
-    ``step`` is handed a copy, so the numpy idiom ``x += dx; return x`` --
-    which returns the object it was given -- cannot make the residual
+    ``step`` is handed a copy, so the numpy idiom ``x += dx; return x``,
+    which returns the object it was given, cannot make the residual
     identically zero and fake convergence.
 
     The fallback for an unrecognised type is ``copy.deepcopy``, NOT the
-    object itself.  Returning it unchanged would silently withdraw the
-    guarantee for exactly the states this module does not enumerate (a pandas
-    Series, a dataclass, a tensor), which is the worst place to withdraw it:
-    the caller has no signal that the protection lapsed.
+    object itself.  Returning it unchanged would withdraw the guarantee for
+    exactly the states this module does not enumerate (a pandas Series, a
+    dataclass, a tensor), and the caller would have no signal that the
+    protection lapsed.
     """
     if isinstance(x, dict):
         return _rebuild_mapping(x, {k: _copy_state(v) for k, v in x.items()})
@@ -223,7 +222,7 @@ def max_abs_distance(a: Any, b: Any) -> float:
     """Largest absolute difference between two states.
 
     Handles a scalar, an array, or any (possibly nested) sequence or mapping
-    of those -- which covers the ``(R, C)`` pairs and ``{name: array}`` dicts
+    of those, covering the ``(R, C)`` pairs and ``{name: array}`` dicts
     a DMFT state usually is.  Complex arrays are compared by MODULUS, not by
     real part.  Raises on structures that do not match, rather than comparing
     whatever happens to line up.
@@ -257,7 +256,7 @@ def max_abs_distance(a: Any, b: Any) -> float:
         return 0.0
     # Subtract in a PROMOTED dtype.  In the input's own integer dtype the
     # difference wraps modulo 2**nbits, so a state far from the fixed point
-    # can report a distance small enough to satisfy `tol` -- convergence
+    # can report a distance small enough to satisfy `tol`: convergence
     # declared by overflow.  np.abs is the modulus for complex input and
     # propagates NaN, so a NaN anywhere surfaces as a non-finite residual.
     diff = np.subtract(aa, bb,
@@ -276,7 +275,7 @@ def _mix(new: Any, old: Any, damping: float) -> Any:
         return _rebuild(new, [_mix(x, y, damping) for x, y in zip(new, old)])
     # Native arithmetic FIRST, so the leaf keeps its own type.  Coercing
     # through np.asarray would hand `step` a plain ndarray from iteration 2
-    # onward -- the same "step never receives its own type" defect the
+    # onward, the same "step never receives its own type" defect the
     # container branches above avoid, and for a device array (JAX, torch) it
     # also silently moves the state back to the host after one iteration.
     # Falls back to numeric coercion for a type that cannot do the arithmetic.
@@ -311,7 +310,7 @@ def solve_self_consistency(
         step: ``state -> next_state``.  For DMFT this is "build the diagrams
             with these propagators, extract the self-energy, solve Dyson".
             It is handed a **copy** of the state, so it may mutate its
-            argument in place -- the numpy idiom ``x += dx; return x`` returns
+            argument in place.  The numpy idiom ``x += dx; return x`` returns
             the object it was given, which would otherwise make the residual
             identically zero and fake convergence on iteration 1.
         distance: how far apart two states are; defaults to
@@ -329,12 +328,12 @@ def solve_self_consistency(
             so ``step`` always sees a genuine state.
         divergence_factor: stop early once the residual exceeds this multiple
             of the smallest residual in the recent window (the last
-            ``8`` iterations).  Deliberately *not* the best residual ever
-            seen: that would condemn a run which drifts away from a repelling
+            ``8`` iterations).  *Not* the best residual ever seen: that
+            would condemn a run which drifts away from a repelling
             starting point before converging.
         cycle_tol: call it a cycle when the state comes back within this
             fraction of one step's movement of a state it visited two to five
-            steps ago -- and the residual has stopped improving, meaning it
+            steps ago, and the residual has stopped improving, meaning it
             fell by less than 1% over two iterations.  For a linear map
             ``x -> a x + b`` that cut lands at ``|a| >= sqrt(0.99) =
             0.99499``: a contraction slower than that is reported
@@ -342,7 +341,7 @@ def solve_self_consistency(
             iteration would need thousands of steps there and damping is the
             real answer.  Cycles of period 6 or more are not detected.
         callback: called as ``callback(iteration, state, residual)`` after
-            each iteration, with the POST-mixing state -- for progress output
+            each iteration, with the POST-mixing state, for progress output
             or for recording the trajectory.
 
     Returns:
@@ -383,7 +382,7 @@ def solve_self_consistency(
         residuals.append(res)
         mixed = _mix(proposed, state, damping)
         if mixed is proposed:
-            # `_mix` short-circuits to `proposed` at damping == 0 -- the
+            # `_mix` short-circuits to `proposed` at damping == 0, the
             # DEFAULT.  If `step` returns a buffer it owns and reuses (the
             # standard preallocated-output idiom), `state` would then alias
             # that buffer, and the next call would overwrite `state` in place
@@ -412,7 +411,7 @@ def solve_self_consistency(
                                          tuple(residuals))
         # Fast path for an obvious blow-up: three consecutive increases AND an
         # order of magnitude gained across them (~2.2x per step sustained).
-        # The magnitude gate is not decoration -- monotonicity alone would
+        # The magnitude gate is needed because monotonicity alone would
         # condemn a physical transient that rises a few percent then turns.
         if (len(residuals) >= 4
                 and all(b > a for a, b in zip(residuals[-4:], residuals[-3:]))
@@ -424,14 +423,14 @@ def solve_self_consistency(
         # `move` is the actual movement, not the residual: damping shrinks one
         # and not the other, so a ratio against the residual would call every
         # heavily-damped run a cycle.  Comparing against several past states
-        # catches period 3, 4, 5 as well as 2 -- reporting those as "max_iter"
+        # catches period 3, 4, 5 as well as 2; reporting those as "max_iter"
         # would tell the caller to raise max_iter, which never terminates.
         move = float(dist(state, prev))
         returned = move > 0 and any(
             float(dist(state, old)) <= cycle_tol * move for old in history
         )
         # An alternating CONTRACTION (x -> a x + b, a just above -1) also
-        # returns nearly to where it was each step -- the ratio is |1 + a| --
+        # returns nearly to where it was each step (the ratio is |1 + a|),
         # but its residual keeps falling.  A real cycle's does not.
         improving = (len(residuals) >= 3
                      and residuals[-1] < 0.99 * residuals[-3])

@@ -4,10 +4,10 @@ For one common kernel family the ``C = ∫∫ R κ² R`` construction can be
 done analytically, which removes the propagator-table quadrature (the
 dominant cost of a first run) entirely:
 
-* diagonal, constant drift -- :class:`~sft_wick.workflow.specs.DiagonalA`
+* diagonal, constant drift, :class:`~sft_wick.workflow.specs.DiagonalA`
   with a constant ``gamma`` (scalar or per component), so
   ``R_aa(t, s) = Θ(t − s) exp(−γ_a (t − s))``;
-* separable, translation-invariant noise --
+* separable, translation-invariant noise,
   :class:`~sft_wick.workflow.specs.SeparableTranslation` with an
   :class:`~sft_wick.workflow.specs.ExponentialTemporal` kernel, so
   ``κ²_ab(1, 2) = δ_ab · λ exp(−|t₁ − t₂|/σ_t) · K_x(|x₁ − x₂|)`` for
@@ -44,9 +44,9 @@ and the removable singularities at ``a = γ`` and ``γ = 0`` are handled
 through ``D`` and ``(1 − e^{-x})/x``, which are evaluated with ``expm1``.
 
 The object returned by :func:`builtin_closed_form_for` is a callable with
-the same ``(n1, t1, n2, t2)`` contract as a user ``c_closed_form_module``
--- scalar times give an ``(N, N)`` matrix, batched ``(n,)`` times give
-``(n, N, N)`` -- so it plugs into every existing path, including
+the same ``(n1, t1, n2, t2)`` contract as a user ``c_closed_form_module``:
+scalar times give an ``(N, N)`` matrix, batched ``(n,)`` times give
+``(n, N, N)``.  It plugs into every existing path, including
 ``c_closed_form_only=True`` with the vectorised lookup.
 """
 
@@ -283,7 +283,7 @@ def builtin_closed_form_for(system: Any) -> ClosedFormC | None:
     # ``DiagonalA`` judges the rates equal (``np.allclose``) it lowers to a
     # scalar R with ``gamma[0]`` for EVERY component.  The closed form must
     # describe that model, not the raw list, or the two disagree at the
-    # ``allclose`` tolerance -- caught by the boundary tests at 1e-8.
+    # ``allclose`` tolerance, caught by the boundary tests at 1e-8.
     if linear.is_iso_R:
         gamma = np.full(gamma.shape[0], float(gamma[0]))
     kappa2 = system.noise.kappa2
