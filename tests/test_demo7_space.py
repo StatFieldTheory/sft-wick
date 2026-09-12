@@ -177,13 +177,17 @@ def setups():
 
 # -- (a) the two-time function ------------------------------------------------
 
-@pytest.mark.parametrize("route,rel", [(run7.GL(32), 1e-6), (run7.NQ, 1e-6),
+@pytest.mark.parametrize("route,rel", [(run7.GL(12), 1e-12), (run7.NQ, 1e-6),
                                        (run7.QV(12), 1e-4)])
 @pytest.mark.parametrize("times", [(T, T_EARLY), (T_EARLY, T)])
 @pytest.mark.parametrize("ab", [(0, 1), (1, 1)])
 def test_two_time_scalar_R(setups, ab, times, route, rel):
     """(a) ``⟨φ_a(x, t) φ_b(y, t')⟩`` at orders 0-2 through
-    ``external_times``, both time orders."""
+    ``external_times``, both time orders.
+
+    The OU kernel's ``|Δt|`` cusp kinks C's third derivative on its time
+    diagonal, which at ``t != t'`` crosses the domain; with that declared
+    and the domain cut there, 12 nodes give 1e-12 where 32 gave 1.9e-07."""
     s = setups["exp"]
     H = s.cfg.hierarchy([POS["x"], POS["y"]])
     tx, ty = times
@@ -315,14 +319,20 @@ def test_the_general_kernel_is_not_translation_invariant():
 
 @pytest.mark.parametrize("ab", [(0, 1), (1, 1)])
 @pytest.mark.parametrize("over,legs,route,rel", [
-    ("all", ["I", "I"], run7.GL(12), 1e-4),
+    ("all", ["I", "I"], run7.GL(12), 1e-6),
     ("all", ["I", "I"], run7.QV(12), 1e-2),
-    (("x",), ["I", "phi"], run7.GL(16), 1e-6),
+    (("x",), ["I", "phi"], run7.GL(16), 1e-12),
     (("x",), ["I", "phi"], run7.QV(12), 1e-3),
 ])
 def test_integrate_over_at_order_2(setups, ab, over, legs, route, rel):
     """(e) the time-integrated moment ``⟨∫φ_a(x) ∫φ_b(y)⟩`` and the mixed
-    ``⟨∫φ_a(x) φ_b(y, t_f)⟩`` at ``N = 2``."""
+    ``⟨∫φ_a(x) φ_b(y, t_f)⟩`` at ``N = 2``.
+
+    A swept external pairs like an integration variable in the kink split,
+    which is what these tolerances measure: with one external swept and one
+    pinned, 16 nodes give 1.3e-15 where they gave 4.6e-07; with both swept,
+    12 nodes give 5.9e-08 (the two swept times are not paired with each
+    other)."""
     s = setups["exp"]
     H = s.cfg.hierarchy([POS["x"], POS["y"]],
                         integrated=[(ab[0], 0), (ab[1], 1)])

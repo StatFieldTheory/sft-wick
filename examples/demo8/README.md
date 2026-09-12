@@ -199,27 +199,29 @@ relative departure from the exact C over `t ∈ [0.6, 2.1]`):
   hand converges once its domain is split at the crossing (5.9e-15 at 60
   nodes, 6.8e-15 at 120) and not otherwise (1.0e-07 at 60, 6.3e-10 at 240);
   `time8_run.py` prints both.
-- **A κ² with a `|Δt|` cusp is not declared as kinking C.**
-  `_c_has_diagonal_kink` is true when the model carries `sigma2`, or when a
-  closed-form C says so; a quadrature-table cache whose κ² has a cusp (the
-  damped cosine here, and the OU kernel of demos 1-5) says nothing, so
-  Gauss-Legendre does not split at the C diagonal.  Order-2
-  `⟨φ_0(x) φ_1(y)⟩` on the package's table at `n_grid_t = 41`, against the
-  hierarchy:
+- **A κ² with a `|Δt|` cusp is declared as kinking C** (was a limit until
+  2026-09-12).  `_c_has_diagonal_kink` was true when the model carried
+  `sigma2`, or when a closed-form C said so; a quadrature-table cache whose
+  κ² has a cusp (the damped cosine here, and the OU kernel of demos 1-5)
+  said nothing, so Gauss-Legendre did not split at the C diagonal.  It now
+  asks the question the C quadrature already asks of the kernel
+  (`PropagatorCache._kappa2_has_diagonal_cusp`: the built-in kernels
+  declare `has_diagonal_cusp`, any other callable is probed from one-sided
+  differences).  Order-2 `⟨φ_0(x) φ_1(y)⟩` on the package's table at
+  `n_grid_t = 41`, against the hierarchy:
 
   | kernel | | GL 12 | GL 20 | `qmc_vectorized` 2¹⁶ |
   |---|---|---|---|---|
-  | damped cosine | as shipped | 1.4e-05 | 1.7e-06 | 1.9e-07 |
-  | | kink declared | 9.5e-07 | 1.5e-07 | |
-  | exponential (OU) | as shipped | 7.5e-06 | 1.2e-06 | 4.8e-08 |
-  | | kink declared | 3.8e-07 | 1.2e-07 | |
+  | damped cosine | before | 1.4e-05 | 1.7e-06 | 1.9e-07 |
+  | | now | 9.5e-07 | 1.5e-07 | |
+  | exponential (OU) | before | 7.5e-06 | 1.2e-06 | 4.8e-08 |
+  | | now | 3.8e-07 | 1.2e-07 | |
 
-  With the kink declared, Gauss-Legendre lands where QMC does — on the
-  table's own error.  Declaring it would move every Gauss-Legendre value
-  computed on a cusped κ² (demos 1, 2 and 5 included) and costs one
-  integration per unordered C pair, so the change belongs with the
-  kink-splitting work and is only measured here.  The `exact C` rows of this
-  demo declare `has_diagonal_kink=True` and do not lose the rate.
+  Gauss-Legendre now lands where QMC does — on the table's own error.  A
+  Gaussian kernel is differentiable at `Δt = 0`, leaves C smooth and is kept
+  out of the split.  The cost is one integration per unordered C pair: 1.33
+  pieces per diagram here, against 1.00.  The `exact C` rows of this demo
+  declared `has_diagonal_kink=True` all along and never lost the rate.
 - **The C table cannot follow a white-noise kink.**  `C(t₁, t₂)` has a
   derivative jump of `σ²` on `t₁ = t₂`; the table's tensor-product spline is
   C², so just off the diagonal it is wrong by `O(h)` (table above) and the

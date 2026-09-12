@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **2104 tests** in 72 files (parametrised
+The suite has **2106 tests** in 72 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -196,7 +196,7 @@ Propagator numerics
 Integrators
 -----------
 
-*1023 tests in 37 files.*
+*1025 tests in 37 files.*
 
 .. list-table::
    :header-rows: 1
@@ -321,7 +321,7 @@ Integrators
      - Gauss-Legendre splits the domain at kinks: unordered ends of a white-noise C, unordered parents of a multi-psi vertex; the orientations are the consistent total orders
      - linear extensions of the causal order; the exact Itô moment hierarchy
      - exact / 1e-11
-     - 7
+     - 9
    * - ``test_higher_cumulants.py``
      - non-Gaussian driving at cumulant order m ≥ 4 (κ⁴, κ⁵)
      - brute-force Wick counting; MSR prefactors
