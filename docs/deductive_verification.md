@@ -16,16 +16,16 @@ offending module.
 
 Eight phases.  The first two are the core, run in sequence:
 
-1. **Phase 1 — symbolic expansion** (`tests/test_deductive_expansion.py`).
-   For the simplest representative actions — a scalar single-vertex
-   cubic theory (Case A) and the same action augmented with a non-local
-   ψψψ vertex (Case B) — enumerate Wick pairings by hand, classify each
-   by vanishing rule, verify multiplicities and coefficients, and
+1. **Phase 1: symbolic expansion** (`tests/test_deductive_expansion.py`).
+   The two representative actions are a scalar single-vertex cubic
+   theory (Case A) and the same action augmented with a non-local ψψψ
+   vertex (Case B).  For each: enumerate Wick pairings by hand, classify
+   each by vanishing rule, verify multiplicities and coefficients, and
    cross-check canonicalisation against `pynauty` (when installed) and a
    brute-force permutation search.  Every comparison is an *exact*
-   equality — no numerical tolerance.
+   equality, with no numerical tolerance.
 
-2. **Phase 2 — numerical evaluation** (`tests/test_deductive_numerics.py`).
+2. **Phase 2: numerical evaluation** (`tests/test_deductive_numerics.py`).
    With Phase 1 as a proven symbolic baseline, check the propagator
    formulae, integration methods, and dimensional scaling against
    analytical identities.  Tolerances are chosen from the known
@@ -35,14 +35,13 @@ Phases 3 and 4 extend them to full Feynman-diagram integration and to the
 alternative entry points; Phases 5-8 cover the workflow layer.  Each has
 its own section below.
 
-The brute-force reference lives in `tests/brute_wick.py` — ~300 lines,
+The brute-force reference lives in `tests/brute_wick.py`: ~300 lines,
 **zero imports from `sft_wick`**, using only `itertools`, `fractions`,
-and `collections`.  It is the ground truth against which every
-`sft_wick` output is tested.
+and `collections`.  Every `sft_wick` output is tested against it.
 
 ---
 
-## Phase 1 — test matrix
+## Phase 1: test matrix
 
 | ID  | Scope                              | Module under test                                              |
 |-----|------------------------------------|----------------------------------------------------------------|
@@ -75,10 +74,10 @@ By brute enumeration:
 - Candidate pairings: **105** = (7!!).
 - After ψ-ψ filter: **90** remain.
 - After Itô R(x,x)=0 filter: **42** remain.
-- After causal R-loop filter: **30** remain — the survivors.
+- After causal R-loop filter: **30** remain.
 - These 30 partition into **12 labelled spatial topologies**.
 - Under integration-variable relabelling (z₀ ↔ z₁), these **merge into 6
-  distinct Feynman diagrams** — the "order 2" count reported by demo 1.
+  distinct Feynman diagrams**, the "order 2" count reported by demo 1.
 
 sft-wick's `compute_moment(order=2)` produces:
 
@@ -129,8 +128,8 @@ the 6 FF diagrams at order 2 we derived a closed form for
 | 4 (C on x-side, a↔b of 2)              | `U(b,a)` |
 | 5 (crossed, a↔b of 3)                  | `W(b,a)` |
 
-This table is a direct consequence of MSR structure — no sft-wick
-implementation choice enters.  T17's 15 parametrised assertions check
+This table follows from MSR structure; no sft-wick implementation
+choice enters.  T17's 15 parametrised assertions check
 all six diagrams at all three independent (a, b) combinations.
 
 **Sparse-F sanity (T18).**  For `F[0,0,0] = 1, all others 0`:
@@ -155,14 +154,14 @@ diagonal pairs.
 test used `iso_R=True, iso_C=True` to collapse the propagator
 component structure, leaving the full `R_{ij}` / `C_{ij}` routing
 untested.  T21 fills this hole: it calls `compute_moment` without iso
-flags (so each propagator leg carries its own component index — at
+flags (so each propagator leg carries its own component index: at
 N=2 a 4-propagator diagram's `evaluate_coupling` returns a shape
 (2,2,2,2,2,2) = 64-entry tensor), then contracts each propagator
 `(index_left, index_right)` pair with a Kronecker δ (the trivially
 diagonal + isotropic case).  The resulting scalar must equal the
 iso-flag pipeline's output.  This verifies that the symbolic iso
-rewrite is a *proper simplification* — it never drops or mis-routes
-an index relative to keeping full structure.  T21 runs this
+rewrite never drops or mis-routes an index relative to keeping the
+full structure.  T21 runs this
 consistency check on all 6 order-2 diagrams × 3 observable pairs.
 
 **Off-diagonal κ² → non-diagonal C (N9).**  Tests the numerical
@@ -175,7 +174,7 @@ domain-split dblquad on each of the 4 matrix entries.  This is the
 numerical counterpart to T21: T21 tests the *symbolic* non-iso
 machinery, N9 tests the *numerical* non-diagonal machinery.
 
-### Phase 3 — full Feynman-diagram integration (P1–P3)
+### Phase 3: full Feynman-diagram integration (P1–P3)
 
 Tests ``DiagramIntegrand`` + ``scipy.nquad(make_scipy_integrand)`` and
 ``integrate_moment_qmc`` against closed-form references.  Uses the
@@ -185,10 +184,10 @@ vertex, each evaluable to machine precision via ``scipy.quad``.
 
 Closed-form references (for demo-1's F tensor at (a=b=0), N=2):
 
-- ``A(t) = ∫_0^t R(t,τ) C(τ,τ) dτ``
-  — per-vertex 1-D integral.
-- ``B(λ) = ∫_0^λ A(t) dt``
-  — outer integral over external time (for moments).
+- ``A(t) = ∫_0^t R(t,τ) C(τ,τ) dτ``:
+  per-vertex 1-D integral.
+- ``B(λ) = ∫_0^λ A(t) dt``:
+  outer integral over external time (for moments).
 - Fixed-time ξ(r=0, t_f) = ``coupling × A(t_f)²``.
 - Time-integrated moment at ``lambda_f`` = ``coupling × B(λ)²``.
 
@@ -208,13 +207,12 @@ native ``PropagatorCache`` either ``dblquad``s every C evaluation
 spline grid (~85 s setup, precision floor ≈ 5e-4 from cubic
 interpolation).  The Phase-3 tests use a drop-in analytical cache
 that returns closed-form C in microseconds and preserves
-machine-precision bounds.  This *isolates the QMC machinery under
-test* — sft-wick's spline path is already tested in N7
-(``TestSplineTable``), and the dblquad path in
-``TestPropagatorCacheCValue``.
+machine-precision bounds.  That isolates the QMC machinery under
+test: sft-wick's spline path is tested in N7 (``TestSplineTable``)
+and the dblquad path in ``TestPropagatorCacheCValue``.
 
 P1 uses ``scipy.nquad`` on the `make_scipy_integrand` closure with
-``rel < 1e-6`` — verifies the fixed-time evaluation path end-to-end
+``rel < 1e-6``.  It checks the fixed-time evaluation path end-to-end
 against the factorised ``A²`` reference.
 
 P2 runs ``integrate_moment_qmc`` at ``n_samples=2^14`` and asserts
@@ -223,17 +221,17 @@ sanity floor.
 
 P3 runs QMC at ``n_samples ∈ {2^10, 2^12, 2^14}`` and asserts the
 error (``|got − closed_form|``) decreases by at least a factor of 2
-across the scan — a regression guard for the Sobol sampling logic
+across the scan: a regression guard for the Sobol sampling logic
 without assuming a precise O(1/N) convergence rate.
 
 **What Phase 3 does not cover.**  Only the double-tadpole diagram is
 checked.  Other order-2 diagrams (bubble, chain with internal R,
 mixed-vertex FK) have coupled temporal integrations whose closed
-forms are messier — they fall back to demo-1/demo-2's inductive
+forms are messier; they fall back to demo-1/demo-2's inductive
 sim-based verification.  Extending Phase 3 to those would add ~3
 test cases, each with a 2-D ``scipy.dblquad`` reference.
 
-### Phase 4 — alternative-path consistency (C1–C5)
+### Phase 4: alternative-path consistency (C1–C5)
 
 sft-wick exposes several *alternative* entry points (faster or
 parallelised versions of the defaults).  Before Phase 4 these were
@@ -244,7 +242,7 @@ untested:
   optional ``n_jobs`` parallelisation for the canonicalisation +
   component-routing steps.
 - ``integrate_moment_qmc_vectorized``: batch-vectorised QMC (no
-  Python loop over samples) — much faster for large n_samples.
+  Python loop over samples), much faster for large n_samples.
 - ``integrate_two_point_qmc``: specialised QMC for fixed-time
   2-point correlators that supports **per-point spatial
   positions** (used by demo-1's ``xi_pert``).
@@ -254,41 +252,39 @@ untested:
 Phase 4's pattern: each alternative is pitted against a tested
 baseline, and the two must agree.
 
-**C1 — two symbolic engines** integrated-total equality.
+**C1: two symbolic engines, integrated-total equality.**
 ``compute_moment`` groups Wick pairings into canonical Feynman
 topologies (6 DTs at Case A order 2), while
 ``compute_moment_numerical`` uses nauty + exhaustive component-
-routing enumeration (30 DTs).  The *per-DT* count is structurally
-different by design, but the integrated sum over all diagrams must
-agree — observed ~5e-7 relative difference (within QMC precision).
-This is the load-bearing check that both symbolic engines produce
-the same physical observable.
+routing enumeration (30 DTs).  The *per-DT* count differs by design,
+but the integrated sum over all diagrams must agree: observed ~5e-7
+relative difference (within QMC precision).  The check is that both
+symbolic engines produce the same physical observable.
 
-**C2 & C5 — parallel-vs-serial bit-identity.**  joblib's default
+**C2 & C5: parallel-vs-serial bit-identity.**  joblib's default
 backend preserves result ordering on these deterministic workloads,
 so ``n_jobs=-1`` must yield bit-identical diagram-term lists and
 integrated totals to ``n_jobs=1``.  Any discrepancy would indicate
 either an ordering bug or a non-deterministic RNG path leaking into
 the parallel branch.
 
-**C3 — scalar vs vectorised QMC.** ``integrate_moment_qmc`` runs a
+**C3: scalar vs vectorised QMC.** ``integrate_moment_qmc`` runs a
 Python loop over Sobol samples; ``integrate_moment_qmc_vectorized``
 uses batched array operations on the same Sobol sequence.  Same
 seed → **bit-identical** result (both to the integrand value and
 to the standard-error estimate).
 
-**C4 — two 2-point integrators.** ``integrate_two_point_qmc`` is a
+**C4: two 2-point integrators.** ``integrate_two_point_qmc`` is a
 specialised fast path; ``scipy.nquad(make_scipy_integrand(...))``
 uses a completely different adaptive-quadrature backend.  Must
 match to QMC precision (~1e-7 observed).
 
-Phase 4 closes the coverage gap for alternative entry points.  Any
-future optimisation added alongside an existing path (e.g. a
-further-vectorised QMC, a CUDA backend, a memoised symbolic engine)
-should come with a corresponding C-series consistency test — the
-pattern is now established.
+Phase 4 covers the alternative entry points.  Any future optimisation
+added alongside an existing path (e.g. a further-vectorised QMC, a
+CUDA backend, a memoised symbolic engine) should come with a
+corresponding C-series consistency test.
 
-**Important caveat — equivalence vs substitutability.**  C1–C5 verify
+**Caveat: equivalence vs substitutability.**  C1–C5 verify
 that the alternative paths agree on the *specific test case used*
 (scalar observable at the iso_R/iso_C simplification, `r=0`,
 `fixed_indices={a:0,b:0}`).  They do **not** prove full input/output
@@ -316,22 +312,19 @@ Known capability differences:
 
 | use case | fastest path | relative speedup |
 |---|---|---|
-| symbolic expansion (order ≤ 2) | tie (both sub-ms) | — |
+| symbolic expansion (order ≤ 2) | tie (both sub-ms) | n/a |
 | symbolic expansion (order ≥ 4) | ``compute_moment_numerical`` | dramatic (per docs) |
 | single-diagram QMC (n=2^16) | ``integrate_moment_qmc_vectorized`` | **208×** over scalar loop |
 | batch over diagrams | ``integrate_diagrams(n_jobs=-1)`` | ~1.6× on 6 diagrams, grows with batch |
 | 2-point with non-trivial spatial r | ``integrate_two_point_qmc`` | only path that supports it |
 
-The 208× speedup from vectorised QMC is the most impactful single
-finding of the audit.
-
-### Consequence — dispatcher default changed
+### Consequence: dispatcher default changed
 
 As a direct result of the benchmark, the default ``method='qmc'`` in
 ``integrate_moment`` (and therefore in ``integrate_diagrams``) was
 changed to **auto-select** the vectorised path when the cache
 supports batch C evaluation, falling back to scalar only if not.
-Previously, ``method='qmc'`` always ran the scalar loop — forfeiting
+Previously, ``method='qmc'`` always ran the scalar loop, forfeiting
 the 208× speedup for any user whose cache *could* batch.
 
 New behaviour:
@@ -356,8 +349,8 @@ New behaviour:
 | batch over 6 diagrams, n=2^14 | 1568 ms | 9 ms | **180×** |
 
 Results are **bit-identical** between old and new defaults (same seed,
-same sampling logic — just batched instead of looped), so the change
-is a pure performance improvement with no numerical side-effect.
+same sampling logic, batched instead of looped), so the change has no
+numerical side-effect.
 
 **C6** (added to ``TestAlternativePathConsistency``) codifies this
 behaviour: verifies the dispatcher picks the vectorised path when
@@ -367,7 +360,7 @@ the scalar implementation for explicit opt-out.
 
 ---
 
-## Phase 2 — test matrix
+## Phase 2: test matrix
 
 | ID  | Scope                                | Method                                                      |
 |-----|--------------------------------------|-------------------------------------------------------------|
@@ -403,37 +396,36 @@ the scalar implementation for explicit opt-out.
 
 ---
 
-## Phases 5–8 — workflow layer and new code paths
+## Phases 5–8: workflow layer and new code paths
 
 Phases 5–8 were added alongside the L1 workflow API.  Each follows
-the same deductive discipline as Phases 1–4 — an independent
-reference (analytic formula, equivalent-path comparison, or
-closed-form limit) is checked for every new code path.  The
-summaries below are high-level; the per-test matrix and tolerances
-live in `docs/verification/index.rst` (rendered Sphinx) and the
-test files themselves.
+the same discipline as Phases 1–4: an independent reference (analytic
+formula, equivalent-path comparison, or closed-form limit) for every
+new code path.  The summaries below are high-level; the per-test
+matrix and tolerances live in `docs/verification/index.rst` (rendered
+Sphinx) and the test files themselves.
 
-- **Phase 5 — spatial homogeneity** (`TestSpatialAwareCache`,
+- **Phase 5: spatial homogeneity** (`TestSpatialAwareCache`,
   S1–S7).  Three `precompute_C_table_*` variants (translation,
   rotation, general) validated against each other and against
   closed-form limits.  Cross-group C scaling and lazy-mode build
   verified.
-- **Phase 6 — white-noise component** (`TestWhiteNoiseComponent`,
+- **Phase 6: white-noise component** (`TestWhiteNoiseComponent`,
   W1–W3).  `GaussianNoise.sigma2` adds δ(t-t')σ²(t) to κ²;
   linearity (smooth + white = sum) and absorption into the
   translation spline are checked.
-- **Phase 7 — dynamic non-local coupling + workflow round-trip**.
+- **Phase 7: dynamic non-local coupling + workflow round-trip**.
   `tests/test_workflow.py` (WF1–WF5) and
   `tests/test_workflow_config.py` (CF1–CF6).  The L1 wrapper's
   `System`/`Expansion`/`Propagators`/`SweepResult` chain is compared
   to six recorded end-to-end values, originally from `validate_phase5.py` (WF4).  YAML round-trip
   tests (CF1–CF6) check that YAML → Python → numerical sweep
-  matches the equivalent pure-Python L1 pipeline to rtol=1e-10 —
-  this is an equivalence test (bit-identity), not a precision
+  matches the equivalent pure-Python L1 pipeline to rtol=1e-10: an
+  equivalence test (bit-identity), not a precision
   test.  Demo2's FK channel via spacetime-dependent κ^(3) is
   verified end-to-end via `examples/demo2/validate_FK_dynamic.py`
   (0.48 % rel agreement vs hand-coded reference).
-- **Phase 8 — time-dependent linear operator** (T1–T4).
+- **Phase 8: time-dependent linear operator** (T1–T4).
   `DiagonalA(gamma=callable)` pre-computes Γ(t) = ∫γ(τ)dτ as a
   cubic spline.  Checked against static analogues (T1, T1b),
   closed-form linear γ (T2), causality (T3), and end-to-end
@@ -475,13 +467,13 @@ diagnoses a specific module:
   or component-routing logic in `_enumerate_component_routings`.
 - **T8 fails** → `_canonical_diagram_form` (brute permutation search)
   or `_canonical_key_nauty` (nauty-based) disagree on a pair of
-  topologies — one of them has a bug.
+  topologies; one of them has a bug.
 - **T9 fails** → `collect_by_diagram` is creating spurious partitions
   (either merging non-isomorphic topologies or splitting one).
 - **T13 fails** → `DiagramTerm.evaluate_coupling` mishandles the
   coupling sum for a spatially-dependent coupling (non-local vertex).
 - **N1/N6 fails** → the analytical C-propagator formula disagrees with
-  numerical quadrature of the same integrand — the closed form has a bug.
+  numerical quadrature of the same integrand; the closed form has a bug.
 
 ---
 
@@ -497,6 +489,5 @@ diagnoses a specific module:
   `analysis.ipynb`).  Currently tested only via the inductive sim
   comparison.
 
-These are documented as future scope rather than acknowledged limitations:
-every one is amenable to the same brute-force pattern if the problem
-size is managed carefully.
+Each is amenable to the same brute-force pattern if the problem size
+is managed carefully.

@@ -1,4 +1,4 @@
-# Design note — `NonLocalVertex(already_R_contracted=True)`
+# Design note: `NonLocalVertex(already_R_contracted=True)`
 
 **Status**: **Landed 2026-05-20** on `main`. Phase 1 (schema + reference
 utility) + Phase 2 (DiagramTerm-level R-absorption dispatch) shipped
@@ -11,7 +11,7 @@ across {raw, `already_R_contracted=True`} × {per-sample,
 **Origin**: Driven by the canoes squeezed-κ³ workload. At
 `ℓ_max = 5000, z_s = 1100` the raw κ³ kernel has diagonal width
 `Δχ ~ χ_max / ℓ_max ≈ 2 Mpc/h`, so a per-leg χ-integration would need
-`N_χ ≳ 5000`, i.e. `N_χ³ ~ 10¹¹` per diagram cell — intractable. The
+`N_χ ≳ 5000`, i.e. `N_χ³ ~ 10¹¹` per diagram cell, which is intractable. The
 **R-contracted** form
 `κ³_R(γ; λ_1', λ_2', λ_3') := ∫∫∫ R(χ_i, λ_i') κ³(γ; χ_1, χ_2, χ_3)
 dχ_1 dχ_2 dχ_3` is `R²(λ)/R²(λ_s)`-weighted, smooth on
@@ -22,7 +22,7 @@ dχ_1 dχ_2 dχ_3` is `R²(λ)/R²(λ_s)`-weighted, smooth on
 
 ---
 
-## 1. The math — what "R-contracted" means
+## 1. The math: what "R-contracted" means
 
 In MSR, a `NonLocalVertex` of order `m` is
 
@@ -48,9 +48,9 @@ are the partner φ points elsewhere in the diagram. Define
                               · κ³(γ; z_1, z_2, z_3).
 ```
 
-Then the diagram block reduces to `κ³_R(γ; z_1', z_2', z_3')` —
+Then the diagram block reduces to `κ³_R(γ; z_1', z_2', z_3')`:
 the inner integration has been **lifted into the vertex**. Mathematically
-this is just Fubini; numerically it sidesteps the narrow-kernel cost.
+this is Fubini; numerically it sidesteps the narrow-kernel cost.
 
 The same identity generalises to `κⁿ_R` for `n = 4, 5, …`; the API
 design must not hard-code `n = 3`.
@@ -63,7 +63,7 @@ with φ's from elsewhere, producing R-propagators in the `DiagramTerm`.
 At QMC time the integrand multiplies the R-propagator products,
 the κ³ callable (evaluated at the **leg** coordinates `(n_legs, t_legs)`),
 and the C-propagator products on the causal simplex. **All
-integration dimensions — including the m leg times `χ_i` — are folded
+integration dimensions, including the m leg times `χ_i`, are folded
 into a single QMC sweep**; there is no separate "inner χ-integration"
 loop to short-circuit.
 
@@ -74,7 +74,7 @@ one-line flip of an inner-loop subroutine; it requires rewriting the
 diagram graph so the κ³ legs get **absorbed** into their partners (no
 R-factor, no leg-time integration variable).
 
-## 3. Dispatch design — leg-level R-absorption
+## 3. Dispatch design: leg-level R-absorption
 
 We extend the existing `equal_time_aliases` infrastructure
 ([equal_time_nonlocal_vertex.md](equal_time_nonlocal_vertex.md)). That
@@ -95,7 +95,7 @@ class NonLocalVertex:
     already_R_contracted: bool = False  # NEW
 ```
 
-`already_R_contracted=False` (default): existing behaviour — the
+`already_R_contracted=False` (default): existing behaviour, the
 runtime integrates over `m` leg times with R-propagators on each leg.
 
 `already_R_contracted=True`: the user callable returns the
@@ -108,17 +108,17 @@ instead of an R-propagator.
 * `Vertex` (raw) carries a new field
   `already_R_contracted: bool = False` that `System.build_action()`
   passes through from `NonLocalVertex`.
-* `VertexInstance.absorbed_legs: tuple[str, ...]` — list of spatial
+* `VertexInstance.absorbed_legs: tuple[str, ...]`: list of spatial
   labels on this instance whose R-propagator must be absorbed (only
   populated when the parent vertex has `already_R_contracted=True`).
-* `DiagramTerm` gains `r_absorbed_pairs: tuple[tuple[str, str], ...]`
-  — `(partner_label, leg_label)` pairs where the leg's R-propagator
+* `DiagramTerm` gains `r_absorbed_pairs: tuple[tuple[str, str], ...]`,
+  the `(partner_label, leg_label)` pairs where the leg's R-propagator
   has been absorbed (and therefore must NOT contribute an R-factor to
   the integrand product).
 
 ### 3.3 Spatial-structure layer (`evaluate.py`)
 
-The cleanest invariant: **keep the absorbed R-propagator in
+The invariant: **keep the absorbed R-propagator in
 `dt.propagators`** so direction-group union-find continues to
 identify the leg with its partner (preserving the `δ(n_leg − n_partner)`
 implication of the original R). Use the existing
@@ -138,10 +138,10 @@ section).
 
 After §3.3 the absorbed R-propagator has `spatial_left ==
 spatial_right` once the alias is applied to its right-endpoint
-lookup, so a naive `R_time(t, t)` would evaluate to 0 under Itô —
-**not** the unity we want. The R-product loop must therefore
-**explicitly skip** propagators listed in `r_absorbed`. This is
-the only integrand-side change required.
+lookup, so a naive `R_time(t, t)` would evaluate to 0 under Itô, not
+the unity required. The R-product loop must therefore skip the
+propagators listed in `r_absorbed`. That is the only integrand-side
+change.
 
 The κ³_R callable receives `(n_list, t_list)` where the `t_list`
 entries are now the **partner** times (because the leg label has
@@ -178,7 +178,7 @@ remove the leg from the diagram, just pre-evaluates its kernel.
    per κ³ vertex.
 
 The validation harness lives at
-`tests/test_R_contracted_vertex.py` — 22 tests covering schema,
+`tests/test_R_contracted_vertex.py`: 22 tests covering schema,
 YAML round-trip, raw-Vertex propagation, structural
 `r_absorbed_pairs` correctness (L1 and L0), the L0 `Vertex` guards,
 the invariance of `n_response` under absorption, the zero-dimensional
@@ -206,16 +206,14 @@ behaves as follows when `n_gauss` is swept:
 | 20 | 1.6283e-4 | 1.6187e-4 | 5.94e-3 |
 
 The raw value drifts monotonically and the rel-diff drops to ~7e-4 at
-`n_gauss=16`, then wobbles at ~1e-3 due to the brute-force trapezoid
-χ-grid (used to build the κ³_R reference). The dispatch itself is
-provably correct via the machine-precision constant-κ³ test; demo2
-also shows that the R_contracted path is automatically **more
-accurate at the same `n_gauss`** because the diagram-side integrand
-is smooth on a 1-D simplex rather than peaked on a 4-D simplex —
-the entire raison d'être of the R-contraction trick at production
-`ℓ_max`.
+`n_gauss=16`, then wobbles at ~1e-3 because of the brute-force
+trapezoid χ-grid used to build the κ³_R reference. The
+machine-precision constant-κ³ test covers the dispatch itself; demo2
+shows that the R_contracted path is **more accurate at the same
+`n_gauss`**, because the diagram-side integrand is smooth on a 1-D
+simplex rather than peaked on a 4-D simplex.
 
-This study is intentionally not a pytest: the brute-force reference
+This study is not a pytest: the brute-force reference
 takes ~3 minutes per `n_gauss` value at `n_chi=81`. In production
 (canoes analytical FFTlog-of-W) the κ³_R callable is fast and smooth,
 so the wobble at `n_gauss=20` would shrink further.
@@ -232,7 +230,7 @@ so the wobble at `n_gauss=20` would shrink further.
   vacuous. Phase 1 raises `ValueError` when both are set.
 * **No partial contraction**: `already_R_contracted=True` absorbs
   ALL `m` ψ legs uniformly. Mixed schemes (e.g. legs 1+2 absorbed,
-  leg 3 raw) are explicitly out of scope (confirmed 2026-05-20).
+  leg 3 raw) are out of scope (confirmed 2026-05-20).
 * **Cache keys**: `_system_spec_key()` includes
   `(name, order, equal_time, already_R_contracted)` per non-local
   vertex (previously only `(name, order)`). Flipping `equal_time` or
@@ -243,40 +241,40 @@ so the wobble at `n_gauss=20` would shrink further.
 
 ## 6. Open follow-ups
 
-1. **Vectorised contracted callable** — **closed 2026-05-20**. Pinned
+1. **Vectorised contracted callable**: **closed 2026-05-20**. Pinned
    by `test_vectorised_R_contracted_matches_per_sample`: the four-way
    {raw, R-contracted} × {per-sample, vectorised} matrix agrees to
    machine precision. The hypothesis ("the existing
    `equal_time_aliases` dispatch handles batched `t_list` lookups
-   transparently") held — no code changes beyond Phase 2 were needed.
-2. **Higher `m`** — **closed** by demos 3 and 4. The dispatch does not
+   transparently") held; no code changes beyond Phase 2 were needed.
+2. **Higher `m`**: **closed** by demos 3 and 4. The dispatch does not
    hard-code `m=3`; only the brute-force reference utility carries an
    `order=3` default. Demo 3 uses R-contracted κ⁴ and κ⁵ vertices; its
    connected 4-point function matches Campbell's closed form to
    6.6e-16. In demo 4 the m = 4 R-contracted route agrees with
    Campbell's closed form to 1.8e-14 or better.
-3. **Partial / mixed-leg contraction** — explicitly out of scope per
+3. **Partial / mixed-leg contraction**: out of scope per
    §5. Mixed schemes (e.g. legs 1+2 absorbed, leg 3 raw) would
    require an opt-in mask in `NonLocalVertex` and per-leg propagator
    accounting in `_collect_r_absorbed_pairs`.
-4. **LaTeX rendering** — `DiagramTerm.to_latex()` currently prints all
+4. **LaTeX rendering**: `DiagramTerm.to_latex()` currently prints all
    R-propagators regardless of absorption. For κ³_R diagrams the
    absorbed R's should be hidden (or rendered with a tilde) since
    they have been folded into the coupling symbol. Cosmetic; defer
    until paper-figure context calls for it.
-5. **Memory budget for tabulated κⁿ_R** — for production canoes
+5. **Memory budget for tabulated κⁿ_R**: for production canoes
    `kappa3_R_callable.py` the table is `(N_γ, N_λ', N_λ', N_λ', N, N, N)`.
    The YAML need not enforce a budget knob today; the callable owns
    its memory.
 
 ## 7. References
 
-* [`SFT_WICK_CONTRACTED_KAPPA_PROMPT.md`](../../SFT_WICK_CONTRACTED_KAPPA_PROMPT.md)
-  — the original cold-start prompt.
-* [`equal_time_nonlocal_vertex.md`](equal_time_nonlocal_vertex.md) —
+* [`SFT_WICK_CONTRACTED_KAPPA_PROMPT.md`](../../SFT_WICK_CONTRACTED_KAPPA_PROMPT.md):
+  the original cold-start prompt.
+* [`equal_time_nonlocal_vertex.md`](equal_time_nonlocal_vertex.md):
   prior art for the leg-alias machinery this design extends.
-* canoes `scripts/squeezed_kappa3/DESIGN.md` — the upstream κ³
+* canoes `scripts/squeezed_kappa3/DESIGN.md`: the upstream κ³
   callable that this dispatch will eventually consume.
-* canoes `scripts/squeezed_kappa3/FFTLOG_OF_W_BISPECTRUM_PROMPT.md`
-  — the analytical FFTlog-of-W chain that will produce production
+* canoes `scripts/squeezed_kappa3/FFTLOG_OF_W_BISPECTRUM_PROMPT.md`:
+  the analytical FFTlog-of-W chain that will produce production
   `κ³_R` once Phase 2 is complete.
