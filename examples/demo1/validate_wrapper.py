@@ -11,10 +11,16 @@ correlators, the L1 default, so the two no longer compute the same
 quantity; the equivalence of the L1 and raw-API routes is tested by
 ``tests/test_workflow.py::test_WF4_end_to_end_matches_validate_phase5``.
 The table below is this script's own output (time-integrated,
-``qmc_vectorized``, 2^13 samples, seed 42), refreshed on 2026-09-11 when
-the order-2 and order-4 rows no longer matched the copied values (by
-7.6e-4 to 5.4e-3 relative, QMC-level changes from the sampling fixes of
-0.3.0-0.4.x; order 0 matched to 2.4e-7).
+``qmc_vectorized``, 2^13 samples, seed 42).  Refreshed twice: on
+2026-09-11, when the order-2 and order-4 rows no longer matched the copied
+values (7.6e-4 to 5.4e-3 relative, from the sampling fixes of 0.3.0-0.4.x;
+order 0 matched to 2.4e-7), and on 2026-09-12, when 0.6.0 gave the Sobol
+samplers 64-bit points (a different scrambled sequence, so every QMC draw
+is redrawn) and split the Gauss-Legendre domain at the cusp of the OU
+kernel.  The second refresh moved 16 of the 24 rows, by 5.6e-5 to 1.2e-1:
+order 4 at 2^13 samples has a seed-to-seed spread of tens of percent here,
+which is why demo 1's paper sweep uses ``gauss_legendre``
+(``examples/demo1/L2/INTEGRATION_ERROR.md``).
 
 Run::
 
@@ -150,30 +156,30 @@ print("-" * 90)
 # Expected totals for a=0, b=0 at each (r, t_f, order): this script's own
 # output at the settings above (see the module docstring for its history).
 EXPECTED = {
-    (0, 0, 0.0, 1.0, 0):  3.274077e-03,
-    (0, 0, 0.0, 15.0, 0): 3.996863e-01,
-    (0, 0, 0.5, 1.0, 0):  1.985828e-03,
-    (0, 0, 0.5, 15.0, 0): 2.424220e-01,
-    (0, 0, 1.0, 1.0, 0):  1.204466e-03,
-    (0, 0, 1.0, 15.0, 0): 1.470364e-01,
-    (0, 0, 2.5, 1.0, 0):  2.687526e-04,
-    (0, 0, 2.5, 15.0, 0): 3.280825e-02,
-    (0, 0, 0.0, 1.0, 2):  7.042303e-06,
-    (0, 0, 0.0, 15.0, 2): 3.991869e-02,
-    (0, 0, 0.5, 1.0, 2):  4.301870e-06,
-    (0, 0, 0.5, 15.0, 2): 3.222453e-02,
-    (0, 0, 1.0, 1.0, 2):  2.961794e-06,
-    (0, 0, 1.0, 15.0, 2): 2.834253e-02,
-    (0, 0, 2.5, 1.0, 2):  1.677003e-06,
-    (0, 0, 2.5, 15.0, 2): 2.447336e-02,
-    (0, 0, 0.0, 1.0, 4):  3.360571e-08,
-    (0, 0, 0.0, 15.0, 4): 2.935712e-03,
-    (0, 0, 0.5, 1.0, 4):  1.845471e-08,
-    (0, 0, 0.5, 15.0, 4): 2.236403e-03,
-    (0, 0, 1.0, 1.0, 4):  1.169663e-08,
-    (0, 0, 1.0, 15.0, 4): 1.903966e-03,
-    (0, 0, 2.5, 1.0, 4):  5.760575e-09,
-    (0, 0, 2.5, 15.0, 4): 1.588645e-03,
+    (0, 0, 0.0, 1.0, 0):  3.274075e-03,
+    (0, 0, 0.0, 15.0, 0):  3.994859e-01,
+    (0, 0, 0.5, 1.0, 0):  1.985827e-03,
+    (0, 0, 0.5, 15.0, 0):  2.423005e-01,
+    (0, 0, 1.0, 1.0, 0):  1.204465e-03,
+    (0, 0, 1.0, 15.0, 0):  1.469627e-01,
+    (0, 0, 2.5, 1.0, 0):  2.687525e-04,
+    (0, 0, 2.5, 15.0, 0):  3.279180e-02,
+    (0, 0, 0.0, 1.0, 2):  7.042276e-06,
+    (0, 0, 0.0, 15.0, 2):  3.801785e-02,
+    (0, 0, 0.5, 1.0, 2):  4.301808e-06,
+    (0, 0, 0.5, 15.0, 2):  3.116579e-02,
+    (0, 0, 1.0, 1.0, 2):  2.961774e-06,
+    (0, 0, 1.0, 15.0, 2):  2.774741e-02,
+    (0, 0, 2.5, 1.0, 2):  1.677097e-06,
+    (0, 0, 2.5, 15.0, 2):  2.438662e-02,
+    (0, 0, 0.0, 1.0, 4):  3.468707e-08,
+    (0, 0, 0.0, 15.0, 4):  3.277192e-03,
+    (0, 0, 0.5, 1.0, 4):  1.903022e-08,
+    (0, 0, 0.5, 15.0, 4):  2.298346e-03,
+    (0, 0, 1.0, 1.0, 4):  1.205275e-08,
+    (0, 0, 1.0, 15.0, 4):  1.855777e-03,
+    (0, 0, 2.5, 1.0, 4):  5.934545e-09,
+    (0, 0, 2.5, 15.0, 4):  1.464293e-03,
 }
 
 print("\nCross-check vs the stored table (a=0, b=0) rows:")
