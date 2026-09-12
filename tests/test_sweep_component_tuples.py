@@ -292,9 +292,11 @@ def test_NT6_component_pairs_rows_and_columns_are_unchanged(two_point):
                               t_final=1.0, component_pair=(a, b),
                               orders=[order], method="gauss_legendre",
                               n_gauss=6).total
-        # The sweep and the direct call integrate the same terms in the
-        # same order, so this is an equality up to the last bit -- which
-        # differs between BLAS builds (identical here, 1 ULP apart on CI).
+        # The sweep sums the diagrams through pandas and ``evaluate``
+        # through Python, and a diagram integrated in pieces (the kink
+        # split) reassociates the sum, so the two agree to a few ULP
+        # rather than exactly -- and by how many differs between BLAS
+        # builds (1 ULP apart on CI, identical here before the split).
         assert _row_value(totals, (a, b), y=y, order=order) == pytest.approx(
             direct, rel=1e-12, abs=0.0), (a, b, y, order)
 

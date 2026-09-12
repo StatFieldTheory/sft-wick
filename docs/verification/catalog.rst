@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **2109 tests** in 72 files (parametrised
+The suite has **2142 tests** in 73 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -196,7 +196,7 @@ Propagator numerics
 Integrators
 -----------
 
-*1030 tests in 37 files.*
+*1061 tests in 38 files.*
 
 .. list-table::
    :header-rows: 1
@@ -321,7 +321,7 @@ Integrators
      - Gauss-Legendre splits the domain at kinks: unordered ends of a white-noise C, unordered parents of a multi-psi vertex; the orientations are the consistent total orders
      - linear extensions of the causal order; the exact Itô moment hierarchy
      - exact / 1e-11
-     - 7
+     - 9
    * - ``test_group_position_conflict.py``
      - two points of ONE R-connected direction group at two positions are refused at every entry point (an external ψ leg, a local two-ψ vertex); the label-independence of the refusal, the separated φφ control on every integrator
      - the two coincident-position configurations the arbitrary pick was choosing between
@@ -347,6 +347,11 @@ Integrators
      - closed forms; Campbell's theorem; Lyapunov equation
      - 1e-13
      - 7
+   * - ``test_kink_split_external_time.py``
+     - a kink between an integration time and an external point pinned at a fixed time is cut, not paired: the variable's range is cut at that time, the cut is carried to the variables ordered against it and to the parents whose min() bound it enters, and no cut is made when every external sits at one time; an external swept by integrate_over pairs like an integration variable instead, and two swept ones are not a pair
+     - exact Itô moment hierarchy, transported over the lag between the two external times
+     - exact / 1e-11
+     - 29
    * - ``test_kink_split_nquad_couplings.py``
      - nquad splits the time domain at kinks as Gauss-Legendre does (white-noise C, matrix R); a coupling callable declaring has_coincident_time_kinks contributes its leg times (raw vertex) or partner times (already_R_contracted), read through the MSR wrapper; equal_time vertices contribute none
      - exact Itô moment hierarchy; the pairs by construction
@@ -396,7 +401,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*334 tests in 10 files.*
+*336 tests in 10 files.*
 
 .. list-table::
    :header-rows: 1
@@ -431,7 +436,7 @@ Workflow and YAML
      - multiplicative white noise at L1 (MultiplicativeImpulse): D = g gᵀ and the noise-induced drift, the vertices and their MSR factors, ⟨φ_a⟩ and ⟨φ_a φ_b⟩ per bookkeeping tag at vertex orders 0-3 (Itô and Stratonovich, scalar and matrix R, two times), the YAML route, the one-site and ito=False refusals
      - exact moment hierarchy in Hörmander form (no noise-induced drift formed); finite differences of g
      - 1e-9 (GL) / 2e-3 (qmc_scalar)
-     - 44
+     - 46
    * - ``test_sweep_component_tuples.py``
      - n-point sweeps: Expansion.sweep, the YAML sweep block and the CLI over component tuples of the observable's length; demo 4 level A from two shipped configs; the refusals (tuple length, index range, a repeated tuple or grid value, colliding columns)
      - the Campbell closed form K_R of examples/demo4; a numpy einsum for a static kappa^3 under component-dependent rates; Expansion.evaluate at the same point

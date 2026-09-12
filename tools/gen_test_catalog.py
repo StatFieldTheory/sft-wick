@@ -323,6 +323,17 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "wrapper; equal_time vertices contribute none",
         "exact Itô moment hierarchy; the pairs by construction",
         "exact / 1e-12"),
+    "tests/test_kink_split_external_time.py": (
+        "Integrators",
+        "a kink between an integration time and an external point pinned "
+        "at a fixed time is cut, not paired: the variable's range is cut "
+        "at that time, the cut is carried to the variables ordered "
+        "against it and to the parents whose min() bound it enters, and "
+        "no cut is made when every external sits at one time; an external "
+        "swept by integrate_over pairs like an integration variable "
+        "instead, and two swept ones are not a pair",
+        "exact Itô moment hierarchy, transported over the lag between "
+        "the two external times", "exact / 1e-11"),
     "tests/test_demo4_asymmetric_noise.py": (
         "Integrators",
         "demo 4: compound-Poisson noise asymmetric in points and in "

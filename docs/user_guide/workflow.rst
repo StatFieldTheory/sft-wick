@@ -665,22 +665,40 @@ Tensor-product Gauss-Legendre converges exponentially on an integrand
 that is smooth on the causal simplex, and as ``n^-2`` on one with a kink
 (a jump in the first derivative) inside it; adaptive ``nquad`` stops short
 of its tolerance along a kink.  ``method='gauss_legendre'`` and
-``method='nquad'`` therefore split the time domain where two integration
-times that the causal structure leaves unordered cross and the integrand
-is kinked there.  Each consistent order of such pairs is integrated as its
-own causal sub-simplex, the split repeats inside each piece until no pair
-is left, and the pieces are added.  Three kinds of pair are split:
+``method='nquad'`` therefore split the time domain where two times that the
+causal structure leaves unordered cross and the integrand is kinked there.
+Each consistent order of such pairs is integrated as its own causal
+sub-simplex, the split repeats inside each piece until no pair is left, and
+the pieces are added.  Three kinds of pair are split:
 
 * two parents of one time variable (a vertex with several ψ legs at one
   time), whose upper bound ``min(parents)`` changes branch where they
   cross; found from the diagram;
 * the two ends of a C propagator when C is kinked on its time diagonal:
-  white noise (``GaussianNoise(sigma2=...)``) is found from the model, and
-  a closed-form C callable declares it with ``has_diagonal_kink = True``;
+  white noise (``GaussianNoise(sigma2=...)``) and a κ² with a ``|Δt|`` cusp
+  (the exponential/OU kernel, a damped cosine, any callable the kernel
+  probe finds cusped -- ``C = ∫∫ R κ² R`` inherits the cusp in its third
+  derivative) are found from the model, and a closed-form C callable
+  declares it with ``has_diagonal_kink = True``;
 * two time arguments of a coupling callable that declares
   ``has_coincident_time_kinks = True``, meaning that it is kinked wherever
   two of its time arguments coincide, for example through a ``min`` over
   them.
+
+Each of the three can also put the kink between an integration time and an
+external point pinned at its own time (``external_times``, or ``t_final``
+when the externals sit at different times).  A constant is not an ordering
+between two variables, so that one is not a pair: the variable's range
+``[t_min, min(parents)]`` is cut in two, ``[t*, min(parents)]`` and
+``[t_min, min(t*, parents)]``, and the cut is carried to the variables the
+orderings put on the same side of it.  With every external at one time the
+crossing is the boundary of the domain and no cut is made, so only unequal
+external times pay for it.
+
+Splitting one kink can expose another: a piece bounds a variable by
+``min(parents, t*)``, which is kinked where a parent crosses ``t*``, so the
+parent takes the same cut.  The split therefore repeats until no pair and
+no cut is left.
 
 The package cannot see inside a callable, so the last two are declared on
 the callable object, for example as a class attribute of a frozen
@@ -739,17 +757,24 @@ references (maximum relative difference over the component tuples):
      - 2.6e-15 / 6.3e-15
      - 2, in the diagrams where two F times are partners
 
+The cut at a fixed external time costs one more integration per cut.  Demo
+4's raw exponential 3-point function at external times (1.7, 1.2, 0.6) --
+three leg times, each cut against three distinct external times -- is the
+worst case measured: 25 pieces per diagram, against 7 for the leg-order
+split alone, and 4.8e-15 at 16 nodes where it was 1.4e-3 (2.1e-4 at 64).
+Demo 6's ``F F`` channel at two external times takes 2.0 pieces per
+diagram, demo 7's two-time channel 2.9, demo 8's oscillator channels 2.88
+against 1.38.
+
+An external time swept by ``integrate_over`` is drawn before every internal
+variable, so it pairs like an integration variable: a kink against one is
+ordered, not cut.  Two swept externals are not a pair (their relative order
+comes from the causal structure alone).
+
 Limits:
 
-* Only pairs of internal integration times are split.  With unequal
-  ``external_times``, a piece can bound a time by ``min`` of a fixed
-  external time and another integration time, which is kinked where the
-  second crosses the first.  Demo 4's raw exponential 3-point function at
-  external times (1.7, 1.2, 0.6) is 1.4e-3 off at 16 nodes and 2.1e-4 at
-  64.  Integrated external times (``integrate_over``) are not split
-  either.
 * The declaration covers kinks where two time arguments coincide, not a
-  kink at a fixed time or along another curve.
+  kink along another curve.
 * QMC is not split.  At equal cost the split did not reduce the error for
   2^10 to 2^16 samples: on demo 4's raw kernel (6 pieces) it was 4 to 10
   times larger, and on demo 5's white-noise channel (2 pieces) it was
@@ -1446,12 +1471,14 @@ speed** (``gauss_legendre``).
    convergence on each piece. The package's
    ``c_method='gauss_legendre'`` does this split automatically for
    the C table.  ``sweep.method='gauss_legendre'`` does it for the
-   diagram's time domain, where a white-noise C (or a closed-form C
-   that declares ``has_diagonal_kink``) or a vertex with several ψ
-   legs at one time kinks the integrand, and keeps exponential
-   convergence.  A kink inside a coupling callable, such as a ``min``
-   over partner times in an R-contracted cumulant, is not detected
-   and keeps the algebraic rate.
+   diagram's time domain, where a kinked C (white noise, a κ² with a
+   ``|Δt|`` cusp, or a closed-form C that declares
+   ``has_diagonal_kink``) or a vertex with several ψ legs at one time
+   kinks the integrand, and keeps exponential convergence.  A kink
+   inside a coupling callable, such as a ``min`` over partner times in
+   an R-contracted cumulant, is split once the callable declares
+   ``has_coincident_time_kinks`` and keeps the algebraic rate
+   otherwise (see :ref:`declaring-kinks`).
 
    GL is **not** the right tool for: (a) discontinuous
    integrands, (b) high-frequency oscillations (need Filon or
@@ -1503,8 +1530,8 @@ Decision matrix:
      - ``~ 1/√n_samples`` bias decay; can severely under-resolve narrow peaks at large ``t_final``; not split at kinks
    * -
      - ``gauss_legendre``
-     - Smooth integrands at ``d ≤ 5`` (the typical sft-wick case), and white-noise, several-ψ-leg or declared coupling kinks, which it splits out (:ref:`declaring-kinks`)
-     - **Exponential convergence** in ``n_gauss``; deterministic; cost ``n_gauss^d`` per consistent order of the kinked pairs (2 for one pair, up to ``k!`` for ``k`` mutually unordered times)
+     - Smooth integrands at ``d ≤ 5`` (the typical sft-wick case), and kinked-C, several-ψ-leg or declared coupling kinks, which it splits out — against another time or against a fixed external one (:ref:`declaring-kinks`)
+     - **Exponential convergence** in ``n_gauss``; deterministic; cost ``n_gauss^d`` per piece (2 per kink pair or cut, up to ``k!`` for ``k`` mutually unordered times)
    * -
      - ``nquad``
      - Adaptive 1-3D fallback when GL nodes are insufficient

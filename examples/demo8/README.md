@@ -174,50 +174,54 @@ relative departure from the exact C over `t ∈ [0.6, 2.1]`):
   and (d) is run on `nquad` / `qmc_scalar` / `qmc`.  The tests carrying
   those routes skip with a message and start checking as soon as the
   refusal goes.
-- **Gauss-Legendre does not split the domain where an internal time crosses
-  a *fixed external* time.**  A C propagator with one end at each is kinked
-  there when C is (white noise, or a κ² with a `|Δt|` cusp), and the split
-  machinery only pairs two internal variables.  It costs nothing while
-  every external sits at `t_final` — the crossing is then the domain
-  boundary — and shows up with `external_times`.  Model (b), order-1 `G`
-  channel at `x: 2.60, y: 3.50`, against the hierarchy:
+- **The domain is cut where an internal time crosses a *fixed external*
+  time** (was a limit until 2026-09-12).  A C propagator with one end at
+  each is kinked there when C is (white noise, or a κ² with a `|Δt|`
+  cusp), and a constant is not an ordering between two variables, so the
+  pair split could not express it; the integrators cut the variable's range
+  at that time instead.  It costs nothing while every external sits at
+  `t_final` — the crossing is then the domain boundary — and shows up with
+  `external_times`.  Model (b), order-1 `G` channel at `x: 2.60, y: 3.50`,
+  against the hierarchy:
 
-  | | GL 12 | GL 28 | `qmc_vectorized` | `nquad` |
-  |---|---|---|---|---|
-  | unequal external times | 3.1e-05 | 4.0e-06 | 2.4e-12 (2¹⁶) | 2.7e-08 |
-  | both externals at `t_final` | 4.2e-09 | | 2.2e-08 (2¹⁴) | 1.5e-14 |
+  | | 8 | 12 | 16 | 24 | 32 | 48 nodes |
+  |---|---|---|---|---|---|---|
+  | unequal external times, before | 4.5e-04 | 3.1e-05 | 4.7e-07 | 5.7e-06 | 2.9e-06 | 2.2e-07 |
+  | unequal external times, now | 4.5e-07 | 4.4e-13 | 6.8e-15 | 5.8e-15 | 9.1e-15 | 1.1e-14 |
 
-  Over a wider sweep the unequal-times error is 4.5e-04, 3.1e-05, 4.7e-07,
-  5.7e-06, 2.9e-06 and 2.2e-07 at 8, 12, 16, 24, 32 and 48 nodes — no rate
-  at all, where the same channel with both externals at `t_final` reaches
-  1.5e-14 by 16 nodes.
-
-  `qmc_vectorized` reaches 2.4e-12 at 2¹⁶ on the same integrand and `nquad`
-  2.7e-08, so the value is right and only the rate is lost.  The same
-  integral written out by hand converges once its domain is split at the
-  crossing (1.3e-14 at 60 nodes, 1.4e-14 at 120) and not otherwise
-  (1.4e-07 at 60, 8.7e-10 at 240); `time8_run.py` prints both.
-- **A κ² with a `|Δt|` cusp is not declared as kinking C.**
-  `_c_has_diagonal_kink` is true when the model carries `sigma2`, or when a
-  closed-form C says so; a quadrature-table cache whose κ² has a cusp (the
-  damped cosine here, and the OU kernel of demos 1-5) says nothing, so
-  Gauss-Legendre does not split at the C diagonal.  Order-2
-  `⟨φ_0(x) φ_1(y)⟩` on the package's table at `n_grid_t = 41`, against the
-  hierarchy:
+  where the same channel with both externals at `t_final` reached 1.5e-14
+  by 16 nodes either way.  `qmc_vectorized` reached 2.4e-12 at 2¹⁶ on the
+  same integrand and `nquad` 2.7e-08 before the cut, so the value was right
+  and only the rate was lost.  The order-2 `F` and `G` channels behave the
+  same (2.6e-04 and 6.6e-04 at 16 nodes before, 1.1e-15 and 2.6e-13 now).
+  The cost is one integration per cut: 2.88 pieces per diagram over those
+  three channels, against 1.38 before.  The same integral written out by
+  hand converges once its domain is split at the crossing (5.9e-15 at 60
+  nodes, 6.8e-15 at 120) and not otherwise (1.0e-07 at 60, 6.3e-10 at 240);
+  `time8_run.py` prints both.
+- **A κ² with a `|Δt|` cusp is declared as kinking C** (was a limit until
+  2026-09-12).  `_c_has_diagonal_kink` was true when the model carried
+  `sigma2`, or when a closed-form C said so; a quadrature-table cache whose
+  κ² has a cusp (the damped cosine here, and the OU kernel of demos 1-5)
+  said nothing, so Gauss-Legendre did not split at the C diagonal.  It now
+  asks the question the C quadrature already asks of the kernel
+  (`PropagatorCache._kappa2_has_diagonal_cusp`: the built-in kernels
+  declare `has_diagonal_cusp`, any other callable is probed from one-sided
+  differences).  Order-2 `⟨φ_0(x) φ_1(y)⟩` on the package's table at
+  `n_grid_t = 41`, against the hierarchy:
 
   | kernel | | GL 12 | GL 20 | `qmc_vectorized` 2¹⁶ |
   |---|---|---|---|---|
-  | damped cosine | as shipped | 1.4e-05 | 1.7e-06 | 1.9e-07 |
-  | | kink declared | 9.5e-07 | 1.5e-07 | |
-  | exponential (OU) | as shipped | 7.5e-06 | 1.2e-06 | 4.8e-08 |
-  | | kink declared | 3.8e-07 | 1.2e-07 | |
+  | damped cosine | before | 1.4e-05 | 1.7e-06 | 1.9e-07 |
+  | | now | 9.5e-07 | 1.5e-07 | |
+  | exponential (OU) | before | 7.5e-06 | 1.2e-06 | 4.8e-08 |
+  | | now | 3.8e-07 | 1.2e-07 | |
 
-  With the kink declared, Gauss-Legendre lands where QMC does — on the
-  table's own error.  Declaring it would move every Gauss-Legendre value
-  computed on a cusped κ² (demos 1, 2 and 5 included) and costs one
-  integration per unordered C pair, so the change belongs with the
-  kink-splitting work and is only measured here.  The `exact C` rows of this
-  demo declare `has_diagonal_kink=True` and do not lose the rate.
+  Gauss-Legendre now lands where QMC does — on the table's own error.  A
+  Gaussian kernel is differentiable at `Δt = 0`, leaves C smooth and is kept
+  out of the split.  The cost is one integration per unordered C pair: 1.33
+  pieces per diagram here, against 1.00.  The `exact C` rows of this demo
+  declared `has_diagonal_kink=True` all along and never lost the rate.
 - **The C table cannot follow a white-noise kink.**  `C(t₁, t₂)` has a
   derivative jump of `σ²` on `t₁ = t₂`; the table's tensor-product spline is
   C², so just off the diagonal it is wrong by `O(h)` (table above) and the
