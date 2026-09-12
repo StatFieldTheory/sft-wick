@@ -9,8 +9,9 @@
 > noise.  Values move where they were least converged: every Gauss-Legendre
 > integral on a cusped κ² (demo 1: 6e-07 at `t = 1` to 3.9e-04 at `t = 15`,
 > towards the converged value) and every QMC draw (the Sobol points are
-> 64-bit now, which redraws the sequence).  Demo 1's figures and demo 2's
-> error budget are not re-run; both say so where their numbers are.
+> 64-bit now, which redraws the sequence).  Demo 1's and demo 2's L2
+> figures were regenerated; demo 2's error budget was not, and says so
+> where its numbers are.
 
 > **Five limitations removed, seven more defects that returned a wrong
 > number without an error, and three demos built to look for them.**  Each
@@ -458,8 +459,8 @@ ordered rather than cut, which the same work required.
 one: demo 1's sweep by 6e-07 (t = 1) to 9.7e-03 (t = 100) relative, at 3.03
 pieces per diagram and 2.3 times the wall clock
 (`examples/demo1/L2/INTEGRATION_ERROR.md` records it cell by cell); demo 2
-the same way.  Demo 1's figures and demo 2's error budget are not re-run
-here.  Locked by `tests/test_gl_white_noise_kinks.py`.
+the same way.  Both demos' L2 figures were regenerated with the split in
+place; demo 2's error budget (about an hour of CPU) was not.  Locked by `tests/test_gl_white_noise_kinks.py`.
 
 ### Added: `propagators_from_cache` at the top level
 
