@@ -529,6 +529,12 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Workflow and YAML",
         "this catalogue matches the collected suite",
         "tools/gen_test_catalog.py", "exact"),
+    "tests/test_generated_docs_in_sync.py": (
+        "Workflow and YAML",
+        "every committed file that a script writes (demo 2's error budget, "
+        "table 1 and its order-1 diagrams, demo 3's diagram README) still "
+        "holds the text its generator would write",
+        "the generator's own source, parsed", "exact"),
 }
 
 
