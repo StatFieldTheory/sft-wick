@@ -12,7 +12,7 @@ Parameters: alpha = 0.6, lambda = 0.05, sigma_t = 0.3, sigma_x = 1.0, gamma = 1.
 
 **Separations.** The simulation measures on a grid of pitch dx = sigma_x / 5 = 0.2 and reports off-grid r by `np.interp`, which on a convex profile biases the value HIGH.  Every theory column below is interpolated with the SAME weights, so an off-grid row (r = 0.5) is compared like for like; r = 0.0 and r = 0.4 are grid sites and need no correction.  Before this fix the off-grid rows of xi_00 carried a spurious +0.6-0.8 % (+3.7 sigma) residual that was purely the interpolation.
 
-**Channels.** 0 = order 0 with the exact two-kernel C_eff; FF = order 2 F·F (exact C_eff); FK = order 2 F·κ³ (R-contracted, GL32); FFK4 = order 3 F·F·κ⁴ (R-contracted, GL12); **FFFK = order 4 F³·κ³ (R-contracted, GL10) — computed exactly for the first time in this revision; it was an equal-time estimate before, and was assumed to vanish for xi_00 / xi_11, which it does not**; FFFF = order 4 F⁴ (exact C_eff, Gauss-Legendre GL10 — it was 32768-sample Sobol QMC, which scattered 46 % across seeds).  FFFK and FFFF are computed on r_sub = [0.0, 0.4, 0.5, 0.6] only.
+**Channels.** 0 = order 0 with the exact two-kernel C_eff; FF = order 2 F·F (exact C_eff); FK = order 2 F·κ³ (R-contracted, GL32); FFK4 = order 3 F·F·κ⁴ (R-contracted, GL12); **FFFK = order 4 F³·κ³ (R-contracted, GL10), computed exactly for the first time in this revision; it was an equal-time estimate before, and was assumed to vanish for xi_00 / xi_11, which it does not**; FFFF = order 4 F⁴ (exact C_eff, Gauss-Legendre GL10; it was 32768-sample Sobol QMC, which scattered 46 % across seeds).  FFFK and FFFF are computed on r_sub = [0.0, 0.4, 0.5, 0.6] only.
 
 Theory wall-clock, 28 workers, measured before the leg-order fix of 0.5.0 (which took ffk4_rc16 from 35 s to 323 s): ff_exact 74 s, ff_lameff 52 s, fk_rc 18 s, fk_rc64 3 s, fk_raw8 1 s, ffk4_rc 1029 s, ffk4_rc16 35 s, ffff 101 s, ffff14 252 s, ffff_qmc 230 s, fffk_rc 757 s, fffk_rc8 356 s, fffk_rc14 158 s, fk_eq 0 s, fffk_eq 2 s.
 
@@ -243,7 +243,7 @@ chi² of (extrap − total) over the 18 times: 22.9; mean pull -0.12; largest |r
 
 ## Truncation: F³κ³ (order 4), computed vs the estimate it replaces
 
-Until sft-wick 0.4.0 the package refused this channel (`NotImplementedError: Dynamic coupling with propagator-indexed contraction`), because a κ³ leg index survives onto a C propagator.  It was therefore ESTIMATED by collapsing κ³ to an equal-time constant 24 α λ² σ_t² δ_abc and rescaling by (converged FK)/(collapsed FK) at the same t.  The estimate's calibration ratio is 0.42-0.64 for the FK-type partner-time configuration `(t', s, s)` but 1.08-1.50 for three distinct partner times, which is what the F³κ³ diagrams actually have — so it was a factor-of-2 quantity.  Both are now in the table:
+Until sft-wick 0.4.0 the package refused this channel (`NotImplementedError: Dynamic coupling with propagator-indexed contraction`), because a κ³ leg index survives onto a C propagator.  It was therefore ESTIMATED by collapsing κ³ to an equal-time constant 24 α λ² σ_t² δ_abc and rescaling by (converged FK)/(collapsed FK) at the same t.  The estimate's calibration ratio is 0.42-0.64 for the FK-type partner-time configuration `(t', s, s)` but 1.08-1.50 for three distinct partner times, which is what the F³κ³ diagrams actually have, so it was a factor-of-2 quantity.  Both are now in the table:
 
 | t | FK converged | FK collapsed | ratio | FFFK collapsed | old ESTIMATE | **exact FFFK** | estimate/exact |
 |---|---|---|---|---|---|---|---|
@@ -261,29 +261,29 @@ Until sft-wick 0.4.0 the package refused this channel (`NotImplementedError: Dyn
 - **FFK4_00, r = 0, t = 3.48**: GL12 1.8489e-05, GL16 1.8480e-05 (rel diff 4.9e-04, abs 9.0e-09)
 - **FFK4_00, r = 0, t = 15**: GL12 1.9304e-05, GL16 1.8965e-05 (rel diff 1.8e-02, abs 3.4e-07)
 - **FFFF_00**: GL10 vs GL14 over the whole grid, max abs diff 2.20e-06, max rel 7.4e-02.  That is the column's integration error; the residuals it is used to interpret are 3-6e-05, so it is well below them.
-  - the superseded 32768-sample Sobol QMC differs from GL14 by up to 4.84e-05 absolute (121% relative) — i.e. AS LARGE AS the residuals, which is why it had to go.
+  - the superseded 32768-sample Sobol QMC differs from GL14 by up to 4.84e-05 absolute (121% relative), as large as the residuals it was used to interpret.
 - **FFFF_11**: GL10 vs GL14 over the whole grid, max abs diff 2.95e-06, max rel 1.1e-01.  That is the column's integration error; the residuals it is used to interpret are 3-6e-05, so it is well below them.
-  - the superseded 32768-sample Sobol QMC differs from GL14 by up to 4.32e-05 absolute (99% relative) — i.e. AS LARGE AS the residuals, which is why it had to go.
+  - the superseded 32768-sample Sobol QMC differs from GL14 by up to 4.32e-05 absolute (99% relative), as large as the residuals it was used to interpret.
 - **FFFF_01**: identically zero (F^4 is even in the noise; xi_01 is odd), by every rule tried.
 - **FFFK_01**: GL8 vs GL10 agree to 0.1% for t < 8.46 over all r.  At later times the 3-D rule starts to lose the peak, so GL14 is the reference there (r = 0, |GL14 - GL10| / GL14):
-  - t = 8.46: GL8 5.4359e-05, GL10 5.4087e-05, GL14 5.4003e-05 — **0.2%**, 8.4e-08 absolute
-  - t = 13.2: GL8 5.5607e-05, GL10 5.4482e-05, GL14 5.4084e-05 — **0.7%**, 4.0e-07 absolute
-  - t = 15: GL8 5.6206e-05, GL10 5.4729e-05, GL14 5.4116e-05 — **1.1%**, 6.1e-07 absolute
-  - t = 20.58: GL8 5.7461e-05, GL10 5.5819e-05, GL14 5.4287e-05 — **2.8%**, 1.5e-06 absolute
-  - t = 32.08: GL8 5.2613e-05, GL10 5.7553e-05, GL14 5.5137e-05 — **4.4%**, 2.4e-06 absolute
-  - t = 50: GL8 3.2606e-05, GL10 5.1821e-05, GL14 5.7057e-05 — **9.2%**, 5.2e-06 absolute
+  - t = 8.46: GL8 5.4359e-05, GL10 5.4087e-05, GL14 5.4003e-05: **0.2%**, 8.4e-08 absolute
+  - t = 13.2: GL8 5.5607e-05, GL10 5.4482e-05, GL14 5.4084e-05: **0.7%**, 4.0e-07 absolute
+  - t = 15: GL8 5.6206e-05, GL10 5.4729e-05, GL14 5.4116e-05: **1.1%**, 6.1e-07 absolute
+  - t = 20.58: GL8 5.7461e-05, GL10 5.5819e-05, GL14 5.4287e-05: **2.8%**, 1.5e-06 absolute
+  - t = 32.08: GL8 5.2613e-05, GL10 5.7553e-05, GL14 5.5137e-05: **4.4%**, 2.4e-06 absolute
+  - t = 50: GL8 3.2606e-05, GL10 5.1821e-05, GL14 5.7057e-05: **9.2%**, 5.2e-06 absolute
   - the channel SATURATES: GL14 gives 5.400e-05 at t = 8.46 and 5.706e-05 at t = 50, so the physical late-time value is ~5.41e-05 and the slow rise across the last rows is quadrature, not physics.
-  - **xi_00 and xi_11 DO receive from this channel** — 4.528e-06 and 4.343e-06 at t = 5.44, r = 0, converged to 0.1 % (GL8 vs GL10) — and the 0.3.0 budget assumed they did not.  The assumption was that phi_1 -> -phi_1 parity forbids odd cumulants there, but that parity is BROKEN by the deformation itself: eta~ = eta + alpha (eta^2 - lambda) is not odd in eta, which is the whole reason xi_01 is non-zero.  The order-2 FK channel does vanish for xi_00, but for the narrower reason that its two diagrams' index structure does; that does not extend to order 4.  This is worth 13 % of the xi_00 residual and was found only by computing all three pairs instead of assuming.
+  - **xi_00 and xi_11 DO receive from this channel**: 4.528e-06 and 4.343e-06 at t = 5.44, r = 0, converged to 0.1 % (GL8 vs GL10).  The 0.3.0 budget assumed they did not.  The assumption was that phi_1 -> -phi_1 parity forbids odd cumulants there, but that parity is BROKEN by the deformation itself: eta~ = eta + alpha (eta^2 - lambda) is not odd in eta, which is also why xi_01 is non-zero.  The order-2 FK channel does vanish for xi_00, but for the narrower reason that its two diagrams' index structure does; that does not extend to order 4.  This is worth 13 % of the xi_00 residual, and was found by computing all three pairs.
 
 ## Are the simulation error bars right?
 
 The quoted error is an inverse-variance combination of 20 independent seeds, each carrying its own per-realisation standard error.  Checked against the scatter of the seed means themselves (xi_01, r = 0): the ratio (seed-scatter error / quoted error) has median 1.06 at dt = 0.02 and 1.11 at dt = 0.01 over t >= 5, scattered on both sides of 1, and is 0.63-0.74 at small t, i.e. if anything conservative there.  Per-t chi^2/dof across seeds is 0.34-1.62 throughout.
 
-One point looks alarming and is worth recording because the obvious statistic is the wrong one.  At dt = 0.02, t = 15 the plain seed scatter is **6.7x** the quoted error — while chi^2/dof at the same point is 0.83, which is contradictory unless one seed is a heavy-tailed outlier carrying a correspondingly large error.  It is: seed 105 gives 1.7559e-03 +- 1.30e-03 against a median of 4.2397e-04 (54 MAD) — a near-blow-up trajectory.  The inverse-variance weighting downweights it automatically: dropping it moves the combined mean by **0.02 %** (4.16896e-04 -> 4.16816e-04) and brings the scatter ratio to 0.91.  So `std/sqrt(n)` over seeds is the wrong statistic on this data, not the errors; the `w = 1/e^2` combination is doing its job.
+One point needs recording, because the obvious statistic is the wrong one.  At dt = 0.02, t = 15 the plain seed scatter is **6.7x** the quoted error, while chi^2/dof at the same point is 0.83.  That is contradictory unless one seed is a heavy-tailed outlier carrying a correspondingly large error, and it is: seed 105 gives 1.7559e-03 +- 1.30e-03 against a median of 4.2397e-04 (54 MAD), a near-blow-up trajectory.  The inverse-variance weighting downweights it automatically: dropping it moves the combined mean by **0.02 %** (4.16896e-04 -> 4.16816e-04) and brings the scatter ratio to 0.91.  So `std/sqrt(n)` over seeds is the wrong statistic on this data, not the errors.
 
 ## F-amplitude scaling: is the residual really order 4?
 
-Scaling the quadratic drift by `s` scales each channel by a known power of `s` (FK ~ s, F³κ³ ~ s³, F⁵κ³ ~ s⁵), so `residual(s) = xi_01^sim(s) - s·FK` should be `c3 s³ + c5 s⁵`.  All amplitudes at dt = 0.02, at t = 15, r = 0: the step-size bias is common to all three and does not enter the s-dependence.  This is INDEPENDENT of the order-4 calculation -- it uses only the simulation and the validated order-2 channel.
+Scaling the quadratic drift by `s` scales each channel by a known power of `s` (FK ~ s, F³κ³ ~ s³, F⁵κ³ ~ s⁵), so `residual(s) = xi_01^sim(s) - s·FK` should be `c3 s³ + c5 s⁵`.  All amplitudes at dt = 0.02, at t = 15, r = 0: the step-size bias is common to all three and does not enter the s-dependence.  This is INDEPENDENT of the order-4 calculation: it uses only the simulation and the validated order-2 channel.
 
 | s | runs | realisations | blow-ups /100k | xi_01 sim | s·FK | residual | ± MC | σ |
 |---|---|---|---|---|---|---|---|---|
@@ -291,16 +291,16 @@ Scaling the quadratic drift by `s` scales each channel by a known power of `s` (
 | 1.00 | 20 | 1,999,884 | 5.8 | 4.169e-04 | 3.441e-04 | 7.283e-05 | 1.0e-05 | +7.3 |
 | 1.50 | 20 | 1,909,723 | 4513.9 | 1.558e-03 | 5.161e-04 | 1.042e-03 | 1.5e-04 | +6.9 |
 
-**s = 1.5 is outside the regime the expansion describes** and is not used for the fit.  Two independent signs of that, both in the table: the residual there EXCEEDS the leading term (1.04e-03 against s·FK = 5.16e-04), and 4.5 % of trajectories blow up in finite time against 6e-05 at s = 1 — a 780x jump.  The simulation then reports a mean conditioned on the survivors, i.e. with the largest excursions removed, which are precisely the realisations the higher-order terms describe.  It is kept in the table as a measured boundary of validity.
+**s = 1.5 is outside the regime the expansion describes** and is not used for the fit.  Two independent signs of that, both in the table: the residual there EXCEEDS the leading term (1.04e-03 against s·FK = 5.16e-04), and 4.5 % of trajectories blow up in finite time against 6e-05 at s = 1, a 780x jump.  The simulation then reports a mean conditioned on the survivors, with the largest excursions removed, and those are the realisations the higher-order terms describe.  It is kept in the table as a measured boundary of validity.
 
 | fit | amplitudes | model | chi² / dof | c3 | c5 |
 |---|---|---|---|---|---|
 | (a) | 0.5, 1.0, 1.5 | c3 s³ + c5 s⁵ | 14.91 / 1 | 1.043e-05 ± 2.3e-05 | 7.862e-05 ± 2.3e-05 |
-| **(b)** | **0.5, 1.0** | **c3 s³** | **0.06 / 1** | **7.384e-05 ± 9.1e-06** | — |
+| **(b)** | **0.5, 1.0** | **c3 s³** | **0.06 / 1** | **7.384e-05 ± 9.1e-06** | n/a |
 
-Fit (b) is the one to read.  Its chi² of 0.06 for 1 dof says the two clean amplitudes are consistent with a **pure s³ law** — the residual is an order-4 effect.  That is a deductive result: it uses only the simulation and the validated order-2 channel, and assumes nothing about the order-4 calculation.  Fit (a) is shown for completeness; its chi² of 14.91 for 1 dof is the s = 1.5 point refusing to lie on any c3 s³ + c5 s⁵ curve through the other two, which is the same statement as the paragraph above.
+Fit (b) is the one to read.  Its chi² of 0.06 for 1 dof says the two clean amplitudes are consistent with a **pure s³ law**, so the residual is an order-4 effect.  The fit uses only the simulation and the validated order-2 channel, and assumes nothing about the order-4 calculation.  Fit (a) is shown for completeness; its chi² of 14.91 for 1 dof is the s = 1.5 point refusing to lie on any c3 s³ + c5 s⁵ curve through the other two, which is the same statement as the paragraph above.
 
-Computed F³κ³ at s = 1: **5.473e-05**, against fitted c3 = 7.384e-05 ± 9.1e-06 — **+2.1σ**.
+Computed F³κ³ at s = 1: **5.473e-05**, against fitted c3 = 7.384e-05 ± 9.1e-06, **+2.1σ**.
 
 ## Noise cumulants at x = 0 (simulation dt = 0.01, all times and seeds, vs analytic)
 
