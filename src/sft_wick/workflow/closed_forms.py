@@ -191,6 +191,14 @@ class ClosedFormC:
     #: (white noise apart) to the lazy spline cache.
     separable_translation: bool = True
 
+    #: C is kinked on ``t₁ = t₂``, so the Gauss-Legendre and nquad
+    #: integrators split the time domain there
+    #: (``evaluate._c_has_diagonal_kink``).  This closed form exists only
+    #: for the exponential temporal kernel, whose ``|Δt|`` cusp leaves a
+    #: jump in C's third derivative; with ``sigma2`` the first derivative
+    #: jumps as well.
+    has_diagonal_kink: bool = True
+
     @property
     def n_components(self) -> int:
         return len(self.gamma)

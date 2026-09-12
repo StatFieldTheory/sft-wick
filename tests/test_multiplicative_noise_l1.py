@@ -206,23 +206,28 @@ def test_MN3_gauss_legendre_matches_the_hierarchy(scalar_r, interpretation,
 def test_MN5_two_time_matches_the_hierarchy(scalar_r, interpretation):
     """Distinct external times at one point.
 
-    On ``qmc_vectorized`` here and on ``nquad`` in the slow test below.
-    Gauss-Legendre converges algebraically on this integrand, because an
-    internal time crosses the earlier external time inside the domain and
-    C is kinked on its diagonal -- a kink the GL splitter does not split
-    (it pairs internal variables).  Measured on the FG channel of
-    ``⟨φ_0(t₁) φ_1(t₂)⟩``: 2.0e-3 at 12 nodes, 1.8e-4 at 48, 5.4e-5 at 80,
-    against 1.2e-8 for ``nquad`` and 1.5e-7 for ``qmc_vectorized`` at 2^18.
-    The same holds for the FF channel, so it is a property of two external
-    times with white noise, not of the noise vertices."""
+    On ``qmc_vectorized`` here, on ``gauss_legendre`` and ``nquad`` below.
+    An internal time crosses the earlier external time inside the domain
+    and C is kinked on its diagonal; both deterministic integrators cut
+    the internal variable's range there.  Before the cut Gauss-Legendre
+    had no rate on this integrand -- worst over the weight-3 tags, 1.5e-3
+    at 12 nodes, 1.4e-4 at 48 and 4.1e-5 at 80, against 1.5e-8 for
+    ``nquad`` -- and both reach machine precision with it (6.4e-16 at 12
+    nodes, and ``nquad`` 22x faster: 1.0 s against 22.5 s)."""
     _two_time(scalar_r[interpretation], "qmc_vectorized",
               dict(n_samples=2 ** 15, seed=3), rel=1e-3)
+
+
+@pytest.mark.parametrize("interpretation", m5c.INTERPRETATIONS)
+def test_MN5_two_time_on_gauss_legendre(scalar_r, interpretation):
+    _two_time(scalar_r[interpretation], "gauss_legendre",
+              dict(n_gauss=12), rel=1e-11)
 
 
 @pytest.mark.slow
 @pytest.mark.parametrize("interpretation", m5c.INTERPRETATIONS)
 def test_MN5_two_time_on_nquad(scalar_r, interpretation):
-    _two_time(scalar_r[interpretation], "nquad", {}, rel=1e-6)
+    _two_time(scalar_r[interpretation], "nquad", {}, rel=1e-11)
 
 
 def _two_time(fixture, method, kw, rel):

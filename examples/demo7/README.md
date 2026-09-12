@@ -140,15 +140,35 @@ number of fields), so that order is the `FG` channel alone; the hierarchy
 gives 0 for the other two tags and the package produces no diagram for
 them.
 
+The tables in this section predate the domain cuts of 2026-09-12 (see
+"Limits, measured").  Every Gauss-Legendre row with a C propagator in it
+improves by orders of magnitude: `integrate_over={'x'}` at order 2 and
+`a = b = 1`, for instance, is 4.6e-07 at 16 nodes there and 1.3e-15 now,
+and the white-noise variant of the same channel 1.3e-03 and 1.3e-15.
+
 ## Limits, measured
 
-- **Gauss-Legendre converges as `n^-4` on a two-time integrand**, not
-  exponentially: C's third derivative jumps where an internal time crosses
-  a *fixed* external time, and that line sits inside the domain as soon as
-  `t ≠ t'`.  On the order-1 channel of `⟨φ_0(x,t) φ_1(y,t')⟩`: 4.1e-5,
-  8.8e-6, 2.9e-6, 5.9e-7, 1.2e-8, 7.8e-10, 4.9e-11 at `n_gauss` = 8, 12,
-  16, 24, 64, 128, 256.  With every external at one time the kink is on the
-  boundary and convergence is exponential.
+- **Gauss-Legendre converged as `n^-4` on a two-time integrand** until
+  2026-09-12, when the two kinks behind it were declared and cut.  C's
+  third derivative jumps on its time diagonal — the `|Δt|` cusp of the OU
+  kernel, through `∂²C/∂t₁∂t₂ = R κ² R` — and where an internal time
+  crosses a *fixed* external time that line sits inside the domain as soon
+  as `t ≠ t'`.  On the order-1 channel of `⟨φ_0(x,t) φ_1(y,t')⟩`, coloured
+  scalar R:
+
+  | | 8 | 12 | 16 | 24 | 32 nodes |
+  |---|---|---|---|---|---|
+  | before | 4.1e-05 | 8.8e-06 | 2.9e-06 | 5.9e-07 | 1.9e-07 |
+  | now | 3.6e-16 | 0.0 | 3.6e-16 | 1.8e-16 | 5.4e-16 |
+
+  and on the order-2 channel 6.1e-06 → 6.2e-14 at 8 nodes.  The same
+  configuration with both externals at one time is unchanged at order 1
+  (the kink is on the boundary) and goes from 5.7e-06 to 1.7e-10 at 8 nodes
+  at order 2, where the kink is between two internal times.  The
+  white-noise, matrix-R variant went from 4.0e-3, 1.0e-3, 2.6e-4, 6.6e-5 at
+  8, 16, 32, 64 nodes — exactly `n^-2` — to machine precision at 8.  The
+  cost is 2.1 pieces per diagram on the coloured configuration and 2.9 on
+  the two-time white-noise one.  The tables above predate both cuts.
 - **Both QMC routes stall at 1.4e-9 relative** on that channel — the same
   value for every seed and for 2¹² to 2¹⁸ samples — while `nquad` and the
   reference agree to 3.6e-16.  scipy's Sobol points carry 30 bits by

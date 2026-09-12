@@ -202,9 +202,11 @@ def item_b(quick: bool) -> None:
 
 
 def item_b_two_times(p, system, props, model, cf, quick: bool) -> None:
-    """Unequal external times.  Gauss-Legendre converges algebraically here:
-    C is kinked where an internal time crosses the earlier external time and
-    the domain is not split there (README, "Limits")."""
+    """Unequal external times.  C is kinked where an internal time crosses
+    the earlier external time; the integrators cut the internal variable's
+    range there (README, "Limits"), which is what keeps Gauss-Legendre
+    exponential.  Before the cut this channel had no rate at all (4.5e-04 to
+    2.2e-07 between 8 and 48 nodes)."""
     T1, T2 = p.t_final - 0.9, p.t_final
     print(f" unequal external times x: {T1:.2f}, y: {T2:.2f}")
     cases = [(0, "", (0, 0)), (1, "G", (0, 1)), (2, "F", (2, 0)), (2, "G", (0, 2))]
@@ -234,8 +236,9 @@ def item_b_two_times(p, system, props, model, cf, quick: bool) -> None:
 
 def item_b_two_times_by_hand(p, model, cf, T1: float, T2: float) -> None:
     """The order-1 cubic channel by hand, with and without the split at the
-    kink: it is the kink, not the package, that costs Gauss-Legendre its
-    convergence at unequal external times."""
+    kink: the diagnosis the package's cut is based on -- the same integral
+    converges when its domain is split at the crossing and not otherwise,
+    whoever writes it out."""
     r = abs(POS["x"] - POS["y"])
 
     def C(b, t1, t2, rr):
