@@ -311,6 +311,43 @@ the hierarchy: 3.9e-08 (two-time, GL), 2.6e-07 (four Legendre coefficients),
 (`integrate_over`), 1.1e-07 (three-point at order 2).  No route the package
 accepts returned a wrong number.
 
+### Breaking: two points of one R-connected group may not be at different positions
+
+R carries `δ(n − n')`, so the points an R chain joins are one spatial point
+with one coordinate.  `DiagramIntegrand._resolve_group_x` took whichever of
+the named points a `frozenset` yielded first.  Two externals share a group
+only through an external response leg (`("phi_a(x)", "psi_b(y)")`) or a local
+vertex with two or more ψ legs (what `MultiplicativeImpulse` lowers to);
+`("phi_a(x)", "phi_b(y)")` never does, which is why no demo met it.
+
+Measured at N = 2, γ = (0.8, 1.15), an asymmetric F and a position-dependent
+closed-form C, on order 2 of `⟨φ_a(x, 3.0) ψ_b(y, 1.2)⟩` at
+`{'x': 0.0, 'y': 0.9}`:
+
+| the pick | value |
+|---|---|
+| x (0.0) | 1.1042554919e-01 |
+| y (0.9) | 4.9123696275e-02 |
+
+A factor 2.25 apart, and each is bit for bit the value of a different
+one-position configuration: the request for two positions was answered as a
+one-position question.  Renaming the externals to `('u', 'v')` flips which
+one comes out, and so does `PYTHONHASHSEED` — the same program on the same
+input returned either number.
+
+At two positions the diagram is a delta function rather than a value, so it
+is refused rather than computed (`evaluate.py::_require_one_position_per_group`):
+from `_resolve_group_x` (the four `integrate_moment_*` and the
+zero-dimensional path), from `integrate_diagrams` before any joblib worker
+starts, unconditionally from `integrate_two_point_qmc` (whose own
+last-external-wins pick is gone with it), and from
+`DiagramIntegrand.evaluate` for the point-keyed `directions` spelling.
+`Expansion.evaluate`'s `_guard_single_site` still fires first for a
+`MultiplicativeImpulse`, with its noise-specific message.  Locked by
+`tests/test_group_position_conflict.py` (33 tests, 20 of which fail before
+the fix), including the old resolver restored under a monkeypatch to show
+which of the two answers it gave.
+
 ### Fixed: a callable `DiagonalA` rate was integrated to O(h²)
 
 `DiagonalA(gamma=callable)` builds `R_aa(t1, t2) = exp(-(Γ_a(t1) − Γ_a(t2)))`
