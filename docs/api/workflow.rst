@@ -42,6 +42,24 @@ Propagators
    :show-inheritance:
    :member-order: bysource
 
+R-contracted non-local coupling
+-------------------------------
+
+.. automodule:: sft_wick.workflow.r_contracted
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :member-order: bysource
+
+Propagator disk cache
+---------------------
+
+.. automodule:: sft_wick.workflow.cache
+   :members:
+   :undoc-members:
+   :show-inheritance:
+   :member-order: bysource
+
 Result & SweepResult
 --------------------
 

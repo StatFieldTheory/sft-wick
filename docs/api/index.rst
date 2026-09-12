@@ -3,12 +3,17 @@ API Reference
 
 Complete reference for every public class and function in **sft-wick**.
 
-The top-level package re-exports the entire public API, so all objects
+The top-level package re-exports the user-facing API — every name in
+``sft_wick.workflow.__all__`` and the L0 public types — so most objects
 listed below are accessible directly from ``sft_wick``:
 
 .. code-block:: python
 
    from sft_wick import Field, Vertex, Action, compute_moment
+
+The remaining helpers are imported from their own module:
+``sft_wick.workflow.config.run_workflow``, and ``hash_spec`` /
+``load_or_compute`` from ``sft_wick.workflow.cache``.
 
 .. toctree::
    :maxdepth: 2
