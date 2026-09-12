@@ -11,8 +11,8 @@ Field Types
 The :class:`~sft_wick.fields.FieldType` enum defines the two MSR field
 species:
 
-- ``FieldType.PHYSICAL`` --- the physical field :math:`\phi`
-- ``FieldType.RESPONSE`` --- the response (auxiliary) field :math:`\psi`
+- ``FieldType.PHYSICAL``: the physical field :math:`\phi`
+- ``FieldType.RESPONSE``: the response (auxiliary) field :math:`\psi`
 
 You can pass either the enum value or a string:
 
@@ -40,10 +40,10 @@ field species:
 
 Properties:
 
-- :attr:`~sft_wick.fields.Field.is_scalar` --- ``True`` when
+- :attr:`~sft_wick.fields.Field.is_scalar`: ``True`` when
   ``n_components == 1``
 - :attr:`~sft_wick.fields.Field.is_physical` /
-  :attr:`~sft_wick.fields.Field.is_response` --- type checks
+  :attr:`~sft_wick.fields.Field.is_response`: type checks
 
 
 Creating Field Operators
@@ -62,7 +62,7 @@ field with a bound component index and spatial argument.  Create one by
    op = phi('a', 'x')        # phi_a(x)
 
 Each call produces an operator with a **globally unique integer UID**.
-This allows the contraction engine to distinguish two copies of the same
+The contraction engine uses it to distinguish two copies of the same
 field in the same product (e.g. :math:`\phi(x)\,\phi(x)`).
 
 
@@ -87,9 +87,9 @@ Field Operator Properties
 
 A ``FieldOperator`` exposes the following attributes:
 
-- ``field`` --- the parent :class:`~sft_wick.fields.Field` declaration
-- ``component_index`` --- component label (``None`` for scalars)
-- ``spatial_arg`` --- spatial argument string
-- ``uid`` --- unique integer ID
-- ``field_type`` / ``is_physical`` / ``is_response`` --- delegated from
+- ``field``: the parent :class:`~sft_wick.fields.Field` declaration
+- ``component_index``: component label (``None`` for scalars)
+- ``spatial_arg``: spatial argument string
+- ``uid``: unique integer ID
+- ``field_type`` / ``is_physical`` / ``is_response``: delegated from
   the parent field

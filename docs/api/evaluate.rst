@@ -1,4 +1,4 @@
-``sft_wick.evaluate`` --- Numerical Evaluation Pipeline
+``sft_wick.evaluate``: Numerical Evaluation Pipeline
 =======================================================
 
 .. automodule:: sft_wick.evaluate

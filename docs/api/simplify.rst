@@ -1,4 +1,4 @@
-``sft_wick.simplify`` --- Expression Simplification
+``sft_wick.simplify``: Expression Simplification
 ====================================================
 
 .. automodule:: sft_wick.simplify

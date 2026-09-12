@@ -99,7 +99,7 @@ Output:
 Integrating into Papers
 -----------------------
 
-The LaTeX output is designed to paste directly into ``.tex`` documents.
+The LaTeX output pastes directly into ``.tex`` documents.
 Typical workflow:
 
 1. Run the calculation in a Python script or Jupyter notebook.

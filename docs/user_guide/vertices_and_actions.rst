@@ -134,8 +134,7 @@ behind the R-absorption dispatch.
 Building an Action
 ------------------
 
-An :class:`~sft_wick.action.Action` is simply a list of vertex
-templates:
+An :class:`~sft_wick.action.Action` is a list of vertex templates:
 
 .. code-block:: python
 
@@ -143,8 +142,7 @@ templates:
 
    action = Action(vertices=[v, v_nl])
 
-You can also pass an empty list when you only need zeroth-order
-(free-propagator) results:
+Pass an empty list for zeroth-order (free-propagator) results:
 
 .. code-block:: python
 
@@ -178,6 +176,5 @@ the counters to ensure no collisions between copies:
 - **Component indices:** ``i_0``, ``i_1``, ``i_2``, ...
 - **Spatial variables:** ``y_0``, ``y_1``, ``y_2``, ...
 
-This is handled automatically by
-:func:`~sft_wick.perturbation.compute_moment`; you only need to interact
-with ``VertexInstance`` directly if you are using the low-level API.
+:func:`~sft_wick.perturbation.compute_moment` handles this.  Only the
+low-level API requires touching ``VertexInstance`` directly.

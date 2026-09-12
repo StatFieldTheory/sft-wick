@@ -1,7 +1,7 @@
 Zeroth-Order Moments
 ====================
 
-At zeroth order no interaction vertices contribute --- the result is
+At zeroth order no interaction vertices contribute; the result is
 purely the Wick contraction of the observable under the free action
 :math:`S_0`.
 

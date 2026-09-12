@@ -1,4 +1,4 @@
-``sft_wick.latex`` --- LaTeX Formatting
+``sft_wick.latex``: LaTeX Formatting
 =======================================
 
 .. automodule:: sft_wick.latex

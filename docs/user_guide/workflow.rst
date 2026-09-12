@@ -2,20 +2,19 @@ Workflow API (L1 + L2)
 ======================
 
 The :mod:`sft_wick.workflow` subpackage is the recommended entry
-point for typical use.  It encapsulates the full pipeline — physics
-spec → perturbative expansion → propagator cache → numerical sweep —
-into five immutable types and two orchestration helpers.
+point for typical use.  It wraps the full pipeline (physics spec →
+perturbative expansion → propagator cache → numerical sweep) into five
+immutable types and two orchestration helpers.
 
 Which layer to use
 ------------------
 
-**Default to L2 (YAML + CLI).**  A config file is the best starting
-point for any new analysis: it is reproducible, diff-able, easy to
-share, identical on a laptop and a cluster, and supports quick
-parameter scans via ``--override``.  The L1 Python API is the same
-machinery — every YAML field maps 1:1 onto an L1 constructor
-argument — so you can always drop down to Python if you need to
-compose multiple systems or attach custom post-processing.
+**Default to L2 (YAML + CLI).**  A config file is reproducible,
+diff-able, easy to share, identical on a laptop and a cluster, and
+supports quick parameter scans via ``--override``.  The L1 Python API
+is the same machinery: every YAML field maps 1:1 onto an L1
+constructor argument.  Drop down to Python to compose multiple systems
+or attach custom post-processing.
 
 Use **L1 Python** when you need to:
 
@@ -31,8 +30,8 @@ when you need fine-grained control over Itô prescription,
 diagonal/isotropic simplification flags, or contraction engines
 that the L1 defaults don't expose.
 
-Quick start — L2 (config file)
-------------------------------
+Quick start: L2 (config file)
+-----------------------------
 
 A minimal but complete config covering the demo1 two-component
 system at orders 0, 2, 4:
@@ -45,7 +44,7 @@ system at orders 0, 2, 4:
      linear: {type: diagonal, gamma: [1.0, 1.0]}
      vertices:
        - name: F
-         coupling:                              # bare F tensor —
+         coupling:                              # bare F tensor;
            - [[0.0, 0.0], [0.0, 1.0]]           # MSR factor applied
            - [[0.0, 0.5], [0.5, 0.0]]           # automatically
      noise:
@@ -81,16 +80,16 @@ Run it:
    sft-wick run demo1_config.yaml --dry-run        # validate + summarize
 
 The CLI is registered on install; ``--override key=value`` patches
-any leaf field (safe scalar coercion — no ``eval``).  Larger
+any leaf field (safe scalar coercion, no ``eval``).  Larger
 examples exercising non-local vertices, closed-form :math:`C`
 hooks, and dynamic couplings live in ``examples/demo1_config.yaml``
 and ``examples/demo2_config.yaml``.
 
-Quick start — L1 (Python)
--------------------------
+Quick start: L1 (Python)
+------------------------
 
-Same workflow written in Python — use this when embedding in a
-larger script:
+Same workflow written in Python.  Use this when embedding in a larger
+script:
 
 .. code-block:: python
 
@@ -128,7 +127,7 @@ larger script:
 
    **Every external operator needs its own spatial label.**  Write the
    equal-point correlator as ``("phi_a(x)", "phi_b(y)")`` with
-   ``positions={"x": 0.0, "y": 0.0}`` — *not* as
+   ``positions={"x": 0.0, "y": 0.0}``, *not* as
    ``("phi_a(x)", "phi_b(x)")``, which raises ``ValueError`` at
    interacting orders (order 0 is exempt).
 
@@ -143,21 +142,21 @@ larger script:
 The five headline types
 -----------------------
 
-:class:`~sft_wick.workflow.System` — physics spec
+:class:`~sft_wick.workflow.System`: physics spec
    Combines field, linear operator (for :math:`R`), noise (for
    :math:`C`), and vertex lists.  Methods ``expand`` and
    ``propagators`` lower to the computational layer.
 
-:class:`~sft_wick.workflow.Expansion` — diagram-level view
+:class:`~sft_wick.workflow.Expansion`: diagram-level view
    What ``compute_moment`` returned, wrapped for inspection:
    ``diagrams(order)``, ``summary()``, ``by_vertex_type(order)``.
    Also the numerical entry points ``evaluate`` (single point) and
    ``sweep`` (grid).
 
-:class:`~sft_wick.workflow.Propagators` — cache wrapper
+:class:`~sft_wick.workflow.Propagators`: cache wrapper
    Thin wrapper over :class:`~sft_wick.evaluate.PropagatorCache`.
    Pass a ``c_closed_form=`` hook to ``System.propagators`` when a
-   closed-form :math:`C(n_1, t_1, n_2, t_2)` is known — skips the
+   closed-form :math:`C(n_1, t_1, n_2, t_2)` is known; it skips the
    dblquad grid build entirely.
 
 :class:`~sft_wick.workflow.Result`, :class:`~sft_wick.workflow.SweepResult`
@@ -166,8 +165,8 @@ The five headline types
    ``SweepResult.plot(x=…, hue=…, facet_col=…)`` gives a quick
    diagnostic figure.
 
-MSR convention — the one gotcha
--------------------------------
+MSR convention
+--------------
 
 L1 applies the MSR prefactors for you:
 
@@ -179,15 +178,15 @@ So users pass **bare** tensors:
 
 .. code-block:: python
 
-   # CORRECT — pass the physical F, wrapper applies −i
+   # CORRECT: pass the physical F, wrapper applies −i
    sw.LocalVertex("F", coupling=F)
 
-   # WRONG — pre-multiplied, will double-apply the factor
+   # WRONG: pre-multiplied, will double-apply the factor
    sw.LocalVertex("F", coupling=-1j * F)
 
 The raw API (``compute_moment``, ``DiagramTerm.evaluate_coupling``)
-does NOT apply these factors automatically — raw callers must pass
-the pre-multiplied tensor.
+does NOT apply these factors automatically.  Raw callers must pass the
+pre-multiplied tensor.
 
 Multiplicative white noise, Itô and Stratonovich
 ------------------------------------------------
@@ -231,10 +230,10 @@ that C carries and a part that becomes vertices:
      - Bare coupling
      - MSR factor
      - power of ``g1``
-   * - —
-     - —
+   * - (none)
+     - (none)
      - ``D0 = g0 g0ᵀ`` → the white noise of C
-     - —
+     - (none)
      - 0
    * - ``G``
      - ψ ψ φ
@@ -300,7 +299,7 @@ Two further properties of this spec:
   carries ``δ(n − n')``, so the points an R chain joins are one spatial
   point and have one coordinate.  The other way to write such a chain is
   an observable with an external response leg, ``("phi_a(x)",
-  "psi_b(y)")`` — that one reaches L0 with no multiplicative noise in
+  "psi_b(y)")``, which reaches L0 with no multiplicative noise in
   sight.
 
 A quadratic term in ``g`` is not supported; it would add vertices with two
@@ -310,18 +309,18 @@ noise-induced drift.
 ``examples/demo5/white_l1_multiplicative.py`` runs this route against an
 exact reference; the YAML form is ``noise.sigma2.type: multiplicative``.
 
-Observable convention — ``integrate_over``
-------------------------------------------
+Observable convention: ``integrate_over``
+-----------------------------------------
 
 Both ``Expansion.evaluate`` and ``Expansion.sweep`` accept an
 ``integrate_over`` keyword:
 
 ``None`` (default)
-    All external points fixed at ``t_final`` — the physics 2-point
+    All external points fixed at ``t_final``: the physics 2-point
     correlator :math:`\langle \varphi(t_f)\,\varphi(t_f) \rangle`.
 
 ``"all"``
-    All external times integrated over ``[t_min, t_final]`` — the
+    All external times integrated over ``[t_min, t_final]``: the
     time-integrated moment
     :math:`\langle \int\!\varphi \cdot \int\!\varphi \rangle`.  Use
     for line-of-sight or weak-lensing observables.
@@ -371,8 +370,8 @@ composes cleanly with ``propagators.n_jobs > 1``,
 ``expand.n_jobs > 1``, and ``sweep.n_jobs > 1`` (same machinery
 ``c_closed_form_module`` and ``coupling_module`` use).
 
-``iso_R: false`` declares a matrix-valued R — the response of a dense
-drift, a time-ordered matrix exponential rather than a per-component
+``iso_R: false`` declares a matrix-valued R, the response of a dense
+drift: a time-ordered matrix exponential rather than a per-component
 decay.  At load time the callable is called once at a causal and once at
 an acausal time pair inside ``[t_min, t_max]``: the value must have the
 declared shape and must vanish for ``t1 < t2``.  A dense R needs three
@@ -465,8 +464,9 @@ tensor has shape ``(N,)*n``::
 
    sw.LocalVertex("F", coupling=f_of_x_t, rank=3)
 
-``rank`` is required for a callable -- the number of legs cannot be read
-off a callable -- and is checked against the tensor when one is passed.
+``rank`` is required for a callable, because the number of legs cannot
+be read off one; it is checked against the tensor when a tensor is
+passed.
 The MSR factor ``-i`` is applied to the callable's output, as it is to a
 tensor.
 
@@ -483,7 +483,7 @@ Equal-time (single-shell) cumulants
 The default :class:`~sft_wick.workflow.NonLocalVertex` contract treats
 the vertex's coupling as the **full cross-spacetime** cumulant
 ``κ^(m)(z_1, …, z_m)`` and integrates over ``m`` independent
-``(n, λ)`` arguments --- the literal MSR action
+``(n, λ)`` arguments, the literal MSR action
 ``W^(m)[ψ] = (1/m!) ∫ dz_1 … dz_m  ψ(z_1) … ψ(z_m) κ^(m)``.
 
 Many applications (especially cosmological structure / lensing in the
@@ -496,10 +496,10 @@ action-level relation between the two is::
                               · κ_eq(n_1, ..., n_m;  λ)
 
 Passing ``ζ_eq`` as the ``coupling`` callable *without* declaring the
-δ-structure makes sft-wick faithfully sweep ``m`` independent times
-over ``[t_min, t_final]``, contributing a spurious ``(t_final − t_min)^(m−1)``
-factor of integration measure --- the answer is wrong by orders of
-magnitude.
+δ-structure makes sft-wick sweep ``m`` independent times over
+``[t_min, t_final]``, contributing a spurious
+``(t_final − t_min)^(m−1)`` factor of integration measure.  The answer
+is then wrong by orders of magnitude.
 
 Use ``equal_time=True`` to declare the equal-time / single-shell
 form::
@@ -514,8 +514,8 @@ When set, sft-wick
 * collapses the ``m`` time-integration legs of this vertex into a
   **single** integration variable (one ``∫dλ_K`` covering all ``m``
   ψ-legs of one vertex insertion);
-* keeps the ``m`` spatial legs independent --- the callable still
-  receives ``m`` distinct positions, because ``ζ_eq`` IS a function
+* keeps the ``m`` spatial legs independent: the callable still
+  receives ``m`` distinct positions, because ``ζ_eq`` is a function
   of ``m`` independent angular coordinates;
 * fills the callable's ``t_list`` with the *same* time value
   replicated ``m`` times.
@@ -538,9 +538,9 @@ When NOT to use ``equal_time``: if your callable returns the genuine
 cross-spacetime cumulant ``κ^(m)(z_1, …, z_m)`` (e.g. an unequal-time
 matter bispectrum with explicit linear-growth scaling
 ``D(λ_1) D(λ_2) D(λ_3)`` and a stationary template), keep
-``equal_time=False`` (the default) --- otherwise the ``m`` independent
+``equal_time=False`` (the default).  Otherwise the ``m`` independent
 ``λ`` integrations that the cross-spacetime form requires would be
-incorrectly collapsed.
+collapsed.
 
 Already-R-contracted vertices
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -551,7 +551,7 @@ R-propagator that lands on a leg via the Wick contraction. For
 **narrow-kernel** ``κ^(m)`` (canonical case: canoes' squeezed κ³ at
 ``ℓ_max → ∞``, with diagonal width ``Δχ ~ χ_max / ℓ_max``), the m
 leg-time integrations on the causal simplex demand prohibitively
-many quadrature nodes. The trick is to recognise the math identity
+many quadrature nodes. The identity used is
 
 .. math::
 
@@ -573,7 +573,7 @@ form) instead of the bare ``κ^(m)``::
 When set, sft-wick
 
 * tags the m R-propagators attached to this vertex's ψ legs as
-  **absorbed** — they remain in the diagram graph (so direction
+  **absorbed**: they remain in the diagram graph (so direction
   groups continue to identify the leg with its partner) but
   contribute a factor of **1** instead of the usual ``R_time`` value;
 * aliases each leg's time onto its Wick partner's time via the
@@ -585,10 +585,10 @@ When set, sft-wick
 
 The dimensionality of the diagram-side integration drops by ``m`` per
 R-contracted vertex (e.g. an order-2 F+K diagram on a 4-D simplex
-becomes 1-D after absorption). Beyond the speedup, the surviving
-integrand is **smoother** — the narrow-kernel peak has been folded
-into the (presumably smooth) ``κ^(m)_R``, so Gauss-Legendre converges
-exponentially with far fewer nodes.
+becomes 1-D after absorption). The surviving integrand is also
+smoother: the narrow-kernel peak has been folded into the (presumably
+smooth) ``κ^(m)_R``, so Gauss-Legendre converges exponentially with far
+fewer nodes.
 
 YAML form::
 
@@ -626,20 +626,20 @@ tensor-product trapezoid on a user-supplied χ-grid::
        causal=True,        # use causal Heaviside on R
    )
 
-This is slow (O(n_chi^m) raw-callable evaluations per outer point);
-its purpose is to validate the dispatch against a known raw kernel.
+This is slow (O(n_chi^m) raw-callable evaluations per outer point).
+Use it to validate the dispatch against a known raw kernel.
 **For production work, supply an analytical / pre-tabulated**
-``κ^(m)_R`` **callable** — e.g. canoes' FFTlog-of-W chain.
+``κ^(m)_R`` **callable**, e.g. canoes' FFTlog-of-W chain.
 
 Compatibility:
 
 * ``already_R_contracted=True`` rejects ``equal_time=True`` at
-  construction (vacuous combination — the R-contracted callable has
-  already integrated over its leg coordinates).
+  construction: the R-contracted callable has already integrated over
+  its leg coordinates.
 * All existing knobs (``coupling_vectorized``, MSR factor, response
   phase, diagonal / isotropic simplification) work unchanged.
 * The dispatch is **mathematically equivalent** to the raw path when
-  both pipelines receive analytically-equivalent inputs — locked at
+  both pipelines receive analytically-equivalent inputs, locked at
   machine precision (``rtol=1e-12``, observed ``rel_diff ≈ 1.8e-15``)
   by the constant-κ³ equivalence test in
   ``tests/test_R_contracted_vertex.py``. The two paths are **not
@@ -648,7 +648,7 @@ Compatibility:
   the floating-point sums use different node sets and the last few
   bits of float64 necessarily differ. Convergence under refinement
   (e.g. demo2 FK at ``n_gauss=16``: ``rel_diff ≈ 7e-4``) confirms the
-  dispatch on real spacetime-dependent κ³ — see
+  dispatch on real spacetime-dependent κ³; see
   ``docs/notes/R_contracted_nonlocal_vertex.md`` §4.1.
 
 Design details and the equivalence-validation evidence on demo2 FK
@@ -675,8 +675,8 @@ the pieces are added.  Three kinds of pair are split:
 * the two ends of a C propagator when C is kinked on its time diagonal:
   white noise (``GaussianNoise(sigma2=...)``) and a κ² with a ``|Δt|`` cusp
   (the exponential/OU kernel, a damped cosine, any callable the kernel
-  probe finds cusped -- ``C = ∫∫ R κ² R`` inherits the cusp in its third
-  derivative) are found from the model, and a closed-form C callable
+  probe finds cusped, since ``C = ∫∫ R κ² R`` inherits the cusp in its
+  third derivative) are found from the model, and a closed-form C callable
   declares it with ``has_diagonal_kink = True``;
 * two time arguments of a coupling callable that declares
   ``has_coincident_time_kinks = True``, meaning that it is kinked wherever
@@ -755,11 +755,12 @@ references (maximum relative difference over the component tuples):
      - 2.6e-15 / 6.3e-15
      - 2, in the diagrams where two F times are partners
 
-The cut at a fixed external time costs one more integration per cut.  Demo
-4's raw exponential 3-point function at external times (1.7, 1.2, 0.6) --
-three leg times, each cut against three distinct external times -- is the
-worst case measured: 25 pieces per diagram, against 7 for the leg-order
-split alone, and 4.8e-15 at 16 nodes where it was 1.4e-3 (2.1e-4 at 64).
+The cut at a fixed external time costs one more integration per cut.  The
+worst case measured is demo 4's raw exponential 3-point function at
+external times (1.7, 1.2, 0.6), where three leg times are each cut against
+three distinct external times: 25 pieces per diagram, against 7 for the
+leg-order split alone, and 4.8e-15 at 16 nodes where it was 1.4e-3 (2.1e-4
+at 64).
 Demo 6's ``F F`` channel at two external times takes 2.0 pieces per
 diagram, demo 7's two-time channel 2.9, demo 8's oscillator channels 2.88
 against 1.38.
@@ -802,7 +803,7 @@ vectors:
 
 * **translation**: the wrapper reduces the input to ``r = ||x1 -
   x2||`` (Euclidean norm), so the cache shape stays
-  ``(t1, t2, r)`` -- 3-D regardless of the ambient dimension.
+  ``(t1, t2, r)``, 3-D regardless of the ambient dimension.
 * **rotation**: ``_rotation_cos(n1, n2)`` works on unit vectors of
   any dimension (it only uses ``np.dot`` and ``np.linalg.norm``).
 * **general**: lazy mode supports d-dim via dict-keyed memoisation
@@ -814,10 +815,9 @@ vectors:
 YAML configuration reference (L2)
 ---------------------------------
 
-The YAML schema mirrors the L1 constructor signatures one-for-one
-— anything expressible in L1 Python has a YAML equivalent. This
-section is the **complete reference** for every key the parser
-recognises.
+The YAML schema mirrors the L1 constructor signatures one-for-one:
+anything expressible in L1 Python has a YAML equivalent. This section
+is the **complete reference** for every key the parser recognises.
 
 Top-level structure
 ~~~~~~~~~~~~~~~~~~~
@@ -842,7 +842,7 @@ fields must be present.
 .. code-block:: yaml
 
    # ============================================================
-   # system  --  physics specification
+   # system: physics specification
    # ============================================================
    system:
      field:
@@ -851,14 +851,14 @@ fields must be present.
 
      linear:
        type: diagonal        # 'diagonal' (DiagonalA) | 'explicit' (ExplicitR)
-       # ---- type: diagonal -- A_{ab} = -γ_a δ_{ab} ----
-       gamma: [1.0, 1.0]     # length-N constant rates  -- OR
+       # ---- type: diagonal (A_{ab} = -γ_a δ_{ab}) ----
+       gamma: [1.0, 1.0]     # length-N constant rates, OR
        # gamma_module: ./drift.py        # dotted path to callable γ(t)→array(N)
        # gamma_attr: gamma               # default 'gamma'
        # t_max_cache: 20.0               # γ-spline upper end (default 100.0); propagators.t_max may not exceed it
        # t_min_cache: 0.0                # γ-spline lower end (default 0.0); System extends it down to t_min
        # n_grid_cache: 400               # γ-spline node count (default ceil((t_max_cache - t_min_cache)/dt), else 200)
-       # ---- type: explicit -- user-supplied R(t1, t2) ----
+       # ---- type: explicit (user-supplied R(t1, t2)) ----
        # R_time_module: ./R_time.py      # path to a .py exporting R_time(t1, t2)
        # R_time_attr:   R_time           # default 'R_time'
        # iso_R:         true             # true: a scalar R; false: an (N, N) matrix
@@ -907,7 +907,7 @@ fields must be present.
      t_min: 0.0                          # lower bound for time integration domain
 
    # ============================================================
-   # expand  --  perturbative diagram enumeration
+   # expand: perturbative diagram enumeration
    # ============================================================
    expand:
      observable: ["phi_a(x)", "phi_b(y)"]   # required
@@ -923,7 +923,7 @@ fields must be present.
      n_jobs:            1        # parallel diagrams per grid point (>1 forbids sweep.n_jobs>1)
 
    # ============================================================
-   # propagators  --  C-cache build
+   # propagators: C-cache build
    # ============================================================
    propagators:
      t_max:              50.0    # required: upper time bound
@@ -961,7 +961,7 @@ fields must be present.
      cache_path:         null         # dir for joblib cache
 
    # ============================================================
-   # sweep  --  numerical evaluation grid
+   # sweep: numerical evaluation grid
    # ============================================================
    sweep:
      positions_grid:                    # required: each list is swept independently
@@ -976,7 +976,7 @@ fields must be present.
 
      # Optional: pin external points at UNEQUAL times, swept as a further
      # Cartesian axis (same shape as positions_grid).  Needed for two-time
-     # observables such as R(t, t') and C(t, t') -- with every external at one
+     # observables such as R(t, t') and C(t, t'); with every external at one
      # time, Theta kills the R joining them and any observable carrying a
      # response leg is identically 0.  Result rows gain a ``t_<point>`` column.
      external_times_grid:
@@ -997,7 +997,7 @@ fields must be present.
                                        # (mutually exclusive with expand.n_jobs > 1)
 
    # ============================================================
-   # output  --  optional artefact emitters (list of plugins)
+   # output: optional artefact emitters (list of plugins)
    # ============================================================
    output:
      - {type: table, format: markdown, path: results.md}
@@ -1022,7 +1022,7 @@ Section reference: ``system``
    * - ``field.n_components``
      - ``int``
      - **required**
-     - N — number of internal components per field
+     - N, the number of internal components per field
    * - ``linear.type``
      - ``str``
      - ``"diagonal"``
@@ -1070,7 +1070,7 @@ Section reference: ``system``
    * - ``noise.kappa2.temporal``
      - block
      - **required** (separable variants)
-     - ``{type: exponential|gaussian, lam, sigma_t}``, or ``{type: custom, module: ./kernels.py, attr: temporal}`` for any callable ``κ(Δt) → float`` (lowered to :class:`~sft_wick.workflow.CustomKernel`) — see :doc:`expressions`
+     - ``{type: exponential|gaussian, lam, sigma_t}``, or ``{type: custom, module: ./kernels.py, attr: temporal}`` for any callable ``κ(Δt) → float`` (lowered to :class:`~sft_wick.workflow.CustomKernel`); see :doc:`expressions`
    * - ``noise.kappa2.spatial``
      - block
      - **required** (``separable_translation``)
@@ -1078,7 +1078,7 @@ Section reference: ``system``
    * - ``noise.sigma2``
      - block or ``null``
      - ``null``
-     - Optional δ-correlated white-noise variance.  Three flavours: ``{type: constant, amplitude: 0.01}``, where the amplitude is a number (read as ``amplitude × I_N``) or a symmetric ``N × N`` nested list — the matrix form mixes the components, so it needs ``propagators.diag_C: false``; ``{type: callable_module, module: ./fn.py, attr: sigma2}`` for a user-supplied ``sigma2(n1, lam, n2) → (N, N)`` (mirrors the ``kappa2.callable_module`` pattern; the spec is wrapped via ``CustomImpulse``); or ``{type: multiplicative, g0: [[...]], g1: [[[...]]], interpretation: ito|stratonovich}`` for white noise whose amplitude depends on φ (:class:`~sft_wick.workflow.MultiplicativeImpulse`; optional ``vertex_names``, ``drift_names``), whose ``D0 = g0 g0ᵀ`` is dense in general and then needs ``propagators.diag_C: false``
+     - Optional δ-correlated white-noise variance.  Three flavours: ``{type: constant, amplitude: 0.01}``, where the amplitude is a number (read as ``amplitude × I_N``) or a symmetric ``N × N`` nested list (the matrix form mixes the components, so it needs ``propagators.diag_C: false``); ``{type: callable_module, module: ./fn.py, attr: sigma2}`` for a user-supplied ``sigma2(n1, lam, n2) → (N, N)`` (mirrors the ``kappa2.callable_module`` pattern; the spec is wrapped via ``CustomImpulse``); or ``{type: multiplicative, g0: [[...]], g1: [[[...]]], interpretation: ito|stratonovich}`` for white noise whose amplitude depends on φ (:class:`~sft_wick.workflow.MultiplicativeImpulse`; optional ``vertex_names``, ``drift_names``), whose ``D0 = g0 g0ᵀ`` is dense in general and then needs ``propagators.diag_C: false``
    * - ``vertices``
      - list of blocks
      - ``[]``
@@ -1094,7 +1094,7 @@ Section reference: ``system``
 
 .. _vertex-spec:
 
-**Vertex spec** — every ``vertices[]`` / ``nonlocal_vertices[]`` entry needs a ``name``, unique across both lists (the coupling values are keyed by it), and exactly one of the following to define the coupling.  A tensor coupling must have every axis of length N: ``(N,)*order`` for a non-local vertex, ``(N,)*n`` for a local one whose first axis is the ψ leg.
+**Vertex spec.**  Every ``vertices[]`` / ``nonlocal_vertices[]`` entry needs a ``name``, unique across both lists (the coupling values are keyed by it), and exactly one of the following to define the coupling.  A tensor coupling must have every axis of length N: ``(N,)*order`` for a non-local vertex, ``(N,)*n`` for a local one whose first axis is the ψ leg.
 
 .. list-table::
    :header-rows: 1
@@ -1140,7 +1140,7 @@ of ψ-legs) and accept two specialisation flags:
        integrations are too expensive (e.g. squeezed κ³ at
        :math:`\ell_{max} \to \infty`)
 
-The two flags are **mutually exclusive** — combining them is rejected
+The two flags are **mutually exclusive**: combining them is rejected
 at construction time.
 
 Section reference: ``expand``
@@ -1202,7 +1202,7 @@ when its two legs sit at the same time.  A sweep pins every external at
 response leg evaluates to **exactly zero everywhere**.  Two things are needed
 to get a non-trivial answer:
 
-1. Name the **response field** in the observable — ``psi_b(y)`` alongside
+1. Name the **response field** in the observable: ``psi_b(y)`` alongside
    ``phi_a(x)``.
 2. Separate the external times with ``external_times_grid``.
 
@@ -1254,9 +1254,9 @@ component axis carries one index per operator:
      t_final_grid: [1.7]
      component_tuples: [[0, 1, 1], [1, 1, 1]]
 
-Each result row carries the tuple in the columns ``a``, ``b``, ``c``, ... —
+Each result row carries the tuple in the columns ``a``, ``b``, ``c``, ...,
 named by position, whatever index letters the observable uses, so a 2-point
-sweep keeps its ``a``, ``b`` — and ``SweepResult.totals()`` groups by them.
+sweep keeps its ``a``, ``b``.  ``SweepResult.totals()`` groups by them.
 The same argument is available in Python as
 ``Expansion.sweep(component_tuples=[(0, 1, 1), ...])``;
 ``component_pairs`` is its older name and still takes 2-point pairs.
@@ -1309,7 +1309,7 @@ Section reference: ``propagators``
    * - ``c_closed_form``
      - ``str``
      - ``"auto"``
-     - How C is obtained without quadrature. ``"auto"`` (default) uses the built-in closed form when the kernel family has one — diagonal constant drift + separable exponential-temporal noise, optionally a constant white-noise impulse — and falls through to ``c_method`` otherwise; ``null`` forces quadrature. A ``c_closed_form_module`` supplies your own closed form and takes precedence over both. See :ref:`integrator-choice` below
+     - How C is obtained without quadrature. ``"auto"`` (default) uses the built-in closed form when the kernel family has one (diagonal constant drift + separable exponential-temporal noise, optionally a constant white-noise impulse) and falls through to ``c_method`` otherwise; ``null`` forces quadrature. A ``c_closed_form_module`` supplies your own closed form and takes precedence over both. See :ref:`integrator-choice` below
    * - ``c_closed_form_module``
      - ``str``
      - ``null``
@@ -1337,7 +1337,7 @@ Section reference: ``propagators``
    * - ``diag_C``
      - ``bool``
      - ``true``
-     - ``false`` keeps the off-diagonal entries of C: every table holds all :math:`N^2` entries :math:`C_{ab}` and every lookup returns them. Needed when C is not component-diagonal — a dense R, a component-mixing :math:`\kappa^2`, a matrix :math:`\sigma^2` — for which ``true`` is refused. No closed form is required: a Gauss-Legendre cell costs what a diagonal one costs, a ``dblquad`` cell :math:`N^2` adaptive integrals instead of :math:`N`. Sets ``expand.diag_C`` to ``false`` with it
+     - ``false`` keeps the off-diagonal entries of C: every table holds all :math:`N^2` entries :math:`C_{ab}` and every lookup returns them. Needed when C is not component-diagonal (a dense R, a component-mixing :math:`\kappa^2`, a matrix :math:`\sigma^2`), for which ``true`` is refused. No closed form is required: a Gauss-Legendre cell costs what a diagonal one costs, a ``dblquad`` cell :math:`N^2` adaptive integrals instead of :math:`N`. Sets ``expand.diag_C`` to ``false`` with it
    * - ``interp_method``
      - ``str``
      - ``"linear"``
@@ -1375,7 +1375,7 @@ Section reference: ``sweep``
      - ``dict[str, list[float]]``
      - optional
      - Pin external points at unequal times, swept as a further Cartesian
-       axis.  Required for two-time observables — see
+       axis.  Required for two-time observables; see
        :ref:`two-time-observables`
    * - ``component_tuples``
      - ``list[list[int]]``
@@ -1434,14 +1434,14 @@ Choosing an integrator (``sweep.method`` and ``propagators.c_method``)
 
 Two layers in the pipeline run numerical quadrature:
 
-1. **C-propagator construction** (``propagators.c_method``) — the
+1. **C-propagator construction** (``propagators.c_method``): the
    inner :math:`\int_0^{t_1}\!\int_0^{t_2} R(t_1,\lambda_1)\,
    \kappa^2(\lambda_1,\lambda_2)\,R(t_2,\lambda_2)\,d\lambda` for
    each :math:`(t_1, t_2, n_1, n_2)` cache cell. Skipped entirely
-   when a closed form applies — the built-in one under
+   when a closed form applies: the built-in one under
    ``c_closed_form: auto`` (the default), or your own via
    ``c_closed_form_module``.
-2. **Diagram evaluation** (``sweep.method``) — the outer
+2. **Diagram evaluation** (``sweep.method``): the outer
    :math:`d`-dimensional time integral over the causal simplex,
    one evaluation per ``(positions, t_final, component_pair)``
    grid point.
@@ -1454,7 +1454,7 @@ speed** (``gauss_legendre``).
 
    **Gauss-Legendre is not Gaussian/exponential-only.** It gives
    exponential convergence on **any function analytic on the
-   integration domain** — polynomials, rationals, exponentials,
+   integration domain**: polynomials, rationals, exponentials,
    trigonometrics, products and compositions thereof.
 
    When the integrand is only **piecewise** analytic (e.g. an
@@ -1522,7 +1522,7 @@ Decision matrix:
      - ``~ 1/√n_samples`` bias decay; can severely under-resolve narrow peaks at large ``t_final``; not split at kinks
    * -
      - ``gauss_legendre``
-     - Smooth integrands at ``d ≤ 5`` (the typical sft-wick case), and kinked-C, several-ψ-leg or declared coupling kinks, which it splits out — against another time or against a fixed external one (:ref:`declaring-kinks`)
+     - Smooth integrands at ``d ≤ 5`` (the typical sft-wick case), and kinked-C, several-ψ-leg or declared coupling kinks, which it splits out against another time or against a fixed external one (:ref:`declaring-kinks`)
      - **Exponential convergence** in ``n_gauss``; deterministic; cost ``n_gauss^d`` per piece (2 per kink pair or cut, up to ``k!`` for ``k`` mutually unordered times)
    * -
      - ``nquad``
@@ -1543,11 +1543,10 @@ batch of nodes, as they do for C.  Before, ``gauss_legendre`` and
 User-Python hooks
 ~~~~~~~~~~~~~~~~~
 
-The YAML block can defer to user Python in eight places — each
-loads a callable from a ``.py`` module relative to the YAML file
-and registers it for joblib's worker-safe by-value module
-loading (so it composes cleanly with any of the
-``n_jobs > 1`` knobs):
+The YAML block can defer to user Python in eight places.  Each loads
+a callable from a ``.py`` module relative to the YAML file and
+registers it for joblib's worker-safe by-value module loading, so it
+composes cleanly with any of the ``n_jobs > 1`` knobs:
 
 .. list-table::
    :header-rows: 1
@@ -1585,7 +1584,7 @@ Parameter scans from the shell
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``--override key=value`` patches any leaf field in the parsed
-config (safe scalar coercion — no ``eval``):
+config (safe scalar coercion, no ``eval``):
 
 .. code-block:: bash
 
@@ -1627,5 +1626,5 @@ code path:
      - ``"general"``
      - Full 2-D spatial; ``precompute_C_table_general``
 
-The homogeneity is inferred from the spec automatically; users
-normally don't set it directly.
+The homogeneity is inferred from the spec automatically and does not
+normally need to be set directly.

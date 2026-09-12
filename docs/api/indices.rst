@@ -1,4 +1,4 @@
-``sft_wick.indices`` --- Index Management
+``sft_wick.indices``: Index Management
 =========================================
 
 .. automodule:: sft_wick.indices

@@ -1,10 +1,9 @@
-``sft_wick.workflow`` --- High-Level Workflow API (L1 + L2)
+``sft_wick.workflow``: High-Level Workflow API (L1 + L2)
 ===========================================================
 
-The ``workflow`` subpackage is the user-facing layer.  Users who need
-to "declare physics → expand → integrate → inspect" should reach for
-these types first; drop down to the raw API only if a concrete
-requirement demands it.
+The ``workflow`` subpackage is the user-facing layer.  To "declare
+physics → expand → integrate → inspect", start with these types.  Drop
+down to the raw API only when a concrete requirement demands it.
 
 Top-level system object
 -----------------------

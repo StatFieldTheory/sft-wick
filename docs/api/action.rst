@@ -1,4 +1,4 @@
-``sft_wick.action`` --- Action Definition
+``sft_wick.action``: Action Definition
 =========================================
 
 .. automodule:: sft_wick.action
