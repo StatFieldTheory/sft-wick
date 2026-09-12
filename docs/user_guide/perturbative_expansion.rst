@@ -86,7 +86,7 @@ For each order *n* from 0 to the requested maximum:
    :func:`~sft_wick.wick.wick_contract_spatial` is used: it enumerates
    *spatial topologies* (R-edge and C-edge assignments between spatial
    points) rather than individual operator-level pairings, and computes
-   a **multiplicity** for each topology.  This avoids the combinatorial
+   a **multiplicity** for each topology.  That avoids the combinatorial
    explosion from component-index routing at higher orders.  When
    ``collect_topology=False``, the operator-level engine
    :func:`~sft_wick.wick.wick_contract` is used instead, enumerating
@@ -120,18 +120,18 @@ The prefactor for order *n* with multinomial coefficient *M* is:
 
    \frac{(-1)^n}{n!} \times M
 
-For a single vertex type (:math:`M = 1`), the familiar alternating-sign
-factorial series is recovered.
+For a single vertex type (:math:`M = 1`), this is the alternating-sign
+factorial series.
 
 
 Itô Prescription and Causality
 -------------------------------
 
-When ``ito=True`` (the default), two physics-motivated rules eliminate
-vanishing contributions at contraction time:
+When ``ito=True`` (the default), two rules eliminate vanishing
+contributions at contraction time:
 
 **Equal-point R vanishes:**
-:math:`R(x,x) = 0` --- the Itô discretisation convention
+:math:`R(x,x) = 0`, the Itô discretisation convention
 :math:`\Theta(0) = 0`.  This eliminates self-response contractions and
 intra-vertex tadpoles in local vertices.
 
@@ -160,8 +160,8 @@ rule:
        :math:`\Theta(0)\,\partial_a f_a`, which the Jacobian of the
        Stratonovich path integral
        :math:`-\tfrac12\int\mathrm{d}s\,\partial f/\partial\varphi`
-       cancels; sft-wick emits neither, which is exact, so the number
-       equals the ``ito=True`` one.
+       cancels; sft-wick emits neither, so the number equals the
+       ``ito=True`` one.
    * - on a local vertex with **two or more** ψ legs (a
        :math:`\varphi`-dependent noise covariance: multiplicative noise)
      - ``ValueError``.  The term is the drift
@@ -221,8 +221,8 @@ Diagram-Based Term Collection
 
 When ``collect_topology=True`` (the default), the spatial-level
 contraction engine first enumerates spatial topologies with
-multiplicities, dramatically reducing the number of terms.  These
-terms are then grouped by Feynman diagram isomorphism: two diagrams
+multiplicities, which reduces the number of terms.  These terms are
+then grouped by Feynman diagram isomorphism: two diagrams
 are considered isomorphic when there exists a relabeling of dummy
 integration variables (and, for C propagators, a spatial-argument
 swap exploiting :math:`C(x,y) = C(y,x)`) that maps one propagator
@@ -230,7 +230,7 @@ set onto the other.
 
 The algorithm computes a **canonical graph form** for each term by
 trying all permutations of internal spatial variables.  For *n*
-integration variables this costs :math:`O(n!)` --- fast for the
+integration variables this costs :math:`O(n!)`, fast for the
 practical range :math:`n \le 4`.
 
 Propagators are factored out with canonical component indices, and the
@@ -270,7 +270,7 @@ individually.  The function can also be called directly:
 Zeroth-Order Calculations
 -------------------------
 
-At order 0, no vertices are involved --- the result is purely the Wick
+At order 0, no vertices are involved; the result is purely the Wick
 contraction of the observable under the free action:
 
 .. code-block:: python

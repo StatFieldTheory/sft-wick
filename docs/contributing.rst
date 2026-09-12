@@ -1,8 +1,8 @@
 Contributing
 ============
 
-Contributions are welcome!  This page describes how to set up the
-development environment and the key design invariants to respect.
+This page describes how to set up the development environment and the
+key design invariants to respect.
 
 
 Development Setup
@@ -34,15 +34,15 @@ The test suite has **two tiers**:
 
 - *Unit tests* (``test_wick.py``, ``test_simplify.py``, ``test_propagators.py``,
   etc.) covering expressions, fields, propagators, Wick contractions,
-  perturbative expansion, and simplification — the per-module tests that
+  perturbative expansion, and simplification: the per-module tests that
   guard individual functions.
 - *Deductive tests* (``test_deductive_expansion.py``,
   ``test_deductive_numerics.py``) that cross-check every transformation
-  in the package against an independent reference — see
+  in the package against an independent reference.  See
   :doc:`/verification/index` for the full overview and rationale.
 
-110+ deductive tests run in ~78 s and prove that each elementary
-transformation does what it should, independently of simulation.
+110+ deductive tests run in ~78 s.  They check each elementary
+transformation independently of simulation.
 
 
 Code Style
@@ -59,30 +59,30 @@ Architecture Overview
 
 The core data flow is a pipeline:
 
-1. :mod:`~sft_wick.fields` --- ``Field`` declares a field type;
+1. :mod:`~sft_wick.fields`: ``Field`` declares a field type;
    ``FieldOperator`` is a concrete instance with a unique UID.
 
-2. :mod:`~sft_wick.vertices` + :mod:`~sft_wick.action` --- ``Vertex``
+2. :mod:`~sft_wick.vertices` + :mod:`~sft_wick.action`: ``Vertex``
    defines an interaction term; ``VertexInstance`` is a fresh copy with
    non-overlapping indices.  ``Action`` holds a list of vertices.
 
-3. :mod:`~sft_wick.wick` --- ``generate_valid_pairings()`` enumerates
-   complete pairings skipping :math:`\psi`--:math:`\psi` pairs.
+3. :mod:`~sft_wick.wick`: ``generate_valid_pairings()`` enumerates
+   complete pairings skipping :math:`\psi`-:math:`\psi` pairs.
    ``wick_contract()`` sums over all valid pairings.
 
-4. :mod:`~sft_wick.propagators` --- ``contract_pair()`` maps
+4. :mod:`~sft_wick.propagators`: ``contract_pair()`` maps
    :math:`(\phi,\phi) \to C`, :math:`(\phi,\psi) \to R`,
    :math:`(\psi,\psi) \to 0`.
 
-5. :mod:`~sft_wick.perturbation` --- ``compute_moment()`` is the main
+5. :mod:`~sft_wick.perturbation`: ``compute_moment()`` is the main
    entry point: expands vertex combinations, instantiates vertices,
    calls ``wick_contract()``, and returns a ``PerturbativeResult``.
 
-6. :mod:`~sft_wick.simplify` --- Multi-pass simplification pipeline.
+6. :mod:`~sft_wick.simplify`: multi-pass simplification pipeline.
 
-7. :mod:`~sft_wick.expressions` --- Custom symbolic expression tree.
+7. :mod:`~sft_wick.expressions`: custom symbolic expression tree.
 
-8. :mod:`~sft_wick.diagrams` + :mod:`~sft_wick.drawing` --- Feynman
+8. :mod:`~sft_wick.diagrams` + :mod:`~sft_wick.drawing`: Feynman
    diagram graph representation and matplotlib rendering.
 
 
@@ -109,8 +109,8 @@ When contributing, please respect these invariants:
   the left: :math:`R_{ij}(x,x') = \langle\phi_i(x)\,\psi_j(x')\rangle`.
 
 **No SymPy dependency.**
-  The expression tree is deliberately self-contained.  Do not introduce
-  SymPy as a dependency.
+  The expression tree is self-contained.  Do not introduce SymPy as a
+  dependency.
 
 
 Adding a New Expression Type
@@ -151,7 +151,7 @@ Making a Release
 
 Releases are published to PyPI automatically by the ``Publish`` workflow
 (``.github/workflows/publish.yml``) using `PyPI Trusted Publishing
-<https://docs.pypi.org/trusted-publishers/>`_ (OpenID Connect) — there
+<https://docs.pypi.org/trusted-publishers/>`_ (OpenID Connect).  There
 are **no API tokens or stored secrets**.
 
 ``pyproject.toml`` carries the authoritative version, but it is **not the
@@ -159,17 +159,17 @@ only file to touch**.  Nothing derives or cross-checks the others, and
 nothing in CI fails on a mismatch, so one release commit must update all
 of these before the tag is pushed:
 
-- ``pyproject.toml`` — the ``version`` field.  It is static
+- ``pyproject.toml``: the ``version`` field.  It is static
   (``hatchling`` does not derive it, and there is no ``__version__``
   anywhere in ``src/``), so this is the single source the built
   distribution and the installed package metadata take their version
   from.
-- ``CITATION.cff`` — the ``version`` field.  This is what GitHub's
+- ``CITATION.cff``: the ``version`` field.  This is what GitHub's
   *Cite this repository* widget shows; a missed bump ships stale
   citation metadata on the release.
-- ``CHANGELOG.md`` — turn the ``## Unreleased`` heading into a dated
-  one, ``## X.Y.Z — YYYY-MM-DD``.
-- ``docs/changelog.rst`` — the Sphinx page is a hand-maintained summary
+- ``CHANGELOG.md``: turn the ``## Unreleased`` heading into a dated
+  one, ``## X.Y.Z - YYYY-MM-DD``.
+- ``docs/changelog.rst``: the Sphinx page is a hand-maintained summary
   of ``CHANGELOG.md`` (which stays authoritative); add the new release's
   section so the published docs do not fall behind.
 
@@ -182,7 +182,7 @@ The pipeline then has two stages:
 
 #. **Tag → validate.**  Push a ``vX.Y.Z`` tag.  The workflow runs the
    tests and builds + ``twine check``\ s the distribution, but publishes
-   nothing — a dry run that confirms the release candidate is healthy.
+   nothing.  This dry run confirms the release candidate is healthy.
 
    .. code-block:: bash
 

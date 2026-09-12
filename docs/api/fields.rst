@@ -1,4 +1,4 @@
-``sft_wick.fields`` --- Fields and Field Operators
+``sft_wick.fields``: Fields and Field Operators
 ===================================================
 
 .. automodule:: sft_wick.fields

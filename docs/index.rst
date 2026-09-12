@@ -2,13 +2,14 @@ sft-wick: Feynman-Diagram Expansion for Stochastic Field Theories
 =================================================================
 
 **sft-wick** automates perturbative calculations for **stochastic (partial)
-differential equations** in the Martin--Siggia--Rose (MSR) response-field
-formalism.  Starting from a Langevin-type field equation --- a deterministic
-drift plus noise that may be non-Gaussian and spatially correlated --- it
-builds the interaction action, applies Wick's theorem to expand arbitrary
-field moments order by order, and writes every term using just two two-point
-propagators: the correlation function :math:`C = \langle\phi\phi\rangle` and
-the response (Green's) function :math:`R = \langle\phi\psi\rangle`.
+differential equations** in the Martin-Siggia-Rose (MSR) response-field
+formalism.  It starts from a Langevin-type field equation: a deterministic
+drift plus noise that may be non-Gaussian and spatially correlated.  From
+that it builds the interaction action, applies Wick's theorem to expand
+arbitrary field moments order by order, and writes every term using just two
+two-point propagators, the correlation function
+:math:`C = \langle\phi\phi\rangle` and the response (Green's) function
+:math:`R = \langle\phi\psi\rangle`.
 
 .. math::
 
@@ -19,39 +20,39 @@ the response (Green's) function :math:`R = \langle\phi\psi\rangle`.
 Key Features
 ------------
 
-- **Three-layer API** --- pick your abstraction: L0 symbolic / L1
+- **Three-layer API**, one abstraction per layer: L0 symbolic / L1
   workflow (``System``, ``Expansion``, ``Propagators``,
   ``SweepResult``) / L2 YAML + CLI (``sft-wick run config.yaml``).
-- **No SymPy dependency** --- custom lightweight expression tree with exact
+- **No SymPy dependency**: custom lightweight expression tree with exact
   rational arithmetic via ``fractions.Fraction``.
-- **MSR-optimised contraction** --- exploits the constraint
+- **MSR-optimised contraction**: exploits the constraint
   :math:`\langle\psi\,\psi\rangle = 0` to skip vanishing pairings entirely.
-- **Feynman diagram generation** --- ``networkx``-based graph representation
+- **Feynman diagram generation**: ``networkx``-based graph representation
   with ``matplotlib`` rendering (correlation :math:`C` as solid blue lines,
   response :math:`R` as dashed red arrows).
-- **LaTeX output** --- every expression renders to publication-ready LaTeX,
+- **LaTeX output**: every expression renders to publication-ready LaTeX,
   with configurable propagator names.
-- **Numerical evaluation** --- QMC with causal simplex mapping and
+- **Numerical evaluation**: QMC with causal simplex mapping and
   :math:`1/\sqrt{N}` convergence, tensor-product Gauss-Legendre, and
   adaptive quadrature; separable / rotational / general spatial
   homogeneity modes; optional closed-form C bypass.
-- **Matrix-valued R and off-diagonal C** --- every integrator evaluates
+- **Matrix-valued R and off-diagonal C**: every integrator evaluates
   a dense response, and the C tables hold all :math:`C_{ab}`.
-- **Multiplicative noise** --- Itô and Stratonovich, at L0 and L1.
-- **n-point observables** --- swept from the L1 API and from YAML, one
+- **Multiplicative noise**: Itô and Stratonovich, at L0 and L1.
+- **n-point observables**: swept from the L1 API and from YAML, one
   component index per operator.
 - **Time-dependent linear operator** and **spacetime-dependent
   non-local couplings** both supported end-to-end through the L1
   API.
 
-Quick Start (L2 — config file)
-------------------------------
+Quick Start (L2, config file)
+-----------------------------
 
-**The recommended entry point for any new analysis.**  Write a YAML
-config once, run it from the shell, iterate with ``--override`` or
-edits.  The CLI registers automatically on install; one command writes
-a small config to the current directory and runs it in a few seconds,
-with a progress bar:
+The recommended entry point for any new analysis.  Write a YAML config
+once, run it from the shell, iterate with ``--override`` or edits.  The
+CLI registers automatically on install.  One command writes a small
+config to the current directory and runs it in a few seconds, with a
+progress bar:
 
 .. code-block:: bash
 
@@ -111,10 +112,10 @@ non-local :math:`\kappa^{(3)}` vertex with a dynamic coupling).
 channels of the filtered-Poisson (shot) noise demo through the same
 CLI; see :doc:`verification/index` for what each demo establishes.
 
-Quick Start (L1 — Python, for programmatic use)
------------------------------------------------
+Quick Start (L1, Python, for programmatic use)
+----------------------------------------------
 
-The same workflow expressed directly in Python — use this when
+The same workflow expressed directly in Python.  Use this when
 embedding the pipeline inside a larger script:
 
 .. code-block:: python

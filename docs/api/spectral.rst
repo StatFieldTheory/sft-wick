@@ -12,7 +12,7 @@ dominates a per-instance matrix calculation disappears.
 .. warning::
 
    Above order 0 this is an **annealed** substitution, not a controlled
-   quenched average — see the module docstring. Exact at order 0; measured
+   quenched average; see the module docstring. Exact at order 0; measured
    35 % off above it.
 
 .. automodule:: sft_wick.spectral

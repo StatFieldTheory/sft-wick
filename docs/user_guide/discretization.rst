@@ -2,7 +2,7 @@ Time discretization (``dt``)
 ============================
 
 The L2 YAML config accepts a single top-level ``propagators.dt`` knob that
-controls every internal time-grid resolution coherently. This page explains
+controls every internal time-grid resolution coherently. This page covers
 its physical meaning and how it interacts with the ``noise.kappa2`` /
 ``noise.sigma2`` source-cumulant split.
 
@@ -12,12 +12,12 @@ What ``dt`` means
 ``dt`` is the smallest temporal correlation length that the framework can
 resolve. The two numerical grids it controls are:
 
-* ``propagators.n_grid_t`` — number of points along each axis of the
+* ``propagators.n_grid_t``: number of points along each axis of the
   ``C(t1, t2)`` interpolation table built by :meth:`PropagatorCache
   <sft_wick.evaluate.PropagatorCache>`. Derived as
   ``ceil(t_max / dt)``.
 
-* ``system.linear.n_grid_cache`` — number of points along the
+* ``system.linear.n_grid_cache``: number of points along the
   cumulative-Γ spline used by :class:`DiagonalA
   <sft_wick.workflow.specs.DiagonalA>` for time-dependent linear drift.
   Derived as ``ceil((t_max_cache - t_min_cache) / dt)``.
@@ -41,7 +41,7 @@ Example
         gamma_module: ./gamma.py
         t_max_cache: 200.0   # -> n_grid_cache = 200, sharing the same dt
 
-A finer resolution simply needs ``dt: 0.5`` (which doubles both grid sizes).
+A finer resolution needs ``dt: 0.5``, which doubles both grid sizes.
 The ``linear`` block can override the default with its own ``dt:`` field
 when the gamma cache needs different resolution from the C-table.
 
@@ -70,7 +70,7 @@ Choosing ``dt``
 ---------------
 
 A defensible default is ``dt = t_max / 60`` (the legacy ``n_grid_t = 60``
-default, made explicit). Halve it for convergence checks; observables
+default, written out). Halve it for convergence checks; observables
 should change only at order ``dt`` if all the unresolved power has been
 moved to ``sigma2``.
 
@@ -95,7 +95,7 @@ your workload.
 ============================  =================================  ==========================  ====================================================
 Layer                         YAML knob                          Parallel unit               When to use
 ============================  =================================  ==========================  ====================================================
-Propagator C-table build      ``propagators.n_jobs``             one ``(t1, t2, cos)`` cell  Always — runs once before sweep, large grid.
+Propagator C-table build      ``propagators.n_jobs``             one ``(t1, t2, cos)`` cell  Always: runs once before sweep, large grid.
 Diagram QMC integration       ``expand.n_jobs``                  one Feynman diagram         Many diagrams per grid point (typical at orders >= 2).
 Sweep grid                    ``sweep.n_jobs``                   one grid point              Sweep grid is large; few diagrams per point.
 ============================  =================================  ==========================  ====================================================
@@ -106,7 +106,7 @@ use all CPU cores.
 .. important::
 
    ``expand.n_jobs > 1`` and ``sweep.n_jobs > 1`` are **mutually
-   exclusive** — joblib's loky backend does not support nested process
+   exclusive**: joblib's loky backend does not support nested process
    pools. The L2 workflow raises ``ValueError`` if both are set. Pick
    whichever layer parallelises a larger workload for your case.
 
@@ -127,7 +127,7 @@ Mechanics
 * User-supplied callable modules (``noise.kappa2.callable_module``,
   ``vertices.coupling_module``, ``propagators.c_closed_form_module``)
   are loaded under their ``.py`` file's bare basename and added to
-  ``sys.path`` — picklable across loky boundaries. See
+  ``sys.path``, which makes them picklable across loky boundaries. See
   :func:`sft_wick.workflow.config._load_callable_from_module` and
   :func:`sft_wick.workflow.config._load_c_closed_form`.
 

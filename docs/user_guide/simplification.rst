@@ -17,7 +17,7 @@ The Pipeline
 
 ``simplify()`` applies four passes in sequence:
 
-Pass 1 --- Flatten
+Pass 1: Flatten
 ^^^^^^^^^^^^^^^^^^
 
 Recursively flattens nested :class:`~sft_wick.expressions.Sum` and
@@ -30,7 +30,7 @@ Also descends into the bodies of
 :class:`~sft_wick.expressions.IntegralOver` and
 :class:`~sft_wick.expressions.SumOverIndex`.
 
-Pass 2 --- Absorb Rationals
+Pass 2: Absorb Rationals
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 In any Product, multiplies all :class:`~sft_wick.expressions.Rational`
@@ -42,7 +42,7 @@ factors into a single coefficient:
 - If the total coefficient is 1 and only one other factor remains,
   the product is unwrapped.
 
-Pass 3 --- Eliminate Zeros
+Pass 3: Eliminate Zeros
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 - Removes zero terms from sums
@@ -50,7 +50,7 @@ Pass 3 --- Eliminate Zeros
 - Removes ``Rational(1)`` factors from products
 - Collapses wrappers whose body is zero
 
-Pass 4 --- Collect Like Terms
+Pass 4: Collect Like Terms
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Groups sum terms by their **structural signature** (the non-coefficient
@@ -62,7 +62,7 @@ For example:
   ``5 C(x,y) R(x,z)``
 
 The signature includes propagator kinds, indices, spatial arguments,
-symbol names, integral variables, and summation indices --- all in
+symbol names, integral variables, and summation indices, all in
 canonical order.  Terms that cannot be matched are left unchanged.
 
 
@@ -97,7 +97,7 @@ merged: the propagators are factored out with canonical component
 indices, and the coupling coefficients are summed with indices (and
 spatial arguments for non-local couplings) permuted to match.
 
-This handles three cases that matter in practice:
+This handles three cases:
 
 - **Within-vertex index routing**: different Wick pairings that share
   the same spatial topology but differ in component-index assignments
@@ -126,15 +126,15 @@ When Simplification Runs
 :func:`~sft_wick.perturbation.compute_moment` applies the following
 pipeline to each order expression:
 
-1. **Wick contraction** --- when ``collect_topology=True`` (default),
+1. **Wick contraction**: when ``collect_topology=True`` (default),
    uses the spatial-level engine which enumerates spatial topologies
    with multiplicities, then groups by canonical diagram form.
    When ``collect_topology=False``, uses the operator-level engine
    followed by ``collect_by_diagram``.
-2. **simplify** --- flatten, absorb rationals, eliminate zeros, collect
+2. **simplify**: flatten, absorb rationals, eliminate zeros, collect
    like terms
-3. **apply_response_phase** (``response_phase=True``) --- multiply by
+3. **apply_response_phase** (``response_phase=True``): multiply by
    :math:`(-\mathrm{i})^n`
 
-You do not normally need to call these yourself, but they are all
-exposed in the public API for manual use.
+These run automatically.  All three are also exposed in the public API
+for manual use.

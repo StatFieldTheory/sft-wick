@@ -5,31 +5,29 @@ The fixed-point iteration for a self-consistent (DMFT-style) solution:
 propagators define a self-energy, the self-energy defines new propagators,
 repeat.
 
-What this is, and what it is not
---------------------------------
+Scope
+-----
 
 A self-consistent solution needs three pieces:
 
 1. the self-energy from the current propagators,
-2. new propagators from that self-energy — a Dyson / integral-equation solve,
+2. new propagators from that self-energy, a Dyson / integral-equation solve,
 3. the iteration itself, with the judgement about when it has converged.
 
-sft-wick computes (1); that is what the whole package is for. This module
-supplies (3).
+sft-wick computes (1). This module supplies (3).
 
 .. important::
 
-   **(2) is deliberately absent.** It is model-specific and is genuinely an
-   integral-equation solve rather than a diagram evaluation, and a wrong
-   general Dyson solver would be worse than none. You supply it as the body of
+   **(2) is absent.** It is model-specific, and it is an integral-equation
+   solve rather than a diagram evaluation.  You supply it as the body of
    ``step``.
 
-Why the result is not a bare state
-----------------------------------
+The result object
+-----------------
 
 A fixed-point iteration that has *not* converged looks exactly like one that
 has, if you only print the last state. :func:`~sft_wick.solve_self_consistency`
-therefore never returns a bare state — it returns a
+therefore never returns a bare state.  It returns a
 :class:`~sft_wick.SelfConsistencyResult` carrying ``converged``, the full
 residual history, and a ``reason`` distinguishing the ways it can fail:
 
@@ -45,7 +43,7 @@ residual history, and a ``reason`` distinguishing the ways it can fail:
      - the residual is growing fast enough that more iterations will not help
    * - ``"oscillating"``
      - the state keeps returning to where it was while the residual stops
-       improving — **use damping**
+       improving; **use damping**
    * - ``"max_iter"``
      - none of the above; it simply ran out
 
@@ -65,41 +63,41 @@ way to handle a failure.
        raise RuntimeError(result.summary())
    R, C = result.state
 
-Four things it is careful about
--------------------------------
+False convergence
+-----------------
 
-Each is a way to report a solution that was never found, and each has a
+Four ways an iteration can report a solution it never found.  Each has a
 regression test.
 
 **Damping does not shrink the residual.** The state moves by only
 :math:`(1-d)` of the step, so a residual read off the *movement* falls as
-damping rises — turn damping up and any iteration "converges" sooner, at a
+damping rises: turn damping up and any iteration "converges" sooner, at a
 point that is not a fixed point. The residual always measures the step,
 :math:`\|F(x) - x\|`.
 
 **``step`` cannot fake a zero residual by mutating.** It is handed a *copy* of
 the state, and the proposal is copied before becoming the new state. Without
-the second copy a ``step`` returning a buffer it reuses — ``buf[:] = ...;
-return buf``, the standard preallocated-output idiom — would have the next
+the second copy, a ``step`` returning a buffer it reuses (``buf[:] = ...;
+return buf``, the standard preallocated-output idiom) would have the next
 call overwrite the state in place *before* the residual was taken, comparing
 the buffer with itself.
 
 **A cycle is a statement about the state, not the residual.** A two-cycle has
 a *constant* residual, indistinguishable from a stall by residual shape alone;
 a *growing* residual is divergence, not oscillation. Cycles are found by
-asking whether the state returned somewhere it had already been — but an
+asking whether the state returned somewhere it had already been.  An
 alternating *contraction* does that too, so the residual must also have
 stopped improving.
 
 **Growth is measured against a recent window,** not the best residual ever
 seen, which would condemn any run that drifts away from a repelling start
 before converging. "Begin at the non-interacting solution and find the
-interacting one" is exactly that shape.
+interacting one" is that shape.
 
 Limitations
 -----------
 
-* **Linear mixing only** — no Anderson acceleration, no Newton step. This is
+* **Linear mixing only**: no Anderson acceleration, no Newton step. This is
   the standard first choice and is fine near a stable fixed point, but it
   converges slowly near a transition. Implement acceleration as a ``step``
   wrapper if you need it.
@@ -113,7 +111,7 @@ States
 ------
 
 Anything ``step`` accepts and the distance function can compare: an array, a
-scalar, or nested dicts / lists / tuples / namedtuples of those — which covers
+scalar, or nested dicts / lists / tuples / namedtuples of those.  That covers
 the ``(R, C)`` pairs and ``{name: array}`` dicts a DMFT state usually is.
 Container *and* leaf types are preserved across iterations, so ``step``
 receives what it returned and ``result.state``'s type does not depend on

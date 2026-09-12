@@ -1,4 +1,4 @@
-``sft_wick.wick`` --- Wick Contraction Engine
+``sft_wick.wick``: Wick Contraction Engine
 =============================================
 
 .. automodule:: sft_wick.wick
