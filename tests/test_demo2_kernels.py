@@ -16,9 +16,9 @@ This module pins:
 
 * **DK1** ``k3_R`` against cusp-aware 3-D adaptive quadrature of the raw
   leg integral, at coincident / FK-type / split / short / long partner
-  times and with spatial factors.  Tolerances are the MEASURED errors
-  (see ``examples/demo2/k3_R_coupling.py``'s accuracy table) with
-  headroom, not round numbers.
+  times and with spatial factors.  The analytic kernel is checked to
+  2e-9 where the raw adaptive reference resolves the integral; the
+  extreme split case retains a looser reference-limited tolerance.
 * **DK2** ``k4_R`` against randomised-Sobol QMC of the raw 4-leg
   integral, with the reference's own seed scatter quoted.
 * **DK3** the boundary test ``already_R_contracted`` never had on a
@@ -114,12 +114,11 @@ def _brute_k3(mod, t1, t2, t3, x=(0.0, 0.0, 0.0)):
 
 
 @pytest.mark.parametrize("t1,t2,t3,tol,note", [
-    # tol = the measured relative error, rounded up ~2x.  See the
-    # accuracy table in examples/demo2/k3_R_coupling.py.
-    (3.0, 1.5, 1.5, 5e-6, "FK-type (t', s, s) -- what the kernel was tuned on"),
-    (1.0, 1.0, 1.0, 3e-4, "coincident, moderate"),
+    # The extreme split is limited by the raw adaptive reference.
+    (3.0, 1.5, 1.5, 2e-9, "FK-type (t', s, s)"),
+    (1.0, 1.0, 1.0, 2e-9, "coincident, moderate"),
     (20.0, 2.0, 0.2, 3e-3, "EXTREME split; reference itself only ~5e-3 here"),
-    (0.05, 0.03, 0.04, 1.5e-3, "all VERY SHORT"),
+    (0.05, 0.03, 0.04, 2e-9, "all VERY SHORT"),
 ])
 def test_DK1_k3R_matches_raw_leg_quadrature(k3R, t1, t2, t3, tol, note):
     ref, _err = _brute_k3(k3R, t1, t2, t3)
@@ -141,7 +140,7 @@ def test_DK1_k3R_matches_raw_leg_quadrature_with_spatial(k3R):
     s13 = np.exp(-abs(x[0] - x[2]) / SIGMA_X)
     s23 = np.exp(-abs(x[1] - x[2]) / SIGMA_X)
     got = float(k3R.k3_R([tt[0]], [tt[1]], [tt[2]], [s12], [s13], [s23])[0])
-    assert abs(got - ref) / abs(ref) < 1e-4
+    assert abs(got - ref) / abs(ref) < 2e-9
 
 
 # ---------------------------------------------------------------------
@@ -156,9 +155,10 @@ def test_DK6_k3R_enforces_leg_causality_and_t_min_zero(k3R):
 
     * ``u_i <= t_i'`` (leg causality) -- so a vanishing partner time
       leaves no support and the kernel must be exactly zero;
-    * ``t_min = 0`` -- the lower limit is hard-wired, so the kernel must
-      be non-decreasing in every partner time (κ³ > 0 here: widening a
-      leg window can only add mass).
+    * ``t_min = 0`` -- the lower limit is hard-wired.  For stationary,
+      positive κ³ the equal-partner-time kernel rises to a plateau as
+      all three integration windows grow in response-lag coordinates.
+      Increasing only one partner time need not increase the result.
     """
     assert float(k3R.k3_R([0.0], [1.0], [1.0], [1.0], [1.0], [1.0])[0]) == 0.0
     assert float(k3R.k3_R([1.0], [0.0], [1.0], [1.0], [1.0], [1.0])[0]) == 0.0
@@ -168,16 +168,9 @@ def test_DK6_k3R_enforces_leg_causality_and_t_min_zero(k3R):
     ones = np.ones_like(ts)
     vals = k3R.k3_R(ts, ts, ts, ones, ones, ones)
     assert np.all(vals > 0)
-    # Non-decreasing is the physics, and is what the docstring above claims.
-    # K_R saturates once t' passes the kernel's own correlation time, and at
-    # the plateau the last increment is 2.2e-19 against an ulp of 1.1e-19 --
-    # two ulp, where the SIGN of the difference is a rounding outcome, not
-    # just its strict positivity.  So `>= 0` would assert a rounding outcome
-    # exactly as `> 0` did (it happened to hold on 3.11/3.12/3.14, but the
-    # kernel is a weighted sum over 5184 nodes and the summation order can
-    # vary with SIMD width or BLAS build).  A few-ulp floor is safe because
-    # the margin is enormous: every real increment here is at least 9.2e9
-    # ulp, ten orders of magnitude above the one artefact.
+    # Equal-time K_R saturates beyond the correlation/response times.
+    # Its final increment is at roundoff scale, so permit a few ulps
+    # there while retaining strict growth before the plateau below.
     diffs = np.diff(vals)
     tol = 8 * np.spacing(float(np.max(vals)))
     assert np.all(diffs >= -tol), f"not monotone in t': {vals}"
@@ -279,19 +272,19 @@ def test_DK3_raw_kappa3_converges_onto_the_R_contracted_answer(k3raw, k3R):
                    t_final=0.5, n_gauss=24)
     sw.reset_uid_counter()
     raw_sys = _demo2_system(k3raw.coupling_fn_vectorized, r_contracted=False)
-    raw = {n: _fk_value(raw_sys, t_final=0.5, n_gauss=n) for n in (10, 16, 22)}
+    raw = {n: _fk_value(raw_sys, t_final=0.5, n_gauss=n) for n in (10, 16, 28)}
 
     rel = {n: abs(v - rc) / abs(rc) for n, v in raw.items()}
-    assert rel[10] > rel[16] > rel[22], (
+    assert rel[10] > rel[16] > rel[28], (
         f"raw rule does not converge onto the R-contracted answer: {rel}"
     )
-    assert rel[22] < 6e-4, (
-        f"raw(GL22) {raw[22]:.8e} vs R-contracted {rc:.8e} "
-        f"(rel {rel[22]:.2e}); measured 4.1e-4 on 2026-09-02"
+    assert rel[28] < 6e-4, (
+        f"raw(GL28) {raw[28]:.8e} vs R-contracted {rc:.8e} "
+        f"(rel {rel[28]:.2e}); refine the raw rule against the analytic kernel"
     )
     # ... and the residual is the RAW rule's own error, not a
     # disagreement: its node-to-node change is the same size.
-    assert abs(raw[22] - raw[16]) / abs(rc) > 0.3 * rel[22]
+    assert abs(raw[28] - raw[16]) / abs(rc) > 0.3 * rel[28]
 
 
 # ---------------------------------------------------------------------

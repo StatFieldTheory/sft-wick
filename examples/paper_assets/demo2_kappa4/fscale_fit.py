@@ -17,15 +17,16 @@ and the Gaussian channels are even under phi_1 -> -phi_1) the residual is
 
     residual(s) = xi_01^sim(s) - s * FK  =  c3 s^3 + c5 s^5 + O(s^7).
 
-Fitting ``c3`` and comparing it with the F^3.kappa^3 that the package now
-computes exactly is an INDEPENDENT check of the attribution: it uses only
-the simulation and the (validated) order-2 channel, and it does not
-assume the order-4 calculation is right.
+Fitting ``c3`` and comparing it with the independently checked F^3.kappa^3
+channel probes the attribution without assuming that channel is right.
+The full cubic coefficient also includes F^3.kappa^5.  Two usable
+amplitudes can support cubic scaling but cannot uniquely identify it.
 
-All three amplitudes are compared at the SAME step size, dt = 0.02, so
-the Heun O(dt^2) bias cancels out of the s-dependence rather than being
-extrapolated away: the dt study measured xi_01(dt=0.02) - xi_01(dt=0.01)
-= 7.5e-6 +- 4.9e-6 at t = 15, r = 0, well below the residual being fit.
+All three amplitudes use dt = 0.02.  This holds the discretization
+setting fixed but does not cancel amplitude-dependent time-step bias.
+The dt study measured xi_01(dt=0.02) - xi_01(dt=0.01)
+= 7.5e-6 +- 4.9e-6 at s=1, t=15, r=0; it does not bound the bias at
+other amplitudes.  The strongest run also conditions on surviving paths.
 
 Reads ``sims/`` (s = 1, the existing runs) and ``sims_fscale/`` (s = 0.5,
 1.5).  Run ``./run_fscale.sh`` first.  Usage::
@@ -107,7 +108,7 @@ def main():
                          / max(g["n_attempted"], 1)))
 
     print(f"xi_01 at t = {t_grid[it]:g}, r = {r_grid[ir]:g}    "
-          f"(FK(s=1) = {fk1:.4e}, exact F^3.k^3(s=1) = {fffk1:.4e})\n")
+          f"(FK(s=1) = {fk1:.4e}, checked F^3.k^3(s=1) = {fffk1:.4e})\n")
     print(f"{'s':>5} {'runs':>5} {'n_real':>11} {'blow/100k':>10} "
           f"{'xi_01 sim':>13} {'s*FK':>12} {'residual':>12} {'+- MC':>10} {'sigma':>7}")
     for q in rows:
@@ -134,8 +135,8 @@ def main():
     # (b) the two amplitudes whose blow-up fraction is negligible.  At
     #     s = 1.5 the simulation loses 4.5 % of its trajectories to
     #     finite-time blow-up and reports a mean conditioned on the
-    #     survivors -- exactly the realisations the higher-order terms
-    #     describe -- so that point is not a clean probe of the series.
+    #     survivors.  The altered sampling population prevents a clean
+    #     comparison with coefficients of the unconditioned series.
     c2_, sig2_, chi2_2, ndof2, _ = wls([0, 1], [3])
 
     print(f"\n(a) all three amplitudes, residual(s) = c3 s^3 + c5 s^5   "
@@ -146,7 +147,7 @@ def main():
     print(f"\n(b) s = 0.5 and 1.0 only (blow-up fractions 0 and 6e-5), "
           f"residual(s) = c3 s^3   (chi2 = {chi2_2:.2f}, ndof = {ndof2})")
     print(f"      c3 = {c2_[0]:.4e} +- {sig2_[0]:.2e}")
-    print(f"\ncomparison with the exact order-4 calculation")
+    print(f"\ncomparison with the checked order-4 calculation")
     print(f"  F^3.kappa^3 (computed)          = {fffk1:.4e}")
     pull = (c[0] - fffk1) / sig[0]
     pull2 = (c2_[0] - fffk1) / sig2_[0]

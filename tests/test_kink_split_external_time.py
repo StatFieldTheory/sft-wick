@@ -113,10 +113,25 @@ def test_a_swept_external_pairs_like_an_integration_variable():
                                   swept=("y",))) == 2
 
 
-def test_two_swept_externals_are_not_a_pair():
-    """Their relative order comes from the causal structure alone
-    (``_swept_external_order``), which an extra ordering does not reach."""
+def test_two_swept_externals_are_a_pair():
+    """Two swept externals are drawn by ``_swept_external_order``, and the
+    split now pairs them: the integrators pass that function the orderings
+    the split added, so the extra edge reaches the sampler.  Left unpaired
+    the kink cost seven orders of magnitude on demo 7 (5.9e-08 at 12 nodes
+    against 1e-12 once paired)."""
     sp = _spatial([], [("x", "y")], ivars=("u",))
+    assert _kink_pairs(sp, True, sp.time_orderings, swept=("x", "y")) \
+        == [("x", "y")]
+    assert len(_kink_orientations(sp, [("x", "y")], sp.time_orderings,
+                                  swept=("x", "y"))) == 2
+
+
+def test_two_swept_externals_ordered_through_a_fixed_external_are_not_a_pair():
+    """``x -> s -> y`` with ``s`` pinned: ``_swept_external_order`` already
+    draws ``x`` first, so the split must not add the reverse ordering that
+    the sampler would ignore.  The chain runs through a point that is not a
+    split variable, which ``_later_sets`` does not follow."""
+    sp = _spatial([("x", "s"), ("s", "y")], [("x", "y")], ivars=("u",))
     assert _kink_pairs(sp, True, sp.time_orderings, swept=("x", "y")) == []
 
 

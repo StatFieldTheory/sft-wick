@@ -33,7 +33,8 @@ GENERATORS = [
     pytest.param(
         "examples/paper_assets/demo2_kappa4/make_figures.py",
         ["examples/paper_assets/demo2_kappa4/budget.md",
-         "examples/paper_assets/demo2_kappa4/fk_diagrams.md"],
+         "examples/paper_assets/demo2_kappa4/fk_diagrams.md",
+         "examples/demo2/INTERPRETATION.md"],
         id="GD1_demo2_budget",
     ),
     pytest.param(
@@ -129,3 +130,68 @@ def test_generated_file_matches_its_generator(generator: str,
         f"revert it) or the generator was changed without regenerating.\n"
         + "\n".join(f"  - {t[:160]!r}" for t in drifted)
     )
+
+
+def test_demo2_interpretation_quotes_the_current_numerical_budget():
+    """Fixed-prose checks cannot detect stale interpolated error estimates.
+
+    Recompute the key error sizes and residual statistics from the saved
+    arrays, independently of the figure generator's formatted prose.
+    """
+    import numpy as np
+
+    text = (REPO / "examples/demo2/INTERPRETATION.md").read_text()
+    with np.load(REPO / "examples/paper_assets/demo2_kappa4/budget.npz",
+                 allow_pickle=False) as b:
+        for channel, tolerance in (("ffk4", 1e-4), ("fffk", 1e-4), ("ffff", 1e-3)):
+            for pair in ("00", "01", "11"):
+                ref = b[f"ref_{channel}_{pair}"]
+                error = np.abs(b[f"{channel}_{pair}"] - ref)
+                nonzero = ref != 0
+                relative = np.max(error[nonzero] / np.abs(ref[nonzero])) if nonzero.any() else 0
+                assert (f"| {channel.upper()} | {pair} | {error.max():.2e} | "
+                        f"{relative:.2e} |") in text
+                assert np.all(error <= tolerance*np.abs(ref) + 1e-20)
+        assert f"{b['ref_fffk_01'][-1, 0]:.9e}" in text
+        assert f"{b['ref_fk5_01'][-1, 0]:.6e}" in text
+
+        # r=0 is a node of both theory grids and the simulation grid.
+        assert b["r"][0] == b["r_sub"][0] == b["r_sim"][0] == 0.0
+        total = sum(b[f"{channel}_01"][:, 0] for channel in
+                    ("o0_exact", "ff_exact", "fk", "ffk4", "fffk", "ffff"))
+        residual = b["sim_extrap_xi"][1, :, 0] - total
+        pull = residual / b["sim_extrap_err"][1, :, 0]
+        leading_pull = ((b["sim_extrap_xi"][1, :, 0] - b["fk_01"][:, 0])
+                        / b["sim_extrap_err"][1, :, 0])
+        assert (f"χ² from {np.sum(leading_pull**2):.1f} to "
+                f"{np.sum(pull**2):.1f}") in text
+        assert f"{np.mean(pull):+.2f}" in text
+
+        i = int(np.argmin(np.abs(b["t"] - 15.0)))
+        value = b["sim_extrap_xi"][1, i, 0]
+        error = b["sim_extrap_err"][1, i, 0]
+        assert f"{value:.3e} ± {error:.2e}" in text
+        assert f"{total[i]:.3e}" in text
+        assert f"{residual[i]:+.2e} ({pull[i]:+.1f}σ)" in text
+
+
+def test_demo2_diagonal_figure_includes_every_listed_channel(monkeypatch):
+    """FFFK_00 is nonzero: the plotted total must agree with the budget."""
+    import importlib.util
+    import numpy as np
+    from matplotlib.figure import Figure
+
+    path = REPO / "examples/paper_assets/demo2_kappa4/make_figures.py"
+    spec = importlib.util.spec_from_file_location("demo2_budget_figures_test", path)
+    figures = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(figures)
+    saved = []
+    monkeypatch.setattr(Figure, "savefig", lambda fig, *args, **kwargs: saved.append(fig))
+    figures.fig_xi00_vs_time()
+    expected = sum(figures.B[f"{channel}_00"][:, 0] for channel in
+                   ("o0_exact", "ff_exact", "fk", "ffk4", "fffk", "ffff"))
+    simulation = figures.B["sim_extrap_xi"][0, :, 0]
+    for axis, want in zip(saved[0].axes, (expected, simulation - expected)):
+        assert any(np.shape(line.get_ydata()) == want.shape
+                   and np.allclose(line.get_ydata(), want, rtol=1e-13, atol=1e-20)
+                   for line in axis.lines), "figure omits a nonzero channel from its total"

@@ -59,8 +59,8 @@ exponential pulses the `already_R_contracted` `K_R`.
 
 Worst relative difference from the hierarchy over the component tuples, the
 channels and (item a) the two time orders; `results.json` and
-`shot3d_results.json` hold every row.  "refused" is
-`NotImplementedError`: a matrix-valued R on the batched backends.
+`shot3d_results.json` hold every row. All listed scalar- and matrix-R
+routes are supported, including the batched backends at interacting orders.
 
 **(a) `⟨φ_a(x, 1.7) φ_b(y, 1.05)⟩` and its time-reversed partner** (6 cases
 per cell: 3 component pairs × 2 time orders; `gauss_legendre` n = 48,
@@ -69,14 +69,14 @@ per cell: 3 component pairs × 2 time orders; `gauss_legendre` n = 48,
 | noise | order | `gauss_legendre` | `qmc_vectorized` | `qmc_scalar` | `nquad` |
 |---|---|---|---|---|---|
 | coloured, scalar R | 0 | 0 | 0 | 0 | 0 |
-| coloured, scalar R | 1 | 3.9e-08 | 1.4e-09 | 1.6e-09 | 3.6e-16 |
-| coloured, scalar R | 2 | 7.5e-09 | 1.2e-08 | 2.2e-05 | 1.5e-07 |
+| coloured, scalar R | 1 | 1.4e-15 | 7.4e-16 | 5.9e-11 | 3.6e-16 |
+| coloured, scalar R | 2 | 4.9e-15 | 9.7e-10 | 5.9e-06 | 9.9e-16 |
 | coloured, matrix R | 0 | 1.2e-16 | 1.2e-16 | 1.2e-16 | 1.2e-16 |
-| coloured, matrix R | 1 | refused | refused | 1.7e-09 | 6.6e-16 |
-| coloured, matrix R | 2 | refused | refused | 3.8e-05 | 1.8e-07 |
+| coloured, matrix R | 1 | 1.8e-15 | 6.6e-16 | 1.1e-10 | 6.6e-16 |
+| coloured, matrix R | 2 | 4.7e-15 | 1.4e-09 | 2.2e-05 | 6.7e-16 |
 | + mixing white, matrix R | 0 | 7.7e-16 | 7.7e-16 | 7.7e-16 | 7.7e-16 |
-| + mixing white, matrix R | 1 | refused | refused | 1.5e-09 | 1.0e-15 |
-| + mixing white, matrix R | 2 | refused | refused | 7.3e-06 | 5.6e-07 |
+| + mixing white, matrix R | 1 | 2.7e-15 | 8.1e-16 | 9.9e-12 | 1.0e-15 |
+| + mixing white, matrix R | 2 | 5.7e-15 | 3.3e-07 | 3.4e-05 | 1.5e-15 |
 
 Order 0 of the first block is exactly 0 on both sides for `a ≠ b`: with
 `κ² ∝ I_N` and a diagonal R, C is diagonal.  The mixing white noise makes
@@ -91,21 +91,21 @@ earlier test used `coeffs=[1.0]`, where C does not depend on direction):
 | R | order | `gauss_legendre` (32) | `qmc_vectorized` (2¹⁴) | `qmc_scalar` (2¹⁰ / 2¹¹) |
 |---|---|---|---|---|
 | scalar | 0 | 1.7e-10 | | |
-| scalar | 1 | 5.6e-08 | | 2.0e-07 |
-| scalar | 2 | 2.6e-07 | 5.4e-07 | |
+| scalar | 1 | 2.6e-08 | | 2.7e-08 |
+| scalar | 2 | 2.6e-07 | 6.9e-07 | |
 | matrix | 0 | | | 1.1e-08 |
-| matrix | 1 | refused | | 5.4e-07 |
-| matrix | 2 | | refused | 5.0e-04 |
+| matrix | 1 | 1.9e-07 | | 2.0e-07 |
+| matrix | 2 | | 3.5e-06 | 2.4e-04 |
 
 **(c) the package's own C tables** at `r = 1.3` (`gauss_legendre` n = 32,
 `qmc_vectorized` 2¹⁴, `qmc_scalar` 2¹¹):
 
 | κ² | order 0 | order 1 | order 2 | order 2, QMC |
 |---|---|---|---|---|
-| `GaussianSpatial` (GL tables, n_grid_t = 48) | 1.7e-10 | 5.6e-08 | 6.5e-08 | 2.5e-07 |
-| `CustomKernel`, damped cosine (dblquad tables) | 1.7e-10 | 5.6e-08 | 9.6e-08 | 2.5e-07 |
-| `GeneralKappa2` (GL tables, n_grid_t = 40) | 4.3e-09 | 1.3e-07 | 4.3e-08 | 4.6e-07 |
-| `GeneralKappa2`, matrix R (`qmc_scalar`) | 1.3e-08 | 3.2e-07 | 5.1e-05 | refused |
+| `GaussianSpatial` (GL tables, n_grid_t = 48) | 1.7e-10 | 2.6e-08 | 5.9e-08 | 1.9e-07 |
+| `CustomKernel`, damped cosine (dblquad tables) | 1.7e-10 | 2.6e-08 | 1.2e-07 | 2.5e-07 |
+| `GeneralKappa2` (GL tables, n_grid_t = 40) | 4.3e-09 | 4.9e-08 | 1.1e-07 | 2.0e-07 |
+| `GeneralKappa2`, matrix R (`qmc_scalar`) | 1.3e-08 | 1.9e-07 | 4.1e-05 | 5.0e-07 |
 
 **(d) 3-D positions with a callable κ³** (`gauss_legendre` n = 16,
 `qmc_vectorized` 2¹⁴, `qmc_scalar` 2¹¹; the order-2 column is the `F` and
@@ -114,14 +114,14 @@ earlier test used `coeffs=[1.0]`, where C does not depend on direction):
 | pulses | observable | `gauss_legendre` | `qmc_vectorized` | `qmc_scalar` |
 |---|---|---|---|---|
 | white, raw `equal_time` κ³ | order 0 | 1.8e-16 | 1.8e-16 | 1.8e-16 |
-| white | order 2 | 4.2e-16 | 8.1e-07 | 2.2e-05 |
-| white | 3-point, order 1 | 6.3e-16 | 1.8e-09 | 1.8e-09 |
+| white | order 2 | 4.2e-16 | 1.1e-05 | 1.8e-04 |
+| white | 3-point, order 1 | 6.3e-16 | 1.6e-11 | 2.5e-10 |
 | exponential, `already_R_contracted` | order 0 | 3.5e-15 | 3.5e-15 | 3.5e-15 |
-| exponential | order 2 | 6.2e-15 | 1.0e-07 | 2.4e-05 |
-| exponential | 3-point, order 1 | 2.1e-14 | 1.6e-09 | 1.4e-09 |
+| exponential | order 2 | 6.2e-15 | 6.2e-08 | 7.9e-06 |
+| exponential | 3-point, order 1 | 2.1e-14 | 2.8e-12 | 8.0e-11 |
 | white, matrix R | order 0 | 1.8e-16 | 1.8e-16 | 1.8e-16 |
-| white, matrix R | order 2 | refused | refused | 4.8e-05 |
-| white, matrix R | 3-point, order 1 | refused | refused | 2.2e-09 |
+| white, matrix R | order 2 | 9.2e-16 | 1.2e-05 | 2.0e-04 |
+| white, matrix R | 3-point, order 1 | 1.0e-15 | 2.5e-11 | 4.7e-10 |
 
 **(e) `integrate_over` and the three-point function** (`gauss_legendre`
 n = 24, `qmc_vectorized` 2¹⁶ / 2¹⁴, `qmc_scalar` 2¹²; three component
@@ -129,22 +129,22 @@ tuples per cell):
 
 | observable | order | `gauss_legendre` | `qmc_vectorized` | `qmc_scalar` |
 |---|---|---|---|---|
-| `integrate_over='all'` | 0 / 1 / 2 | 7.9e-07 / 2.4e-10 / 2.2e-09 | 1.4e-09 / 3.2e-07 / 6.6e-05 | 3.3e-07 / 2.0e-04 / 1.5e-03 |
-| `integrate_over={'x'}` | 0 / 1 / 2 | 4.1e-16 / 3.8e-07 / 1.1e-07 | 8.4e-10 / 2.1e-10 / 4.7e-07 | 8.5e-10 / 1.2e-06 / 3.8e-04 |
-| `integrate_over`, matrix R | 0 / 1 / 2 | 1.0e-06 / refused | 1.2e-09 / refused | 8.1e-07 / 3.1e-04 / 2.7e-03 |
-| 3-point `⟨φ_a(x) φ_b(y) φ_c(z)⟩` | 1 / 2 | 9.8e-16 / 1.1e-07 | 1.5e-09 / 9.1e-08 | |
-| 3-point, matrix R | 1 / 2 | refused | | 1.4e-09 / 2.6e-05 |
+| `integrate_over='all'` | 0 / 1 / 2 | 1.5e-15 / 1.8e-15 / 1.2e-15 | 3.8e-10 / 2.6e-08 / 2.8e-05 | 3.3e-07 / 3.2e-06 / 1.2e-03 |
+| `integrate_over={'x'}` | 0 / 1 / 2 | 4.1e-16 / 9.9e-16 / 8.9e-16 | 4.1e-16 / 5.2e-10 / 1.1e-06 | 1.0e-12 / 6.0e-07 / 2.2e-04 |
+| `integrate_over`, matrix R | 0 / 1 / 2 | 1.4e-15 / 1.4e-15 / 1.2e-15 | 5.0e-10 / 1.2e-07 / 4.9e-05 | 3.2e-07 / 6.7e-05 / 1.5e-03 |
+| 3-point `⟨φ_a(x) φ_b(y) φ_c(z)⟩` | 1 / 2 | 9.8e-16 / 2.2e-15 | 5.8e-12 / 1.4e-07 | |
+| 3-point, matrix R | 1 / 2 | 2.5e-16 / 1.8e-15 | | 1.8e-10 / 2.0e-05 |
 
 The three-point function has no `FF` or `GG` diagrams at order 2 (an odd
 number of fields), so that order is the `FG` channel alone; the hierarchy
 gives 0 for the other two tags and the package produces no diagram for
 them.
 
-The tables in this section predate the domain cuts of 2026-09-12 (see
-"Limits, measured").  Every Gauss-Legendre row with a C propagator in it
-improves by orders of magnitude: `integrate_over={'x'}` at order 2 and
-`a = b = 1`, for instance, is 4.6e-07 at 16 nodes there and 1.3e-15 now,
-and the white-noise variant of the same channel 1.3e-03 and 1.3e-15.
+The tables in this section match the saved results, including the
+revalidated C-table paths and the domain cuts (see "Limits, measured").
+The cuts improve the integrated-observable Gauss-Legendre results: `integrate_over='all'`
+at order 2 is 1.2e-15 in the table against 2.2e-09 before the cuts, and
+`integrate_over={'x'}` at order 2 is 8.9e-16 against 1.1e-07.
 
 ## Limits, measured
 
@@ -168,8 +168,9 @@ and the white-noise variant of the same channel 1.3e-03 and 1.3e-15.
   white-noise, matrix-R variant went from 4.0e-3, 1.0e-3, 2.6e-4, 6.6e-5 at
   8, 16, 32, 64 nodes (`n^-2`) to machine precision at 8.  The cost is
   2.1 pieces per diagram on the coloured configuration and 2.9 on the
-  two-time white-noise one.  The tables above predate both cuts.
-- **Both QMC routes stall at 1.4e-9 relative** on that channel, the same
+  two-time white-noise one.  The tables above are the regenerated run.
+- **Historical QMC floor with 30-bit Sobol points.** Both routes stalled
+  at 1.4e-9 relative on that channel, the same
   value for every seed and for 2¹² to 2¹⁸ samples, while `nquad` and the
   reference agree to 3.6e-16.  scipy's Sobol points carry 30 bits by
   default, so the sample mean has a left-Riemann bias of
@@ -177,14 +178,14 @@ and the white-noise variant of the same channel 1.3e-03 and 1.3e-15.
   at 2¹⁴, 2¹⁸ and 2²⁰ for two seeds, which is that formula to three
   digits; with `bits=64` the error is 0 at 2¹⁸.  It is a floor, not a rate,
   and it only shows where the QMC statistical error is already below 1e-8.
-- **A matrix-valued R is refused** by `gauss_legendre` and
-  `qmc_vectorized` at the interacting orders (`integrate_moment_*` raise
-  `NotImplementedError`); the scalar loops and `nquad` carry those runs
-  here.  Order 0 goes through every backend, because a diagram with no
-  time-integration variable takes the zero-dimensional path.
-- **Table resolution** dominates the quadrature-table configurations: the
-  rotation route's order-1 error is 4.5e-7 at `n_grid_t = 24` and 6.7e-8 at
-  48, at fixed `n_gauss = 32`.
+  The package now uses `bits=64`; the current results above include this fix.
+- **Matrix R is supported** by all four listed backends. The former
+  batched-backend restriction was already removed in 0.6.0; the numerical
+  rows in item (a) replace the obsolete "refused" cells.
+- **Table resolution** can dominate the quadrature-table configurations.
+  The earlier `(t1,t2)` rotation tables gave order-1 errors of 4.5e-7 at
+  `n_grid_t = 24` and 6.7e-8 at 48, at fixed `n_gauss = 32`. The current
+  min-time/lag table results are reported in items (b) and (c).
 - The reference's own two-time propagation and integrated fields are
   checked against quadrature of the same free theory in
   `tests/test_demo7_space.py` (1e-10 and 1e-6).

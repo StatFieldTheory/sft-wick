@@ -313,6 +313,48 @@ def test_full_table_converges_with_the_grid():
         assert fine < coarse / 4.0, errs
 
 
+def test_full_table_stays_accurate_between_grid_nodes_near_the_diagonal(
+        mixing_table):
+    """The kink of C across ``t1 = t2`` runs diagonally through the cells of
+    a ``(t1, t2)`` tensor-product spline, which cannot represent it: the
+    table loses four orders of magnitude within one grid spacing of the
+    diagonal.  The older samples include off-grid times, but none in
+    0 < |t1-t2| < h; they therefore miss the worst band.  This scans fractions of a cell either
+    side of the diagonal, at several base times and both r values.
+
+    Measured on 0.6.0 (n_grid_t=41, h=0.0475), worst relative error by
+    distance from the diagonal::
+
+        0.00 h   3.1e-08   (on the diagonal, including off-grid base times)
+        0.10 h   3.7e-03
+        0.50 h   1.1e-02   <- worst
+        1.00 h   3.5e-03
+        2.00 h   1.7e-03
+        8.00 h   3.9e-06
+
+    With the table in ``(min(t1,t2), |t1-t2|)`` coordinates the kink is the
+    ``lag = 0`` axis and every one of these is at the smooth interior level.
+    """
+    props, cf = mixing_table
+    h = SPAN / 40.0
+    worst, worst_at = 0.0, None
+    for base in (0.7, 1.0, 1.3):
+        for off in (0.1, 0.25, 0.5, 0.75, 1.0, 2.0, 4.0, 8.0):
+            for sgn in (+1, -1):
+                u2 = base + sgn * off * h
+                if not (0.0 <= u2 <= SPAN):
+                    continue
+                for r in (0.0, Y):
+                    got = _table_C(props, base, u2, r)
+                    ref = cf(np.asarray(0.0), T_MIN + base,
+                             np.asarray(r), T_MIN + u2)
+                    err = _rel(got, ref)
+                    if err > worst:
+                        worst, worst_at = err, (base, sgn * off, r)
+    assert worst < 1e-4, "worst %.2e at (base, signed offset, r) %s" % (
+        worst, worst_at)
+
+
 def test_table_agrees_with_direct_quadrature_at_both_time_orders():
     """The mirrored half of the table is the transpose of the computed
     half, so the cell at ``(t2, t1)`` must equal the direct quadrature

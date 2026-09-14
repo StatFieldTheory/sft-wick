@@ -319,7 +319,7 @@ def test_the_general_kernel_is_not_translation_invariant():
 
 @pytest.mark.parametrize("ab", [(0, 1), (1, 1)])
 @pytest.mark.parametrize("over,legs,route,rel", [
-    ("all", ["I", "I"], run7.GL(12), 1e-6),
+    ("all", ["I", "I"], run7.GL(12), 1e-12),
     ("all", ["I", "I"], run7.QV(12), 1e-2),
     (("x",), ["I", "phi"], run7.GL(16), 1e-12),
     (("x",), ["I", "phi"], run7.QV(12), 1e-3),
@@ -331,8 +331,8 @@ def test_integrate_over_at_order_2(setups, ab, over, legs, route, rel):
     A swept external pairs like an integration variable in the kink split,
     which is what these tolerances measure: with one external swept and one
     pinned, 16 nodes give 1.3e-15 where they gave 4.6e-07; with both swept,
-    12 nodes give 5.9e-08 (the two swept times are not paired with each
-    other)."""
+    12 nodes give 5.9e-15 where they gave 5.9e-08 (the two swept times are
+    paired with each other now)."""
     s = setups["exp"]
     H = s.cfg.hierarchy([POS["x"], POS["y"]],
                         integrated=[(ab[0], 0), (ab[1], 1)])

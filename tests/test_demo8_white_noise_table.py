@@ -91,18 +91,21 @@ def tables(exact):
 
 
 def test_the_table_converges_in_its_step(exact, tables):
-    """Order 2 reads C off the diagonal, where the spline crosses the kink:
-    the error falls roughly as the step squared (1.9e-3 at n_grid_t = 21,
-    4.7e-4 at 41, 1.2e-4 at 81 on QMC)."""
+    """Order 2 reads C in the band around the diagonal, where a tensor
+    product over (t1, t2) crossed the kink.  In the (min(t1,t2), |t1-t2|)
+    chart the kink is the d = 0 grid edge, so Gauss-Legendre recovers the
+    spline's own order: 9.5e-06 at n_grid_t = 11 and 5.9e-08 at 31.  QMC
+    sits at its own ~1e-05 noise floor at both, so the deterministic
+    route is the one that measures the table."""
     system, _ = exact[EQUAL]
     want = _hierarchy(EQUAL, 2, (0, 1))
     errs = {}
     for n, props in tables.items():
-        got = _evaluate(system, props, EQUAL, 2, (0, 1), "qmc_vectorized",
-                        n_samples=2 ** 12, seed=5)
+        got = _evaluate(system, props, EQUAL, 2, (0, 1),
+                        "gauss_legendre", n_gauss=12)
         errs[n] = abs(got / want - 1.0)
-    assert errs[11] > 4 * errs[31]
-    assert errs[31] < 2e-3
+    assert errs[11] < 1e-4
+    assert errs[31] < errs[11] / 4
 
 
 def test_the_tadpole_reads_the_diagonal_and_converges_faster(exact, tables):

@@ -146,6 +146,16 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Lyapunov equation of the Markov embedding (scipy only); the "
         "built-in closed form, checked against it; direct quadrature",
         "1e-8 (embedding) / 1e-4 - 1e-3 (tables)"),
+    "tests/test_min_lag_boundaries.py": (
+        "Propagator numerics",
+        "min-time/lag tables retain the ordered spatial arguments of an "
+        "explicit earlier-first covariance, call physical kernels only "
+        "inside the requested horizon, converge at both temporal corners "
+        "and the upper boundary, preserve positivity under steep decay "
+        "with linear interpolation, and reject the previous cache schema",
+        "rank-one Gaussian covariance; exact matrix white-noise covariance; "
+        "callbacks restricted to the declared time interval",
+        "1e-12 (nodes) / 2e-3 (boundary, grid convergence)"),
     "tests/test_spectral.py": (
         "Spectral propagators",
         "disorder-averaged R*, C* from a spectral density; averaging; "
@@ -221,7 +231,19 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "the single-site cumulant ladder",
         "cusp-aware adaptive quadrature and randomised-Sobol QMC of the "
         "raw leg integrals; the cumulant generating function",
-        "1e-6 - 2e-2 (measured per configuration)"),
+        "2e-9 for resolved κ³ references; up to 2e-2 for κ⁴ QMC"),
+    "tests/test_demo2_budget_cache.py": (
+        "Self-consistency",
+        "refined demo2 channel caches recheck the requested grid and current "
+        "accuracy target; incomplete or inaccurate rows cannot pass verification",
+        "controlled sweep/reference values and damaged cache records", "exact"),
+    "tests/test_demo2_moment_reference.py": (
+        "Integrators",
+        "demo2 FFFK/FFK4 with exact C_eff, all component pairs and spatial separation; "
+        "analytic κ³/κ⁴ short-time, permutation, resonant-rate and serialization limits",
+        "independent polynomial Itô generator of replicated OU noise; "
+        "Gaussian and single-site limits; constant-kernel factorization",
+        "2e-7 for FFFK, 2e-12 for covariance"),
     "tests/test_coincident_external_labels.py": (
         "Integrators",
         "external operators sharing a spatial label are refused at L1 "
@@ -279,8 +301,9 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "propagator in the iso_R + diag_C scalar fast path; the Kronecker "
         "delta between C legs when il != ir",
         "numpy hand contraction over the full C matrices; all five backends "
-        "against each other; the label-blind value shown to differ",
-        "1e-12 (backends) / 1e-3 (quadrature vs QMC)"),
+        "against each other; the label-blind value shown to differ; "
+        "independent two-state OU covariance",
+        "1e-12 (backends) / 1e-3 (quadrature vs QMC) / 1e-4 (C table)"),
     "tests/test_hormander_moments_reference.py": (
         "Integrators",
         "the vector-field (Hörmander-form) moment reference used by demo 5 "
@@ -331,7 +354,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "against it and to the parents whose min() bound it enters, and "
         "no cut is made when every external sits at one time; an external "
         "swept by integrate_over pairs like an integration variable "
-        "instead, and two swept ones are not a pair",
+        "instead, and two swept ones pair too, unless the full causal "
+        "closure (a chain through a fixed external included) orders them",
         "exact Itô moment hierarchy, transported over the lag between "
         "the two external times", "exact / 1e-11"),
     "tests/test_demo4_asymmetric_noise.py": (
@@ -388,7 +412,7 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "the exact Ito moment hierarchy of the Markov embedding at the "
         "observation points, whose two-time propagation and integrated fields "
         "are themselves checked against quadrature",
-        "1e-6 (GL, nquad) / 1e-4 - 1e-2 (QMC, coarse tables)"),
+        "1e-12 - 1e-6 (GL, nquad) / 1e-4 - 1e-2 (QMC, coarse tables)"),
     "tests/test_demo7_shot3d.py": (
         "Integrators",
         "demo 7: 3-D positions with a callable kappa3 (compound-Poisson shot "
@@ -533,8 +557,11 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Workflow and YAML",
         "every committed file that a script writes (demo 2's error budget, "
         "table 1 and its order-1 diagrams, demo 3's diagram README) still "
-        "holds the text its generator would write",
-        "the generator's own source, parsed", "exact"),
+        "holds the text its generator would write; demo 2's interpretation "
+        "quotes the current quadrature errors and residual statistics; "
+        "its diagonal figure includes every listed nonzero channel",
+        "the generator's own source, parsed; independent recomputation "
+        "from budget.npz", "exact / displayed precision"),
 }
 
 

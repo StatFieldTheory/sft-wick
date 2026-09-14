@@ -241,13 +241,25 @@ def test_WF4_end_to_end_matches_validate_phase5(demo1_expansion, demo1_system):
     #      (0,0,0.5,4): 2.236403e-03 -> 2.298346e-03
     #      (1,1,1.0,2): 9.627814e-03 -> 8.460075e-03
     #      (1,1,1.0,4): 7.887824e-04 -> 9.350323e-04
+    # 3. When the C band around the diagonal moved to the
+    #    (min(t1,t2), |t1-t2|) chart.  The kink fix in (1) repaired only
+    #    exactly-equal times; within one grid spacing of the diagonal the
+    #    tensor-product table still crossed the kink, where it lost four
+    #    orders of magnitude.  Order 0 integrates C over the swept
+    #    external times and so reads that band, which is why it moves now
+    #    and did not move under (1).  All six re-pinned values moved by
+    #    2.5e-04 to 9.6e-04 relative, inside the sampler's own scatter:
+    #    the order-0 time integral is 3.99462e-01 (r = 0) and 2.42286e-01
+    #    (r = 0.5) by direct quadrature of _C_t_closed_form, against the
+    #    new 3.99357e-01 / 2.42222e-01 and the old 3.99486e-01 /
+    #    2.42301e-01; every one is within the ~5e-04 seed scatter.
     reference = {
-        (0, 0, 0.0, 15.0, 0): 3.994859e-01,
-        (0, 0, 0.5, 15.0, 0): 2.423005e-01,
-        (0, 0, 0.5, 15.0, 2): 3.116579e-02,
-        (0, 0, 0.5, 15.0, 4): 2.298346e-03,
-        (1, 1, 1.0, 15.0, 2): 8.460075e-03,
-        (1, 1, 1.0, 15.0, 4): 9.350323e-04,
+        (0, 0, 0.0, 15.0, 0): 3.993569e-01,
+        (0, 0, 0.5, 15.0, 0): 2.422222e-01,
+        (0, 0, 0.5, 15.0, 2): 3.115807e-02,
+        (0, 0, 0.5, 15.0, 4): 2.296503e-03,
+        (1, 1, 1.0, 15.0, 2): 8.454413e-03,
+        (1, 1, 1.0, 15.0, 4): 9.341305e-04,
     }
 
     # The grid is DERIVED from the reference table rather than being a

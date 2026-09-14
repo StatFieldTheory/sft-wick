@@ -1,5 +1,193 @@
 # Changelog
 
+## Unreleased
+
+### Fixed: source distribution excludes local task tools and example caches
+
+The sdist now explicitly excludes `.agents/`, `.agent-state/` and generated
+example pickle files. A local build previously bundled the untracked task
+handoff skill and demo2 refinement caches. The wheel contents and runtime
+dependencies are unchanged.
+
+### Fixed: min-time/lag table boundaries and the general earlier-first lookup
+
+The general full-grid builder separately tabulates the earlier-first `E`
+when a covariance cannot be recovered by transposition, including user C
+callables.  That branch incorrectly exchanged the spatial arguments again
+at lookup.  For the rank-one Gaussian field `phi(x,t)=(t+x*t**2)*Z`, a query
+at `(x,t;y,s)=(0,0.25;1,0.75)` returned 0.234375 instead of 0.328125, a
+28.57 % error even at a grid node.  Explicit E tables now retain their
+spatial order; transposed L tables still exchange the spatial arguments.
+
+The rectangular min-time/lag grid also evaluated physical kernels up to
+`2*t_max-t_min`, although the requested horizon is `t_max`.  At `t_max=1`,
+all four table paths called a bounded response at 1.25 and raised.  They
+now evaluate only the physical triangle, adding three in-domain samples
+on its shortest edges.  Auxiliary values outside the triangle are cubic
+continuations of the computed table values, without invoking R, noise or
+user C there.  The original physical grid nodes and the lag-zero boundary
+are retained.  Default full-grid linear interpolation uses physical
+`(t1,t2)` cells, splitting a diagonal cell into its two time orders.  Its
+weights therefore combine physical vertices only: negative auxiliary
+continuations cannot turn a positive covariance negative.  This also
+retains the off-diagonal accuracy of the previous linear time grid.
+At 41 time nodes this uses 864 physical samples per time
+order and spatial key, down from 1681.  Cache schema 3 rejects tables built
+with either defect.  `tests/test_min_lag_boundaries.py` checks the spatial
+order, bounded kernels, convergence at the horizon and both temporal
+corners, positivity under steep decay, and invalidation of the previous
+schema.
+
+Full-grid queries now read physical time vertices directly and interpolate
+only the remaining spatial axes, evaluating one time-order branch per query.
+This removes repeated generic interpolation without changing the rule:
+30,000 random queries across one to three spatial axes, including spatial
+extrapolation and both swap conventions, are bit-identical to the prior
+implementation. Scalar, empty, NaN and serialized queries were also checked.
+The accuracy benefit should be distinguished from query cost: the split
+lookup still does more work than the single interpolator used in 0.6.0.
+
+Demo 7's C-table and rotation results were remeasured after this repair.
+The component-label regression snapshots now reflect the min/lag table;
+a separate two-state OU covariance checks their interpolation error at
+the same Sobol points, independently of the package's C implementation.
+
+### Fixed: demo 2 covariance, kernel quadrature and unverified budget values
+
+The first regenerated budget still had large numerical errors. At r=0,t=50,
+the old FF QMC values were 4–5% low, FFFF GL10 was about 41% low, and FFFK_01
+was about 21% low against a new independent moment reference. The reported
+22.6% GL10/GL14 difference was not a bound on the error of either rule.
+FFFK also used bare-lambda C instead of the exact two-kernel effective C.
+
+The example κ³ and κ⁴ R-contracted callables now integrate their exponential
+pieces analytically over all raw-leg time orderings, declaring partner-time
+coincidences for the existing outer-domain splitter. Short intervals use a
+stable matrix series; coincident rates use a small matrix exponential.
+The helper is serialized by value with external hooks. Neither the package's
+Wick rules, diagram combinatorics nor MSR factors are changed by this repair.
+
+`examples/reference/demo2_moments.py` supplies independent polynomial Itô
+moment equations for spatially correlated replicated OU noise. Cumulant
+scaling in replica count separates FF, FK, FFK4, FFFF, FFFK and the omitted
+F³κ⁵ contribution. The budget retains actual L1 evaluations and refines
+them against this reference, requiring relative error ≤1e-4 for FFFK/FFK4
+and ≤1e-3 for FFFF on every saved nonzero cell. FF uses GL48 and FFFK uses
+exact C_eff. Refined stage caches fingerprint their scientific inputs.
+On reuse they also recheck the full requested grid, finite values and the
+current accuracy target. Missing or duplicated rows, wrong channels and
+values that fail a stricter target trigger recomputation; empty output or
+a nonfinite reference cannot certify a stage. The saved budget was separately
+checked cell by cell and retains its original computed values.
+
+Kernel tests use raw adaptive/QMC integrals and short-time, constant-kernel,
+permutation and resonant-rate limits. Separate moment tests check all three
+FFFK/FFK4 component pairs, spatial separation and covariance limits.
+`make_figures.py` now generates `INTERPRETATION.md` as well as the budget;
+numerical documentation checks compare their error claims with the saved
+independent references. Quadrature accuracy, omitted cumulants and simulation
+conditioning are reported separately.
+
+### Fixed: two externals swept by `integrate_over` were not paired in the kink split
+
+Two externals swept by `integrate_over` are drawn by
+`_swept_external_order`, which reads the causal structure.  The
+Gauss-Legendre and `nquad` split paired a swept external with an integration
+variable but never with a second swept external, and the extra ordering the
+split adds did not reach `_swept_external_order` in the first place, so the
+kink between the two swept times stayed inside the domain.  It was the largest
+error left in the kink split: seven orders of magnitude behind the paired case.
+
+`_kink_pairs` now admits a pair of swept externals unless the full causal
+closure already orders them (a chain through a fixed external orders them too,
+which `_later_sets` does not follow); `_kink_orientations` drops an orientation
+that would make that closure cyclic; and both integrators pass the orderings
+the split added to `_swept_external_order`, so the extra edge reaches the
+sampler.
+
+Measured on demo 7 (`N = 2`, `integrate_over="all"`, order 2, against the exact
+Itô hierarchy), `gauss_legendre`:
+
+| channel | nodes | before | now |
+|---|---|---|---|
+| `ab = (0, 1)` | 12 | 5.85e-08 | 5.86e-15 |
+| `ab = (0, 1)` | 16 | 1.09e-08 | 2.16e-15 |
+| `ab = (1, 1)` | 12 | 5.84e-08 | 6.40e-15 |
+
+The one-swept-and-one-pinned channel is unchanged (1.09e-15 at 16 nodes), and
+a diagram whose externals all share one time takes the unsplit mapping to the
+bit.  The split costs one piece per resolved pair: the `integrate_over="all"`
+diagrams go from 2.79 to 3.93 pieces per diagram on demo 7.  Locked by the
+rewritten `test_kink_split_external_time.py::test_two_swept_externals_are_a_pair`
+and the tightened `test_demo7_space.py::test_integrate_over_at_order_2`
+(`1e-6` to `1e-12`).
+
+### Fixed: the C table crossed the kink in the band around the time diagonal
+
+`C(t1, t2)` has a derivative discontinuity across `t1 == t2` whenever the
+model's C is declared kinked: white noise puts one in the first derivative,
+and since 0.6.0 a `kappa2` with a `|dt|` cusp (the OU family of demos 1 to 5)
+puts one in the third.  Every C table interpolated on a tensor-product
+`(t1, t2)` grid, whose cells straddle that diagonal, so the table lost four
+orders of magnitude within one grid spacing of it.  Exactly-equal times were
+routed to a separate 1-D spline of the diagonal and were accurate; the band
+`|t1 - t2| ~ h` around it, not the diagonal, carried the table's worst error.
+The committed test included off-grid points but none in
+`0 < |t1-t2| < h`, so it missed the worst band.
+
+The tables are now tabulated in `(s, u) = (min(t1,t2), |t1-t2|)`, which moves
+the kink onto the grid edge `u = 0` where no cell straddles anything.  `(s,u)`
+folds the two time orders onto one point, so each stored entry is the
+later-first value `L_ab(s,u) = C_ab(s+u, s)`, and the other order is recovered
+from the covariance `C_ab(t1,t2) = C_ba(t2,t1)`; where that transposition
+cannot supply the earlier-first half (general spatial keys, and a deliberately
+one-sided kernel) it is tabulated separately. The translation, rotation and
+general spatial builders and their lazy caches take the chart; the legacy
+`precompute_C_table` API retains its old layout. `workflow/cache.py::hash_spec` mixes a schema
+tag so an old on-disk table in `(t1,t2)` coordinates is never read back.
+
+Measured on the mixing system of `tests/test_offdiagonal_c_tables.py`
+(N = 2, `t_min = 0.4`, span 1.9, `n_grid_t = 41`, `h = 0.0475`), worst
+relative error against the closed form, by distance from the diagonal:
+
+| offset | before | now |
+|---|---|---|
+| 0.00 h | 3.1e-08 | 3.1e-08 |
+| 0.10 h | 3.7e-03 | 2.3e-07 |
+| 0.50 h | 1.1e-02 | 4.1e-07 |
+| 1.00 h | 3.5e-03 | 3.4e-08 |
+| 8.00 h | 3.9e-06 | 8.3e-08 |
+
+The band error becomes the smooth interior level and the grid convergence is
+restored.  Demo 8's order-2 `(0, 1)` channel against its independent moment
+hierarchy, `gauss_legendre`: 9.5e-06 at `n_grid_t = 11` and 5.9e-08 at 31
+(QMC sits at its own 1e-05 floor at both).  Locked by the new
+`test_full_table_stays_accurate_between_grid_nodes_near_the_diagonal` in
+`tests/test_offdiagonal_c_tables.py`, which fails on 0.6.0 at 1.1e-02.
+
+The WF4 golden file was re-pinned: all six values moved by 2.5e-04 to 9.6e-04
+relative, inside its sampler's own scatter, and order 0 moved because it
+integrates C over the swept external times and so reads the band.
+
+### Initial regeneration: demo 2's budget and demo 7's results
+
+Two committed assets were left stale by the 0.6.0 domain cuts and are now
+regenerated on the current code.
+
+In the September 12 first pass, `examples/paper_assets/demo2_kappa4/budget.npz` and `budget.md` were rebuilt
+by `run_budget.py` then `make_figures.py`.  The cuts make the
+Gauss-Legendre channels expensive: the FFK4 and FFFK stages take 7655 s and
+4607 s on 28 workers, most of the budget's cost.  The header note that said
+the numbers predated the split is gone, and `examples/demo2/INTERPRETATION.md`
+no longer said the budget was not re-run. These demo2 values were subsequently
+superseded by the independently checked reconstruction described above.
+
+`examples/demo7/results.json` and `shot3d_results.json` were rebuilt by
+`space7_run.py` and `space7_shot3d.py`, and the README tables and their
+"Limits, measured" paragraphs were updated.  The `integrate_over='all'`
+order-2 Gauss-Legendre row moves from 2.2e-09 to 1.2e-15 and the
+`integrate_over={'x'}` order-2 row from 1.1e-07 to 8.9e-16.
+
 ## 0.6.0 — 2026-09-12
 
 > **Eight inputs that returned a wrong number without an error, seven
@@ -10,8 +198,8 @@
 > integral on a cusped κ² (demo 1: 6e-07 at `t = 1` to 3.9e-04 at `t = 15`,
 > towards the converged value) and every QMC draw (the Sobol points are
 > 64-bit now, which redraws the sequence).  Demo 1's and demo 2's L2
-> figures were regenerated; demo 2's error budget was not, and says so
-> where its numbers are.
+> figures were regenerated; demo 2's error budget was regenerated in the
+> following development line (see Unreleased).
 
 > **Five limitations removed, seven more defects that returned a wrong
 > number without an error, and three demos built to look for them.**  Each
@@ -460,7 +648,8 @@ one: demo 1's sweep by 6e-07 (t = 1) to 9.7e-03 (t = 100) relative, at 3.03
 pieces per diagram and 2.3 times the wall clock
 (`examples/demo1/L2/INTEGRATION_ERROR.md` records it cell by cell); demo 2
 the same way.  Both demos' L2 figures were regenerated with the split in
-place; demo 2's error budget (about an hour of CPU) was not.  Locked by `tests/test_gl_white_noise_kinks.py`.
+place; demo 2's error budget was regenerated in the following development
+line (see Unreleased).  Locked by `tests/test_gl_white_noise_kinks.py`.
 
 ### Added: `propagators_from_cache` at the top level
 

@@ -15,6 +15,7 @@ from functools import cached_property
 from typing import Any, Callable
 
 import hashlib
+import itertools
 
 import numpy as np
 
@@ -534,8 +535,9 @@ def _split_vars(spatial: "SpatialStructure", swept=()) -> set:
     ordering with one is carried by the mapping already, as an upper
     bound (``min(parents)``, the swept column) or a lower one (a
     :func:`_causal_lower_bound_sources` source).  Two swept externals are
-    not a pair: their relative order comes from
-    :func:`_swept_external_order`, which reads the causal structure only.
+    a pair as well: :func:`_swept_external_order` draws them, and the
+    integrators that split pass it the orderings the split added, so an
+    extra ordering reaches the sampler.
     """
     return set(spatial.time_integration_vars) | set(swept)
 
@@ -547,9 +549,13 @@ def _kink_pairs(spatial: "SpatialStructure", c_kink: bool,
     unordered and whose crossing kinks the integrand inside the domain (the
     three sources are listed in :func:`_kink_candidates`).
 
-    Both ends must be in :func:`_split_vars` and at most one may be swept.
-    A kink between an integration variable and an external point pinned at
-    a fixed time is a constant cut rather than an ordering; it is
+    Both ends must be in :func:`_split_vars`.  A pair of two swept
+    externals is kept when :func:`_swept_external_order` leaves their
+    relative order open: only that function orders two swept externals in
+    the samplers, and the integrators that split pass it the orderings the
+    split added, so an extra ordering reaches it.  A kink between an
+    integration variable and an external point pinned at a fixed time is a
+    constant cut rather than an ordering; it is
     :func:`_kink_constant_cuts`.
     """
     orderings = (spatial.time_orderings if orderings is None
@@ -559,13 +565,22 @@ def _kink_pairs(spatial: "SpatialStructure", c_kink: bool,
     later = _later_sets(nodes, orderings)
     candidates = _kink_candidates(spatial, c_kink, orderings, coupling_pairs,
                                   keep=nodes.__contains__)
+    full_later: dict[str, set] | None = None
     pairs: list[tuple[str, str]] = []
     for a, b in candidates:
         if a == b or a not in nodes or b not in nodes:
             continue
         if a in swept and b in swept:
-            continue
-        if b in later[a] or a in later[b]:
+            # Two swept externals are drawn by _swept_external_order,
+            # which reads the FULL causal closure: unlike _later_sets it
+            # follows a chain through a point that is not itself a split
+            # variable (a fixed external, say), and such a chain orders
+            # the two just as firmly.  Split only a pair it leaves open.
+            if full_later is None:
+                full_later = _causal_reachability(tuple(orderings))
+            if b in full_later.get(a, ()) or a in full_later.get(b, ()):
+                continue
+        elif b in later[a] or a in later[b]:
             continue
         pair = tuple(sorted((a, b)))
         if pair not in pairs:
@@ -578,7 +593,16 @@ def _kink_orientations(spatial: "SpatialStructure",
                        orderings=None, swept=()) -> list[tuple]:
     """Every order of the kink pairs consistent with ``orderings`` (default:
     the causal structure), each as a tuple of extra ``(earlier, later)``
-    edges.  The sub-domains they define partition the domain."""
+    edges.  The sub-domains they define partition the domain.
+
+    An orientation is dropped when it makes the causal closure cyclic.  The
+    closure through the split variables is checked first; for a swept
+    external a chain through a point that is not itself a split variable (a
+    fixed external, say) also counts, because :func:`_swept_external_order`
+    follows that chain when it draws the swept externals.  Left in, such an
+    orientation makes that function fall back to an unordered draw, so the
+    piece would silently not be the one asked for.
+    """
     from itertools import product
 
     orderings = (spatial.time_orderings if orderings is None
@@ -590,8 +614,13 @@ def _kink_orientations(spatial: "SpatialStructure",
         extra = tuple((a, b) if bit == 0 else (b, a)
                       for (a, b), bit in zip(pairs, bits))
         later = _later_sets(nodes, base + list(extra))
-        if all(v not in later[v] for v in nodes):      # acyclic
-            out.append(extra)
+        if any(v in later[v] for v in nodes):          # cycle among the nodes
+            continue
+        if swept:
+            full = _causal_reachability(tuple(orderings) + extra)
+            if any(v in full.get(v, ()) for v in swept):
+                continue
+        out.append(extra)
     return out
 
 
@@ -1039,6 +1068,77 @@ class PropagatorModel:
     sigma2: Callable | None = None
 
 
+def _polynomial_weights(x: np.ndarray, nodes: np.ndarray) -> np.ndarray:
+    """Lagrange weights on a short, dimensionless stencil."""
+    weights = np.ones((len(x), len(nodes)))
+    for k, node in enumerate(nodes):
+        for l, other in enumerate(nodes):
+            if k != l:
+                weights[:, k] *= (x - other) / (node - other)
+    return weights
+
+
+class _MinLagGrid:
+    """Physical samples and an auxiliary extension of a min-time/lag table.
+
+    Only the triangle ``s + u <= t_max`` is sampled from the physical
+    kernels.  The rectangular spline needs values beyond that triangle;
+    these are polynomial continuations of *table values*, not evaluations
+    of R, noise or a user C outside its declared domain.
+
+    For each lag, continue the last four in-domain min-time samples.  The
+    two shortest nonzero intervals get three extra samples in total, all
+    inside the domain, so their continuation remains cubic.  At maximum
+    lag the interval has zero length; continue the preceding lag columns
+    instead, preserving its single physical node.  Every original physical
+    grid node is retained exactly.  Small full grids use the available
+    lower-degree stencil at the last column.
+    """
+
+    def __init__(self, ts: np.ndarray):
+        self.n = n = len(ts)
+        if n < 2:
+            raise ValueError("C tables require at least two time grid nodes")
+        span = float(ts[-1] - ts[0])
+        self.points: list[tuple[float, float]] = []
+        self.columns: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+        for j in range(n):
+            count = n - j
+            indices = list(range(count))
+            if count == 2:
+                indices.extend((1.0 / 3.0, 2.0 / 3.0))
+            elif count == 3:
+                indices.append(0.5)
+            start = len(self.points)
+            for i in indices:
+                earlier = float(ts[0] + span * i / (n - 1))
+                # i+j <= n-1 by construction.  Clamp only roundoff at
+                # the physical upper boundary, never an out-of-domain node.
+                later = float(min(ts[-1], ts[0] + span * (i + j) / (n - 1)))
+                self.points.append((later, earlier))
+            regular = np.arange(start, start + count)
+            order = np.argsort(indices)[-4:]
+            self.columns.append((regular, start + order,
+                                 np.asarray(indices, dtype=float)[order]))
+
+    def complete(self, values: np.ndarray) -> np.ndarray:
+        """Expand ``(physical samples, *spatial)`` to ``(s, u, *spatial)``."""
+        n = self.n
+        grid = np.empty((n, n) + values.shape[1:], dtype=values.dtype)
+        for j, (regular, support, coords) in enumerate(self.columns):
+            count = len(regular)
+            grid[:count, j] = values[regular]
+            if j < n - 1 and count < n:
+                weights = _polynomial_weights(np.arange(count, n), coords)
+                grid[count:, j] = np.tensordot(weights, values[support],
+                                              axes=(1, 0))
+        start = max(0, n - 5)
+        weights = _polynomial_weights(np.array([n - 1]),
+                                      np.arange(start, n - 1))[0]
+        grid[1:, -1] = np.tensordot(grid[1:, start:-1], weights, axes=(1, 0))
+        return grid
+
+
 class _LazyTimeSplineCache:
     """Per-parameter-value 2-D ``(t1, t2)`` spline cache for lazy
     spatial evaluation.
@@ -1080,11 +1180,15 @@ class _LazyTimeSplineCache:
         #: overriding the legacy 4-argument signature keep working).
         self.direct_kwargs: dict = dict(direct_kwargs or {})
         self.ts = np.linspace(parent.model.t_min, t_max, n_grid_t)
+        #: Lag grid for the ``(min(t1,t2), |t1-t2|)`` reparameterisation.
+        #: The kink of C is then the ``u = 0`` axis (a grid boundary), not a
+        #: diagonal running through the cells.
+        self.us = np.linspace(0.0, t_max - parent.model.t_min, n_grid_t)
         self._splines_by_key: dict = {}
         #: Separable-translation shortcut (see :meth:`_build`): the
-        #: ``(t1, t2)`` grids at zero separation divided by ``κ_x(0)``, built
+        #: ``(L, E)`` grids at zero separation divided by ``κ_x(0)``, built
         #: once and rescaled by ``κ_x(r)`` for every later ``r``.
-        self._base_grids: list | None = None
+        self._base_grids: tuple | None = None
         #: Number of times the full quadrature grid was actually built,
         #: exposed so tests and the cost estimator can count table builds.
         self.n_grid_builds: int = 0
@@ -1135,13 +1239,14 @@ class _LazyTimeSplineCache:
           for every further ``r``.  The lazy cache used to redo the full
           ``n_grid_t²`` quadrature per distinct ``r``: 4× the work for a
           four-point moment, 12×+ in a positions sweep.
-        * **Time symmetry** (``κ_t`` even, diagonal C): the grid is
-          symmetric in ``(t1, t2)``, so only the upper triangle is
-          evaluated and mirrored.  A full table (``diag_C=False``) is
-          mirrored with its component pair transposed,
-          ``C_ab(t1, t2) = C_ba(t2, t1)``, when the kernel passes
+        * **Time symmetry**: the table stores the later-first value
+          ``T_ab(s, u) = C_ab(s + u, s)`` with ``s = min(t1, t2)`` and
+          ``u = |t1 - t2|``, and the lookup recovers the other order from
+          ``C_ab(t1, t2) = C_ba(t2, t1)`` when the kernel passes
           :func:`_probe_c_transpose` at the table's positions; in general
           mode the same relation also files the table at ``(x2, x1)``.
+          Each ordered pair is therefore stored once and no cell is
+          evaluated twice for the mirror.
 
         Whether either applies is decided by the parent cache
         (:meth:`PropagatorCache._lazy_spatial_factor` /
@@ -1154,24 +1259,28 @@ class _LazyTimeSplineCache:
         """
         x1_arr = np.asarray(x1_val)
         x2_arr = np.asarray(x2_val)
-        grids = None
+        grids = egrids = None
         if self.mode == "translation":
             factor_fn = self.parent._lazy_spatial_factor()
             if factor_fn is not None:
-                grids = self._grids_from_base(x1_arr, x2_arr, factor_fn)
+                grids, egrids = self._grids_from_base(
+                    x1_arr, x2_arr, factor_fn)
         if grids is None:
-            grids = self._grids_by_quadrature(x1_arr, x2_arr)
-            self._file_swapped(x1_arr, x2_arr, grids)
-        return self._splines_from_grids(grids)
+            grids, egrids = self._grids_by_quadrature(x1_arr, x2_arr)
+            self._file_swapped(x1_arr, x2_arr, grids, egrids)
+        return self._splines_from_grids(grids, egrids)
 
-    def _file_swapped(self, x1_arr, x2_arr, grids: list) -> None:
+    def _file_swapped(self, x1_arr, x2_arr, grids: list,
+                      egrids: list) -> None:
         """General mode, full C: file the table at ``(x2, x1)`` as well.
 
         ``C(x2, t1; x1, t2) = C(x1, t2; x2, t1)ᵀ`` for a covariance (see
-        :func:`_probe_c_transpose`), so its grids are these, transposed in
-        time and in the component pair.  Translation and rotation keys do
-        not tell the two orders apart, and diagonal tables keep their own
-        builds.
+        :func:`_probe_c_transpose`), so in the ``(s, u)`` coordinates the
+        swapped key's later-first table is this key's earlier-first table
+        with the component pair transposed, and vice versa:
+        ``L^{x2,x1}_ab = E^{x1,x2}_ba`` and ``E^{x2,x1}_ab = L^{x1,x2}_ba``.
+        No cell is evaluated twice.  Translation and rotation keys do not
+        tell the two orders apart, and diagonal tables keep their own builds.
         """
         parent = self.parent
         if self.mode != "general" or parent.model.diag_C:
@@ -1183,59 +1292,91 @@ class _LazyTimeSplineCache:
             return
         entries = parent._c_table_entries()
         where = {e: k for k, e in enumerate(entries)}
-        swapped = [grids[where[(b, a)]].T.copy() for a, b in entries]
-        self._splines_by_key[key] = self._splines_from_grids(swapped)
+        swapped = [egrids[where[(b, a)]].copy() for a, b in entries]
+        eswapped = [grids[where[(b, a)]].copy() for a, b in entries]
+        self._splines_by_key[key] = self._splines_from_grids(
+            swapped, eswapped)
 
-    def _grids_from_base(self, x1_arr, x2_arr, factor_fn) -> list | None:
+    def _grids_from_base(self, x1_arr, x2_arr, factor_fn):
         """Rescale the zero-separation grids by ``κ_x(r) / κ_x(0)``.
 
-        Returns ``None`` (caller falls back to quadrature) when
+        Returns ``(None, None)`` (caller falls back to quadrature) when
         ``κ_x(0)`` vanishes or is not finite, so the shortcut can never
         divide by zero.
         """
         diff = np.asarray(x1_arr, dtype=float) - np.asarray(x2_arr, dtype=float)
         r = float(abs(diff)) if diff.ndim == 0 else float(np.linalg.norm(diff))
         f_r = float(factor_fn(r))
+        need_E = self._need_earlier_first(x1_arr, x2_arr)
         if self._base_grids is None:
             f0 = float(factor_fn(0.0))
             if not np.isfinite(f0) or f0 == 0.0:
-                return None
+                return None, None
             zero = np.zeros_like(np.asarray(x1_arr, dtype=float))
-            self._base_grids = [
-                g / f0 for g in self._grids_by_quadrature(zero, zero)
-            ]
-        return [f_r * g for g in self._base_grids]
+            base_L, base_E = self._grids_by_quadrature(
+                zero, zero, need_E=need_E)
+            self._base_grids = (
+                [g / f0 for g in base_L],
+                None if base_E is None else [g / f0 for g in base_E],
+            )
+        base_L, base_E = self._base_grids
+        return ([f_r * g for g in base_L],
+                None if base_E is None else [f_r * g for g in base_E])
 
-    def _grids_by_quadrature(self, x1_arr, x2_arr) -> list:
-        """One ``(n_t, n_t)`` grid per stored entry from ``_C_value_direct``:
-        ``C_aa`` under ``diag_C``, every ``C_ab`` otherwise (see
-        :meth:`PropagatorCache._c_table_entries`).  When
-        :meth:`PropagatorCache._c_half_grid` allows it, only the cells with
-        ``j ≥ i`` are evaluated and cell ``(j, i)`` of ``C_ba`` is copied
-        from cell ``(i, j)`` of ``C_ab``."""
+    def _need_earlier_first(self, x1_arr, x2_arr) -> bool:
+        """Whether the earlier-first table ``E`` must be stored separately.
+
+        By the covariance transposition ``C_ab(t1, t2) = C_ba(t2, t1)`` the
+        earlier-first value at a swap-invariant spatial key (translation's
+        ``r``, rotation's ``cos``) is the later-first value of the
+        transposed entry, so one grid covers both orders.  General keys are
+        not swap invariant, and a kernel that fails the transposition probe
+        (a deliberately one-sided temporal kernel) breaks the relation even
+        at a translation or rotation key, so there ``E`` is built.
+        """
+        if self.mode == "general":
+            return True
+        return not self.parent._c_half_grid(x1_arr, x2_arr, self.t_max)
+
+    def _grids_by_quadrature(self, x1_arr, x2_arr,
+                             need_E: bool | None = None):
+        """``(later_first, earlier_first)`` grids per stored entry from
+        ``_C_value_direct``: ``C_aa`` under ``diag_C``, every ``C_ab``
+        otherwise (see :meth:`PropagatorCache._c_table_entries`).
+
+        Grid node ``(i, j)`` is ``L_ab(s_i, u_j) = C_ab(x1, s_i + u_j;
+        x2, s_i)`` at ``s_i = ts[i]``, ``u_j = us[j]`` for the
+        later-first table, and ``E_ab(s_i, u_j) = C_ab(x1, s_i; x2,
+        s_i + u_j)`` for the earlier-first one.  ``need_E`` is decided by
+        :meth:`_need_earlier_first`; when False the caller recovers ``E``
+        from the transposed entry of the later-first table and only ``L``
+        is built.
+
+        :class:`_MinLagGrid` supplies only in-domain physical samples and
+        extends their values for the rectangular spline.  No physical
+        kernel is called beyond ``t_max``.
+        """
         from .progress import progress_map
 
         parent = self.parent
         entries = parent._c_table_entries()
-        where = {e: k for k, e in enumerate(entries)}
-        ts = self.ts
-        n_t = self.n_grid_t
-        half = parent._c_half_grid(x1_arr, x2_arr, self.t_max)
+        layout = _MinLagGrid(self.ts)
+        if need_E is None:
+            need_E = self._need_earlier_first(x1_arr, x2_arr)
 
-        tasks = [
-            (i, j, ts[i], ts[j])
-            for i in range(n_t)
-            for j in range(n_t)
-            if (not half) or j >= i
-        ]
+        tasks = []
+        for i, (later, earlier) in enumerate(layout.points):
+            tasks.append((0, i, later, earlier))
+            if need_E:
+                tasks.append((1, i, earlier, later))
 
         direct_kwargs = self.direct_kwargs
 
         def _point(args):
-            i, j, t1, t2 = args
+            kind, i, t1, t2 = args
             C_mat = np.asarray(
                 parent._C_value_direct(x1_arr, t1, x2_arr, t2, **direct_kwargs))
-            return i, j, np.array([C_mat[a, b] for a, b in entries])
+            return kind, i, np.array([C_mat[a, b] for a, b in entries])
 
         label = parent._c_source_label()
         results = progress_map(
@@ -1244,29 +1385,36 @@ class _LazyTimeSplineCache:
         )
         self.n_grid_builds += 1
 
-        grids = [np.zeros((n_t, n_t)) for _ in entries]
-        for i, j, cvec in results:
-            for k, (a, b) in enumerate(entries):
-                grids[k][i, j] = cvec[k]
-                if half and j != i:
-                    grids[where[(b, a)]][j, i] = cvec[k]
-        return grids
+        grids = [np.empty(len(layout.points)) for _ in entries]
+        egrids = ([np.empty(len(layout.points)) for _ in entries]
+                  if need_E else None)
+        for kind, i, cvec in results:
+            target = grids if kind == 0 else egrids
+            for k, _e in enumerate(entries):
+                target[k][i] = cvec[k]
+        return ([layout.complete(g) for g in grids],
+                None if egrids is None else [layout.complete(g) for g in egrids])
 
-    def _splines_from_grids(self, grids: list) -> list:
+    def _splines_from_grids(self, grids: list,
+                            egrids: list | None) -> list:
         from scipy.interpolate import RectBivariateSpline
 
-        ts = self.ts
-        # Wrap each 2-D spline with the diagonal spline harvested from the
-        # SAME grid.  The lazy spatial path carried the identical kink as
-        # the legacy table (measured 22.3% at n_grid_t=41, bit-for-bit the
-        # same numbers), and this is the path examples/demo1 uses.
-        return [
-            _DiagAwareSpline(
-                RectBivariateSpline(ts, ts, g),
-                _diag_line_interp(ts, np.diag(g)),
-            )
-            for g in grids
-        ]
+        ts, us = self.ts, self.us
+        raw = [RectBivariateSpline(ts, us, g) for g in grids]
+        eraw = (None if egrids is None
+                else [RectBivariateSpline(ts, us, g) for g in egrids])
+        entries = self.parent._c_table_entries()
+        where = {e: k for k, e in enumerate(entries)}
+        out = []
+        for a, b in entries:
+            if eraw is None:
+                # E_ab = L_ba at a swap-invariant key (covariance).
+                out.append(_MinLagSpline(raw[where[(a, b)]],
+                                         raw[where[(b, a)]]))
+            else:
+                out.append(_MinLagSpline(raw[where[(a, b)]],
+                                         eraw[where[(a, b)]]))
+        return out
 
 
 class _DiagLineSpline:
@@ -1452,6 +1600,170 @@ class _DiagAwareSpline:
         if name.startswith("__") and name.endswith("__"):
             raise AttributeError(name)
         return getattr(self._s2d, name)
+
+
+class _MinLagSpline:
+    """A ``C_ab`` table reparameterised by ``(s, u) = (min(t1,t2), |t1-t2|)``.
+
+    ``C`` has a derivative discontinuity across ``t1 = t2``.  On a
+    ``(t1, t2)`` tensor-product grid that kink runs diagonally through the
+    cells, which a tensor-product spline cannot represent: the lazy table lost
+    four orders of magnitude within one grid spacing of the diagonal (measured
+    1.1e-02 at ``n_grid_t = 41``).  In ``(s, u)`` the same kink is the
+    boundary ``u = 0`` and the spline is smooth in the interior.
+
+    ``(s, u)`` folds the two time orders onto one point, so ``_ge`` is the
+    later-first spline ``L_ab(s, u) = C_ab(x1, s+u; x2, s)`` and ``_lt``
+    the earlier-first one ``E_ab(s, u) = C_ab(x1, s; x2, s+u)``.  At a
+    swap-invariant spatial key the covariance transposition
+    ``C_ab(t1, t2) = C_ba(t2, t1)`` makes ``E_ab = L_ba``, so the caller
+    passes the transposed entry and only one grid is built.
+    """
+
+    __slots__ = ("_ge", "_lt")
+
+    def __init__(self, later_first, earlier_first):
+        self._ge = later_first
+        self._lt = earlier_first
+
+    def __call__(self, t1, t2, grid=False):
+        if grid:
+            raise ValueError("_MinLagSpline does not implement grid=True")
+        t1a = np.asarray(t1, dtype=float)
+        t2a = np.asarray(t2, dtype=float)
+        s = np.minimum(t1a, t2a)
+        u = np.abs(t1a - t2a)
+        ge = t1a >= t2a
+        a = np.asarray(self._ge(s, u, grid=False), dtype=float)
+        b = np.asarray(self._lt(s, u, grid=False), dtype=float)
+        out = np.where(ge, a, b)
+        return float(out) if out.ndim == 0 else out
+
+    def __getstate__(self):
+        return {n: getattr(self, n) for n in self.__slots__}
+
+    def __setstate__(self, state):
+        for n, v in state.items():
+            object.__setattr__(self, n, v)
+
+
+class _MinLagInterp:
+    """A full-grid C_ab table in ``(s, u, *spatial)`` coordinates.
+
+    ``_ge`` evaluates ``L_ab(s, u, *spatial) = C_ab(x1, s+u; x2, s)`` and
+    ``_lt`` the earlier-first half ``E_ab(s, u, *spatial) = C_ab(x1, s;
+    x2, s+u)``.  At a swap-invariant spatial key (translation's r,
+    rotation's cos) ``E_ab = L_ba``, so ``_lt`` is the transposed entry and
+    the spatial coordinates are unchanged.  The general key is not swap
+    invariant: there ``E_ab(x1, x2) = L_ba(x2, x1)``, so ``_lt`` is the
+    transposed entry and ``_swap_space`` exchanges the last two
+    coordinates.  ``__call__`` matches
+    ``RegularGridInterpolator.__call__``, an ``(n, ndim)`` point array.
+    """
+
+    __slots__ = ("_ge", "_lt", "_swap_space")
+
+    def __init__(self, later_first, earlier_first, swap_space):
+        self._ge = later_first
+        self._lt = earlier_first
+        self._swap_space = bool(swap_space)
+
+    @staticmethod
+    def _evaluate(interp, pts):
+        """Linear interpolation uses only physical time-cell vertices.
+
+        In off-diagonal (t1,t2) cells this is the usual bilinear rule.
+        A diagonal cell is split into the two time orders, each with
+        three vertices.  Thus neither the C kink nor an auxiliary
+        continuation is mixed into a linear cell, and a positive table
+        remains positive.  Cubic interpolation retains the smooth
+        min-time/lag spline and its auxiliary continuation.
+        """
+        if interp.method != "linear":
+            return np.asarray(interp(pts))
+        flat = pts.reshape(-1, pts.shape[-1])
+        ts = interp.grid[0]
+        earlier, later = flat[:, 0], flat[:, 0] + flat[:, 1]
+        keep = ((earlier >= ts[0]) & (later <= np.nextafter(ts[-1], np.inf))
+                & (later >= earlier) & np.all(np.isfinite(flat), axis=1))
+        out = np.empty(len(flat), dtype=interp.values.dtype)
+        if np.any(~keep):
+            out[~keep] = interp(flat[~keep])
+        if not np.any(keep):
+            return out.reshape(pts.shape[:-1])
+        earlier, later = earlier[keep], later[keep]
+        i = np.clip(np.searchsorted(ts, earlier, side="right") - 1,
+                    0, len(ts) - 2)
+        k = np.clip(np.searchsorted(ts, later, side="right") - 1,
+                    0, len(ts) - 2)
+        a = np.clip((later - ts[k]) / (ts[k + 1] - ts[k]), 0.0, 1.0)
+        b = np.clip((earlier - ts[i]) / (ts[i + 1] - ts[i]), 0.0, 1.0)
+        diagonal = i == k
+        s_idx = np.array([i, i, np.where(diagonal, i, i + 1), i + 1])
+        t_idx = np.array([k, k + 1, k, k + 1])
+        weights = np.array([(1 - a) * (1 - b), a * (1 - b),
+                            (1 - a) * b, a * b])
+        weights[:, diagonal] = np.array([1 - a[diagonal],
+                                         a[diagonal] - b[diagonal],
+                                         np.zeros(np.count_nonzero(diagonal)),
+                                         b[diagonal]])
+        # The time coordinates are exact grid vertices.  Gather them
+        # directly, interpolating only the remaining spatial axes; asking
+        # RGI to rediscover all four time corners multiplies query cost.
+        spatial_cells = []
+        for axis, grid in enumerate(interp.grid[2:], start=2):
+            coordinate = flat[keep, axis]
+            if len(grid) == 1:
+                spatial_cells.append(((np.zeros(len(coordinate), dtype=int), 1.0),))
+                continue
+            index = np.clip(np.searchsorted(grid, coordinate, side="right") - 1,
+                            0, len(grid) - 2)
+            fraction = (coordinate - grid[index]) / (grid[index + 1] - grid[index])
+            spatial_cells.append(((index, 1 - fraction), (index + 1, fraction)))
+        values = np.zeros(weights.shape, dtype=interp.values.dtype)
+        for corner in itertools.product(*spatial_cells):
+            indices = (s_idx, t_idx - s_idx) + tuple(c[0] for c in corner)
+            spatial_weight = 1.0
+            for _, weight in corner:
+                spatial_weight = spatial_weight * weight
+            values += interp.values[indices] * spatial_weight
+        out[keep] = np.sum(weights * values, axis=0)
+        return out.reshape(pts.shape[:-1])
+
+    def __call__(self, pts):
+        pts = np.asarray(pts, dtype=float)
+        if pts.ndim == 1:
+            pts = pts[None, :]
+        t1, t2 = pts[..., 0], pts[..., 1]
+        s = np.minimum(t1, t2)
+        u = np.abs(t1 - t2)
+        ge = t1 >= t2
+        spa = pts[..., 2:]
+        spte = spa
+        if self._swap_space and spa.shape[-1] >= 2:
+            spte = np.concatenate(
+                [spa[..., 1:2], spa[..., 0:1], spa[..., 2:]], axis=-1)
+        ge_pts = np.concatenate([s[..., None], u[..., None], spa], axis=-1)
+        lt_pts = np.concatenate([s[..., None], u[..., None], spte], axis=-1)
+        # Each query needs only its own time-order branch.
+        out = np.empty(t1.shape, dtype=self._ge.values.dtype)
+        if np.any(ge):
+            out[ge] = self._evaluate(self._ge, ge_pts[ge])
+        if np.any(~ge):
+            out[~ge] = self._evaluate(self._lt, lt_pts[~ge])
+        return out
+
+    def __getstate__(self):
+        return {n: getattr(self, n) for n in self.__slots__}
+
+    def __setstate__(self, state):
+        for n, v in state.items():
+            object.__setattr__(self, n, v)
+
+    def __getattr__(self, name):
+        if name.startswith("__") and name.endswith("__"):
+            raise AttributeError(name)
+        return getattr(self._ge, name)
 
 
 def _C_value_direct_gl(
@@ -2019,6 +2331,7 @@ def _causal_reachability(time_orderings) -> dict:
 
 def _swept_external_order(
     spatial, ext_integrated, fixed_times=None, lambda_f=None, t_min=0.0,
+    orderings=None,
 ) -> tuple:
     """Causal constraints ON the swept externals themselves.
 
@@ -2044,9 +2357,16 @@ def _swept_external_order(
     predecessors of each, and its constant bounds.  With no constraint at all
     the order is the caller's own and the dicts are empty, so sampling stays
     bit-identical.
+
+    ``orderings`` defaults to the diagram's causal structure.  The
+    integrators that split the time domain pass their own, the causal
+    structure plus the orderings the split added, so that an extra
+    swept-to-swept ordering (which :func:`_kink_pairs` pairs and
+    :func:`_kink_orientations` chooses) reaches the sampler.
     """
     ext_set = set(ext_integrated)
-    succ = _causal_reachability(tuple(spatial.time_orderings))
+    orderings = (spatial.time_orderings if orderings is None else orderings)
+    succ = _causal_reachability(tuple(orderings))
     fixed_times = fixed_times or {}
 
     lowers: dict = {}
@@ -3272,47 +3592,66 @@ class PropagatorCache:
         from scipy.interpolate import RegularGridInterpolator
 
         ts = np.linspace(t_min, t_max, n_grid_t)
+        us = np.linspace(0.0, t_max - t_min, n_grid_t)
+        layout = _MinLagGrid(ts)
         rs = np.linspace(0.0, r_max, n_grid_r)
-        # A full table (diag_C=False) is filled from its t2 >= t1 half when
-        # C_ab(t1, t2; r) = C_ba(t2, t1; r) holds (probed at the first,
-        # middle and last r); a diagonal table evaluates every cell.
-        half = (not m.diag_C) and all(
+        # The later-first L_ab(s, u; r) = C_ab(s+u, s; r) has its kink on
+        # u = 0, a grid boundary: no cell straddles it and no mirror is
+        # needed.  E_ab = L_ba at a swap-invariant r, so it is only built
+        # when the kernel fails the transposition probe.
+        need_E = not all(
             self._c_half_grid(np.asarray(0.0), np.asarray(r), t_max)
             for r in _probe_subset(rs))
         # TODO(d-dim): replace scalar r with np.ndarray x_diff
-        cells = [
-            ((i, j, k), np.asarray(0.0), ts[i], np.asarray(rs[k]), ts[j])
-            for i in range(n_grid_t)
-            for j in range(n_grid_t)
+        lcells = [
+            ((i, k), np.asarray(0.0), later, np.asarray(rs[k]), earlier)
+            for i, (later, earlier) in enumerate(layout.points)
             for k in range(n_grid_r)
-            if (not half) or j >= i
         ]
         grids = self._tabulate(
-            (n_grid_t, n_grid_t, n_grid_r), cells,
-            (lambda idx: (idx[1], idx[0], idx[2])) if half else None,
+            (len(layout.points), n_grid_r), lcells, None,
             direct_kwargs,
             f"C table ({self._c_source_label()}, full r-grid)", n_jobs,
         )
-
-        self._c_translation_splines = [
-            _DiagAwareGridInterp(
-                RegularGridInterpolator(
-                (ts, ts, rs), g,
-                bounds_error=False, fill_value=None,
-                # Default 'linear' (set in PropagatorCache.__init__):
-                # tensor-product cubic on a steeply decaying C produces
-                # sign flips and O(1) overshoot in the tail; linear is
-                # monotone and safe. Users with smooth C and dense
-                # grids can opt into cubic via interp_method='cubic'.
-                # See tests/test_evaluate_interpolation_accuracy.py.
-                method=self.interp_method,
-                ),
-                _diag_grid_interp(
-                    (ts, ts, rs), g, self.interp_method,
-                ),
+        if need_E:
+            ecells = [
+                ((i, k), np.asarray(0.0), earlier, np.asarray(rs[k]), later)
+                for i, (later, earlier) in enumerate(layout.points)
+                for k in range(n_grid_r)
+            ]
+            egrids = self._tabulate(
+                (len(layout.points), n_grid_r), ecells, None,
+                direct_kwargs,
+                f"C table ({self._c_source_label()}, full r-grid)", n_jobs,
             )
-            for g in grids
-        ]
+        else:
+            egrids = None
+
+        grids = [layout.complete(g) for g in grids]
+        if egrids is not None:
+            egrids = [layout.complete(g) for g in egrids]
+
+        entries = self._c_table_entries()
+        where = {e: k for k, e in enumerate(entries)}
+        # Default 'linear' (set in PropagatorCache.__init__): tensor-product
+        # cubic on a steeply decaying C produces sign flips and O(1)
+        # overshoot in the tail; linear is monotone and safe. Users with
+        # smooth C and dense grids can opt into cubic via
+        # interp_method='cubic'. See tests/test_evaluate_interpolation_accuracy.py.
+        def _interp(g):
+            return RegularGridInterpolator(
+                (ts, us, rs), g, bounds_error=False, fill_value=None,
+                method=self.interp_method)
+        raw = [_interp(g) for g in grids]
+        if egrids is None:
+            self._c_translation_splines = [
+                _MinLagInterp(raw[where[(a, b)]], raw[where[(b, a)]], False)
+                for a, b in entries]
+        else:
+            eraw = [_interp(g) for g in egrids]
+            self._c_translation_splines = [
+                _MinLagInterp(raw[where[(a, b)]], eraw[where[(a, b)]], False)
+                for a, b in entries]
         self._c_translation_r_range = (0.0, r_max)
 
     def precompute_C_table_rotation(
@@ -3387,6 +3726,8 @@ class PropagatorCache:
         from scipy.interpolate import RegularGridInterpolator
 
         ts = np.linspace(t_min, t_max, n_grid_t)
+        us = np.linspace(0.0, t_max - t_min, n_grid_t)
+        layout = _MinLagGrid(ts)
         coses = np.linspace(-1.0, 1.0, n_grid_cos)
 
         def _rep_vectors(cos_val):
@@ -3404,45 +3745,56 @@ class PropagatorCache:
             return np.array([1.0, 0.0]), np.array([c, s])
 
         reps = [_rep_vectors(c) for c in coses]
-        # A full table (diag_C=False) is filled from its t2 >= t1 half when
-        # C_ab(t1, t2; cos) = C_ba(t2, t1; cos) holds (probed at the first,
-        # middle and last cos); a diagonal table evaluates every cell.
-        half = (not m.diag_C) and all(
+        # The later-first L_ab(s, u; cos) = C_ab(s+u, s; cos) has its kink on
+        # u = 0, a grid boundary.  E_ab = L_ba at a swap-invariant cos, so it
+        # is only built when the kernel fails the transposition probe.
+        need_E = not all(
             self._c_half_grid(*_rep_vectors(c), t_max)
             for c in _probe_subset(coses))
-        cells = [
-            ((i, j, k), reps[k][0], ts[i], reps[k][1], ts[j])
-            for i in range(n_grid_t)
-            for j in range(n_grid_t)
+        lcells = [
+            ((i, k), reps[k][0], later, reps[k][1], earlier)
+            for i, (later, earlier) in enumerate(layout.points)
             for k in range(n_grid_cos)
-            if (not half) or j >= i
         ]
         grids = self._tabulate(
-            (n_grid_t, n_grid_t, n_grid_cos), cells,
-            (lambda idx: (idx[1], idx[0], idx[2])) if half else None,
+            (len(layout.points), n_grid_cos), lcells, None,
             direct_kwargs,
             f"C table ({self._c_source_label()}, full cos-grid)", n_jobs,
         )
-
-        self._c_rotation_splines = [
-            _DiagAwareGridInterp(
-                RegularGridInterpolator(
-                (ts, ts, coses), g,
-                bounds_error=False, fill_value=None,
-                # Default 'linear' (set in PropagatorCache.__init__):
-                # tensor-product cubic on a steeply decaying C produces
-                # sign flips and O(1) overshoot in the tail; linear is
-                # monotone and safe. Users with smooth C and dense
-                # grids can opt into cubic via interp_method='cubic'.
-                # See tests/test_evaluate_interpolation_accuracy.py.
-                method=self.interp_method,
-                ),
-                _diag_grid_interp(
-                    (ts, ts, coses), g, self.interp_method,
-                ),
+        if need_E:
+            ecells = [
+                ((i, k), reps[k][0], earlier, reps[k][1], later)
+                for i, (later, earlier) in enumerate(layout.points)
+                for k in range(n_grid_cos)
+            ]
+            egrids = self._tabulate(
+                (len(layout.points), n_grid_cos), ecells, None,
+                direct_kwargs,
+                f"C table ({self._c_source_label()}, full cos-grid)", n_jobs,
             )
-            for g in grids
-        ]
+        else:
+            egrids = None
+
+        grids = [layout.complete(g) for g in grids]
+        if egrids is not None:
+            egrids = [layout.complete(g) for g in egrids]
+
+        entries = self._c_table_entries()
+        where = {e: k for k, e in enumerate(entries)}
+        def _interp(g):
+            return RegularGridInterpolator(
+                (ts, us, coses), g, bounds_error=False, fill_value=None,
+                method=self.interp_method)
+        raw = [_interp(g) for g in grids]
+        if egrids is None:
+            self._c_rotation_splines = [
+                _MinLagInterp(raw[where[(a, b)]], raw[where[(b, a)]], False)
+                for a, b in entries]
+        else:
+            eraw = [_interp(g) for g in egrids]
+            self._c_rotation_splines = [
+                _MinLagInterp(raw[where[(a, b)]], eraw[where[(a, b)]], False)
+                for a, b in entries]
 
     def precompute_C_table_general(
         self,
@@ -3504,54 +3856,67 @@ class PropagatorCache:
         from scipy.interpolate import RegularGridInterpolator
 
         ts = np.linspace(t_min, t_max, n_grid_t)
+        us = np.linspace(0.0, t_max - t_min, n_grid_t)
+        layout = _MinLagGrid(ts)
         xs = np.linspace(-x_max, x_max, n_grid_x)
         n_x = n_grid_x
-        # A full table (diag_C=False): cell (i, j, p, q) is cell (j, i, q, p)
-        # transposed when kappa2 and sigma2 have the covariance symmetry
-        # (probed at three position pairs), so each unordered pair of (t, x)
-        # grid points is evaluated once.  A diagonal table evaluates every
-        # cell.
-        swap = (not m.diag_C) and all(
+        # The later-first L_ab(s, u, x1, x2) = C_ab(x1, s+u; x2, s) has its
+        # kink on u = 0, a grid boundary.  E_ab(x1, x2) = L_ba(x2, x1) by the
+        # covariance transposition, and the (x1, x2) grid holds the swapped
+        # slice, so no separate half is built unless the probe fails.
+        need_E = not all(
             self._c_transpose_ok(np.asarray(xa), np.asarray(xb), t_max,
                                  swap=True)
             for xa, xb in ((xs[0], xs[-1]), (xs[n_x // 2], xs[0]),
                            (xs[-1], xs[n_x // 2])))
         # TODO(d-dim): x1, x2 would be vectors
-        cells = [
-            ((i, j, p, q), np.asarray(xs[p]), ts[i], np.asarray(xs[q]), ts[j])
-            for i in range(n_grid_t)
-            for j in range(n_grid_t)
+        lcells = [
+            ((i, p, q), np.asarray(xs[p]), later, np.asarray(xs[q]), earlier)
+            for i, (later, earlier) in enumerate(layout.points)
             for p in range(n_x)
             for q in range(n_x)
-            if (not swap) or i * n_x + p <= j * n_x + q
         ]
         grids = self._tabulate(
-            (n_grid_t, n_grid_t, n_x, n_x), cells,
-            (lambda idx: (idx[1], idx[0], idx[3], idx[2])) if swap else None,
+            (len(layout.points), n_x, n_x), lcells, None,
             direct_kwargs,
             f"C table ({self._c_source_label()}, full x-grid)", n_jobs,
         )
-
-        self._c_general_interpolators = [
-            _DiagAwareGridInterp(
-                RegularGridInterpolator(
-                (ts, ts, xs, xs), g,
-                bounds_error=False, fill_value=None,
-                # Default 'linear' (set in PropagatorCache.__init__):
-                # tensor-product cubic on a steeply decaying C produces
-                # sign flips and O(1) overshoot in the tail; linear is
-                # monotone and safe. Users with smooth C and dense
-                # grids can opt into cubic via interp_method='cubic'.
-                # See tests/test_evaluate_interpolation_accuracy.py.
-                method=self.interp_method,
-                ),
-                _diag_grid_interp(
-                    (ts, ts, xs, xs), g, self.interp_method,
-                ),
+        if need_E:
+            ecells = [
+                ((i, p, q), np.asarray(xs[p]), earlier, np.asarray(xs[q]), later)
+                for i, (later, earlier) in enumerate(layout.points)
+                for p in range(n_x)
+                for q in range(n_x)
+            ]
+            egrids = self._tabulate(
+                (len(layout.points), n_x, n_x), ecells, None,
+                direct_kwargs,
+                f"C table ({self._c_source_label()}, full x-grid)", n_jobs,
             )
-            for g in grids
-        ]
-        self._c_general_axes = (ts, ts, xs, xs)
+        else:
+            egrids = None
+
+        grids = [layout.complete(g) for g in grids]
+        if egrids is not None:
+            egrids = [layout.complete(g) for g in egrids]
+
+        entries = self._c_table_entries()
+        where = {e: k for k, e in enumerate(entries)}
+        def _interp(g):
+            return RegularGridInterpolator(
+                (ts, us, xs, xs), g, bounds_error=False, fill_value=None,
+                method=self.interp_method)
+        raw = [_interp(g) for g in grids]
+        if egrids is None:
+            self._c_general_interpolators = [
+                _MinLagInterp(raw[where[(a, b)]], raw[where[(b, a)]], True)
+                for a, b in entries]
+        else:
+            eraw = [_interp(g) for g in egrids]
+            self._c_general_interpolators = [
+                _MinLagInterp(raw[where[(a, b)]], eraw[where[(a, b)]], False)
+                for a, b in entries]
+        self._c_general_axes = (ts, us, xs, xs)
 
     def _C_value_direct(
         self,
@@ -6024,6 +6389,7 @@ class DiagramIntegrand:
         # With no such edge this is bit-identical to the flat draw.
         _sw_order, _sw_lowers, _sw_lo_c, _sw_hi_c = _swept_external_order(
             spatial, ext_integrated, fixed_times, lambda_f, t_min,
+            orderings=time_orderings,
         )
         for name in _sw_order:
             k = ext_integrated.index(name)
@@ -6219,6 +6585,7 @@ class DiagramIntegrand:
         # the identity.
         _sw_order, _sw_lowers, _sw_lo_c, _sw_hi_c = _swept_external_order(
             spatial, ext_integrated, fixed_times, lambda_f, t_min,
+            orderings=list(spatial.time_orderings) + list(_extra_orderings),
         )
         ext_ordered = list(reversed(_sw_order)) if _sw_lowers else list(
             ext_integrated)
