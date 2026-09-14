@@ -9,7 +9,7 @@ Figures (matplotlib rcParams as in ``examples/demo2/L2/reproduce_figures.py``):
   a residual panel that also shows the paper's un-converged FK rule;
 * ``xi01_vs_r.pdf``: xi_01(r) at two times;
 * ``xi00_vs_time.pdf``: xi_00(r=0, t), simulation against
-  0 + FF (+ FFK4 + FFFF) with the exact C_eff, and the lam_eff
+  0 + FF (+ FFK4 + FFFK + FFFF) with the exact C_eff, and the lam_eff
   approximation, with residual panel;
 * ``fig_fk_diagrams.tex``: the two FK diagrams (TikZ), plus their
   DiagramTerm LaTeX in ``fk_diagrams.md``.
@@ -120,8 +120,7 @@ def _fscale_section():
         "power of `s` (FK ~ s, F³κ³ ~ s³, F⁵κ³ ~ s⁵), so "
         f"`residual(s) = xi_01^sim(s) - s·FK` should be `c3 s³ + c5 s⁵`.  "
         f"All amplitudes at dt = 0.02, at t = {f['t']:g}, r = {f['r']:g}: the "
-        "step-size bias is common to all three and does not enter the "
-        "s-dependence.  This is INDEPENDENT of the order-4 calculation: "
+        "step size is common, but its bias can depend on the drift amplitude.   This is INDEPENDENT of the order-4 calculation: "
         "it uses only the simulation and the validated order-2 channel.")
     L.append("")
     L.append("| s | runs | realisations | blow-ups /100k | xi_01 sim | s·FK | residual | ± MC | σ |")
@@ -131,15 +130,15 @@ def _fscale_section():
                  f"{q['blow_per_100k']:.1f} | {fmt(q['xi'])} | {fmt(q['fk'])} | "
                  f"{fmt(q['residual'])} | {q['err']:.1e} | {q['residual'] / q['err']:+.1f} |")
     L.append("")
-    L.append("**s = 1.5 is outside the regime the expansion describes** and is "
-             "not used for the fit.  Two independent signs of that, both in the "
+    L.append("**s = 1.5 is not a reliable point for testing this truncated series** "
+             "and is excluded from fit (b).  Two warning signs are visible in the "
              "table: the residual there EXCEEDS the leading term (1.04e-03 "
              "against s·FK = 5.16e-04), and 4.5 % of trajectories blow up in "
              "finite time against 6e-05 at s = 1, a 780x jump.  The simulation "
              "then reports a mean conditioned on the survivors, with the "
-             "largest excursions removed, and those are the realisations "
-             "the higher-order terms describe.  It is kept in the table as a "
-             "measured boundary of validity.")
+             "largest excursions removed.  This changes the sampling population "
+             "relative to the unconditioned perturbative moments.  It is kept "
+             "in the table to document that limitation.")
     L.append("")
     L.append("| fit | amplitudes | model | chi² / dof | c3 | c5 |")
     L.append("|---|---|---|---|---|---|")
@@ -150,8 +149,8 @@ def _fscale_section():
              f"{f['c3_lowblowup_err']:.1e}** | n/a |")
     L.append("")
     L.append(f"Fit (b) is the one to read.  Its chi² of {f['chi2_lowblowup']:.2f} for "
-             f"{f['ndof_lowblowup']} dof says the two clean amplitudes are consistent "
-             f"with a **pure s³ law**, so the residual is an order-4 effect.  The fit "
+             f"{f['ndof_lowblowup']} dof says the two low-blowup amplitudes are consistent "
+             f"with a **pure s³ law**; two amplitudes do not uniquely establish a perturbative order.  The fit "
              f"uses only the simulation and the validated order-2 "
              f"channel, and assumes nothing about the order-4 calculation.  Fit (a) is "
              f"shown for completeness; its chi² of {f['chi2']:.2f} for {f['ndof']} dof "
@@ -160,7 +159,8 @@ def _fscale_section():
     L.append("")
     L.append(f"Computed F³κ³ at s = 1: **{f['fffk_s1']:.3e}**, against fitted "
              f"c3 = {f['c3_lowblowup']:.3e} ± {f['c3_lowblowup_err']:.1e}, "
-             f"**{f['pull_lowblowup']:+.1f}σ**.")
+             f"**{f['pull_lowblowup']:+.1f}σ**.  The full cubic coefficient also "
+             f"contains F³κ⁵, which is reported separately above.")
     L.append("")
     return L
 
@@ -187,18 +187,19 @@ def budget_table():
              "the off-grid rows of xi_00 carried a spurious +0.6-0.8 % (+3.7 sigma) "
              "residual that was purely the interpolation.")
     L.append("")
-    L.append("**Channels.** 0 = order 0 with the exact two-kernel C_eff; "
-             "FF = order 2 F·F (exact C_eff); FK = order 2 F·κ³ (R-contracted, GL32); "
-             "FFK4 = order 3 F·F·κ⁴ (R-contracted, GL12); "
-             "**FFFK = order 4 F³·κ³ (R-contracted, GL10), computed exactly for the "
-             "first time in this revision; it was an equal-time estimate before, "
-             "and was assumed to vanish for xi_00 / xi_11, which it does not**; "
-             "FFFF = order 4 F⁴ (exact C_eff, Gauss-Legendre GL10; it was 32768-sample "
-             "Sobol QMC, which scattered 46 % across seeds).  "
-             "FFFK and FFFF are computed on r_sub = " + str([float(x) for x in r_sub]) + " only.")
+    L.append("**Channels.** 0 and FF use exact two-kernel C_eff (GL48); "
+             "FK uses analytic R-contracted κ³ (GL64).  FFK4 = F²κ⁴, "
+             "FFFK = F³κ³, and FFFF = F⁴ use refined Gauss-Legendre rules.  "
+             "FFFK also requires exact C_eff.  Every refined L1 value is checked "
+             "against independent Itô moment equations before it is saved.  "
+             "The relative targets are 1e-4 for FFK4/FFFK and 1e-3 for FFFF; "
+             "actual errors and node counts follow below.  These columns cover "
+             "the listed channels, not the complete cumulant ladder.  "
+             "All three component pairs receive FFFK contributions.  "
+             "The higher-order channels use r_sub = " + str([float(x) for x in r_sub]) + ".")
     L.append("")
-    L.append("Theory wall-clock, "
-             f"{'28' if META.get('n_jobs', -1) in (-1, 28) else META.get('n_jobs')} workers: "
+    L.append("Recorded stage wall-clock (legacy coarse diagnostics retain their original timings); new runs use "
+             f"{META.get('n_jobs', 'unspecified')} workers: "
              + ", ".join(f"{k} {v:.0f} s" for k, v in META["seconds"].items()) + ".")
     L.append("")
     for key in ("01", "00", "11"):
@@ -244,7 +245,7 @@ def budget_table():
              "distinct partner times, which is what the F³κ³ diagrams actually have, "
              "so it was a factor-of-2 quantity.  Both are now in the table:")
     L.append("")
-    L.append("| t | FK converged | FK collapsed | ratio | FFFK collapsed | old ESTIMATE | **exact FFFK** | estimate/exact |")
+    L.append("| t | FK converged | FK collapsed | ratio | FFFK collapsed | old ESTIMATE | **checked FFFK** | estimate/checked |")
     L.append("|---|---|---|---|---|---|---|---|")
     ri0 = int(np.argmin(np.abs(r_sub - 0.0)))
     for i, tv in enumerate(t_check):
@@ -258,72 +259,50 @@ def budget_table():
                  f"{B['fffk_eq_01'][i, 0]:.3e} | {est:.3e} | **{exact:.3e}** | {est / exact:.2f} |")
     L.append("")
 
-    L.append("## Quadrature and Monte-Carlo error of each theory channel")
+    L.append("## Numerical error against independent moment equations")
     L.append("")
+    L.append("The reference uses a polynomial Markov generator for replicated "
+             "OU noise.  Its F³h coefficient isolates κ³C and its F²h² "
+             "coefficient isolates κ⁴, with h = M^(-1/2).  It imports no "
+             "sft-wick code and uses no diagrams or propagator quadrature.  "
+             "The values below remain actual package evaluations.  Differences "
+             "between two coarse quadrature rules are diagnostics, not error bounds.")
+    L.append("")
+    L.append("| channel | pair | max absolute error | max relative error | GL nodes |")
+    L.append("|---|---|---|---|---|")
+    for channel in ("ffk4", "fffk", "ffff"):
+        for key in ("00", "01", "11"):
+            ref = B[f"ref_{channel}_{key}"]
+            difference = np.abs(B[f"{channel}_{key}"] - ref)
+            nonzero = ref != 0
+            relative = np.max(difference[nonzero] / np.abs(ref[nonzero])) if nonzero.any() else 0
+            nodes = B[f"{channel}_n_gauss"]
+            L.append(f"| {channel.upper()} | {key} | {difference.max():.2e} | "
+                     f"{relative:.2e} | {nodes.min()}–{nodes.max()} |")
+    L.append("")
+    L.append("| t, r=0 | FFFK GL8 | FFFK GL14 | checked L1 | moment reference | selected nodes |")
+    L.append("|---|---|---|---|---|---|")
+    for j, tv in enumerate(B["t_late"]):
+        i = int(np.argmin(np.abs(t-tv)))
+        L.append(f"| {tv:g} | {B['fffk8_01'][i,0]:.6e} | {B['fffk14_01'][j,0]:.6e} | "
+                 f"{B['fffk_01'][i,0]:.6e} | {B['ref_fffk_01'][i,0]:.6e} | "
+                 f"{B['fffk_n_gauss'][i]} |")
+    L.append("")
+    for key in ("00", "11"):
+        ref = B[f"ref_ffff_{key}"]
+        old = B[f"ffff14_{key}"]
+        L.append(f"- Coarse FFFF_{key} GL14 differs from the independent reference by "
+                 f"up to {np.max(np.abs(old-ref)/np.abs(ref)):.1%}.  "
+                 f"It is not used as a converged reference for this budget.")
+    ref5 = B["ref_fk5_01"][-1, 0]
+    L.append(f"- The omitted F³κ⁵ channel is {ref5:.6e} at t={t[-1]:g}, r=0 "
+             f"from the independent moment generator.  It is recorded as a "
+             f"truncation check and is not included in the L1 theory total.")
     for ri, rv in enumerate(r_sub):
-        rr = int(np.argmin(np.abs(r_th - rv)))
-        L.append(f"- **FK_01, r = {rv}**: R-contracted GL32 vs GL64, max rel diff "
-                 f"{np.max(np.abs(B['fk_01'][:, rr] - B['fk64_01'][:, ri]) / np.abs(B['fk64_01'][:, ri])):.1e}; "
-                 f"raw-kernel GL8 (the pre-0.3.0 rule) / converged at t = 1, 3.48, 15, 50: "
-                 + ", ".join(f"{B['fk_raw8_01'][int(np.argmin(np.abs(t - tv))), ri] / B['fk_01'][int(np.argmin(np.abs(t - tv))), rr]:.2f}"
-                             for tv in (1.0, 3.48, 15.0, 50.0)))
-    for i, tv in enumerate(t_check):
-        ti = int(np.argmin(np.abs(t - tv)))
-        a, b = B["ffk4_00"][ti, 0], B["ffk4_16_00"][i, 0]
-        L.append(f"- **FFK4_00, r = 0, t = {tv:.3g}**: GL12 {a:.4e}, GL16 {b:.4e} "
-                 f"(rel diff {abs(a - b) / max(abs(b), 1e-300):.1e}, abs {abs(a - b):.1e})")
-    for key in ("00", "11", "01"):
-        ref = B[f"ffff14_{key}"]
-        if np.abs(ref).max() == 0.0:
-            L.append(f"- **FFFF_{key}**: identically zero (F^4 is even in the "
-                     f"noise; xi_01 is odd), by every rule tried.")
-            continue
-        d = np.abs(B[f"ffff_{key}"] - ref)
-        rel = d / np.maximum(np.abs(ref), 1e-300)
-        L.append(f"- **FFFF_{key}**: GL10 vs GL14 over the whole grid, "
-                 f"max abs diff {d.max():.2e}, max rel {rel.max():.1e}.  That is "
-                 f"the column's integration error; the residuals it is used to "
-                 f"interpret are 3-6e-05, so it is "
-                 f"{'well below them' if d.max() < 1e-5 else 'NOT below them'}.")
-        dq = np.abs(B[f"ffff_qmc_{key}"] - ref)
-        L.append(f"  - the superseded 32768-sample Sobol QMC differs from GL14 by "
-                 f"up to {dq.max():.2e} absolute "
-                 f"({(dq / np.maximum(np.abs(ref), 1e-300)).max():.0%} relative), "
-                 f"as large as the residuals it was used to interpret.")
-    # FFFK: the 3-D rule loses the peak at large t_f exactly as the 4-D
-    # FFFF rule does, so the node-count spread is quoted per time rather
-    # than as one number over the grid.
-    t_late = B["t_late"]
-    a10, a8, a14 = B["fffk_01"], B["fffk8_01"], B["fffk14_01"]
-    early = [i for i, tv in enumerate(t) if tv < t_late.min()]
-    d_early = np.abs(a10[early] - a8[early]) / np.maximum(np.abs(a10[early]), 1e-300)
-    L.append(f"- **FFFK_01**: GL8 vs GL10 agree to {d_early.max():.1%} for "
-             f"t < {t_late.min():.3g} over all r.  At later times the 3-D rule "
-             f"starts to lose the peak, so GL14 is the reference there "
-             f"(r = 0, |GL14 - GL10| / GL14):")
-    for j, tv in enumerate(t_late):
-        i = int(np.argmin(np.abs(t - tv)))
-        rel = abs(a14[j, 0] - a10[i, 0]) / abs(a14[j, 0])
-        L.append(f"  - t = {tv:.4g}: GL8 {a8[i, 0]:.4e}, GL10 {a10[i, 0]:.4e}, "
-                 f"GL14 {a14[j, 0]:.4e}; **{rel:.1%}**, "
-                 f"{abs(a14[j, 0] - a10[i, 0]):.1e} absolute")
-    L.append(f"  - the channel SATURATES: GL14 gives {a14[0, 0]:.3e} at "
-             f"t = {t_late[0]:.3g} and {a14[-1, 0]:.3e} at t = {t_late[-1]:.3g}, "
-             f"so the physical late-time value is ~{a14[:3, 0].mean():.2e} and the "
-             f"slow rise across the last rows is quadrature, not physics.")
-    i5 = int(np.argmin(np.abs(t - 5.44)))
-    L.append(f"  - **xi_00 and xi_11 DO receive from this channel**: "
-             f"{B['fffk_00'][i5, 0]:.3e} and {B['fffk_11'][i5, 0]:.3e} at "
-             f"t = {t[i5]:.3g}, r = 0, converged to 0.1 % (GL8 vs GL10).  "
-             f"The 0.3.0 budget assumed they did not.  The assumption was "
-             f"that phi_1 -> -phi_1 parity forbids odd cumulants there, but "
-             f"that parity is BROKEN by the deformation itself: "
-             f"eta~ = eta + alpha (eta^2 - lambda) is not odd in eta, which is "
-             f"also why xi_01 is non-zero.  The order-2 FK channel does "
-             f"vanish for xi_00, but for the narrower reason that its two "
-             f"diagrams' index structure does; that does not extend to order 4.  "
-             f"This is worth {100 * B['fffk_00'][i5, 0] / 3.5e-5:.0f} % of the "
-             f"xi_00 residual, and was found by computing all three pairs.")
+        rr = int(np.argmin(np.abs(r_th-rv)))
+        difference = np.abs(B["fk_01"][:,rr]-B["fk96_01"][:,ri])
+        L.append(f"- FK_01 at r={rv:g}: GL64/96 max relative difference "
+                 f"{np.max(difference/np.abs(B['fk96_01'][:,ri])):.2e}.")
     L.append("")
 
     L.append("## Are the simulation error bars right?")
@@ -337,8 +316,8 @@ def budget_table():
              "0.63-0.74 at small t, i.e. if anything conservative there.  "
              "Per-t chi^2/dof across seeds is 0.34-1.62 throughout.")
     L.append("")
-    L.append("One point needs recording, because the obvious statistic is "
-             "the wrong one.  At dt = 0.02, t = 15 the "
+    L.append("One point illustrates the limits of this error-bar comparison.  "
+             "At dt = 0.02, t = 15 the "
              "plain seed scatter is **6.7x** the quoted error, while "
              "chi^2/dof at the same point is 0.83.  That is contradictory "
              "unless one seed is a heavy-tailed outlier carrying a "
@@ -347,9 +326,13 @@ def budget_table():
              "a near-blow-up trajectory.  The inverse-variance weighting "
              "downweights it automatically: dropping it moves the combined "
              "mean by **0.02 %** (4.16896e-04 -> 4.16816e-04) and brings the "
-             "scatter ratio to 0.91.  So `std/sqrt(n)` over seeds is the "
-             "wrong statistic on this data, not the errors; the combination "
-             "weights by `w = 1/e^2`.")
+             "scatter ratio to 0.91.  This explains why the weighted and "
+             "unweighted summaries differ; it does not establish that the "
+             "weighted uncertainty covers the unconditioned ensemble mean.  "
+             "The estimated errors and means share trajectories, so "
+             "inverse-variance weighting can suppress large positive "
+             "excursions.  Heavy tails and discarded blow-ups remain "
+             "limitations of this simulation comparison.")
     L.append("")
     L += _fscale_section()
 
@@ -366,6 +349,112 @@ def budget_table():
     print("\n".join(L[:14]))
 
 
+def write_interpretation():
+    """Keep numerical claims reproducible from the same saved budget."""
+    total = sum(B[f"{channel}_01"][:, 0] for channel in CH_ORDER)
+    simulation = B["sim_extrap_xi"][1, :, 0]
+    uncertainty = B["sim_extrap_err"][1, :, 0]
+    residual = simulation-total
+    pull = residual/uncertainty
+    leading_pull = (simulation-B["fk_01"][:, 0])/uncertainty
+    i = int(np.argmin(np.abs(t-15)))
+    rows = []
+    for channel in ("ffk4", "fffk", "ffff"):
+        for key in ("00", "01", "11"):
+            ref = B[f"ref_{channel}_{key}"]
+            difference = np.abs(B[f"{channel}_{key}"]-ref)
+            nonzero = ref != 0
+            relative = np.max(difference[nonzero]/np.abs(ref[nonzero])) if nonzero.any() else 0
+            rows.append(f"| {channel.upper()} | {key} | {difference.max():.2e} | {relative:.2e} |")
+    ledger = "\n".join(rows)
+    text = f"""# Demo 2: verified channels and remaining limitations
+
+Generated by `examples/paper_assets/demo2_kappa4/make_figures.py` from
+the current `budget.npz`. The package values are independently checked
+before the refined stages are saved.
+
+## Physics and reference
+
+The two fields obey `dphi0/dt = -phi0 + phi1² + eta_tilde0` and
+`dphi1/dt = -phi1 + phi0*phi1 + eta_tilde1`, where
+`eta_tilde = eta + alpha*(eta²-lambda)` and eta is stationary OU noise.
+Parameters are alpha=0.6, lambda=0.05, gamma=1, sigma_t=0.3, sigma_x=1.
+The fields start at zero. The observable is the fixed-time second moment,
+not a moment of time-integrated fields.
+
+The independent reference in `examples/reference/demo2_moments.py` uses
+the polynomial Itô generator. For M independent noise replicas, normalized
+by sqrt(M), covariance stays fixed while cumulant m scales as h^(m-2),
+where h=M^(-1/2). The F³h coefficient isolates FFFK=F³κ³C;
+F²h² isolates FFK4; F⁴h⁰ gives the Gaussian FFFF channel.
+Two-site noise Gram variables carry the spatial correlations. This
+reference imports no sft-wick code and uses no Wick diagrams or R/C quadrature.
+It is checked through Gaussian, covariance, single-site and replica limits.
+
+## What was wrong with the earlier budget
+
+The September 12 budget's FFFK GL10/GL14 discrepancy reached 22.6% at t=50.
+That was a difference between two unresolved rules, not an error bound.
+At late times the integrand occupies a small part of the integration domain.
+The budget also used bare-lambda C for FFFK, omitting the second term in
+`C_eff = C[lambda*k] + C[2*alpha²*lambda²*k²]`. Its composite κ³ kernel
+had additional inner quadrature error and did not declare partner-time
+coincidences to the outer integrator. FF's QMC and FFFF's coarse GL rule
+also lost accuracy at late times. These were pre-existing example-budget
+issues; the T-001 C-table rewrite is bypassed by its closed-form C path.
+
+The repaired κ³/κ⁴ callables integrate the exponential pieces analytically,
+enforce leg causality, and declare their partner-time branches. FF now uses
+GL48. FFK4, FFFK and FFFF refine actual package evaluations against the
+independent reference. The relative acceptance targets are 1e-4, 1e-4 and
+1e-3 respectively, on every saved nonzero cell. The reference does not
+replace any L1 channel value.
+
+## Validation ledger
+
+Maximum errors over all saved times, spatial separations and the stated pair:
+
+| channel | pair | max absolute error | max relative error |
+|---|---|---|---|
+{ledger}
+
+At r=0,t={t[-1]:g}, the independent FFFK_01 reference is
+**{B['ref_fffk_01'][-1,0]:.9e}**, and the saved package result is
+**{B['fffk_01'][-1,0]:.9e}**. All three component pairs receive FFFK;
+assuming its 00 and 11 entries vanish was incorrect.
+Kernel tests additionally compare κ³ against raw adaptive triple integrals,
+κ⁴ against randomized raw four-leg QMC, and check short-time, constant-kernel,
+resonant-rate, permutation and cross-process serialization limits.
+
+## Simulation residual and truncation
+
+At r=0,t={t[i]:g}, the extrapolated simulation is
+**{simulation[i]:.3e} ± {uncertainty[i]:.2e}**; the sum of the listed L1
+channels is **{total[i]:.3e}**. The residual is
+**{residual[i]:+.2e} ({pull[i]:+.1f}σ)**.
+Adding FFFK changes χ² from {np.sum(leading_pull**2):.1f} to {np.sum(pull**2):.1f}
+over the {len(t)} saved times at r=0; the mean pull is **{np.mean(pull):+.2f}**.
+The χ² uses marginal errors; correlations between measurement times are
+not accounted for, so it is a descriptive residual statistic.
+
+The full deformed noise has cumulants beyond κ⁴. The independent generator
+now computes the omitted F³κ⁵ contribution: **{B['ref_fk5_01'][-1,0]:.6e}**
+at r=0,t={t[-1]:g}. It is saved as a truncation check, outside the listed
+L1 total. Thus this total is not the complete order-four expansion of the
+full cumulant ladder. Drift-amplitude fits at two low-blowup amplitudes
+can support cubic scaling but cannot uniquely prove the source of a residual.
+
+Numerical convergence of these channels does not establish convergence of
+the perturbative series. The nonlinear simulation discards rare divergent
+trajectories and therefore measures a conditioned mean. Finite sample size,
+time-step extrapolation, higher perturbative orders and that conditioning
+remain separate limitations. The current diagram/reference agreement
+supports the tested scientific routes; it does not certify every possible
+system or remove those modeling limitations.
+"""
+    (HERE.parents[1] / "demo2/INTERPRETATION.md").write_text(text)
+
+
 def fig_xi01_vs_time():
     key, r_val = "01", 0.0
     sx, ex = sim(key, r_val)
@@ -376,7 +465,7 @@ def fig_xi01_vs_time():
                                   gridspec_kw={"height_ratios": [2.2, 1.4]})
     ax.plot(t, fk, "-", color="tab:red", label=r"FK: $F\times\kappa^{(3)}$ (R-contracted, converged)")
     ax.plot(t, fk + fffk, "-", color="tab:blue",
-            label=r"FK + FFFK: $+\,F^3\times\kappa^{(3)}$ (order 4, exact)")
+            label=r"FK + FFFK: $+\,F^3\times\kappa^{(3)}$ (order 4, checked)")
     ax.plot(t, raw8, ":", color="tab:gray", label=r"FK, raw kernel, 8-node tensor rule (paper v1)")
     ax.errorbar(t, sx, yerr=ex, fmt="o", ms=4, color="k",
                 label=f"simulation, {META['n_real_sims']['0.01'] / 1e6:.0f}M realisations, $\\Delta t\\to0$", zorder=5)
@@ -420,20 +509,21 @@ def fig_xi00_vs_time():
     key, r_val = "00", 0.0
     sx, ex = sim(key, r_val)
     o0, ff, fk, k4, fffk, f4 = (theory(key, ch, r_val) for ch in CH_ORDER)
+    listed_total = o0 + ff + fk + k4 + fffk + f4
     o0_l = theory(key, "o0_lameff", r_val); ff_l = theory(key, "ff_lameff", r_val)
     fig, (ax, axr) = plt.subplots(2, 1, figsize=(6.4, 6.6), sharex=True,
                                   gridspec_kw={"height_ratios": [2.2, 1.4]})
     ax.plot(t, o0, "--", color="grey", label="order 0 (exact $C_{\\rm eff}$)")
     ax.plot(t, o0 + ff, "-.", color="tab:orange", label="0 + FF")
-    ax.plot(t, o0 + ff + k4 + f4, "-", color="tab:purple", label="0 + FF + FFK4 ($\\kappa^{(4)}$) + FFFF")
+    ax.plot(t, listed_total, "-", color="tab:purple", label="0 + FF + FFK4 + FFFK + FFFF")
     ax.errorbar(t, sx, yerr=ex, fmt="o", ms=4, color="k",
                 label=f"simulation, {META['n_real_sims']['0.01'] / 1e6:.0f}M realisations, $\\Delta t\\to0$", zorder=5)
     ax.set_xscale("log"); ax.set_ylabel(r"$\xi_{00}(r=0,t)$"); ax.grid(alpha=0.3); ax.legend(loc="lower right")
-    ax.set_title(r"Demo 2: $\xi_{00}$, even cumulants")
+    ax.set_title(r"Demo 2: $\xi_{00}$, checked cumulant channels")
     axr.axhline(0, color="grey", lw=0.8)
     axr.errorbar(t, sx - (o0 + ff), yerr=ex, fmt="^-", ms=3, color="tab:orange", label="sim $-$ (0+FF), exact $C_{\\rm eff}$")
     axr.plot(t, sx - (o0_l + ff_l), "x:", color="tab:gray", label="sim $-$ (0+FF), $\\lambda_{\\rm eff}$ approximation (paper v1)")
-    axr.errorbar(t, sx - (o0 + ff + k4 + f4), yerr=ex, fmt="o-", ms=3, color="tab:purple", label="sim $-$ (0+FF+FFK4+FFFF)")
+    axr.errorbar(t, sx - listed_total, yerr=ex, fmt="o-", ms=3, color="tab:purple", label="sim $-$ (0+FF+FFK4+FFFK+FFFF)")
     axr.set_xscale("log"); axr.set_xlabel("t"); axr.set_ylabel("residual"); axr.grid(alpha=0.3)
     axr.legend(loc="best", fontsize=8)
     fig.tight_layout()
@@ -484,6 +574,7 @@ def fk_diagrams():
 
 if __name__ == "__main__":
     budget_table()
+    write_interpretation()
     fig_xi01_vs_time()
     fig_xi01_vs_r()
     fig_xi00_vs_time()

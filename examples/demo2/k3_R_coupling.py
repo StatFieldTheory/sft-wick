@@ -1,150 +1,63 @@
-"""The R-contracted third cumulant of demo2's deformed noise.
+"""Exact R-contracted third cumulant of demo2's deformed OU noise.
 
-``NonLocalVertex(already_R_contracted=True)`` takes the vertex with its
-leg integrals already done,
+The raw cumulant is a sum of three two-edge trees (2 alpha lambda**2)
+and one triangle (8 alpha**3 lambda**3).  For each graph, partition the
+three raw leg times into their six orderings.  Every absolute value then
+has a fixed sign, so all three integrals are elementary exponentials.
+The upper limits are the PARTNER times supplied by already_R_contracted.
 
-    K_R(t1', t2', t3'; x') = ∫ du1 du2 du3  Π_i R(t_i', u_i)  κ^(3)(u; x'),
+This removes the former composite quadrature's ~1e-4 typical and ~2.6e-3
+early-time relative errors, and its 7056 inner quadrature nodes per sample.
+The remaining outer diagram integral still needs a convergence check;
+R contraction does not guarantee that GL8 or GL10 resolves t_final=50.
 
-where ``t_i'`` are the PARTNER (outer) times of the three ψ legs and
-``R(t, u) = Θ(t − u) exp(−γ (t − u))``.  For demo2
-
-    κ^(3)(u) = 2 α λ² [k13 k23 + k12 k23 + k12 k13] + 8 α³ λ³ k12 k23 k13,
-    k_ij = exp(−|u_i − u_j| / σ_t) · exp(−|x_i' − x_j'| / σ_x)
-
-(the ``α³`` term is the connected three-point function of ``η² − λ``;
-it is 2.4 % of the coincident value and was missing from the original
-demo2 module).  Because the kernel is narrow in the RELATIVE times, the
-tensor-product Gauss-Legendre rule the L2 config used on the raw 4-D
-integral stops converging beyond ``t ≈ 10`` (n = 8/12/16/20 give
-4.95/4.23/3.86/3.71e-4 for ξ01 at t = 15); contracting the legs first
-removes the problem entirely -- the outer integral of an FK diagram is
-one-dimensional.
-
-Method.  With ``u1 = u + v1``, ``u2 = u + v2``, ``u3 = u`` the kernel
-depends on ``(v1, v2)`` only and the three retarded factors give
-
-    ∫ du e^{3γu} over [u_lo, u_hi] = (E(u_hi) − E(u_lo)) / (3γ),
-    E(u) = exp(−γ(t1' − v1 − u) − γ(t2' − v2 − u) − γ(t3' − u)),
-    u_lo = max(0, −v1, −v2),  u_hi = min(t3', t1' − v1, t2' − v2),
-
-so ``K_R`` is a two-dimensional integral of a product of exponentials
-with cusps on ``v1 = 0``, ``v2 = 0`` and ``v1 = v2``.  Each of the four
-terms is integrated in coordinates that put ITS cusps on the axes
-(``(v1, v2)``, ``(v1 − v2, v2)``, ``(v1 − v2, v1)``; the small ``α³`` term
-keeps one unaligned cusp) with a composite Gauss-Legendre rule whose
-panels are graded towards the peak.
-
-Accuracy.  Measured against cusp-aware 3-D adaptive quadrature of the
-raw leg integral (``tests/test_demo2_kernels.py``, which feeds each
-nested ``quad`` explicit break points at the outer legs' times, so the
-reference resolves the ``|u_i - u_j|`` kinks; its own error estimate is
-<= 1e-9 relative everywhere except the extreme-split corner below):
-
-===========================  ==========  =========================
-partner times (t1', t2', t3')  rel. error  note
-===========================  ==========  =========================
-(3, 1.5, 1.5), (1.5, 3, 1.5)    1.7e-06   the FK-type configuration
-(3, 1.5, 1.5) with spatial      5.1e-05
-(10, 4, 4)                      8.6e-05
-(5, 3, 1)                       1.4e-04   three distinct times
-(1, 1, 1)                       1.4e-04
-(15, 15, 15), (50, 50, 50)      1.4e-04
-(0.05, 0.03, 0.04)              5.4e-04
-(0.1, 0.1, 0.1)                 2.6e-03   worst; see below
-(20, 2, 0.2)                    1.3e-03   at the reference's own noise
-===========================  ==========  =========================
-
-So the honest figure is **1e-4 relative** over the range that carries
-the FK and F^3.kappa^3 integrands, NOT the ~1e-6 this docstring used to
-claim -- 1.7e-6 is what the FK-type configuration ``(t', s, s)`` gets,
-which is the only one the kernel was originally checked at.
-
-The 2.6e-3 at ``t' = 0.1`` is the composite grid's fixed panel edges
-(multiples of ``sigma_t``, independent of ``t'``) failing to align with
-the kink that ``_G_factor`` develops at ``|v| = t'`` when ``t'`` is
-smaller than the innermost panel.  It is harmless in use: there the
-kernel is ~100x below its plateau, so 2.6e-3 of it is 1.7e-08 absolute
-against an order-4 F^3.kappa^3 channel of 5.6e-05.
-
-Silent contract of ``already_R_contracted=True`` (this callable must
-enforce it; the runtime does not):
-
-* leg causality ``u_i <= t_i'`` -- here via ``u_hi = min(t3', t1' - v1,
-  t2' - v2)``;
-* ``t_min = 0`` -- here via ``u_lo = max(0, -v1, -v2)``.  A system with
-  ``t_min != 0`` needs this callable changed, not just the System spec;
-* all m legs are absorbed uniformly (no mixed raw/contracted legs);
-* the partner time of an EXTERNAL leg is ``t_f`` only because the
-  observable is evaluated with ``integrate_over=None``.
+Contract: gamma=1, t_min=0, all three R legs absorbed.  Partner-time
+coincidences change analytic branches; the callables declare them so the
+package can split the outer integration domain there.
 """
 from __future__ import annotations
 
+from itertools import permutations
+from pathlib import Path
+import sys
+
 import numpy as np
-from numpy.polynomial.legendre import leggauss
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ordered_exponentials import ordered_integral
 
 LAM, SIGMA_T, SIGMA_X, GAMMA, ALPHA, N_COMP = 0.05, 0.3, 1.0, 1.0, 0.6, 2
-
-# Graded composite Gauss-Legendre grid on [-L, L], symmetric about 0.
-_EDGES = SIGMA_T * np.array([0.0, 0.25, 0.5, 1.0, 2.0, 4.0, 8.0, 14.0])
-_N_GL = 6
-
-
-def _composite_grid():
-    x, w = leggauss(_N_GL)
-    nodes, weights = [], []
-    edges = np.concatenate([-_EDGES[::-1], _EDGES[1:]])
-    for lo, hi in zip(edges[:-1], edges[1:]):
-        half = 0.5 * (hi - lo)
-        nodes.append(lo + half * (x + 1.0))
-        weights.append(half * w)
-    return np.concatenate(nodes), np.concatenate(weights)
-
-
-_G1, _W1 = _composite_grid()
-_A, _B = np.meshgrid(_G1, _G1, indexing="ij")
-_A, _B = _A.ravel(), _B.ravel()
-_W2 = np.outer(_W1, _W1).ravel()
-
-
-def _G_factor(v1, v2, t1, t2, t3, gamma=GAMMA):
-    """``(E(u_hi) − E(u_lo)) / (3γ)`` with all exponents non-positive."""
-    u_lo = np.maximum(0.0, np.maximum(-v1, -v2))
-    u_hi = np.minimum(t3, np.minimum(t1 - v1, t2 - v2))
-    ok = u_hi > u_lo
-    u_hi_s = np.where(ok, u_hi, 0.0)
-    u_lo_s = np.where(ok, u_lo, 0.0)
-    a = -gamma * ((t1 - v1 - u_hi_s) + (t2 - v2 - u_hi_s) + (t3 - u_hi_s))
-    b = -gamma * ((t1 - v1 - u_lo_s) + (t2 - v2 - u_lo_s) + (t3 - u_lo_s))
-    a = np.minimum(a, 0.0)
-    b = np.minimum(b, 0.0)
-    return np.where(ok, (np.exp(a) - np.exp(b)) / (3.0 * gamma), 0.0)
+_PERMUTATIONS = tuple(permutations(range(3)))
+_GRAPHS = (((0, 1), (0, 2)), ((0, 1), (1, 2)),
+           ((0, 2), (1, 2)), ((0, 1), (0, 2), (1, 2)))
 
 
 def k3_R(t1, t2, t3, s12, s13, s23, *, lam=LAM, sigma_t=SIGMA_T, alpha=ALPHA):
-    """``K_R`` for arrays of partner times ``(n,)`` and spatial factors ``(n,)``."""
-    t1 = np.asarray(t1, float)[:, None]
-    t2 = np.asarray(t2, float)[:, None]
-    t3 = np.asarray(t3, float)[:, None]
-    s12 = np.asarray(s12, float)[:, None]
-    s13 = np.asarray(s13, float)[:, None]
-    s23 = np.asarray(s23, float)[:, None]
-    A = _A[None, :]
-    B = _B[None, :]
-    W = _W2[None, :]
-    c2 = 2.0 * alpha * lam ** 2
-    c3 = 8.0 * alpha ** 3 * lam ** 3
-    ea = np.exp(-np.abs(A) / sigma_t)
-    eb = np.exp(-np.abs(B) / sigma_t)
-    # T1: k13 k23 -- cusps on v1 = 0, v2 = 0: coordinates (v1, v2) = (A, B)
-    t_1 = c2 * s13 * s23 * ea * eb * _G_factor(A, B, t1, t2, t3)
-    # T2: k12 k23 -- cusps on v1 - v2 = 0, v2 = 0: (w, v2) = (A, B), v1 = A + B
-    t_2 = c2 * s12 * s23 * ea * eb * _G_factor(A + B, B, t1, t2, t3)
-    # T3: k12 k13 -- cusps on v1 - v2 = 0, v1 = 0: (w, v1) = (A, B), v2 = B - A
-    t_3 = c2 * s12 * s13 * ea * eb * _G_factor(B, B - A, t1, t2, t3)
-    # T4 (alpha^3): k12 k23 k13 in (v1, v2); the diagonal cusp is unaligned.
-    t_4 = c3 * s12 * s23 * s13 * ea * eb * np.exp(-np.abs(A - B) / sigma_t) \
-        * _G_factor(A, B, t1, t2, t3)
-    return np.sum(W * (t_1 + t_2 + t_3 + t_4), axis=1)
+    """K_R for broadcastable arrays of partner times and spatial factors."""
+    if not np.isfinite(sigma_t) or sigma_t <= 0:
+        raise ValueError("sigma_t must be positive and finite")
+    arrays = np.broadcast_arrays(t1, t2, t3, s12, s13, s23)
+    shape = arrays[0].shape
+    t = np.asarray(arrays[:3], dtype=np.longdouble).reshape(3, -1)
+    s12, s13, s23 = (np.asarray(v).ravel() for v in arrays[3:])
+    spatial = (s12*s13, s12*s23, s13*s23, s12*s13*s23)
+    valid = np.all(t > 0, axis=0)
+    result = np.zeros(t.shape[1], dtype=np.longdouble)
+    if not np.any(valid):
+        return np.asarray(result, float).reshape(shape)
+    t = t[:, valid]
+    for graph, sp in zip(_GRAPHS, spatial):
+        total = np.zeros(t.shape[1], dtype=np.longdouble)
+        for perm in _PERMUTATIONS:
+            rank = {leg: k for k, leg in enumerate(perm)}
+            rates = np.full(3, GAMMA, dtype=np.longdouble)
+            for i, j in graph:
+                earlier, later = sorted((rank[i], rank[j]))
+                rates[earlier] += 1 / sigma_t
+                rates[later] -= 1 / sigma_t
+            total += ordered_integral(t[list(perm)], rates, -GAMMA*np.sum(t, axis=0))
+        factor = 8*alpha**3*lam**3 if len(graph) == 3 else 2*alpha*lam**2
+        result[valid] += factor * sp[valid] * total
+    return np.asarray(result, float).reshape(shape)
 
 
 def _spatial(x_i, x_j, sigma_x=SIGMA_X):
@@ -176,3 +89,8 @@ def kappa3_raw(u1, u2, u3, x1=0.0, x2=0.0, x3=0.0, *, lam=LAM, sigma_t=SIGMA_T,
     k12, k13, k23 = k(u1, u2, x1, x2), k(u1, u3, x1, x3), k(u2, u3, x2, x3)
     return 2 * alpha * lam ** 2 * (k13 * k23 + k12 * k23 + k12 * k13) \
         + 8 * alpha ** 3 * lam ** 3 * k12 * k23 * k13
+
+
+# The outer integrators use this existing callable contract.
+coupling_fn.has_coincident_time_kinks = True
+coupling_fn_vectorized.has_coincident_time_kinks = True

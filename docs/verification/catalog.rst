@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **2145 tests** in 74 files (parametrised
+The suite has **2201 tests** in 77 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -126,7 +126,7 @@ Multiplicities and canonical forms
 Propagator numerics
 -------------------
 
-*357 tests in 11 files.*
+*383 tests in 12 files.*
 
 .. list-table::
    :header-rows: 1
@@ -182,11 +182,16 @@ Propagator numerics
      - closed form
      - recorded bounds
      - 4
+   * - ``test_min_lag_boundaries.py``
+     - min-time/lag tables retain the ordered spatial arguments of an explicit earlier-first covariance, call physical kernels only inside the requested horizon, converge at both temporal corners and the upper boundary, preserve positivity under steep decay with linear interpolation, and reject the previous cache schema
+     - rank-one Gaussian covariance; exact matrix white-noise covariance; callbacks restricted to the declared time interval
+     - 1e-12 (nodes) / 2e-3 (boundary, grid convergence)
+     - 25
    * - ``test_offdiagonal_c_tables.py``
      - full N x N C tables by quadrature (no closed form): every entry at r != 0 and at both time orders, convergence with the grid, the transposition that fills half of each table and a kernel that forbids it, and every C lookup (scalar loop, batched QMC and Gauss-Legendre, integrate_over, external_times, integrate_two_point_qmc, the legacy time table)
      - Lyapunov equation of the Markov embedding (scipy only); the built-in closed form, checked against it; direct quadrature
      - 1e-8 (embedding) / 1e-4 - 1e-3 (tables)
-     - 42
+     - 43
    * - ``test_propagator_dispatch.py``
      - separable-kernel shared temporal table, time-symmetric build, auto node-count selection, progress reporting
      - per-r full build; dblquad
@@ -196,7 +201,7 @@ Propagator numerics
 Integrators
 -----------
 
-*1061 tests in 38 files.*
+*1078 tests in 39 files.*
 
 .. list-table::
    :header-rows: 1
@@ -225,8 +230,13 @@ Integrators
    * - ``test_demo2_kernels.py``
      - demo2's hand-written R-contracted κ³ / κ⁴ kernels, the raw-vs-R-contracted route on a NON-constant kernel, the already_R_contracted contract, pinned FK and order-0 values, the single-site cumulant ladder
      - cusp-aware adaptive quadrature and randomised-Sobol QMC of the raw leg integrals; the cumulant generating function
-     - 1e-6 - 2e-2 (measured per configuration)
+     - 2e-9 for resolved κ³ references; up to 2e-2 for κ⁴ QMC
      - 16
+   * - ``test_demo2_moment_reference.py``
+     - demo2 FFFK/FFK4 with exact C_eff, all component pairs and spatial separation; analytic κ³/κ⁴ short-time, permutation, resonant-rate and serialization limits
+     - independent polynomial Itô generator of replicated OU noise; Gaussian and single-site limits; constant-kernel factorization
+     - 2e-7 for FFFK, 2e-12 for covariance
+     - 13
    * - ``test_demo4_asymmetric_noise.py``
      - demo 4: compound-Poisson noise asymmetric in points and in components; level A 3- and 4-point functions for every component tuple (raw on Gauss-Legendre split at declared kinks, R-contracted, unequal times); level B channels FK3, FF, FFK4 of <phi_a phi_b>
      - direct quadrature; Campbell closed form; exact Itô moment hierarchy
@@ -265,7 +275,7 @@ Integrators
    * - ``test_demo7_space.py``
      - demo 7: the two-time <phi_a(x,t) phi_b(y,t')> at orders 0-2 on every integrator (external_times, both time orders, matrix R, a mixing white noise); a four-coefficient Legendre angular kernel at three angles; the quadrature tables of a custom and a general kappa2; integrate_over and the three-point function at order 2
      - the exact Ito moment hierarchy of the Markov embedding at the observation points, whose two-time propagation and integrated fields are themselves checked against quadrature
-     - 1e-6 (GL, nquad) / 1e-4 - 1e-2 (QMC, coarse tables)
+     - 1e-12 - 1e-6 (GL, nquad) / 1e-4 - 1e-2 (QMC, coarse tables)
      - 55
    * - ``test_demo8_kernels.py``
      - demo 8 (c): Matérn-3/2 and damped-cosine CustomKernels inside interacting diagrams, and GaussianTemporal, which has no finite embedding
@@ -294,9 +304,9 @@ Integrators
      - 11
    * - ``test_diag_fast_component_labels.py``
      - observable component labels pinned through fixed_indices on a C propagator in the iso_R + diag_C scalar fast path; the Kronecker delta between C legs when il != ir
-     - numpy hand contraction over the full C matrices; all five backends against each other; the label-blind value shown to differ
-     - 1e-12 (backends) / 1e-3 (quadrature vs QMC)
-     - 16
+     - numpy hand contraction over the full C matrices; all five backends against each other; the label-blind value shown to differ; independent two-state OU covariance
+     - 1e-12 (backends) / 1e-3 (quadrature vs QMC) / 1e-4 (C table)
+     - 19
    * - ``test_dynamic_coupling.py``
      - spacetime-dependent (callable) κ^(m) couplings, per-sample and vectorised contracts, propagator-indexed contraction
      - static tensor at the same point; two contracts against each other
@@ -348,10 +358,10 @@ Integrators
      - 1e-13
      - 7
    * - ``test_kink_split_external_time.py``
-     - a kink between an integration time and an external point pinned at a fixed time is cut, not paired: the variable's range is cut at that time, the cut is carried to the variables ordered against it and to the parents whose min() bound it enters, and no cut is made when every external sits at one time; an external swept by integrate_over pairs like an integration variable instead, and two swept ones are not a pair
+     - a kink between an integration time and an external point pinned at a fixed time is cut, not paired: the variable's range is cut at that time, the cut is carried to the variables ordered against it and to the parents whose min() bound it enters, and no cut is made when every external sits at one time; an external swept by integrate_over pairs like an integration variable instead, and two swept ones pair too, unless the full causal closure (a chain through a fixed external included) orders them
      - exact Itô moment hierarchy, transported over the lag between the two external times
      - exact / 1e-11
-     - 29
+     - 30
    * - ``test_kink_split_nquad_couplings.py``
      - nquad splits the time domain at kinks as Gauss-Legendre does (white-noise C, matrix R); a coupling callable declaring has_coincident_time_kinks contributes its leg times (raw vertex) or partner times (already_R_contracted), read through the MSR wrapper; equal_time vertices contribute none
      - exact Itô moment hierarchy; the pairs by construction
@@ -401,7 +411,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*339 tests in 11 files.*
+*341 tests in 11 files.*
 
 .. list-table::
    :header-rows: 1
@@ -423,10 +433,10 @@ Workflow and YAML
      - exact / 2e-4
      - 18
    * - ``test_generated_docs_in_sync.py``
-     - every committed file that a script writes (demo 2's error budget, table 1 and its order-1 diagrams, demo 3's diagram README) still holds the text its generator would write
-     - the generator's own source, parsed
-     - exact
-     - 3
+     - every committed file that a script writes (demo 2's error budget, table 1 and its order-1 diagrams, demo 3's diagram README) still holds the text its generator would write; demo 2's interpretation quotes the current quadrature errors and residual statistics; its diagonal figure includes every listed nonzero channel
+     - the generator's own source, parsed; independent recomputation from budget.npz
+     - exact / displayed precision
+     - 5
    * - ``test_l1_structure_guards.py``
      - callable-γ scalar/matrix R decided on the whole spline grid; the Γ spline reaches a negative t_min; t_max beyond t_max_cache refused; diag_R / diag_C refused when R or C has off-diagonal entries (dense R, mixing κ² or σ²), diagonal structures accepted
      - scipy quad of the rate; Lyapunov equation of the Markov embedding
@@ -521,7 +531,7 @@ Spectral propagators
 Self-consistency
 ----------------
 
-*42 tests in 1 files.*
+*53 tests in 2 files.*
 
 .. list-table::
    :header-rows: 1
@@ -532,6 +542,11 @@ Self-consistency
      - Reference
      - Tolerance
      - Tests
+   * - ``test_demo2_budget_cache.py``
+     - refined demo2 channel caches recheck the requested grid and current accuracy target; incomplete or inaccurate rows cannot pass verification
+     - controlled sweep/reference values and damaged cache records
+     - exact
+     - 11
    * - ``test_selfconsistency.py``
      - solve_self_consistency: convergence, divergence, oscillation, max_iter reporting, mixing, state containers
      - analytic fixed points; contrived failure modes

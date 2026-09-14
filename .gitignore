@@ -50,3 +50,6 @@ sims_fscale/*.log
 # demo 3: on-disk expansion cache and regenerable run outputs
 examples/demo3/.expansion_cache/
 examples/demo3/results/
+
+# Local agent handoffs and installation backups
+/.agent-state/

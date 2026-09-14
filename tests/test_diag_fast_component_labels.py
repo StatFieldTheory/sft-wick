@@ -1,5 +1,5 @@
 """Observable component labels on a C propagator in the iso_R + diag_C fast
-path (DC0-DC4).
+path (DC0-DC5).
 
 ``DiagramIntegrand.evaluate`` routes to ``_evaluate_diag_fast`` whenever the
 cache model is ``iso_R`` + ``diag_C`` and the diagram carries propagator
@@ -46,6 +46,8 @@ is why the L1 pipeline never exposed it -- but a term expanded WITHOUT
   ``qmc_vectorized``, ``gauss_legendre`` and ``nquad`` on the same observable
   at pinned component pairs.
 * **DC4** the recorded values, and the pre-fix ones shown to differ.
+* **DC5** compare the spatial table with an independent two-state OU
+  covariance at the same QMC points, isolating interpolation error.
 
 DC1, DC2 and DC4 each assert that the label-blind formula gives a materially
 different number, so none of them can pass against the code before the fix.
@@ -411,10 +413,14 @@ def test_DC3_quadrature_backends_agree_with_qmc(setup, backend_values, pair):
 #: own sampling error at 2**10 samples (1.4e-4, 6.9e-5, 1.1e-4 relative),
 #: not by the 1e-9 bias that change removed.  The 30-bit values were
 #: 2.4163209589574818e-02, 1.5817788075977668e-02, 7.0654764616863335e-03.
+#: Re-recorded for the min/lag C table and bounded-grid repair (T-001).
+#: The old time-grid values were 2.4159751969924134e-02,
+#: 1.5816695846356810e-02, 7.0646686728619430e-03.  DC5 independently
+#: bounds the current table error by 1e-4 at this deliberately coarse grid.
 RECORDED = {
-    (0, 0): 2.4159751969924134e-02,
-    (0, 1): 1.5816695846356810e-02,
-    (1, 1): 7.0646686728619430e-03,
+    (0, 0): 2.4158338789863390e-02,
+    (0, 1): 1.5816391070433353e-02,
+    (1, 1): 7.0642278941983015e-03,
 }
 
 #: What the scalar loop returned before the fix, at the same settings.  Kept
@@ -442,3 +448,34 @@ def test_DC4_recorded_values(setup, backend_values, pair):
         assert abs(value - PRE_FIX[pair]) / abs(PRE_FIX[pair]) > 1e-3, (
             f"pair {pair}: {method} reproduced the pre-fix value {value!r}"
         )
+
+
+@pytest.mark.parametrize("pair", PAIRS)
+def test_DC5_spatial_table_matches_independent_ou_covariance(
+        setup, backend_values, pair):
+    """For dphi=-phi dt+eta dt, deta=-2 eta dt+2 dW, stationary eta
+    has covariance exp(-2|t-s|), exactly the fixture's coloured noise.
+    Starting phi at zero gives the two state covariances below.  This
+    reference uses neither the package C quadrature nor its closed forms.
+    """
+    def exact_C(n1, t1, n2, t2):
+        early = np.minimum(t1, t2)
+        lag = np.abs(np.asarray(t1) - np.asarray(t2))
+        phi_variance = (1 / 3 - np.exp(-2 * early)
+                        + 2 / 3 * np.exp(-3 * early))
+        eta_phi_covariance = -np.expm1(-3 * early) / 3
+        c = (np.exp(-lag) * phi_variance
+             + (np.exp(-lag) - np.exp(-2 * lag)) * eta_phi_covariance)
+        return np.asarray(c)[..., None, None] * np.eye(2)
+
+    props = setup["system"].propagators(
+        t_max=2.0, n_grid_t=16, c_closed_form=exact_C,
+        c_closed_form_only=True, c_closed_form_vectorized=True,
+    )
+    exact = setup["expansion"].evaluate(
+        props, t_final=T_FINAL, positions=POS, component_pair=pair,
+        method="qmc_vectorized", n_samples=N_SAMPLES, seed=SEED,
+    ).total
+    assert backend_values[pair]["qmc_vectorized"] == pytest.approx(
+        exact, rel=1e-4, abs=1e-12,
+    )

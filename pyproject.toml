@@ -72,9 +72,12 @@ packages = ["src/sft_wick"]
 # and example scripts/configs, but exclude regenerable / heavy binary
 # outputs (rendered notebooks, generated figures, simulation caches).
 exclude = [
+    ".agents/",
+    ".agent-state/",
     "examples/**/*.ipynb",
     "examples/**/*.pdf",
     "examples/**/*.npz",
+    "examples/**/*.pkl",
     "examples/**/figures/",
     "docs/_build/",
 ]

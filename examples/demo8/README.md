@@ -58,7 +58,7 @@ C reaches the package two ways.  **exact C** hands it
 evaluated by Gauss-Legendre at every point the integrators ask for, so a row
 measures the diagrams and R alone; that C is checked against the hierarchy's
 two-time order-0 moment for every model (≤ 2e-12).  **table** is the
-package's own route: quadrature on an `n_grid_t × n_grid_t` grid and a
+package's own route: quadrature on the physical min-time/lag grid and a
 spline lookup.
 
 A matrix R, which is what component-dependent rates give, runs on the
@@ -69,7 +69,9 @@ rates on Gauss-Legendre and `qmc_vectorized`.
 ## Results
 
 Worst relative difference from the reference over the component tuples and
-orders of each block (`time8_results.json`).
+orders of each block (`time8_results.json`). All 258 table and time-translation
+rows were remeasured on 2026-09-13 after T-001; exact-C rows retain their
+earlier measurements. This is recorded in the JSON provenance.
 
 ### (a) a rate varying in time, `t_min ∈ {−1.3, 0.7}`
 
@@ -80,12 +82,12 @@ orders of each block (`time8_results.json`).
 | exact C, `gauss_legendre` 12 (scalar R) | 2.3e-13 |
 | exact C, `nquad` (scalar R) | 1.3e-08 |
 | exact C, `qmc_vectorized` 2¹⁴ (scalar R) | 4.3e-07 |
-| table `n_grid_t = 21` / `41`, `nquad` (matrix R) | 9.7e-06 / 1.9e-07 |
-| table `n_grid_t = 21` / `41`, `gauss_legendre` 12 (scalar R) | 2.1e-05 / 1.3e-05 |
+| table `n_grid_t = 21` / `41`, `nquad` (matrix R) | 7.1e-06 / 1.9e-07 |
+| table `n_grid_t = 21` / `41`, `gauss_legendre` 12 (scalar R) | 1.1e-05 / 2.3e-07 |
 
-`gauss_legendre` and `qmc_vectorized` refuse the matrix R; the table row on
-`gauss_legendre` does not converge, for the reason in "Limits" (an OU κ²
-cusps, and the table cache does not declare it).
+`gauss_legendre` and `qmc_vectorized` refuse the matrix R in these routes.
+The scalar-R table now converges as the grid is refined; its OU-kernel
+cusp is declared and its C diagonal is a min/lag boundary.
 
 `Γ_a(t) = ∫γ_a` is built on the rate-cache grid, and the moments converge in
 its spacing `h` (worst of the tadpole and order-2 `⟨φ_a φ_b⟩`, exact C):
@@ -108,7 +110,7 @@ its spacing `h` (worst of the tadpole and order-2 `⟨φ_a φ_b⟩`, exact C):
 | exact C, `nquad` | 2.7e-06 |
 | exact C, `qmc_vectorized` 2¹⁴ | 4.4e-05 |
 | exact C, `qmc_scalar` 2¹¹ | 2.5e-03 |
-| table `n_grid_t = 21` / `41`, `gauss_legendre` 12 | 6.4e-05 / 1.6e-06 |
+| table `n_grid_t = 21` / `41`, `gauss_legendre` 12 | 6.6e-05 / 1.6e-06 |
 | unequal external times, `qmc_vectorized` 2¹⁶ | 3.2e-12 (orders 0, 1), 6.2e-08 (order 2) |
 | unequal external times, `nquad` | 3.7e-08 (order 1), 7.1e-07 (order 2) |
 | unequal external times, `gauss_legendre` 12 / 28 | 1.6e-03 / 4.4e-05 (see "Limits") |
@@ -117,18 +119,17 @@ its spacing `h` (worst of the tadpole and order-2 `⟨φ_a φ_b⟩`, exact C):
 
 | kernel, rates | exact C | table `n_grid_t = 21` | table `41` |
 |---|---|---|---|
-| Matérn-3/2, equal (`gauss_legendre` 12) | 1.5e-13 | 4.8e-07 | 4.4e-08 |
-| Matérn-3/2, unequal (`nquad`) | 1.4e-09 | 7.8e-07 | 5.4e-08 |
-| damped cosine, equal (`gauss_legendre` 12) | 1.3e-13 | 2.5e-05 | 2.2e-05 |
-| damped cosine, unequal (`nquad`) | 1.0e-08 | 2.3e-06 | 3.2e-07 |
-| Gaussian, equal (`gauss_legendre` 12) | 2.4e-13 | 2.8e-06 | 1.7e-07 |
-| Gaussian, unequal (`nquad`) | 9.5e-15 | 3.2e-06 | 1.6e-07 |
+| Matérn-3/2, equal (`gauss_legendre` 12) | 1.5e-13 | 1.4e-06 | 3.9e-08 |
+| Matérn-3/2, unequal (`nquad`) | 1.4e-09 | 1.6e-06 | 3.2e-08 |
+| damped cosine, equal (`gauss_legendre` 12) | 1.3e-13 | 1.6e-05 | 6.0e-07 |
+| damped cosine, unequal (`nquad`) | 1.0e-08 | 1.4e-05 | 6.9e-07 |
+| Gaussian, equal (`gauss_legendre` 12) | 2.4e-13 | 5.9e-06 | 1.2e-07 |
+| Gaussian, unequal (`nquad`) | 9.5e-15 | 8.3e-06 | 1.1e-07 |
 
 `qmc_vectorized` at 2¹⁴ reaches 6.4e-07 (equal rates) and `qmc_scalar` at
 2¹¹ 1.4e-04 (unequal) on the same exact C.
 
-The damped-cosine table row does not converge: the limit is not the table
-but the integrator (see "Limits").  The Gaussian rows are measured against
+The damped-cosine table now converges under refinement. The Gaussian rows are measured against
 the hand contraction, the others against the hierarchy.
 
 Time-translation invariance (`GaussianTemporal`, table C, `t_min` shifted by
@@ -149,23 +150,24 @@ and the order-1 tadpole:
 
 | `n_grid_t` | 11 | 21 | 41 | 81 |
 |---|---|---|---|---|
-| order 2, `qmc_vectorized` 2¹⁴ | 8.3e-03 | 1.9e-03 | 4.7e-04 | 1.2e-04 |
-| order 2, `gauss_legendre` 12 | 7.5e-03 | 1.9e-03 | 3.4e-04 | 2.6e-04 |
+| order 2, `qmc_vectorized` 2¹⁴ | 2.6e-05 | 9.5e-06 | 9.0e-06 | 9.0e-06 |
+| order 2, `gauss_legendre` 12 | 3.9e-05 | 5.4e-07 | 2.4e-08 | 1.0e-09 |
 | order 1, `⟨φ_0⟩` | 1.2e-05 | 6.9e-07 | 1.5e-08 | 1.9e-09 |
-| order 0, `⟨φ_1(x) φ_1(y)⟩` | 7.7e-05 | 7.4e-14 | 7.4e-14 | 7.4e-14 |
+| order 0, `⟨φ_1(x) φ_1(y)⟩` | 7.7e-05 | 7.3e-14 | 7.3e-14 | 7.3e-14 |
 
 Order 0 reads `C(t_f, t_f)`, which comes from the table's own diagonal: it
 is exact wherever `t_f` is a grid node (it is not at `n_grid_t = 11`).  The
-order-2 rows read C off the diagonal and converge as the step squared.
+order-2 GL rows now recover rapid table convergence; QMC reaches its own
+sampling floor near 1e-5.
 
 The table's C itself, by distance `δ` from the time diagonal (largest
 relative departure from the exact C over `t ∈ [0.6, 2.1]`):
 
 | `n_grid_t` | `δ = 0` | `δ = 10⁻⁶` | `δ = 10⁻²` | `δ = 0.1` | `δ = 0.4` |
 |---|---|---|---|---|---|
-| 21 | 1.7e-06 | 1.8e-02 | 1.1e-02 | 1.8e-02 | 4.2e-03 |
-| 41 | 9.0e-08 | 8.5e-03 | 8.8e-03 | 3.2e-03 | 1.5e-05 |
-| 81 | 6.2e-09 | 3.3e-03 | 5.9e-03 | 1.6e-04 | 4.7e-08 |
+| 21 | 1.7e-06 | 1.7e-06 | 5.8e-06 | 1.3e-05 | 1.9e-05 |
+| 41 | 9.0e-08 | 9.0e-08 | 4.6e-07 | 1.6e-07 | 1.3e-06 |
+| 81 | 6.2e-09 | 6.2e-09 | 3.6e-08 | 9.0e-09 | 1.3e-07 |
 
 ## Limits, measured
 
@@ -208,7 +210,8 @@ relative departure from the exact C over `t ∈ [0.6, 2.1]`):
   (`PropagatorCache._kappa2_has_diagonal_cusp`: the built-in kernels
   declare `has_diagonal_cusp`, any other callable is probed from one-sided
   differences).  Order-2 `⟨φ_0(x) φ_1(y)⟩` on the package's table at
-  `n_grid_t = 41`, against the hierarchy:
+  `n_grid_t = 41`, against the hierarchy (historical 0.6.0 cut comparison;
+  the current table-coordinate measurements are above):
 
   | kernel | | GL 12 | GL 20 | `qmc_vectorized` 2¹⁶ |
   |---|---|---|---|---|
@@ -222,13 +225,12 @@ relative departure from the exact C over `t ∈ [0.6, 2.1]`):
   out of the split.  The cost is one integration per unordered C pair: 1.33
   pieces per diagram here, against 1.00.  The `exact C` rows of this demo
   declared `has_diagonal_kink=True` all along and never lost the rate.
-- **The C table cannot follow a white-noise kink.**  `C(t₁, t₂)` has a
-  derivative jump of `σ²` on `t₁ = t₂`; the table's tensor-product spline is
-  C², so just off the diagonal it is wrong by `O(h)` (table above) and the
-  moments that read C there converge as `O(h²)` instead of at spline order.
-  On the diagonal itself a separate 1-D spline keeps `O(h⁴)`, so tadpoles
-  and the equal-time correlator are unaffected.  Where a closed form exists
-  (`c_closed_form`), it removes the whole effect.
+- **The former white-noise table kink is resolved by T-001.** The first
+  derivative jump now lies on the min/lag boundary. At 41 nodes, the
+  near-diagonal pointwise errors above are below 5e-7 and the GL order-2
+  `(0,1)` error is 2.4e-8. Coarse smooth-kernel errors need not improve
+  at every point when coordinates change; use the measured refinement
+  columns rather than assuming a pointwise dominance guarantee.
 - **The rate-cache grid.**  A callable `DiagonalA.gamma` is integrated on
   `[t_min_cache, t_max_cache]` with `n_grid_cache` nodes; at the defaults
   (`t_max_cache = 100`, 200 nodes, `h = 0.50`) a rate varying on a unit time

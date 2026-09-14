@@ -1,65 +1,29 @@
 #!/usr/bin/env python
-"""Error budget for demo2's two-point functions: theory channels vs
-Langevin simulation, with the ingredients the paper needs.
+"""Demo2 error budget: independently checked package channels and simulations.
 
-Theory (all through the L1 API on the current package), on the time grid
-of the simulations (the demo2 grid snapped to multiples of 0.02):
+All theory values are evaluated through the package L1 API.  0/FF use
+exact two-kernel C_eff with GL48; FK uses analytic R-contracted kappa3
+with GL64/96.  FFFK and FFK4 use analytic contracted kernels, declared
+partner-time cuts, and node refinement.  FFFF also refines its outer
+rule.  Each refined cell is checked against an independent polynomial
+Ito moment generator before it is cached: relative targets are 1e-4
+for FFFK/FFK4 and 1e-3 for FFFF.  These are numerical accuracy targets
+for individual channels, not guarantees about perturbative truncation
+or agreement with finite-sample simulations.  The reference is saved
+alongside each channel; it never replaces the L1 value.
 
-* ``0``     order 0 with the EXACT two-kernel effective covariance
-            ``kappa2_eff = lam k + 2 alpha^2 lam^2 k^2`` (both pieces are
-            separable-exponential, so both have the built-in closed form;
-            their sum is passed as ``c_closed_form``), and for comparison
-            the single-kernel ``lam_eff = lam (1 + 2 alpha^2 lam)``
-            approximation used by ``examples/demo2/L2`` so far;
-* ``FF``    order 2, same two C variants;
-* ``FK``    order 2, F x kappa^(3), through the R-CONTRACTED kernel
-            (``examples/demo2/k3_R_coupling.py``): the three leg integrals
-            over the narrow kernel are done analytically/with a composite
-            rule inside the callable, the outer integral is 1-D and a
-            32-node Gauss-Legendre rule is converged to 1e-4.  Also the
-            raw-kernel, 4-D tensor rule (n = 8) the paper used, to show
-            its error;
-* ``FFK4``  order 3, F x F x kappa^(4) -- the leading kappa^(4)
-            contribution to <phi phi> (F x kappa^(4) at order 2 vanishes:
-            2 + n_F - 4 n_K4 must be a non-negative even number) -- via the
-            R-contracted ``k4_R_contracted.py``; three pure-R^6 diagrams,
-            2-D outer integral.  Identically zero for xi_01 (kappa^(4) is
-            even under phi_1 -> -phi_1);
-* ``FFFF``  order 4 (64 diagrams), exact C_eff, by tensor-product
-            Gauss-Legendre.  It used to be Sobol QMC at 32768 samples,
-            which scatters 46 % across seeds at t = 15 -- the same size
-            as the residuals the column is used to interpret;
-* ``FFFK``  order 4, F^3 x kappa^(3), EXACTLY, through the R-contracted
-            kernel and the propagator-indexed dynamic-coupling path
-            (sft-wick >= 0.4.0; before that the package raised
-            NotImplementedError here and this channel was *estimated*
-            by collapsing kappa^(3) to an equal-time constant and
-            calibrating on FK).  30 diagrams, 3-D outer integral.  The
-            old equal-time estimate is still computed, as ``fk_eq`` /
-            ``fffk_eq``, so the write-up can quote how far off it was.
+The exact C_eff = C[lambda*k] + C[2*alpha**2*lambda**2*k**2] is required
+wherever C appears, including FFFK.  The former budget used bare C for
+that channel and underresolved GL8/10/14 at late times.  Coarse rules
+are retained for diagnostics, with explicit node counts.
 
-Off-grid separations
---------------------
-The simulation measures on a spatial grid of pitch ``sigma_x / 5 = 0.2``
-and reports ``xi(r)`` at the requested ``r`` by ``np.interp``.  On a
-convex ``e^{-r}``-like profile that OVERESTIMATES at an off-grid ``r`` by
-a few tenths of a percent -- bigger than several rows of this budget.  So
-the theory is evaluated at the grid sites too, and any off-grid ``r`` is
-compared against the SAME linear combination of theory values that
-``np.interp`` forms from the simulation.  See ``interp_to`` below.
+The simulation comparison uses its own spatial grid and interpolation
+weights, and Richardson extrapolates the saved dt=.02/.01 simulations.
+Outputs are budget.npz and budget_meta.json; make_figures.py renders them.
+Changed stages have new cache identities.  Refinement caches fingerprint
+the implementation, so changing a kernel cannot silently reuse old rows.
 
-Simulation: ``sim_dt_study.py`` at dt = 0.02 and 0.01, 20 seeds x 100k
-realisations each (2M per step size), measured at exactly the theory
-times, Richardson-extrapolated to dt -> 0 assuming the Heun O(dt^2)
-bias; plus the shipped 200k cache (dt = 0.05, nominal times) for
-reference.
-
-Outputs: ``budget.npz`` (every channel on the grid), ``budget_meta.json``;
-``make_figures.py`` turns them into ``budget.md`` and the figures.
-Stages are cached in ``cache2/`` so a re-run only recomputes what is
-missing.  Run (a few minutes on many cores)::
-
-    OMP_NUM_THREADS=1 python run_budget.py
+    OMP_NUM_THREADS=1 SFT_WICK_BUDGET_JOBS=6 python run_budget.py
 """
 from __future__ import annotations
 
@@ -67,6 +31,7 @@ import glob
 import json
 import sys
 import time
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -75,6 +40,7 @@ import pandas as pd
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parents[1] / "demo2"))
+sys.path.insert(0, str(HERE.parents[1] / "reference"))
 
 import sft_wick as sw  # noqa: E402
 from sft_wick.workflow.closed_forms import ClosedFormC  # noqa: E402
@@ -82,6 +48,7 @@ from k3_coupling import coupling_fn_vectorized as k3_raw_fn  # noqa: E402
 from k3_R_coupling import coupling_fn_vectorized as k3_R_fn  # noqa: E402
 from k4_R_contracted import coupling_fn_vectorized as k4_R_fn  # noqa: E402
 from sim_dt_study import T_MEASURE  # noqa: E402
+from demo2_moments import moments as reference_moments  # noqa: E402
 
 LAM, SIGMA_T, SIGMA_X, GAMMA, ALPHA, N = 0.05, 0.3, 1.0, 1.0, 0.6, 2
 LAM_EFF = LAM * (1 + 2 * ALPHA ** 2 * LAM)
@@ -194,13 +161,74 @@ def interp_to(r_targets, r_theory, values):
     return out
 
 
-def cached(name, fn):
+def cached(name, fn, *, validate=None):
     path = CACHE / f"{name}.pkl"
     if path.exists():
-        return pd.read_pickle(path)
+        df = pd.read_pickle(path)
+        if validate is None or validate(df):
+            return df
     df = fn()
     df.to_pickle(path)
     return df
+
+
+def verified_rows(system, props, order, vertex_types, channel, r_list, t_list,
+                  *, rtol=None):
+    """Refine actual L1 evaluations against an independent moment generator.
+
+    The reference never replaces a package value.  A stage is saved only
+    after every requested component passes, and a failed refinement raises.
+    Cache identity includes the runner, kernel and scientific source files.
+    Cache hits must also satisfy the current grid and accuracy target.
+    """
+    rtol = {"fffk": 1e-4, "ffk4": 1e-4, "ffff": 1e-3}[channel] if rtol is None else rtol
+    if not np.isfinite(rtol) or rtol <= 0:
+        raise ValueError("rtol must be finite and positive")
+    inputs = [Path(__file__), HERE.parents[1]/"demo2/k3_R_coupling.py",
+              HERE.parents[1]/"demo2/ordered_exponentials.py",
+              HERE/"k4_R_contracted.py", HERE.parents[1]/"reference/demo2_moments.py",
+              HERE.parents[1]/"reference/ito_moments.py"]
+    inputs += sorted((HERE.parents[2]/"src/sft_wick").rglob("*.py"))
+    digest = hashlib.sha256(b"".join(p.read_bytes() for p in inputs)).hexdigest()[:12]
+    refs = {r: reference_moments(t_list, r, channels=(channel,))[channel] for r in r_list}
+    frames = []
+    for ti, tv in enumerate(t_list):
+        n = max(12, int(np.ceil(7 + {"fffk": 3.2, "ffk4": 3.0, "ffff": 2.4}[channel]*np.sqrt(tv))))
+        keys = ["y", "t_final", "a", "b", "vertex_type", "order"]
+        expected_keys = {(r, tv, a, b, vt, order)
+                         for r in r_list for a, b in PAIRS for vt in vertex_types}
+
+        def validate(df):
+            required = keys + ["value", "n_gauss", "seconds"]
+            if (not isinstance(df, pd.DataFrame) or not expected_keys
+                    or not set(required).issubset(df.columns)
+                    or len(df) != len(expected_keys)
+                    or set(df[keys].itertuples(index=False, name=None)) != expected_keys):
+                return False
+            if not np.isfinite(df[["value", "n_gauss", "seconds"]].to_numpy()).all():
+                return False
+            # Recompute the reference and error; saved error columns are not
+            # evidence that these values satisfy a new request's tolerance.
+            df["reference"] = [refs[float(row.y)][ti, PAIRS.index((row.a, row.b))]
+                               for row in df.itertuples()]
+            df["absolute_error"] = np.abs(df.value - df.reference)
+            return bool(np.isfinite(df.reference).all()
+                        and np.all(df.absolute_error <= rtol*np.abs(df.reference) + 1e-20))
+
+        def compute():
+            for nodes in range(n, n + 33, 8):
+                df = sweep_rows(system, props, [order], vertex_types, r_list, [tv], PAIRS,
+                                "gauss_legendre", n_gauss=nodes,
+                                label=f"{channel} t={tv:g} GL{nodes}")
+                df["n_gauss"] = nodes
+                if validate(df):
+                    return df
+                print(f"[{channel}] GL{nodes} failed moment check; refining", flush=True)
+            raise RuntimeError(f"{channel} did not meet rtol={rtol} at t={tv}")
+
+        frames.append(cached(f"verified_{channel}_{digest}_t{tv:g}", compute,
+                             validate=validate))
+    return pd.concat(frames, ignore_index=True)
 
 
 def load_sims(dt):
@@ -244,64 +272,46 @@ def main():
                                                  already_R_contracted=True))
     sys_k3eq = make_system(LAM, sw.NonLocalVertex("K", 3, coupling=K3_EQ, equal_time=True))
 
-    ff_exact = cached("ff_exact", lambda: sweep_rows(
+    ff_exact = cached("ff_exact_gl48", lambda: sweep_rows(
         sys_bare, props_for(sys_bare, True), [0, 2], None, r_list, t_list, PAIRS,
-        "qmc_vectorized", label="0+FF exact C_eff"))
-    ff_lameff = cached("ff_lameff", lambda: sweep_rows(
+        "gauss_legendre", n_gauss=48, label="0+FF exact C_eff GL48"))
+    ff_lameff = cached("ff_lameff_gl48", lambda: sweep_rows(
         sys_eff, props_for(sys_eff, False), [0, 2], None, r_list, t_list, PAIRS,
-        "qmc_vectorized", label="0+FF lam_eff"))
-    fk_rc = cached("fk_rc", lambda: sweep_rows(
+        "gauss_legendre", n_gauss=48, label="0+FF lam_eff GL48"))
+    fk_rc = cached("fk_rc_analytic_gl64_v1", lambda: sweep_rows(
         sys_k3R, props_for(sys_k3R, False), [2], ["FK"], r_list, t_list, PAIRS,
-        "gauss_legendre", n_gauss=32, label="FK R-contracted GL32"))
-    fk_rc64 = cached("fk_rc64", lambda: sweep_rows(
+        "gauss_legendre", n_gauss=64, label="FK R-contracted GL64"))
+    fk_rc96 = cached("fk_rc96_analytic_v1", lambda: sweep_rows(
         sys_k3R, props_for(sys_k3R, False), [2], ["FK"], r_sub, t_list, [(0, 1)],
-        "gauss_legendre", n_gauss=64, label="FK R-contracted GL64 (check)"))
+        "gauss_legendre", n_gauss=96, label="FK R-contracted GL96 (check)"))
     fk_raw8 = cached("fk_raw8", lambda: sweep_rows(
         sys_k3raw, props_for(sys_k3raw, False), [2], ["FK"], r_sub, t_list, [(0, 1)],
         "gauss_legendre", n_gauss=8, label="FK raw kernel GL8 (as in the paper)"))
-    ffk4_rc = cached("ffk4_rc", lambda: sweep_rows(
-        sys_k4R, props_for(sys_k4R, False), [3], ["FK4"], r_sub, t_list, PAIRS,
-        "gauss_legendre", n_gauss=12, label="FFK4 R-contracted GL12"))
-    ffk4_rc16 = cached("ffk4_rc16", lambda: sweep_rows(
+    ffk4_rc = verified_rows(sys_k4R, props_for(sys_k4R, True), 3, ["FK4"],
+                            "ffk4", r_sub, t_list)
+    ffk4_rc16 = cached("ffk4_rc16_analytic_v1", lambda: sweep_rows(
         sys_k4R, props_for(sys_k4R, False), [3], ["FK4"], [0.0], t_check, [(0, 0)],
         "gauss_legendre", n_gauss=16, label="FFK4 R-contracted GL16 (check)"))
-    # FFFF: Gauss-Legendre, not QMC.  The integrand is 4-D and smooth,
-    # so a tensor-product rule converges exponentially, and it is
-    # DETERMINISTIC: the 32768-sample Sobol rule this used to use gives
-    # 7.47 / 3.22 / 2.80 / 5.05e-5 for FFFF_00(t=15, r=0) across four
-    # seeds -- 46 % scatter on a mean of 4.6e-5, the same size as the
-    # residuals the column is used to interpret.  ``ffff14`` is the
-    # convergence check whose difference is quoted as the column's error.
-    ffff = cached("ffff", lambda: sweep_rows(
-        sys_bare, props_for(sys_bare, True), [4], None, r_sub, t_list, PAIRS,
-        "gauss_legendre", n_gauss=10, label="FFFF exact C_eff GL10"))
+    # Retain coarse Gaussian rules for comparison with the checked result.
+    ffff = verified_rows(sys_bare, props_for(sys_bare, True), 4, None,
+                         "ffff", r_sub, t_list)
     ffff14 = cached("ffff14", lambda: sweep_rows(
         sys_bare, props_for(sys_bare, True), [4], None, r_sub, t_list, PAIRS,
         "gauss_legendre", n_gauss=14, label="FFFF exact C_eff GL14 (check)"))
     ffff_qmc = cached("ffff_qmc", lambda: sweep_rows(
         sys_bare, props_for(sys_bare, True), [4], None, r_sub, t_list, PAIRS,
         "qmc_vectorized", label="FFFF exact C_eff QMC32768 (superseded)"))
-    # FFFK: the order-4 F^3.kappa^3 channel, EXACTLY.  Needs the
-    # propagator-indexed dynamic-coupling path (sft-wick >= 0.4.0) and
-    # the R-contracted kernel, which drops the effective time dimension
-    # from 6 to 3.  Computed for all three pairs rather than for xi_01
-    # alone: xi_00 and xi_11 are expected to vanish by the phi_1 -> -phi_1
-    # parity that kills every odd cumulant there, and an expectation is
-    # worth two minutes of confirmation when it is load-bearing.
-    fffk_rc = cached("fffk_rc", lambda: sweep_rows(
-        sys_k3R, props_for(sys_k3R, False), [4], ["FK"], r_sub, t_list, PAIRS,
-        "gauss_legendre", n_gauss=10, label="FFFK R-contracted GL10"))
-    fffk_rc8 = cached("fffk_rc8", lambda: sweep_rows(
-        sys_k3R, props_for(sys_k3R, False), [4], ["FK"], r_sub, t_list, PAIRS,
+    # FFFK includes one C factor: use the exact two-kernel C_eff.
+    # Its three component pairs are nonzero and checked independently.
+    fffk_rc = verified_rows(sys_k3R, props_for(sys_k3R, True), 4, ["FK"],
+                           "fffk", r_sub, t_list)
+    fffk_rc8 = cached("fffk_rc8_analytic_ceff_v1", lambda: sweep_rows(
+        sys_k3R, props_for(sys_k3R, True), [4], ["FK"], r_sub, t_list, PAIRS,
         "gauss_legendre", n_gauss=8, label="FFFK R-contracted GL8 (check)"))
-    # The 3-D rule loses the peak at large t_f for the same geometric
-    # reason the 4-D FFFF rule does: the integrand lives within ~1/gamma
-    # and ~sigma_t of the upper corner of a simplex of side t_f.  GL8 vs
-    # GL10 is 0.1 % to t = 5.4 and 2.7 % at t = 15, but 37 % at t = 50.
-    # GL14 on the late times says which of the two (if either) is right.
+    # Coarse late-time GL14 remains a diagnostic, not an exact reference.
     t_late = [tv for tv in t_list if tv >= 8.0]
-    fffk_rc14 = cached("fffk_rc14", lambda: sweep_rows(
-        sys_k3R, props_for(sys_k3R, False), [4], ["FK"], r_sub, t_late, [(0, 1)],
+    fffk_rc14 = cached("fffk_rc14_analytic_ceff_v1", lambda: sweep_rows(
+        sys_k3R, props_for(sys_k3R, True), [4], ["FK"], r_sub, t_late, [(0, 1)],
         "gauss_legendre", n_gauss=14, label="FFFK R-contracted GL14 (late t)"))
     fk_eq = cached("fk_eq", lambda: sweep_rows(
         sys_k3eq, props_for(sys_k3eq, False), [2], ["FK"], [0.0], t_check, [(0, 1)],
@@ -339,7 +349,7 @@ def main():
         out[f"fk_{key}"] = grid(fk_rc, "FK", 2, pair, r_list, t_list)
         out[f"ffk4_{key}"] = grid(ffk4_rc, "FK4", 3, pair, r_sub, t_list)
         out[f"ffff_{key}"] = grid(ffff, "F", 4, pair, r_sub, t_list)
-    out["fk64_01"] = grid(fk_rc64, "FK", 2, (0, 1), r_sub, t_list)
+    out["fk96_01"] = grid(fk_rc96, "FK", 2, (0, 1), r_sub, t_list)
     out["fk_raw8_01"] = grid(fk_raw8, "FK", 2, (0, 1), r_sub, t_list)
     out["ffk4_16_00"] = grid(ffk4_rc16, "FK4", 3, (0, 0), [0.0], t_check)
     out["fk_eq_01"] = grid(fk_eq, "FK", 2, (0, 1), [0.0], t_check)
@@ -352,6 +362,17 @@ def main():
         out[f"fffk8_{key}"] = grid(fffk_rc8, "FK", 4, pair, r_sub, t_list)
         out[f"ffff14_{key}"] = grid(ffff14, "F", 4, pair, r_sub, t_list)
         out[f"ffff_qmc_{key}"] = grid(ffff_qmc, "F", 4, pair, r_sub, t_list)
+
+    reference = {r: reference_moments(t_list, r, channels=(
+        "o0", "ff", "fk", "ffk4", "ffff", "fffk", "fk5")) for r in r_sub}
+    for channel in ("o0", "ff", "fk", "ffk4", "ffff", "fffk", "fk5"):
+        for pi, pair in enumerate(PAIRS):
+            key = f"{pair[0]}{pair[1]}"
+            out[f"ref_{channel}_{key}"] = np.stack(
+                [reference[r][channel][:, pi] for r in r_sub], axis=1)
+    for channel, df in (("ffff", ffff), ("fffk", fffk_rc), ("ffk4", ffk4_rc)):
+        out[f"{channel}_n_gauss"] = np.array([
+            int(df.loc[df.t_final == tv, "n_gauss"].max()) for tv in t_list])
 
     out["sim200_t"] = sim200["t"]
     out["sim200_xi"] = sim200["xi"]
@@ -368,15 +389,20 @@ def main():
                 lam_eff=LAM_EFF, n_real_cache=int(sim200["n_real"]), dt_cache=float(sim200["dt_sim"]),
                 n_real_sims={dt: s["n_real"] for dt, s in sims.items()},
                 n_files_sims={dt: s["n_files"] for dt, s in sims.items()},
-                seconds={name: float(df.seconds.iloc[0]) for name, df in [
+                seconds={name: (float(df.groupby("t_final").seconds.first().sum())
+                               if "n_gauss" in df else float(df.seconds.iloc[0]))
+                         for name, df in [
                     ("ff_exact", ff_exact), ("ff_lameff", ff_lameff), ("fk_rc", fk_rc),
-                    ("fk_rc64", fk_rc64), ("fk_raw8", fk_raw8), ("ffk4_rc", ffk4_rc),
+                    ("fk_rc96", fk_rc96), ("fk_raw8", fk_raw8), ("ffk4_rc", ffk4_rc),
                     ("ffk4_rc16", ffk4_rc16), ("ffff", ffff),
                     ("ffff14", ffff14), ("ffff_qmc", ffff_qmc),
                     ("fffk_rc", fffk_rc), ("fffk_rc8", fffk_rc8),
                     ("fffk_rc14", fffk_rc14),
                     ("fk_eq", fk_eq), ("fffk_eq", fffk_eq)]},
-                dx_sim=DX_SIM, r_sub=R_SUB)
+                dx_sim=DX_SIM, r_sub=R_SUB, n_jobs=N_JOBS,
+                verified_relative_tolerance={"fffk": 1e-4, "ffk4": 1e-4, "ffff": 1e-3}, fffk_covariance="exact two-kernel C_eff",
+                kappa3_kernel="analytic ordered exponentials",
+                independent_reference="examples/reference/demo2_moments.py")
     (HERE / "budget_meta.json").write_text(json.dumps(meta, indent=2))
     print(json.dumps(meta, indent=2))
 

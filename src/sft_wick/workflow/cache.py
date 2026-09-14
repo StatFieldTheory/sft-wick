@@ -30,6 +30,15 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
+#: Bump when the meaning of a cached value changes, so a cache built by an
+#: earlier version is never read back.  Bumped when the C tables moved to
+#: ``(min(t1, t2), |t1-t2|)`` coordinates: an old propagator-table cache
+#: holds splines in the old ``(t1, t2)`` coordinates and would silently
+#: return the smeared near-diagonal value this release fixes.
+#: Schema 3 also rejects tables with the general E-space swap and tables
+#: built from physical kernels evaluated beyond the requested horizon.
+_CACHE_SCHEMA = "3"
+
 _REMINDER_SEEN: set[str] = set()
 
 
@@ -46,9 +55,10 @@ def hash_spec(obj: Any, length: int = 12) -> str:
     try:
         from joblib import hash as _joblib_hash
 
-        return _joblib_hash(obj)[:length]
+        return _joblib_hash((_CACHE_SCHEMA, obj))[:length]
     except Exception:
-        return hashlib.sha256(repr(obj).encode("utf-8")).hexdigest()[:length]
+        return hashlib.sha256(
+            (_CACHE_SCHEMA + repr(obj)).encode("utf-8")).hexdigest()[:length]
 
 
 def load_or_compute(
