@@ -9,18 +9,21 @@ its physical meaning and how it interacts with the ``noise.kappa2`` /
 What ``dt`` means
 -----------------
 
-``dt`` is the smallest temporal correlation length that the framework can
-resolve. The two numerical grids it controls are:
+``dt`` is a numerical resolution setting used to derive grid sizes. It
+does not change the noise model or automatically replace unresolved
+colored noise with white noise. The two grids it controls are:
 
 * ``propagators.n_grid_t``: number of points along each axis of the
   ``C(t1, t2)`` interpolation table built by :meth:`PropagatorCache
   <sft_wick.evaluate.PropagatorCache>`. Derived as
-  ``ceil(t_max / dt)``.
+  ``max(2, ceil(t_max / dt))``. The physical time nodes include both
+  endpoints, so their spacing is ``(t_max - t_min) / (n_grid_t - 1)``;
+  it is not exactly ``dt``.
 
 * ``system.linear.n_grid_cache``: number of points along the
   cumulative-Γ spline used by :class:`DiagonalA
   <sft_wick.workflow.specs.DiagonalA>` for time-dependent linear drift.
-  Derived as ``ceil((t_max_cache - t_min_cache) / dt)``.
+  Derived as ``max(2, ceil((t_max_cache - t_min_cache) / dt))``.
 
 Specifying ``dt`` and ``n_grid_t`` (or ``dt`` and ``n_grid_cache``)
 together is rejected at parse time.
@@ -45,23 +48,45 @@ A finer resolution needs ``dt: 0.5``, which doubles both grid sizes.
 The ``linear`` block can override the default with its own ``dt:`` field
 when the gamma cache needs different resolution from the C-table.
 
+How the C table handles coincident times
+----------------------------------------
+
+Since 0.6.1, the translation, rotation and general spatial builders store
+their time axes as ``s = min(t1,t2)`` and ``u = abs(t1-t2)``. This places
+the time-diagonal kink at the boundary ``u = 0``. Both time orders are
+retained, using covariance transposition where applicable. Callers still
+supply the physical times ``t1`` and ``t2``.
+
+Only ``t_min <= s <= s + u <= t_max`` is sampled from physical kernels.
+Auxiliary spline values beyond that triangle are continued from the table
+values. Full-grid ``interp_method: linear`` combines physical time-cell
+vertices and splits cells crossed by the diagonal. Cubic and lazy spline
+lookups use the transformed time coordinates. Closed-form-only lookups
+(``c_closed_form_only: true``) bypass these tables, and the legacy L0
+``precompute_C_table`` retains its original layout.
+
+Workflow disk caches carry a schema identifier. Upgrading to 0.6.1 causes
+older cached propagators and expansions to be recomputed on first use;
+no manual deletion is needed. This applies to caches managed by the
+workflow API, rather than arbitrary objects loaded directly with joblib.
+
+
 When to use ``kappa2`` vs ``sigma2``
 ------------------------------------
 
-The two source-cumulant slots are *complementary*, not additive:
+The two source-cumulant slots contribute additively to the covariance:
 
-* ``noise.kappa2`` carries modes whose temporal correlation length is
-  resolvable by the time grid (correlation length ``>> dt``). These show
-  up as smooth functions of ``(t1, t2)``.
+* ``noise.kappa2`` describes noise with a finite temporal correlation
+  kernel. Resolve its relevant scales by refining the grid and quadrature.
 
-* ``noise.sigma2`` carries the white-noise complement: modes whose
-  temporal correlation length is below ``dt`` are observationally
-  indistinguishable from a delta-in-time and contribute through the
-  noise-amplitude term ``sigma2(t) delta(t1 - t2)``.
+* ``noise.sigma2`` describes a delta-correlated component through
+  ``sigma2(t) delta(t1 - t2)``. It can be an independent physical noise
+  source or a separately justified white-noise approximation.
 
-Routing each mode to exactly one of the two slots avoids double-counting.
-A typical workflow first builds ``kappa2`` from a multipole-resolved
-angular power spectrum truncated at some ``ell_cut``, then computes
+If both slots approximate parts of the same spectrum, routing each mode
+to exactly one avoids double-counting. For example, a model may build
+``kappa2`` from a multipole-resolved
+angular power spectrum truncated at some ``ell_cut``, then compute
 ``sigma2`` from the *complement* of that resolved range in k-space (e.g.,
 integrating the matter power spectrum from ``k_cut(chi) = (ell_cut + 0.5)
 / chi`` upward).
@@ -70,18 +95,19 @@ Choosing ``dt``
 ---------------
 
 A defensible default is ``dt = t_max / 60`` (the legacy ``n_grid_t = 60``
-default, written out). Halve it for convergence checks; observables
-should change only at order ``dt`` if all the unresolved power has been
-moved to ``sigma2``.
+default, written out). Halve it for convergence checks while keeping the
+physical model fixed. The convergence rate depends on kernel smoothness,
+interpolation and the outer integrator; no universal power of ``dt`` is
+guaranteed.
 
 Convergence
 -----------
 
-If halving ``dt`` causes the observable to jump by an O(1) fraction, the
-source spectrum still has unresolved smooth power being captured by
-``kappa2`` interpolation at borderline scales. Move that power to
-``sigma2`` (raise ``ell_cut`` or, equivalently, lower the k-space cut)
-until the observable is dt-stable.
+If halving ``dt`` changes the observable substantially, continue the grid
+refinement and check the inner quadrature and outer integration accuracy
+separately. Compare with a closed form when one is available. Replacing a
+colored component by ``sigma2`` changes the physical model and requires
+its own approximation check; it is not a numerical convergence repair.
 
 
 Parallelism layers
@@ -95,7 +121,7 @@ your workload.
 ============================  =================================  ==========================  ====================================================
 Layer                         YAML knob                          Parallel unit               When to use
 ============================  =================================  ==========================  ====================================================
-Propagator C-table build      ``propagators.n_jobs``             one ``(t1, t2, cos)`` cell  Always: runs once before sweep, large grid.
+Propagator C-table build      ``propagators.n_jobs``             one physical table sample   Always: runs once before sweep, large grid.
 Diagram QMC integration       ``expand.n_jobs``                  one Feynman diagram         Many diagrams per grid point (typical at orders >= 2).
 Sweep grid                    ``sweep.n_jobs``                   one grid point              Sweep grid is large; few diagrams per point.
 ============================  =================================  ==========================  ====================================================

@@ -803,11 +803,13 @@ vectors:
 
 * **translation**: the wrapper reduces the input to ``r = ||x1 -
   x2||`` (Euclidean norm), so the cache shape stays
-  ``(t1, t2, r)``, 3-D regardless of the ambient dimension.
+  ``(s, u, r)``, with ``s = min(t1,t2)`` and ``u = abs(t1-t2)``,
+  3-D regardless of the ambient dimension.
 * **rotation**: ``_rotation_cos(n1, n2)`` works on unit vectors of
   any dimension (it only uses ``np.dot`` and ``np.linalg.norm``).
 * **general**: lazy mode supports d-dim via dict-keyed memoisation
-  (one 2-D ``(t1, t2)`` spline per distinct ``(x1, x2)`` pair). The
+  (2-D ``(s, u)`` splines per distinct ``(x1, x2)`` pair, retaining
+  both time orders). The
   full-grid path raises ``NotImplementedError`` because a d-dim grid
   would inflate the spline to ``(2 + 2d)``-D, with ``n_grid_x **
   (2d)`` build calls.
@@ -1349,7 +1351,7 @@ Section reference: ``propagators``
    * - ``cache_path``
      - ``str``
      - ``null``
-     - Directory or file for caching the built propagator
+     - Directory or file for caching the built propagator. A schema change invalidates older workflow caches automatically; upgrading to 0.6.1 recomputes cached propagators and expansions on first use. See :doc:`discretization`
 
 Section reference: ``sweep``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~

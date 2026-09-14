@@ -10,6 +10,41 @@ Changelog
    differ, the Markdown file is correct.
 
 
+Version 0.6.1 (2026-09-14)
+--------------------------
+
+*C-table and integration accuracy fixes, an independently verified demo2
+budget, and compatibility with joblib 1.6.*
+
+- Spatial C tables use ``(min(t1,t2), abs(t1-t2))`` coordinates to keep
+  the time-diagonal kink on a boundary. Physical kernels are sampled only
+  within the requested horizon; full-grid linear interpolation uses
+  physical time-cell vertices. The general earlier-first lookup preserves
+  the correct spatial order. See :doc:`user_guide/discretization`.
+- Gauss-Legendre and ``nquad`` also split a C kink between two external
+  times swept by ``integrate_over``. Demo7's order-2 cross component at
+  12 GL nodes improves from 5.85e-8 to 5.86e-15 relative error against its
+  independent moment hierarchy.
+- Demo2's FFFK channel uses the exact effective covariance. Its example
+  κ³ and κ⁴ kernels integrate their exponential pieces analytically, and
+  the budget refines actual L1 evaluations against independent Itô moment
+  equations. Every saved nonzero FFFK/FFK4 cell meets relative error 1e-4,
+  and every FFFF cell meets 1e-3. Cached budget stages recheck the requested
+  grid and accuracy before reuse. Demo2, demo7 and demo8 assets are updated.
+- YAML hooks and the demo2 analytic helper support both older joblib's
+  bundled cloudpickle and joblib 1.6's standalone dependency, including
+  hooks loaded after a worker pool has started.
+- Source distributions exclude local task tools and generated pickle
+  caches.
+
+The public API, Wick rules, diagram combinatorics and MSR factors are
+unchanged. Earlier workflow disk caches are automatically rebuilt on first
+use; this includes expansion caches. Numerical values can change on the
+affected paths. The validation establishes accuracy for the tested
+perturbative channels, without asserting that a truncated series includes
+every contribution to a simulation.
+
+
 Version 0.6.0 (2026-09-12)
 --------------------------
 
