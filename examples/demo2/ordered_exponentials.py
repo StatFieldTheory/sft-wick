@@ -19,7 +19,12 @@ import sys
 
 import numpy as np
 from scipy.linalg import expm
-from joblib.externals import cloudpickle
+try:
+    # Match joblib's serializer registry even when standalone cloudpickle
+    # is also installed beside an older, vendoring joblib.
+    from joblib.externals import cloudpickle
+except ImportError:  # joblib >= 1.6 no longer vendors cloudpickle
+    import cloudpickle
 
 # L2 serializes external hook modules by value.  Include this sibling
 # helper too, so an already running worker need not import its directory.

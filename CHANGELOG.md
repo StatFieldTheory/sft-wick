@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixed: hook serialization with joblib 1.6
+
+Joblib 1.6 uses standalone cloudpickle instead of `joblib.externals.cloudpickle`.
+The demo2 analytic helper and YAML hook registration now support both layouts,
+preferring the bundled copy on older joblib so registration reaches the same
+serializer used by its workers. This fixes demo2 test collection and prevents
+silent loss of by-value hook registration with an already running worker pool.
+The regression test transports a hook after deleting its source file; the
+independent subprocess kernel check also avoids the removed import path.
+No scientific formula or numerical tolerance changes in this repair.
+
 ### Fixed: source distribution excludes local task tools and example caches
 
 The sdist now explicitly excludes `.agents/`, `.agent-state/` and generated

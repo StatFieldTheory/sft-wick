@@ -124,12 +124,12 @@ def test_kappa4_permutation_and_short_time_limits():
 
 
 def test_analytic_kernel_serializes_without_example_import_path(tmp_path):
-    from joblib.externals import cloudpickle
+    from ordered_exponentials import cloudpickle
     cloudpickle.register_pickle_by_value(kernel)
     path = tmp_path / "kernel.pkl"
     path.write_bytes(cloudpickle.dumps(kernel.coupling_fn_vectorized))
-    code = ("from joblib.externals import cloudpickle; import sys; import numpy as np; "
-            "fn=cloudpickle.load(open(sys.argv[1], 'rb')); "
+    code = ("import pickle; import sys; import numpy as np; "
+            "fn=pickle.load(open(sys.argv[1], 'rb')); "
             "value=fn(np.zeros((3,1)),np.ones((3,1)))[0,0,0,0]; "
             "assert abs(value/0.0004550447956000525-1)<1e-10")
     completed = subprocess.run([sys.executable, "-c", code, str(path)], cwd=tmp_path,
