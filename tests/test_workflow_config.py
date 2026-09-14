@@ -461,6 +461,41 @@ def test_CF8_both_n_jobs_set_raises(tmp_path: Path) -> None:
         run_workflow(cfg)
 
 
+def test_CF7_hook_registration_survives_an_existing_worker_pool(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Register with the serializer actually used by the installed joblib.
+
+    Since 1.6 joblib uses standalone cloudpickle. Skipping registration
+    there breaks hooks sent to workers that cannot import the hook file.
+    """
+    import importlib.util
+    import sys
+    from joblib import Parallel, delayed
+    from sft_wick.workflow.config import _register_module_by_value
+
+    try:
+        from joblib.externals import cloudpickle
+    except ImportError:
+        import cloudpickle
+
+    with Parallel(n_jobs=2, backend="loky") as pool:
+        assert pool(delayed(abs)(-i) for i in range(2)) == [0, 1]
+        path = tmp_path / "isolated_hook.py"
+        path.write_text("OFFSET = 13\ndef apply(x):\n    return OFFSET + x\n")
+        spec = importlib.util.spec_from_file_location("_sft_wick_isolated_hook", path)
+        module = importlib.util.module_from_spec(spec)
+        monkeypatch.setitem(sys.modules, spec.name, module)
+        spec.loader.exec_module(module)
+        _register_module_by_value(module)
+        path.unlink()  # The worker must receive the function's code by value.
+        try:
+            assert pool(delayed(module.apply)(i) for i in range(2)) == [13, 14]
+        finally:
+            if module.__name__ in cloudpickle.list_registry_pickle_by_value():
+                cloudpickle.unregister_pickle_by_value(module)
+
+
 def test_CF7_c_closed_form_supports_parallel(tmp_path: Path) -> None:
     """The parallel C-table build path must work with c_closed_form_module.
 

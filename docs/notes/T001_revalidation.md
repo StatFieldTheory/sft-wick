@@ -11,11 +11,12 @@ T-001 最初的任务记录包含三部分：A：C 表改为 min-time/lag 坐标
 B：两个外部时间都积分时补齐折点分域；C：重新生成 demo2/demo7 结果。
 因此它从任务定义起就不只是重新计算 demo2 的表。
 
-`src/sft_wick/` 相对 0.6.0 只有两个文件变化：
+数值修复阶段，`src/sft_wick/` 相对 0.6.0 变更了两个文件：
 
 - `evaluate.py`：C 表的坐标、插值、物理边界，以及两个外部时间都积分时的分域。
 - `workflow/cache.py`：缓存 schema 升至 3，避免读取旧布局及有缺陷的表。
 
+CI 后续兼容性修复另外修改 `workflow/config.py` 的 hook 序列化导入，见文末。
 Wick 配对、图计数、顶点定义、MSR 因子及物理模型没有修改。
 Demo2 预算走的是 `c_closed_form_only=True`，且没有 `integrate_over`；
 所以仅重算这张预算表不依赖 T-001 的 A/B。两项核心调整有独立的数值收益，
@@ -147,7 +148,7 @@ FK 使用 GL64。每个保存的高阶 L1 值都与独立参考核对：FFFK/FFK
   相符（最大相对误差 2.96e-14），覆盖短时、t=50 和非零空间距离。
 - 全套中有 2 条 SciPy 积分舍入警告，来自已有 Fokker–Planck/线性扰动参考测试，
   对应断言通过。未把跳过或未选中的测试计入通过数。
-- 最终交付的全部 package 算法与完整测试快照相同；`evaluate.py` 后续仅纠正了
+- 首轮交付的全部 package 算法与完整测试快照相同；`evaluate.py` 后续仅纠正了
   两处文档注释，已用去除 docstring 的 AST 比较核对。四个示例科学计算文件
   与该快照逐字节相同。
 - 全套之后另行检查了预算 FK 节点、计时元数据和图表，并新增图总量、缓存
@@ -162,8 +163,9 @@ FK 使用 GL64。每个保存的高阶 L1 值都与独立参考核对：FFFK/FFK
 
 这里包括已有的 DSH 实施、本次修复以及生成结果，不把全部改动归于某一次编辑。
 版本号仍为 0.6.0；此次提交不创建新版本或发布标签。
-清单已与 Git 自动核对：本次交付相对 0.6.0 共 40 个文件差异，含此前的 README
-DOI 提交；package 源码仅 2 个。模拟原始数据和运行依赖声明没有变化。
+清单已与 Git 自动核对：含 CI 后续修复的交付相对 0.6.0 共 42 个文件差异，
+含此前的 README DOI 提交；package 源码为 2 个数值文件和 1 个配置导入文件。
+模拟原始数据和运行依赖声明没有变化。
 另有 4 个先前已存在的本地交接文件，保留在工作区，不纳入此次提交。
 
 | 文件 | 变化和验收依据 |
@@ -174,6 +176,7 @@ DOI 提交；package 源码仅 2 个。模拟原始数据和运行依赖声明�
 | `CHANGELOG.md` | 说明 A/B、真实回归、demo2 修正和收益范围；历史首轮结果标明已被取代 |
 | `src/sft_wick/evaluate.py` | C 表 min/lag、物理边界、空间顺序、查询优化及双外部时间分域；完整测试、独立参考和旧版对照 |
 | `src/sft_wick/workflow/cache.py` | schema 3，使旧表与展开缓存重新计算 |
+| `src/sft_wick/workflow/config.py` | 兼容 joblib 1.6 的独立 cloudpickle，保留旧版内置序列化器注册 |
 | `examples/demo2/k3_R_coupling.py` | κ³ 内层解析积分、partner-time 折点声明；原始积分和矩方程交叉验证 |
 | `examples/demo2/ordered_exponentials.py`（新增） | 稳定的有序指数积分和进程间序列化支持 |
 | `examples/reference/demo2_moments.py`（新增） | 独立 Itô 矩方程，提取各累积量通道 |
@@ -200,6 +203,7 @@ DOI 提交；package 源码仅 2 个。模拟原始数据和运行依赖声明�
 | `tests/test_demo7_space.py` | 双外部时间积分容差从 1e-6 收紧至 1e-12 |
 | `tests/test_demo8_white_noise_table.py` | 用确定性 GL 测量表格收敛，避免 QMC 噪声掩盖插值误差 |
 | `tests/test_diag_fast_component_labels.py` | 更新 3 项快照，并增加独立 OU 协方差检验 |
+| `tests/test_workflow_config.py` | 已有进程池中传递源文件不可用的用户 hook，验证实际序列化器注册 |
 | `tests/test_workflow.py` | 更新 6 项有限 QMC 快照，说明精确积分及采样误差依据 |
 | `tests/test_demo2_kernels.py` | 收紧解析核精度；原始 FK 规则加密至 GL28；纠正测试说明 |
 | `tests/test_demo2_budget_cache.py`（新增） | 11 项缓存验收检查：网格、通道、精度要求、缺行/重复行及非有限参考 |
@@ -302,3 +306,25 @@ demo3 的存档亦区分了逐阶验证和非线性模拟比较；其中有限�
 
 此次交付以已覆盖阶数和配置的展开、通道计算及数值回归验收为标准。模拟截断误差的
 完整刻画属于后续研究，不作为继续改动 Wick 规则或推迟此次交付的理由。
+
+
+## 2026-09-14 CI 兼容性修复
+
+首轮提交 `0b34418` 的构建和示例时间检查通过，但 Python 3.10、3.11、3.12
+均在加载两个 demo2 测试模块时因 ImportError 停止，尚未进入数值断言。
+[失败运行](https://github.com/StatFieldTheory/sft-wick/actions/runs/34807294819)
+安装的是 joblib 1.6.0；本地首轮验证为 1.5.3。
+[上游 1.6.0 变更记录](https://github.com/joblib/joblib/blob/main/CHANGES.rst)
+说明 cloudpickle 已改为独立依赖，`joblib.externals.cloudpickle` 路径不再存在。
+
+修复示例 helper 的导入，同时纠正 YAML hook 注册函数的同源问题：它原先会
+在新版本下直接跳过按值注册，从而使已有工作进程无法加载后续用户 hook。
+旧版优先使用 joblib 内置 cloudpickle，新版使用独立依赖，确保注册发生在
+实际工作进程序列化器的注册表中。独立子进程核检查改用标准 pickle 读取结果。
+此次只修复模块加载和序列化兼容性，未更改科学公式、预算值、数值容差或依赖约束。
+
+本地在原 conda 环境中用独立依赖目录复现 CI 的 joblib 1.6.0：修复前同样有
+两个测试模块加载失败；新增的已有进程池 hook 测试也先复现反序列化失败。
+修复后，两个跨进程检查在 joblib 1.5.3 和 1.6.0 下分别通过。
+joblib 1.6.0 下运行完整 workflow-config、demo2 缓存、生成文档和目录检查，
+**52 passed**，7.84 s。远端完整测试结果以本修复提交对应的 CI 运行记录为准。

@@ -755,13 +755,18 @@ def _register_module_by_value(module) -> None:
     the module's source is shipped inline with each task. Workers no
     longer need to import anything by name.
 
-    Falls back silently if cloudpickle is unavailable (joblib pulls
-    it in, but a custom install might not).
+    Use joblib's bundled cloudpickle on older versions and the standalone
+    dependency on joblib >= 1.6. Their registries are distinct, so prefer
+    the bundled copy when present. Custom installs without either copy
+    retain the import-by-name fallback.
     """
     try:
         from joblib.externals import cloudpickle
-    except ImportError:  # pragma: no cover - joblib pulls in cloudpickle
-        return
+    except ImportError:  # joblib >= 1.6
+        try:
+            import cloudpickle
+        except ImportError:  # pragma: no cover - nonstandard joblib install
+            return
     try:
         cloudpickle.register_pickle_by_value(module)
     except (TypeError, ValueError):  # pragma: no cover - defensive

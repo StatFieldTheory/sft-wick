@@ -534,8 +534,10 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     "tests/test_workflow_config.py": (
         "Workflow and YAML",
         "YAML → System lowering, run_workflow, overrides, dt, parallel "
-        "layers, closed-form-only path, explicit R, callable modules",
-        "L1 flow on the same physics", "1e-6 / 2e-2 (spline vs exact C)"),
+        "layers, closed-form-only path, explicit R, callable modules and "
+        "by-value hook transport to an existing worker pool",
+        "L1 flow on the same physics; isolated hook unavailable to workers",
+        "1e-6 / 2e-2 (spline vs exact C); exact (hook transport)"),
     "tests/test_selfconsistency.py": (
         "Self-consistency",
         "solve_self_consistency: convergence, divergence, oscillation, "

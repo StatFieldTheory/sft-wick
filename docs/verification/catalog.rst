@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **2201 tests** in 77 files (parametrised
+The suite has **2202 tests** in 77 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -411,7 +411,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*341 tests in 11 files.*
+*342 tests in 11 files.*
 
 .. list-table::
    :header-rows: 1
@@ -468,10 +468,10 @@ Workflow and YAML
      - 1e-6
      - 15
    * - ``test_workflow_config.py``
-     - YAML → System lowering, run_workflow, overrides, dt, parallel layers, closed-form-only path, explicit R, callable modules
-     - L1 flow on the same physics
-     - 1e-6 / 2e-2 (spline vs exact C)
-     - 32
+     - YAML → System lowering, run_workflow, overrides, dt, parallel layers, closed-form-only path, explicit R, callable modules and by-value hook transport to an existing worker pool
+     - L1 flow on the same physics; isolated hook unavailable to workers
+     - 1e-6 / 2e-2 (spline vs exact C); exact (hook transport)
+     - 33
    * - ``test_yaml_spec_coverage.py``
      - the L1 specs YAML could not express: custom temporal / spatial / angular kernels, a matrix-valued explicit R, a matrix ConstantImpulse; validation of the vertex, kernel and sigma2 blocks; overrides into list entries
      - the equivalent L1 System; scipy quadrature of the defining C integrals; demo 3's Campbell closed form
