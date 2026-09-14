@@ -1,6 +1,25 @@
 # Changelog
 
-## Unreleased
+## 0.6.1 — 2026-09-14
+
+This patch release improves C-table accuracy near coincident times, completes
+the integration-domain split for two swept external times, and corrects and
+independently verifies demo2's higher-order budget. It also supports joblib
+1.6's standalone cloudpickle and excludes local task files and generated
+caches from source distributions.
+
+The public API, Wick contraction rules, diagram combinatorics and MSR factors
+are unchanged. Numerical results can change on the affected table and
+integration paths. Workflow disk caches from earlier schemas are rebuilt
+automatically on first use, including cached expansions. Closed-form-only C
+lookups bypass the table change. The detailed evidence and measured limits
+follow below; intermediate demo2 results are explicitly marked as superseded.
+
+The repaired implementation passed the full CI suite on Python 3.10, 3.11
+and 3.12 (2194 passed, 8 skipped and 19 slow tests deselected per version),
+plus distribution and example runtime checks. The independent demo2 reference
+checks the saved perturbative channels; agreement with a finite-order
+simulation comparison is a separate question from their numerical accuracy.
 
 ### Fixed: hook serialization with joblib 1.6
 
@@ -210,7 +229,7 @@ order-2 Gauss-Legendre row moves from 2.2e-09 to 1.2e-15 and the
 > towards the converged value) and every QMC draw (the Sobol points are
 > 64-bit now, which redraws the sequence).  Demo 1's and demo 2's L2
 > figures were regenerated; demo 2's error budget was regenerated in the
-> following development line (see Unreleased).
+> following release (see 0.6.1).
 
 > **Five limitations removed, seven more defects that returned a wrong
 > number without an error, and three demos built to look for them.**  Each
@@ -660,7 +679,7 @@ pieces per diagram and 2.3 times the wall clock
 (`examples/demo1/L2/INTEGRATION_ERROR.md` records it cell by cell); demo 2
 the same way.  Both demos' L2 figures were regenerated with the split in
 place; demo 2's error budget was regenerated in the following development
-line (see Unreleased).  Locked by `tests/test_gl_white_noise_kinks.py`.
+line (see 0.6.1).  Locked by `tests/test_gl_white_noise_kinks.py`.
 
 ### Added: `propagators_from_cache` at the top level
 

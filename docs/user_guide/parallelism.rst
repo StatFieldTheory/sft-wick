@@ -13,7 +13,7 @@ The four parallelism layers
 Layer                                       YAML knob                      What gets parallelised
 ==========================================  ============================  =========================
 **L1: C-table builder**                     ``propagators.n_jobs``        Grid points
-                                                                          ``(t1, t2[, r/cos/x])``
+                                                                          in the physical domain
                                                                           inside
                                                                           ``precompute_C_table_*``
 **L2: diagram-term integration**            ``expand.n_jobs``             Per-diagram QMC integration
