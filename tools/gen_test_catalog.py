@@ -285,6 +285,18 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "source for κ³), closed form Σ κ M M M, scipy expm + quad_vec hand "
         "contractions; the scalar loop on the same Sobol points; nquad",
         "1e-10 (vs exact) / 1e-12 (same points, GL vs nquad)"),
+    "tests/test_time_variable_recipe.py": (
+        "Integrators",
+        "the change of integration variable of the user guide: one system "
+        "in t and the same system in u (t = u + 0.4 u², t_min = 0.3, two "
+        "components, no index symmetry); C from κ² and white σ² with a "
+        "time-dependent DiagonalA rate, cubic and quartic local vertices, "
+        "raw, equal_time and already_R_contracted κ³, fixed and integrated "
+        "externals; each rule with one factor of J wrong is detected; the "
+        "Einstein-de Sitter lensing toy in λ and in χ",
+        "the same quantity posed in the other variable (closed-form map "
+        "and kernels)",
+        "1e-10"),
     "tests/test_vectorized_r_time.py": (
         "Integrators",
         "vectorised response callables: the four built-in DiagonalA R "
