@@ -285,6 +285,19 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "source for κ³), closed form Σ κ M M M, scipy expm + quad_vec hand "
         "contractions; the scalar loop on the same Sobol points; nquad",
         "1e-10 (vs exact) / 1e-12 (same points, GL vs nquad)"),
+    "tests/test_vectorized_r_time.py": (
+        "Integrators",
+        "vectorised response callables: the four built-in DiagonalA R "
+        "classes on arrays, R_time_batch / R_matrix_batch calling a "
+        "vectorised R once per batch and any other R once per distinct "
+        "causal pair, ExplicitR(vectorized=True), the YAML key "
+        "R_time_vectorized and its load-time probe; pickling and two "
+        "workers; 2-D and broadcast times; channel totals on every "
+        "integrator with scalar and matrix R, constant and time-dependent "
+        "rates, t_min != 0; static, equal_time and already_R_contracted "
+        "κ³ with a matrix R",
+        "the scalar calls of the same R (np.vectorize, the old path)",
+        "0 (bitwise)"),
     "tests/test_matrix_r_index_and_zero_dim.py": (
         "Integrators",
         "matrix-valued R component indices when two R propagators share one "

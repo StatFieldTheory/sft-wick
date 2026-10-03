@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **2202 tests** in 77 files (parametrised
+The suite has **2295 tests** in 78 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -201,7 +201,7 @@ Propagator numerics
 Integrators
 -----------
 
-*1078 tests in 39 files.*
+*1171 tests in 40 files.*
 
 .. list-table::
    :header-rows: 1
@@ -316,7 +316,7 @@ Integrators
      - equal_time non-local vertices (single time integral)
      - explicit δ-function reduction
      - 1e-8
-     - 26
+     - 55
    * - ``test_evaluate_pipeline.py``
      - spatial analysis, causal orderings, integrand assembly
      - specification
@@ -407,6 +407,11 @@ Integrators
      - numpy hand contraction of the coupling (R = Θ is 1 on the domain)
      - 1e-12
      - 90
+   * - ``test_vectorized_r_time.py``
+     - vectorised response callables: the four built-in DiagonalA R classes on arrays, R_time_batch / R_matrix_batch calling a vectorised R once per batch and any other R once per distinct causal pair, ExplicitR(vectorized=True), the YAML key R_time_vectorized and its load-time probe; pickling and two workers; 2-D and broadcast times; channel totals on every integrator with scalar and matrix R, constant and time-dependent rates, t_min != 0; static, equal_time and already_R_contracted κ³ with a matrix R
+     - the scalar calls of the same R (np.vectorize, the old path)
+     - 0 (bitwise)
+     - 64
 
 Workflow and YAML
 -----------------
