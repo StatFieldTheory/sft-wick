@@ -468,7 +468,8 @@ def _build_vertex(cls, v: dict):
 #: Keys of each ``system.linear`` type.
 _LINEAR_DIAGONAL_KEYS = ("type", "gamma", "gamma_module", "gamma_attr", "dt",
                          "n_grid_cache", "t_max_cache", "t_min_cache")
-_LINEAR_EXPLICIT_KEYS = ("type", "R_time_module", "R_time_attr", "iso_R")
+_LINEAR_EXPLICIT_KEYS = ("type", "R_time_module", "R_time_attr", "iso_R",
+                         "R_time_vectorized")
 
 
 def _resolve_linear(
@@ -515,6 +516,11 @@ def _resolve_linear(
             ``t1 < t2``.  A matrix R with off-diagonal entries also
             needs ``expand.diag_R: false`` and ``expand.diag_C: false``
             (``System.expand`` refuses it otherwise).
+        ``R_time_vectorized``: ``true`` if the callable also accepts two
+            arrays of shape ``(n,)`` (returning ``(n,)`` or
+            ``(n, N, N)``); the batched integrators then call it once per
+            batch of causal pairs.  Checked against the scalar calls at
+            load time.  Default ``false``.
 
         γ-spline cache knobs (``gamma``, ``gamma_module``, ``dt``,
         ``n_grid_cache``, ``t_max_cache``, ``t_min_cache``) do not apply
@@ -648,8 +654,53 @@ def _resolve_linear_explicit(
     mod_path = (base_dir / lin.pop("R_time_module")).resolve()
     attr = lin.pop("R_time_attr", "R_time")
     lin["R_time"] = _load_callable_from_module(mod_path, attr)
+    vectorized = _as_bool(lin.get("R_time_vectorized", False),
+                          "system.linear.R_time_vectorized")
+    lin["R_time_vectorized"] = vectorized
     _probe_R_time(lin["R_time"], iso_r, n_components, t_min, t_max)
+    if vectorized:
+        _probe_R_time_vectorized(lin["R_time"], t_min, t_max)
     return lin
+
+
+def _probe_R_time_vectorized(R, t_min: float, t_max: Any) -> None:
+    """Call a callable declared ``R_time_vectorized: true`` once on arrays
+    of three causal time pairs and compare with its scalar calls.  A
+    callable that only takes floats would otherwise fail inside the first
+    integration, far from the YAML key that caused it."""
+    where = "system.linear.R_time_vectorized"
+    span = _probe_span(t_min, t_max)
+    t1 = t_min + span * np.array([0.7, 0.9, 0.5])
+    t2 = t_min + span * np.array([0.2, 0.1, 0.4])
+    try:
+        arr = np.asarray(R(t1, t2), dtype=float)
+    except Exception as e:  # noqa: BLE001 (a user callable)
+        raise ValueError(
+            f"{where}: true, but R_time raised {type(e).__name__} on arrays "
+            f"of shape (3,): {e}"
+        ) from e
+    ref = np.array([np.asarray(R(float(a), float(b)), dtype=float)
+                    for a, b in zip(t1, t2)])
+    if arr.shape != ref.shape:
+        raise ValueError(
+            f"{where}: true, but R_time on arrays of shape (3,) returned "
+            f"shape {arr.shape}; the scalar calls give {ref.shape}."
+        )
+    if not np.allclose(arr, ref, rtol=1e-12, atol=0.0):
+        raise ValueError(
+            f"{where}: true, but R_time on arrays differs from its scalar "
+            f"calls: {arr.tolist()} against {ref.tolist()}."
+        )
+
+
+def _probe_span(t_min: float, t_max: Any) -> float:
+    """Length of the time window the R probes sample: ``t_max - t_min``,
+    or 1 when ``t_max`` is missing, not a number or not above ``t_min``."""
+    try:
+        hi = float(t_max)
+    except (TypeError, ValueError):
+        hi = float("nan")
+    return (hi - t_min) if (math.isfinite(hi) and hi > t_min) else 1.0
 
 
 def _probe_R_time(R, iso_R: bool, n_components: int | None,
@@ -661,11 +712,7 @@ def _probe_R_time(R, iso_R: bool, n_components: int | None,
     something else; an R written without the Heaviside surfaced not at
     all."""
     where = "system.linear.R_time_module"
-    try:
-        hi = float(t_max)
-    except (TypeError, ValueError):
-        hi = float("nan")
-    span = (hi - t_min) if (math.isfinite(hi) and hi > t_min) else 1.0
+    span = _probe_span(t_min, t_max)
     t1, t2 = t_min + 0.7 * span, t_min + 0.2 * span
     try:
         fwd = np.asarray(R(t1, t2), dtype=float)
@@ -980,6 +1027,8 @@ def build_system(cfg: SystemConfig):
         linear = sp.ExplicitR(
             R_time=lin_d["R_time"],
             iso_R=_as_bool(lin_d.get("iso_R", True), "system.linear.iso_R"),
+            vectorized=_as_bool(lin_d.get("R_time_vectorized", False),
+                                "system.linear.R_time_vectorized"),
         )
     else:
         raise ValueError(
