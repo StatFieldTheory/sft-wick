@@ -2490,6 +2490,15 @@ def _resolve_integrate_over(
     return requested
 
 
+def _unique_time_pairs(tl: np.ndarray, tr: np.ndarray
+                       ) -> tuple[np.ndarray, np.ndarray]:
+    """The distinct rows of the time pairs ``(tl[s], tr[s])``, shape
+    ``(m, 2)``, and the index of each pair's row, shape ``(n,)``."""
+    pairs = np.stack([tl, tr], axis=1)
+    uniq, inverse = np.unique(pairs, axis=0, return_inverse=True)
+    return uniq, np.asarray(inverse).reshape(-1)
+
+
 class PropagatorCache:
     """Evaluates and caches propagator values.
 
@@ -3146,14 +3155,33 @@ class PropagatorCache:
         # would make the three sites behave differently for a model whose
         # R_time raises or overflows on acausal input: the same number,
         # but a spurious exception or RuntimeWarning through this path only.
+        #
+        # A callable flagged ``vectorized`` is called once on the arrays of
+        # causal pairs; any other once per distinct causal pair (on a
+        # Gauss-Legendre grid most samples repeat a pair).
         t1a = np.asarray(t1, dtype=float)
         t2a = np.asarray(t2, dtype=float)
         causal = t1a > t2a
         out = np.zeros(np.broadcast(t1a, t2a).shape, dtype=float)
         if causal.any():
-            R_vec = np.vectorize(self.model.R_time, otypes=[float])
             b1, b2 = np.broadcast_arrays(t1a, t2a)
-            out[causal] = R_vec(b1[causal], b2[causal])
+            tl, tr = b1[causal], b2[causal]
+            R = self.model.R_time
+            if getattr(R, "vectorized", False):
+                vals = np.asarray(R(tl, tr), dtype=float)
+                if vals.shape != tl.shape:
+                    raise ValueError(
+                        f"a vectorized R_time with a scalar R (iso_R) must "
+                        f"return shape {tl.shape} for {tl.shape[0]} time "
+                        f"pairs; got shape {vals.shape}."
+                    )
+                out[causal] = vals
+            else:
+                uniq, inverse = _unique_time_pairs(tl, tr)
+                vals = np.fromiter(
+                    (float(R(float(a), float(b))) for a, b in uniq),
+                    dtype=float, count=uniq.shape[0])
+                out[causal] = vals[inverse]
         return out
 
     def R_matrix_batch(self, t1: np.ndarray, t2: np.ndarray) -> np.ndarray:
@@ -3184,9 +3212,19 @@ class PropagatorCache:
         N = int(self.model.n_components)
         out = np.zeros((t1a.shape[0], N, N))
         causal = t1a > t2a
-        if causal.any():
-            pairs = np.stack([t1a[causal], t2a[causal]], axis=1)
-            uniq, inverse = np.unique(pairs, axis=0, return_inverse=True)
+        R = self.model.R_time
+        if causal.any() and getattr(R, "vectorized", False):
+            tl, tr = t1a[causal], t2a[causal]
+            vals = np.asarray(R(tl, tr), dtype=float)
+            if vals.shape != (tl.shape[0], N, N):
+                raise ValueError(
+                    f"a vectorized R_time with a matrix R (model.iso_R is "
+                    f"False) must return shape ({tl.shape[0]}, {N}, {N}) for "
+                    f"{tl.shape[0]} time pairs; got shape {vals.shape}."
+                )
+            out[causal] = vals
+        elif causal.any():
+            uniq, inverse = _unique_time_pairs(t1a[causal], t2a[causal])
             vals = np.empty((uniq.shape[0], N, N))
             for k, (tl, tr) in enumerate(uniq):
                 mat = np.asarray(self.model.R_time(float(tl), float(tr)),
@@ -3198,7 +3236,7 @@ class PropagatorCache:
                         f"{mat.shape} at t = ({tl!r}, {tr!r})."
                     )
                 vals[k] = mat
-            out[causal] = vals[np.asarray(inverse).reshape(-1)]
+            out[causal] = vals[inverse]
         return out.reshape(shape + (N, N))
 
     # ------------------------------------------------------------------ #

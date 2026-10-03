@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence
 
+from ._util import require_bool
 from .expressions import Symbol
 from .fields import Field, FieldOperator
 from .indices import IndexContext
@@ -48,6 +49,9 @@ class Vertex:
         equal_time: bool = False,
         already_R_contracted: bool = False,
     ):
+        equal_time = require_bool(equal_time, "equal_time", "Vertex")
+        already_R_contracted = require_bool(
+            already_R_contracted, "already_R_contracted", "Vertex")
         if equal_time and local:
             raise ValueError(
                 "equal_time=True is only valid for non-local vertices "

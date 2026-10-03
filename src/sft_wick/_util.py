@@ -4,6 +4,26 @@ from __future__ import annotations
 
 from math import prod
 
+import numpy as np
+
+
+def require_bool(value, name: str, where: str) -> bool:
+    """Return ``value`` as a ``bool`` if it is a Python or NumPy bool;
+    raise ``TypeError`` otherwise.
+
+    ``bool(value)`` accepts anything: a tuple of leg groups passed as
+    ``equal_time`` became ``True`` and put every leg at one time, which
+    returned a wrong value without an error.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, np.bool_):
+        return bool(value)
+    raise TypeError(
+        f"{where}: {name} must be a bool; got {type(value).__name__} "
+        f"{value!r}."
+    )
+
 
 def double_factorial(n: int) -> int:
     """Compute n!! = n * (n-2) * (n-4) * ... * 1.

@@ -363,6 +363,18 @@ From YAML this is the ``linear.type: explicit`` route::
        R_time_module: ./R_time.py     # exports R_time(t1, t2)
        R_time_attr:   R_time           # default 'R_time'
        iso_R:         true             # true: a scalar R; false: an (N, N) matrix
+       R_time_vectorized: false        # true: R_time also accepts arrays
+
+With ``R_time_vectorized: true`` the callable must also accept two arrays
+of shape ``(n,)`` and return shape ``(n,)`` (scalar R) or ``(n, N, N)``.
+The batched integrators (``gauss_legendre``, ``qmc_vectorized``) then call
+it once per batch of causal time pairs.  Without the flag they call it once
+per distinct causal pair, which on a tensor-product grid can dominate the
+run time when the callable is expensive (a spline, a numerical solve).  The
+callable must still accept two floats: the C quadrature and the scalar
+integrators call it that way.  It is called once on arrays at load time and
+compared with its scalar calls.  The built-in R of ``type: diagonal`` is
+vectorised already.
 
 The module is loaded at config-parse time and registered for
 cross-process by-value serialisation, so the explicit-R callable
@@ -1065,6 +1077,10 @@ Section reference: ``system``
      - ``bool``
      - ``true``
      - (``type: explicit``) ``true``: the callable returns a scalar; ``false``: it returns an ``(N, N)`` matrix.  Checked for shape and for causality when the config is loaded
+   * - ``linear.R_time_vectorized``
+     - ``bool``
+     - ``false``
+     - (``type: explicit``) ``true``: the callable also accepts two arrays of shape ``(n,)`` and returns ``(n,)`` or ``(n, N, N)``; the batched integrators call it once per batch.  Checked against the scalar calls when the config is loaded
    * - ``noise.kappa2.type``
      - ``str``
      - **required**
