@@ -9,6 +9,7 @@ Detailed coverage of every feature in **sft-wick**, organised by topic.
 
    workflow
    discretization
+   time_variable
    parallelism
 
 .. toctree::

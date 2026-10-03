@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added: changing the integration variable (documentation)
+
+`docs/user_guide/time_variable.rst` gives the rescaling that poses a system
+in another variable `u`, `t = f(u)`, without a change in the package: the
+power of `J = dt/du` that each ingredient carries (response, `DiagonalA`
+rate, C, `κ²`, white `σ²`, local and non-local vertices, externals).  On an
+Einstein-de Sitter lensing toy with a source at z = 1100, the order-2
+channel posed in the affine parameter is 17 per cent off at 16 nodes per
+time variable; posed in the comoving distance it is converged to 4.5e-10 at
+12.  `tests/test_time_variable_recipe.py` checks every row of the table
+against the same system in `t` (agreement 5e-14 for C, 4.6e-12 for
+diagrams) and that a wrong factor in any row is detected.  Proposed by
+unify_wl (option (i) of its sft-wick proposal).
+
 ### Fixed: a non-bool `equal_time` or `already_R_contracted` raises
 
 `Vertex` and `NonLocalVertex` stored `bool(equal_time)`.  A tuple of leg

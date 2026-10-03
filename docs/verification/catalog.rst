@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **2295 tests** in 78 files (parametrised
+The suite has **2318 tests** in 79 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -201,7 +201,7 @@ Propagator numerics
 Integrators
 -----------
 
-*1171 tests in 40 files.*
+*1194 tests in 41 files.*
 
 .. list-table::
    :header-rows: 1
@@ -407,6 +407,11 @@ Integrators
      - numpy hand contraction of the coupling (R = Θ is 1 on the domain)
      - 1e-12
      - 90
+   * - ``test_time_variable_recipe.py``
+     - the change of integration variable of the user guide: one system in t and the same system in u (t = u + 0.4 u², t_min = 0.3, two components, no index symmetry); C from κ² and white σ² with a time-dependent DiagonalA rate, cubic and quartic local vertices, raw, equal_time and already_R_contracted κ³, fixed and integrated externals; each rule with one factor of J wrong is detected; the Einstein-de Sitter lensing toy in λ and in χ
+     - the same quantity posed in the other variable (closed-form map and kernels)
+     - 1e-10
+     - 23
    * - ``test_vectorized_r_time.py``
      - vectorised response callables: the four built-in DiagonalA R classes on arrays, R_time_batch / R_matrix_batch calling a vectorised R once per batch and any other R once per distinct causal pair, ExplicitR(vectorized=True), the YAML key R_time_vectorized and its load-time probe; pickling and two workers; 2-D and broadcast times; channel totals on every integrator with scalar and matrix R, constant and time-dependent rates, t_min != 0; static, equal_time and already_R_contracted κ³ with a matrix R
      - the scalar calls of the same R (np.vectorize, the old path)
