@@ -75,6 +75,40 @@ def test_vertex_carries_equal_time():
     assert v.equal_time is True
 
 
+# A tuple of leg groups (a partially equal-time vertex, which the package
+# does not support) used to be coerced with ``bool()``: every leg was put
+# at one time and the value came out wrong without an error (0.0 against
+# 54.88 in a unify_wl probe).
+_NON_BOOL_FLAGS = [(0, 1), (), [0, 1], 1, 0, "yes", None]
+
+
+@pytest.mark.parametrize("flag", _NON_BOOL_FLAGS)
+@pytest.mark.parametrize("name", ["equal_time", "already_R_contracted"])
+def test_nonlocal_vertex_rejects_a_non_bool_flag(name, flag):
+    with pytest.raises(TypeError, match=name):
+        NonLocalVertex(name="K", order=3, coupling=np.zeros((3, 3, 3)),
+                       **{name: flag})
+
+
+@pytest.mark.parametrize("flag", _NON_BOOL_FLAGS)
+@pytest.mark.parametrize("name", ["equal_time", "already_R_contracted"])
+def test_vertex_rejects_a_non_bool_flag(name, flag):
+    psi = Field("psi", "response", n_components=3)
+    with pytest.raises(TypeError, match=name):
+        Vertex(fields=[psi, psi, psi], coupling="K", local=False,
+               **{name: flag})
+
+
+def test_vertex_flags_accept_numpy_bools():
+    psi = Field("psi", "response", n_components=3)
+    v = Vertex(fields=[psi, psi, psi], coupling="K", local=False,
+               equal_time=np.True_, already_R_contracted=np.False_)
+    assert v.equal_time is True and v.already_R_contracted is False
+    spec = NonLocalVertex(name="K", order=3, coupling=np.zeros((3, 3, 3)),
+                          equal_time=np.True_)
+    assert spec.equal_time
+
+
 def test_vertex_instance_builds_alias_map_for_equal_time():
     psi = Field("psi", "response", n_components=3)
     v = Vertex(

@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased
+
+### Fixed: a non-bool `equal_time` or `already_R_contracted` raises
+
+`Vertex` and `NonLocalVertex` stored `bool(equal_time)`.  A tuple of leg
+groups, the spelling of a partially equal-time vertex the package does not
+support, became `True` and put every leg at one time; a unify_wl probe got
+0.0 against 54.88 with no error.  Both flags now accept a Python or NumPy
+bool and raise `TypeError` otherwise.  `already_R_contracted` had the same
+coercion and gets the same check.
+
+### Added: vectorised response callables
+
+`PropagatorCache.R_time_batch` called `model.R_time` once per causal sample
+through `np.vectorize`.  In a weak-lensing workload (unify_wl, scalar
+`ExplicitR` backed by a spline) these calls took 94 to 98.5 per cent of the
+CPU time of a Gauss-Legendre evaluation.
+
+* A response callable with the attribute `vectorized = True` accepts two
+  arrays of shape `(n,)` and returns `(n,)` (scalar R) or `(n, N, N)`.
+  `R_time_batch` and `R_matrix_batch` call it once on the causal pairs of a
+  batch.  It must still accept two floats.
+* The four built-in R classes of `DiagonalA` are vectorised, so every system
+  with a `DiagonalA` drift uses this path on `gauss_legendre` and
+  `qmc_vectorized` without a change.
+* `ExplicitR(vectorized=True)` and the YAML key
+  `system.linear.R_time_vectorized: true` declare a user callable as
+  vectorised.  The YAML loader calls it on arrays once and compares with its
+  scalar calls.
+* A callable without the flag is now called once per distinct causal pair
+  for a scalar R, as `R_matrix_batch` already did for a matrix R.
+
+Values are unchanged bit for bit: `tests/test_vectorized_r_time.py` compares
+the array calls with the scalar calls, and channel totals of the vectorised
+built-ins with the same R behind a scalar-only wrapper, with `==`.
+
 ## 0.6.1 — 2026-09-14
 
 This patch release improves C-table accuracy near coincident times, completes

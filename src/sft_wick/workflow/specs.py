@@ -25,6 +25,8 @@ from typing import Any, Callable
 
 import numpy as np
 
+from .._util import require_bool
+
 
 # =========================================================================
 # Field
@@ -75,67 +77,123 @@ class FieldSpec:
 # ``__call__`` with the same signature the closure version had.
 
 
+def _is_scalar_pair(t1, t2) -> bool:
+    return np.ndim(t1) == 0 and np.ndim(t2) == 0
+
+
 class _StaticIsoR:
     """Static (constant-gamma) iso-R: ``R(t1, t2) = exp(-gamma (t1 - t2))``
-    for ``t1 >= t2`` else 0."""
+    for ``t1 >= t2`` else 0.
+
+    Vectorised: two arrays of shape ``(n,)`` give an array of shape
+    ``(n,)``, equal element by element to the scalar calls."""
 
     __slots__ = ("gamma",)
+    vectorized = True
 
     def __init__(self, gamma: float):
         self.gamma = float(gamma)
 
-    def __call__(self, t1: float, t2: float) -> float:
-        if t1 < t2:
-            return 0.0
-        return float(np.exp(-self.gamma * (t1 - t2)))
+    def __call__(self, t1, t2):
+        if _is_scalar_pair(t1, t2):
+            if t1 < t2:
+                return 0.0
+            return float(np.exp(-self.gamma * (t1 - t2)))
+        t1, t2 = np.asarray(t1, dtype=float), np.asarray(t2, dtype=float)
+        return np.where(t1 < t2, 0.0, np.exp(-self.gamma * (t1 - t2)))
 
 
 class _StaticMatR:
-    """Static diagonal R: ``R_{aa}(t1, t2) = exp(-gamma_a (t1 - t2))``."""
+    """Static diagonal R: ``R_{aa}(t1, t2) = exp(-gamma_a (t1 - t2))``.
+
+    Vectorised: arrays of shape ``(n,)`` give shape ``(n, N, N)``."""
 
     __slots__ = ("gamma_arr", "_n")
+    vectorized = True
 
     def __init__(self, gamma_arr: np.ndarray):
         self.gamma_arr = np.asarray(gamma_arr, dtype=float)
         self._n = self.gamma_arr.shape[0]
 
-    def __call__(self, t1: float, t2: float) -> np.ndarray:
-        if t1 < t2:
-            return np.zeros((self._n, self._n))
-        return np.diag(np.exp(-self.gamma_arr * (t1 - t2)))
+    def __call__(self, t1, t2):
+        if _is_scalar_pair(t1, t2):
+            if t1 < t2:
+                return np.zeros((self._n, self._n))
+            return np.diag(np.exp(-self.gamma_arr * (t1 - t2)))
+        t1, t2 = np.asarray(t1, dtype=float), np.asarray(t2, dtype=float)
+        diag = np.exp(-self.gamma_arr[None, :] * (t1 - t2)[:, None])
+        diag[t1 < t2] = 0.0
+        out = np.zeros(t1.shape + (self._n, self._n))
+        idx = np.arange(self._n)
+        out[:, idx, idx] = diag
+        return out
 
 
 class _TimeDepIsoR:
     """Time-dependent iso-R: ``R(t1, t2) = exp(-(Gamma(t1) - Gamma(t2)))``
-    using a ``CubicSpline`` for the cumulative integral Gamma."""
+    using a ``CubicSpline`` for the cumulative integral Gamma.
+
+    Vectorised: arrays of shape ``(n,)`` give shape ``(n,)``."""
 
     __slots__ = ("gamma_spline",)
+    vectorized = True
 
     def __init__(self, gamma_spline):
         self.gamma_spline = gamma_spline
 
-    def __call__(self, t1: float, t2: float) -> float:
-        if t1 < t2:
-            return 0.0
-        return float(np.exp(-(self.gamma_spline(t1) - self.gamma_spline(t2))))
+    def __call__(self, t1, t2):
+        if _is_scalar_pair(t1, t2):
+            if t1 < t2:
+                return 0.0
+            return float(np.exp(-(self.gamma_spline(t1)
+                                  - self.gamma_spline(t2))))
+        t1, t2 = np.asarray(t1, dtype=float), np.asarray(t2, dtype=float)
+        return np.where(t1 < t2, 0.0,
+                        np.exp(-(self.gamma_spline(t1)
+                                 - self.gamma_spline(t2))))
 
 
 class _TimeDepMatR:
-    """Time-dependent diagonal R from per-component cumulative-Gamma splines."""
+    """Time-dependent diagonal R from per-component cumulative-Gamma splines.
+
+    Vectorised: arrays of shape ``(n,)`` give shape ``(n, N, N)``."""
 
     __slots__ = ("splines", "_n")
+    vectorized = True
 
     def __init__(self, splines):
         self.splines = list(splines)
         self._n = len(self.splines)
 
-    def __call__(self, t1: float, t2: float) -> np.ndarray:
-        if t1 < t2:
-            return np.zeros((self._n, self._n))
-        diag = np.array([
-            np.exp(-(s(t1) - s(t2))) for s in self.splines
-        ])
-        return np.diag(diag)
+    def __call__(self, t1, t2):
+        if _is_scalar_pair(t1, t2):
+            if t1 < t2:
+                return np.zeros((self._n, self._n))
+            diag = np.array([
+                np.exp(-(s(t1) - s(t2))) for s in self.splines
+            ])
+            return np.diag(diag)
+        t1, t2 = np.asarray(t1, dtype=float), np.asarray(t2, dtype=float)
+        out = np.zeros(t1.shape + (self._n, self._n))
+        causal = ~(t1 < t2)
+        for a, s in enumerate(self.splines):
+            out[:, a, a] = np.where(causal, np.exp(-(s(t1) - s(t2))), 0.0)
+        return out
+
+
+class _VectorizedR:
+    """A user ``R_time`` declared vectorised through
+    ``ExplicitR(vectorized=True)``.  Wraps the callable so the flag is not
+    set on the user's own object."""
+
+    __slots__ = ("fn",)
+    vectorized = True
+
+    def __init__(self, fn: Callable):
+        self.fn = fn
+
+    def __call__(self, t1, t2):
+        return self.fn(t1, t2)
 
 
 class _SeparableTranslationKappa2:
@@ -415,12 +473,28 @@ class ExplicitR(LinearOp):
         R_time: ``(t1, t2) -> float | (N, N)`` callable.  Must enforce
             causality (return 0 when ``t1 < t2``).
         iso_R: True if the callable returns a scalar, False if matrix.
+        vectorized: True if ``R_time`` also accepts two arrays of equal
+            shape ``(n,)`` and returns shape ``(n,)`` (``iso_R``) or
+            ``(n, N, N)``.  The batched integrators then call it once per
+            batch of causal time pairs instead of once per distinct pair.
+            It must still accept two floats: the C quadrature and the
+            scalar integrators call it that way.
     """
 
     R_time: Callable
     iso_R: bool = True
+    vectorized: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.vectorized, (bool, np.bool_)):
+            raise TypeError(
+                f"ExplicitR.vectorized must be a bool; got "
+                f"{type(self.vectorized).__name__} {self.vectorized!r}."
+            )
 
     def build_R_callable(self) -> Callable:
+        if self.vectorized:
+            return _VectorizedR(self.R_time)
         return self.R_time
 
     @property
@@ -1130,6 +1204,10 @@ class NonLocalVertex:
     # rationale and validation strategy.
 
     def __post_init__(self) -> None:
+        where = f"NonLocalVertex(name={self.name!r})"
+        for flag in ("equal_time", "already_R_contracted"):
+            object.__setattr__(self, flag, require_bool(
+                getattr(self, flag), flag, where))
         if self.already_R_contracted and self.equal_time:
             raise ValueError(
                 f"NonLocalVertex(name={self.name!r}): "
