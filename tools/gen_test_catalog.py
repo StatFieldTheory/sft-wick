@@ -147,9 +147,11 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     "tests/test_quadratic_white_reference_parity.py": (
         "Finite Gaussian observables",
         "OU private scratch and fourth-order native ordered-prefix reuse; "
-        "bounded memory/protocol bypass, scalar order, range fallback and input state",
+        "bounded memory/protocol bypass, scalar order, range fallback and input state; "
+        "mixed cumulants keep the frozen bits or round correctly",
         "source-pinned frozen reference implementation with exact bytes/error args; "
-        "independent Gauss-Hermite central cumulants and native matmul line witnesses",
+        "independent Gauss-Hermite central cumulants, native matmul line witnesses "
+        "and Python-int mixed contractions",
         "exact byte/error/state/count parity; 3e-12 relative / absolute GH",
     ),
     "tests/test_ou_white_cumulant.py": (
@@ -177,6 +179,40 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "independent moment partitions, formal vacuum normalization and analytic "
         "nonlinear moment coefficients; frozen default-source probes",
         "exact ordered structure; explicit absolute and relative numerical tolerances",
+    ),
+    "tests/test_quadratic_mixed_exactness.py": (
+        "Finite Gaussian observables",
+        "certified mixed cumulants and joint coefficients through the public "
+        "dispatcher: structural zeros (also when magnitudes withhold the error "
+        "bound), symmetry and near zeros at N up to 500, ring and endpoint-chain "
+        "cancellation swept across the admission threshold, extreme and subnormal "
+        "scales, endpoint underflow, dense queries at N = 1500, decaying couplings "
+        "below the full exact cost and the recorded work-bound refusal",
+        "independent Fraction contractions; block, rank-one and reversal-parity "
+        "closed forms; float64 and exact methods evaluated separately",
+        "exact zeros, correctly rounded or certified 1e-12 relative values",
+    ),
+    "tests/test_quadratic_exact_contraction.py": (
+        "Finite Gaussian observables",
+        "exact evaluator and rounding certificate of mixed contractions, bypassing "
+        "the dispatcher: float64 digit-width boundaries, narrow digit slices, a "
+        "corrupted BLAS slice product, the documented error formula term by term, "
+        "certificate validity across the admission threshold, dense work and "
+        "memory estimates",
+        "independent Fraction and Python-int contractions; rank-one closed forms; "
+        "the docstring formula over all n! words",
+        "exact rational equality; certificate equality with the formula",
+    ),
+    "tests/test_quadratic_mixed_rounding.py": (
+        "Finite Gaussian observables",
+        "correct rounding from arrays cut to their leading bits, bypassing the "
+        "dispatcher: dropped part within its bound on graded, decaying and "
+        "subnormal arrays, the cut at its slice boundary, the bound against a "
+        "closed form, the fall-back at a rounding tie, wrong magnitude estimates "
+        "and a work limit that refuses only the full evaluation",
+        "independent Python-int contractions; constant-matrix closed form; an "
+        "exact midpoint between two float64 values",
+        "exact rational bounds; bitwise correctly rounded values",
     ),
     "tests/test_gaussian_quadratic.py": (
         "Finite Gaussian observables",

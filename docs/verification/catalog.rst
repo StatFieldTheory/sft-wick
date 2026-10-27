@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **4272 tests** in 107 files (parametrised
+The suite has **4456 tests** in 110 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -697,7 +697,7 @@ Self-consistency
 Finite Gaussian observables
 ---------------------------
 
-*359 tests in 3 files.*
+*543 tests in 6 files.*
 
 .. list-table::
    :header-rows: 1
@@ -712,15 +712,30 @@ Finite Gaussian observables
      - prepared finite quadratic CGFs, rings/chains, covariance support, domains, centering, noncommuting joint cumulants, quadrature conventions and spectral compression
      - public Wick pairings, independent Gauss-Hermite moments and high-precision scalar formulas; explicit matrix identities and compression bounds
      - exact validation/state checks; 3e-13 matrix cumulants and source-specific bounds
-     - 90
+     - 91
    * - ``test_gaussian_quadratic_reuse.py``
      - identical ordered word reuse, selected mixed/Taylor query snapshots, multiplicities, exact numerical failures, bounded keys and immutable serialization
      - independent Gauss-Hermite moments with set-partition cumulants; analytic scalar cases and test-only contraction counts
      - 3e-12 relative / 3e-12 absolute GH; exact state, errors and operation counts
      - 89
+   * - ``test_quadratic_exact_contraction.py``
+     - exact evaluator and rounding certificate of mixed contractions, bypassing the dispatcher: float64 digit-width boundaries, narrow digit slices, a corrupted BLAS slice product, the documented error formula term by term, certificate validity across the admission threshold, dense work and memory estimates
+     - independent Fraction and Python-int contractions; rank-one closed forms; the docstring formula over all n! words
+     - exact rational equality; certificate equality with the formula
+     - 70
+   * - ``test_quadratic_mixed_exactness.py``
+     - certified mixed cumulants and joint coefficients through the public dispatcher: structural zeros (also when magnitudes withhold the error bound), symmetry and near zeros at N up to 500, ring and endpoint-chain cancellation swept across the admission threshold, extreme and subnormal scales, endpoint underflow, dense queries at N = 1500, decaying couplings below the full exact cost and the recorded work-bound refusal
+     - independent Fraction contractions; block, rank-one and reversal-parity closed forms; float64 and exact methods evaluated separately
+     - exact zeros, correctly rounded or certified 1e-12 relative values
+     - 53
+   * - ``test_quadratic_mixed_rounding.py``
+     - correct rounding from arrays cut to their leading bits, bypassing the dispatcher: dropped part within its bound on graded, decaying and subnormal arrays, the cut at its slice boundary, the bound against a closed form, the fall-back at a rounding tie, wrong magnitude estimates and a work limit that refuses only the full evaluation
+     - independent Python-int contractions; constant-matrix closed form; an exact midpoint between two float64 values
+     - exact rational bounds; bitwise correctly rounded values
+     - 56
    * - ``test_quadratic_white_reference_parity.py``
-     - OU private scratch and fourth-order native ordered-prefix reuse; bounded memory/protocol bypass, scalar order, range fallback and input state
-     - source-pinned frozen reference implementation with exact bytes/error args; independent Gauss-Hermite central cumulants and native matmul line witnesses
+     - OU private scratch and fourth-order native ordered-prefix reuse; bounded memory/protocol bypass, scalar order, range fallback and input state; mixed cumulants keep the frozen bits or round correctly
+     - source-pinned frozen reference implementation with exact bytes/error args; independent Gauss-Hermite central cumulants, native matmul line witnesses and Python-int mixed contractions
      - exact byte/error/state/count parity; 3e-12 relative / absolute GH
-     - 180
+     - 184
 

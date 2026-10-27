@@ -7,7 +7,6 @@ not infer a quadratic observable from an action or complete nonlinear dynamics.
 from __future__ import annotations
 
 from bisect import bisect_left
-from collections import Counter
 from dataclasses import dataclass
 from fractions import Fraction
 from itertools import chain as itertools_chain, permutations
@@ -17,6 +16,9 @@ from typing import Any, Iterator, Sequence, TypeAlias, cast
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
+
+from ._mixed_contraction import RoundingCertificate, admits, rounding_certificate
+from ._mixed_rounding import correctly_rounded_statistic
 
 RealArray: TypeAlias = NDArray[np.float64]
 ComplexArray: TypeAlias = NDArray[np.complex128]
@@ -344,47 +346,73 @@ def _log_frobenius_norm(array: np.ndarray) -> float:
         return math.log(largest) + 0.5 * math.log(float(np.sum(scaled**2)))
 
 
-def _exact_mixed_coefficient(
-    matrices: np.ndarray, endpoints: np.ndarray, slots: tuple[int, ...], divisor: int
-) -> float:
-    """Bounded exact contractions of the prepared binary matrix data."""
-    order, latent = len(slots), matrices.shape[-1]
-    multiplicities = Counter(permutations(slots))
-    operations = len(multiplicities) * (
-        (order - 1) * latent**3 + (order - 2) * latent**2 + latent
+def _frobenius_cancellation(
+    matrices: np.ndarray,
+    endpoints: np.ndarray,
+    slots: tuple[int, ...],
+    divisor: int,
+    result: Fraction,
+) -> bool:
+    """True when ``|result|`` is at most 1e-10 of a Frobenius-norm bound.
+
+    This is the cancellation test that version 0.7.0 used to send a float64
+    value to its exact evaluation, evaluated in the same floating-point steps.
+    Values it flags are evaluated exactly even when the rounding certificate
+    admits them, so every value 0.7.0 returned is returned with the same bits
+    or as the correctly rounded exact value.
+    """
+    order = len(slots)
+    matrix_norms = {index: _log_frobenius_norm(matrices[index]) for index in set(slots)}
+    endpoint_norms = {
+        index: _log_frobenius_norm(endpoints[index]) for index in set(slots)
+    }
+    # |tr(A1...An)| <= product(||Ai||_F), and an endpoint chain is bounded by
+    # its endpoint norms times its intermediate matrix norms.
+    chain_bounds = [
+        endpoint_norms[word[0]]
+        + endpoint_norms[word[-1]]
+        + sum(matrix_norms[index] for index in word[1:-1])
+        for word in permutations(slots)
+    ]
+    ring_bound = (
+        math.lgamma(order + 1)
+        + (order - 1) * math.log(2.0)
+        - math.log(order)
+        + sum(matrix_norms[index] for index in slots)
     )
-    if operations > 1_000_000:
-        raise ArithmeticError(
-            "severe mixed cancellation exceeds the exact contraction work bound; use higher precision"
-        )
-    exact_matrices = {
-        index: np.array(
-            [[Fraction(float(value)) for value in row] for row in matrices[index]],
-            dtype=object,
-        ).reshape(latent, latent)
-        for index in set(slots)
-    }
-    exact_endpoints = {
-        index: np.array(
-            [Fraction(float(value)) for value in endpoints[index]], dtype=object
-        )
-        for index in set(slots)
-    }
-    ring = chain = Fraction(0)
-    for permutation, count in multiplicities.items():
-        product = exact_matrices[permutation[0]]
-        for index in permutation[1:]:
-            product = product @ exact_matrices[index]
-        ring += count * sum(np.diag(product), Fraction(0))
-        vector = exact_endpoints[permutation[-1]]
-        for index in reversed(permutation[1:-1]):
-            vector = exact_matrices[index] @ vector
-        chain += count * (exact_endpoints[permutation[0]] @ vector)
-    result = (
-        Fraction(2 ** (order - 1), order) * ring + Fraction(2) ** (order - 3) * chain
-    ) / divisor
+    chain_bound = _logsumexp(chain_bounds) + (order - 3) * math.log(2.0)
+    bound = _logsumexp([ring_bound, chain_bound]) - math.log(divisor)
+    log_result = (
+        -math.inf
+        if not result
+        else math.log(abs(result.numerator)) - math.log(result.denominator)
+    )
+    return bool(np.isfinite(bound) and log_result <= bound + math.log(1e-10))
+
+
+def _magnitude_estimate(
+    value: Fraction | None, certificate: RoundingCertificate
+) -> Fraction | None:
+    """Lower bound on the exact magnitude when certified, else ``|value|``."""
+    if not value:
+        return None
+    size = abs(value)
+    if certificate.error is not None and certificate.error < size:
+        return size - certificate.error
+    return size
+
+
+def _exact_mixed_coefficient(
+    matrices: np.ndarray,
+    endpoints: np.ndarray,
+    slots: tuple[int, ...],
+    divisor: int,
+    magnitude: Fraction | None = None,
+) -> float:
+    """Correctly rounded exact mixed statistic of the prepared binary data."""
     return _finite_fraction(
-        result, "mixed coefficient" if divisor > 1 else "mixed cumulant"
+        correctly_rounded_statistic(matrices, endpoints, slots, divisor, magnitude),
+        "mixed coefficient" if divisor > 1 else "mixed cumulant",
     )
 
 
@@ -1069,9 +1097,28 @@ class GaussianQuadraticFamily:
         return complex(np.exp(self.log_characteristic(frequency)))
 
     def mixed_cumulant(self, indices: Sequence[int]) -> float:
-        """Exact ordered-slot symmetrization for one to four observable indices."""
+        """Exact ordered-slot symmetrization for one to four observable indices.
+
+        The float64 contraction is returned only when its rounding error is
+        certified to be at most 1e-12 of its magnitude, it raised no
+        floating-point exception and the cancellation test of version 0.7.0
+        does not flag it. Otherwise the exact value of the prepared matrices
+        and endpoints is returned correctly rounded to float64, and a proved
+        zero returns 0.0. ``ArithmeticError`` is raised when the exact
+        evaluation that the rounding needs exceeds its work or memory bound
+        and the float64 value is not certified.
+        """
         slots = tuple(_integer(index, "observable index") for index in indices)
         return self._mixed_statistic(slots, 1)
+
+    def _native_storage(self) -> bool:
+        """True for the native float64 ndarray storage the certificate models."""
+        return (
+            type(self._matrices) is np.ndarray
+            and type(self._endpoints) is np.ndarray
+            and self._matrices.dtype == np.dtype(np.float64)
+            and self._endpoints.dtype == np.dtype(np.float64)
+        )
 
     def _mixed_statistic(self, slots: tuple[int, ...], divisor: int) -> float:
         order = len(slots)
@@ -1086,34 +1133,81 @@ class GaussianQuadraticFamily:
                 ),
                 "mixed mean",
             )
+        name = "mixed coefficient" if divisor > 1 else "mixed cumulant"
+        # Bound, from the absolute matrices, the rounding error of the float64
+        # contraction (see _mixed_contraction). A proved zero needs no signed
+        # contraction.
+        certificate = rounding_certificate(
+            self._matrices, self._endpoints, slots, divisor
+        )
+        if certificate.zero:
+            return 0.0
+        native = self._native_storage()
+        raised = False
+        try:
+            value = self._mixed_float_statistic(slots, divisor, native, "raise")
+        except FloatingPointError:
+            # Overflow and invalid operations raise again; an underflow alone
+            # is inside the certificate's allowance.
+            raised = True
+            try:
+                value = self._mixed_float_statistic(slots, divisor, native, "ignore")
+            except FloatingPointError:
+                value = None
+        admitted = native and value is not None and admits(certificate, value)
+        # Keep the float64 value only where 0.7.0 kept it as well (no
+        # floating-point exception, no Frobenius cancellation flag) and the
+        # certificate admits it; everything else is correctly rounded.
+        if (
+            admitted
+            and value is not None
+            and not raised
+            and not _frobenius_cancellation(
+                self._matrices, self._endpoints, slots, divisor, value
+            )
+        ):
+            return _finite_fraction(value, name)
+        try:
+            return _exact_mixed_coefficient(
+                self._matrices,
+                self._endpoints,
+                slots,
+                divisor,
+                _magnitude_estimate(value, certificate),
+            )
+        except ArithmeticError as error:
+            # Above the exact work bound a certified float64 value is still
+            # returned. Out-of-range exact values raise OverflowError.
+            if isinstance(error, OverflowError) or not admitted or value is None:
+                raise
+            return _finite_fraction(value, name)
+
+    def _mixed_float_statistic(
+        self, slots: tuple[int, ...], divisor: int, native: bool, underflow: str
+    ) -> Fraction:
+        """Float64 contraction of all slot permutations with exact final sums.
+
+        Raises ``FloatingPointError`` on overflow, an invalid operation, a
+        nonfinite product, or (with ``underflow="raise"``) an underflow.
+        """
+        order = len(slots)
         ring_terms: list[float] = []
         chain_terms: list[float] = []
-        matrix_norms = {
-            index: _log_frobenius_norm(self._matrices[index]) for index in set(slots)
-        }
-        endpoint_norms = {
-            index: _log_frobenius_norm(self._endpoints[index]) for index in set(slots)
-        }
-        chain_bounds = []
         # Equal ordered words perform the same native contractions. Keep the
-        # original slot permutation expansion, including every scalar and
-        # bound entry: weighted sums or cyclic/reversed words would change
-        # floating-point operation order and cancellation admission.
+        # original slot permutation expansion, including every scalar entry:
+        # weighted sums or cyclic/reversed words would change floating-point
+        # operation order and therefore the admitted float64 bits.
         distinct_slots = len(set(slots))
         repeated = distinct_slots != order
         word_cache: (
-            dict[tuple[int, ...], tuple[tuple[float, ...], tuple[float, ...], float]]
-            | None
+            dict[tuple[int, ...], tuple[tuple[float, ...], tuple[float, ...]]] | None
         ) = ({} if repeated else None)
         prefix_enabled = False
         if (
             order == 4
             and distinct_slots >= _MIXED_PREFIX_MIN_DISTINCT
             and type(self) is GaussianQuadraticFamily
-            and type(self._matrices) is np.ndarray
-            and type(self._endpoints) is np.ndarray
-            and self._matrices.dtype == np.dtype(np.float64)
-            and self._endpoints.dtype == np.dtype(np.float64)
+            and native
         ):
             rank = self._matrices.shape[-1]
             prefix_enabled = (
@@ -1121,99 +1215,57 @@ class GaussianQuadraticFamily:
                 and rank * rank * 8 <= _MIXED_PREFIX_MAX_BYTES
             )
         prefix_cache: tuple[tuple[int, int], RealArray] | None = None
-        with np.errstate(over="raise", invalid="raise", under="raise"):
-            try:
-                for permutation in permutations(slots):
-                    if word_cache is not None and permutation in word_cache:
-                        diagonal, endpoint_terms, endpoint_bound = word_cache[
-                            permutation
-                        ]
-                        ring_terms.extend(diagonal)
-                        chain_terms.extend(endpoint_terms)
-                        chain_bounds.append(endpoint_bound)
-                        continue
-                    if prefix_enabled:
-                        pair = (permutation[0], permutation[1])
-                        if prefix_cache is not None and prefix_cache[0] == pair:
-                            product = prefix_cache[1]
-                        else:
-                            product = self._matrices[pair[0]]
-                            prefix_cache = None
-                            product = product @ self._matrices[pair[1]]
-                            prefix_cache = (pair, product)
-                        for index in permutation[2:]:
-                            product = product @ self._matrices[index]
+        with np.errstate(over="raise", invalid="raise", under=underflow):
+            for permutation in permutations(slots):
+                if word_cache is not None and permutation in word_cache:
+                    diagonal, endpoint_terms = word_cache[permutation]
+                    ring_terms.extend(diagonal)
+                    chain_terms.extend(endpoint_terms)
+                    continue
+                if prefix_enabled:
+                    pair = (permutation[0], permutation[1])
+                    if prefix_cache is not None and prefix_cache[0] == pair:
+                        product = prefix_cache[1]
                     else:
-                        product = self._matrices[permutation[0]]
-                        for index in permutation[1:]:
-                            product = product @ self._matrices[index]
-                    vector = self._endpoints[permutation[-1]]
-                    for index in reversed(permutation[1:-1]):
-                        vector = self._matrices[index] @ vector
-                    terms = self._endpoints[permutation[0]] * vector
-                    if not (
-                        np.all(np.isfinite(product)) and np.all(np.isfinite(terms))
-                    ):
-                        raise FloatingPointError("nonfinite mixed contraction")
-                    endpoint_bound = (
-                        endpoint_norms[permutation[0]]
-                        + endpoint_norms[permutation[-1]]
-                        + sum(matrix_norms[index] for index in permutation[1:-1])
-                    )
-                    if word_cache is None:
-                        ring_terms.extend(np.diag(product))
-                        chain_terms.extend(terms)
-                    else:
-                        # Copies of scalar values do not retain a diagonal
-                        # view of an O(r**2) dense product in the local cache.
-                        diagonal = tuple(float(value) for value in np.diag(product))
-                        endpoint_terms = tuple(float(value) for value in terms)
-                        word_cache[permutation] = (
-                            diagonal,
-                            endpoint_terms,
-                            endpoint_bound,
-                        )
-                        ring_terms.extend(diagonal)
-                        chain_terms.extend(endpoint_terms)
-                    chain_bounds.append(endpoint_bound)
-            except FloatingPointError:
-                prefix_cache = None
-                return _exact_mixed_coefficient(
-                    self._matrices, self._endpoints, slots, divisor
-                )
+                        product = self._matrices[pair[0]]
+                        prefix_cache = None
+                        product = product @ self._matrices[pair[1]]
+                        prefix_cache = (pair, product)
+                    for index in permutation[2:]:
+                        product = product @ self._matrices[index]
+                else:
+                    product = self._matrices[permutation[0]]
+                    for index in permutation[1:]:
+                        product = product @ self._matrices[index]
+                vector = self._endpoints[permutation[-1]]
+                for index in reversed(permutation[1:-1]):
+                    vector = self._matrices[index] @ vector
+                terms = self._endpoints[permutation[0]] * vector
+                if not (np.all(np.isfinite(product)) and np.all(np.isfinite(terms))):
+                    raise FloatingPointError("nonfinite mixed contraction")
+                if word_cache is None:
+                    ring_terms.extend(np.diag(product))
+                    chain_terms.extend(terms)
+                else:
+                    # Copies of scalar values do not retain a diagonal
+                    # view of an O(r**2) dense product in the local cache.
+                    diagonal = tuple(float(value) for value in np.diag(product))
+                    endpoint_terms = tuple(float(value) for value in terms)
+                    word_cache[permutation] = (diagonal, endpoint_terms)
+                    ring_terms.extend(diagonal)
+                    chain_terms.extend(endpoint_terms)
         prefix_cache = None
         ring, chain = _exact_signed_sum(ring_terms), _exact_signed_sum(chain_terms)
-        result = (
+        return (
             Fraction(2 ** (order - 1), order) * ring
             + Fraction(2) ** (order - 3) * chain
         ) / divisor
-        # |tr(A1...An)| <= product(||Ai||_F), and the endpoint chain is
-        # bounded by its endpoint norms times intermediate matrix norms.
-        # These cheap bounds detect severe finite cancellation as well as the
-        # nonfinite path, without an additional set of dense products.
-        ring_bound = (
-            math.lgamma(order + 1)
-            + (order - 1) * math.log(2.0)
-            - math.log(order)
-            + sum(matrix_norms[index] for index in slots)
-        )
-        chain_bound = _logsumexp(chain_bounds) + (order - 3) * math.log(2.0)
-        bound = _logsumexp([ring_bound, chain_bound]) - math.log(divisor)
-        log_result = (
-            -math.inf
-            if not result
-            else math.log(abs(result.numerator)) - math.log(result.denominator)
-        )
-        if np.isfinite(bound) and log_result <= bound + math.log(1e-10):
-            return _exact_mixed_coefficient(
-                self._matrices, self._endpoints, slots, divisor
-            )
-        return _finite_fraction(
-            result, "mixed coefficient" if divisor > 1 else "mixed cumulant"
-        )
 
     def joint_coefficient(self, powers: Sequence[int]) -> float:
-        """Coefficient of prod(J[a]**powers[a]) in K(J), total degree <= 4."""
+        """Coefficient of prod(J[a]**powers[a]) in K(J), total degree <= 4.
+
+        Certified or correctly rounded exactly as ``mixed_cumulant``.
+        """
         powers = tuple(_integer(power, "power") for power in powers)
         if len(powers) != self.observable_count or sum(powers) > 4:
             raise ValueError(

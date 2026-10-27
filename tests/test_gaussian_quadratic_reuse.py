@@ -109,26 +109,47 @@ def test_only_identical_ordered_words_skip_dense_contractions(slots, words):
 
 
 def test_reuse_keeps_all_permutation_scalar_and_bound_entries(monkeypatch):
+    from fractions import Fraction
+
+    from sft_wick import _mixed_contraction as contraction
+
     family = _family()
-    observed_terms, observed_bounds = [], []
-    old_sum, old_logs = module._exact_signed_sum, module._logsumexp
+    observed_terms = []
+    old_sum = module._exact_signed_sum
 
     def terms(values):
         values = tuple(values)
         observed_terms.append(values)
         return old_sum(values)
 
-    def bounds(values):
-        values = tuple(values)
-        observed_bounds.append(values)
-        return old_logs(values)
-
     monkeypatch.setattr(module, "_exact_signed_sum", terms)
-    monkeypatch.setattr(module, "_logsumexp", bounds)
     family.mixed_cumulant([0, 0, 1, 1])
     assert [len(values) for values in observed_terms] == [24 * 3, 24 * 3]
     assert all(type(value) is float for values in observed_terms for value in values)
-    assert len(observed_bounds[0]) == 24
+    # The rounding certificate weights each class of equal absolute words by
+    # its number of the 24 slot permutations: with every absolute ring equal
+    # to 1 and every absolute chain to 0 the class sums must give 24 and 0.
+    monkeypatch.setattr(
+        contraction,
+        "_absolute_ring_traces",
+        lambda rings, *arguments: {word: 1.0 for word in rings},
+    )
+    monkeypatch.setattr(
+        contraction,
+        "_absolute_chain_values",
+        lambda chains, *arguments: {word: 0.0 for word in chains},
+    )
+    slots = (0, 0, 1, 1)
+    certificate = contraction.rounding_certificate(
+        family._matrices, family._endpoints, slots, 1
+    )
+    ring_factor, _, allowance_factor = contraction._coefficients(4, 3)
+    absolute = [np.abs(family._matrices[index]) for index in slots]
+    scales = [max(1.0, 2.0 * float(matrix.sum(axis=1).max())) for matrix in absolute]
+    endpoint = max(float(np.abs(family._endpoints[i]).sum()) for i in (0, 1))
+    scales += [max(1.0, 2.0 * endpoint)] * 2
+    allowance = allowance_factor * np.prod([Fraction(scale) for scale in scales])
+    assert certificate.error == 24 * ring_factor + allowance
 
 
 def test_selected_bank_deduplicates_exact_keys_but_preserves_order(monkeypatch):
@@ -202,11 +223,17 @@ def test_cumulant_overflow_and_finite_coefficient_are_prepared_independently():
     assert selected._outcomes[0] == (OverflowError, str(original.value))
 
 
-def test_exact_work_bound_failure_is_immutable_record_and_rethrown():
+def test_exact_work_bound_failure_is_immutable_record_and_rethrown(monkeypatch):
+    from sft_wick import _mixed_exact as contraction
+
     matrices = np.zeros((2, 64, 64))
     matrices[0, :3, :3] = np.diag([1e150, -1e150, 1.0])
     matrices[1, :3, :3] = np.diag([2e150, -2e150, 3.0])
     family = GaussianQuadraticFamily.from_factor(np.eye(64), matrices)
+    # tr(A*A*B) = 3 exactly; the exact contraction returns it below the
+    # work bound and the bound is lowered here to exercise the refusal.
+    assert family.mixed_cumulant([0, 0, 1]) == 24.0
+    monkeypatch.setattr(contraction, "EXACT_WORK_LIMIT", 1000)
     with pytest.raises(ArithmeticError) as original:
         family.mixed_cumulant([0, 0, 1])
     selected = family.prepare_statistics(indices=[(0, 0, 1)])

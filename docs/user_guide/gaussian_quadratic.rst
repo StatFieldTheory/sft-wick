@@ -231,18 +231,172 @@ Mixed cumulants retain the full slot-permutation sum and repeated-index
 multiplicities. Mixed cumulants and monomial coefficients are supported through
 total order four; higher orders raise. A monomial coefficient divides the mixed
 cumulant by the product of the multi-index factorials.
-Matrix contractions use exact binary-float summation for their signed traces and
-endpoint sums. Nonfinite products or severe cancellation detected by inexpensive
-Frobenius-norm bounds trigger a bounded exact binary-rational contraction of the
-prepared matrices. An excessively large fallback raises ``ArithmeticError``
-requesting higher precision; ordinary dense products remain subject to float64
-roundoff. A mixed cumulant that is zero or nearly zero, for example between
-observables built on disjoint blocks of the input, always takes the exact
-fallback, because float64 cannot tell a true zero from cancellation. The
-fallback costs about ``order! * (order - 1) * N**3`` rational operations and
-is refused above 1e6, so such a cumulant raises from about ``N = 100`` at
-order 2 and ``N = 60`` at order 3. Joint coefficients divide before deciding final float64 range, so a
-coefficient can be finite even when its unscaled cumulant overflows.
+
+Every returned mixed cumulant and joint coefficient is one of two things, with
+respect to the prepared matrices and endpoints: the float64 contraction, kept
+only when a rigorous bound on its rounding error is at most ``1e-12`` of its
+magnitude, or the correctly rounded exact value. A float64 value is also kept
+only where version 0.7.0 kept it: the contraction raised no floating-point
+exception, and its magnitude is above ``1e-10`` times the Frobenius-norm bound
+that 0.7.0 used to detect cancellation. Every value that 0.7.0 returned is
+therefore returned with the same bits or as the correctly rounded exact value.
+The float64 contraction sums its signed traces and endpoint terms exactly; its
+matrix products are ordinary float64 products. The bound follows the
+componentwise error analysis of matrix products (Higham, *Accuracy and
+Stability of Numerical Algorithms*, chapter 3) and is formed from the
+elementwise absolute values of the matrices and endpoints, with an allowance
+for underflow and flush-to-zero. It does not rely
+on floating-point exception flags, which BLAS matrix products do not reliably
+report. The model assumes matrix products that form each entry as a sum of its
+products in some order, with or without fused multiply-add, as OpenBLAS, MKL,
+Accelerate and NumPy's own loops do. The bound costs one absolute contraction
+per class of words with equal absolute value, and the admission decision is
+made in exact rational arithmetic. On one core the bound took 25 to 120
+microseconds per query at ``N = 4`` and ``N = 32``, which made admitted
+queries 5 to 16 percent slower there and 3 to 14 percent slower at ``N = 128``
+and ``N = 256``.
+
+The bound is about ``(n - 1) N u`` times the same statistic built from the
+absolute matrices and endpoints, for order ``n``, latent dimension ``N`` and
+``u = 2**-53``. A float64 value is therefore kept only when its magnitude is
+at least about ``1.1e-4 (n - 1) N`` times that absolute statistic. Dense
+indefinite matrices, and weakly correlated observables, fall below this from
+``N`` of a few tens at orders three and four and from ``N`` of a few hundred at
+order two; in a test family of dense positive semidefinite matrices,
+fourth-order queries fell below it from ``N = 64`` to ``128`` and third-order
+queries from ``N = 500``.
+
+A mixed cumulant whose absolute contractions all vanish, for example between
+observables built on disjoint blocks of the input, is a proved zero and returns
+``0.0`` without a signed contraction. A vanishing absolute contraction is
+accepted only when every term is shown to be at least ``2**-1000``, or when the
+zero patterns of the matrices show that no term exists; a term that underflowed
+to zero is not taken for a zero. The pattern test does not depend on the
+magnitudes, so it also proves zeros whose entries are too large or too small
+for the error bound.
+
+Uncertified values are evaluated exactly. These include zeros forced by a
+symmetry, small overlaps between blocks and strongly cancelling contractions.
+Each prepared array is split into integer digit slices of ``w`` bits on a
+common power-of-two grid, with ``w = (53 - ceil(log2 N)) // 2``. Every partial
+sum of a product of two slices is then an integer below ``2**53``, so a
+float64 matrix product (BLAS) forms it exactly in any summation order, with or
+without fused multiply-add. Each such product is compared with a checksum
+modulo ``2**64`` computed in NumPy's integer loops; a mismatch, which only a
+product outside the classical model would produce, issues a
+``RuntimeWarning`` and the product is recomputed in NumPy's int64 loops.
+Traces and matrix-vector products of slices use NumPy's own loops.
+
+The exact evaluation first uses only the leading bits of each array. Every
+matrix and endpoint keeps the bits within ``k`` binades of its largest entry,
+with ``k`` about 64 plus the binary logarithm of ``N`` times a product of
+absolute row and column sums over the magnitude of the float64 value. The
+dropped bits of an entry are smaller than one power of two, so the dropped
+part of the statistic is bounded by that power times ``N`` and the same sums.
+The statistic of the kept bits is evaluated exactly and returned when both
+ends of this bound round to the same float64; that float64 is then the
+correctly rounded exact value. Otherwise a second attempt keeps 64 more
+binades, and a third evaluates the full arrays. For dense matrices whose
+entries lie within a few binades of each other nothing is dropped and the
+first attempt is the full evaluation. An underflow inside the float64
+contraction also leads to the exact evaluation; when that evaluation is
+refused, the float64 value is still returned if the bound admits it, because
+the bound covers underflow. Times on one core of a full query (bound, float64
+contraction and exact evaluation) on dense indefinite matrices, with a
+distinct observable in every slot:
+
+.. list-table::
+   :header-rows: 1
+
+   * - ``N``
+     - order 2
+     - order 3
+     - order 4
+   * - 256
+     - 0.005 s
+     - 0.014 s
+     - 0.05 s
+   * - 500
+     - 0.024 s
+     - 0.07 s
+     - 0.29 s
+   * - 1000
+     - 0.09 s
+     - 0.41 s
+     - 1.6 s
+   * - 2000
+     - 0.42 s
+     - 2.3 s
+     - 9.6 s
+
+The float64 contraction alone takes a fifth to a quarter of these times. The
+bound holds the absolute values of the distinct matrices and, at order four,
+up to two absolute pair products. The exact evaluation holds the int32 slices
+of the distinct matrices, up to two exact pair products and seven
+dimension-square scratch arrays; a fourth-order query at ``N = 1000`` peaked at
+about 165 MiB.
+
+Matrices with entries over many binades, such as couplings that decay with
+distance, need far fewer slices for their leading bits than for all of them.
+Times on one core of full queries on four random-sign symmetric matrices
+multiplied by ``exp(-|i - j| / l)``, none of them certified:
+
+.. list-table::
+   :header-rows: 1
+
+   * - ``N``
+     - ``l``
+     - smallest entry
+     - ``(0, 1, 2, 3)``
+     - ``(0, 0, 1, 1)``
+     - ``(0, 1, 2)``
+   * - 1200
+     - 3.07
+     - 1.5e-172
+     - 3.2 s
+     - 1.9 s
+     - 0.75 s
+   * - 1500
+     - 3.84
+     - 3.7e-172
+     - 5.5 s
+     - 3.4 s
+     - 1.3 s
+   * - 2000
+     - 20
+     - 1.1e-48
+     - 12 s
+     - 5.6 s
+     - 2.7 s
+
+The leading bits took five or six slices per matrix where the full arrays
+take 30 (``N = 1500``) and 10 or 11 (``N = 2000``). The float64 contraction
+alone takes 0.14 to 3.4 s for these queries.
+
+Before forming any product the exact evaluation estimates its work and its
+peak memory from the slice counts, following its evaluation order. It raises
+``ArithmeticError`` above ``1e13`` weighted multiply-adds (BLAS multiply-adds
+plus 64 for each multiply-add in NumPy's own loops) or 4 GiB at the peak.
+Dense matrices whose entries carry full 53-bit mantissas need three or four
+slices; for them the memory limit is reached at about ``N = 4500`` for
+fourth-order queries with four distinct observables, ``N = 5350`` at order
+three and ``N = 9450`` at order two. At those sizes the float64 contraction
+alone would still return a value, but not a certified one. Each attempt
+checks its own work and memory before forming a product, and the refusal
+applies to the first attempt that exceeds them. The slice count of a full
+evaluation grows with the range of binary exponents among the entries of an
+array, so arrays whose entries span hundreds of binades are refused at much
+smaller ``N`` when the full evaluation is needed. It is needed when the leading
+bits cannot decide the rounding: for an exact zero that the zero patterns do
+not prove, such as a zero forced by a symmetry, for a value within the bound
+of a point halfway between two float64 values, and when the float64
+contraction overflows and gives no magnitude. Joint coefficients divide before
+deciding final float64 range, so a coefficient can be finite even when its
+unscaled cumulant overflows.
+
+The guarantee concerns the prepared matrices and endpoints. Whitening,
+projection and the covariance eigendecomposition are float64 operations whose
+errors it does not cover.
 
 Reuse of selected queries
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -251,20 +405,24 @@ Repeated indices can produce identical ordered matrix words. The native mixed
 calculation computes each such word once and appends its scalar terms for every
 original permutation, in the same order. It does not identify cyclic or reversed
 words, reorder noncommuting matrices, or multiply a rounded sum by a repetition
-count.
+count. The rounding bound and the exact evaluation do group cyclic shifts, and
+reversals of symmetric matrices, because absolute traces and exact traces are
+unchanged by them; each group is weighted by its number of slot permutations.
 
 For native float64 fourth-order queries with at least three distinct observable indices,
 latent dimension at least 256 and one prefix matrix no larger than 8 MiB, the
 calculation can also retain the last identical ordered two-matrix product.
 The latent dimension counts factor columns, not algebraic rank; the byte cap
 permits dimensions through 1024.
-Later factors retain their original left association, and scalar terms and
-cancellation checks retain their original order. At most one prefix matrix is
+Later factors retain their original left association, and scalar terms retain
+their original order. At most one prefix matrix is
 retained within that query; it is released on return. Smaller queries,
 two-observable patterns, oversized prefixes and custom array/family protocols
 use the original route. This trades up to one additional dimension-square work
 matrix for fewer dense products; it does not promise lower peak memory or
-uniformly faster queries.
+uniformly faster queries. Independently of the prefix, the rounding bound of
+every native query holds the absolute values of its distinct matrices and, at
+order four, up to two absolute pair products.
 
 For a known set of queries used repeatedly, preparation is explicit:
 

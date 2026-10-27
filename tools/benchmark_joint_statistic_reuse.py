@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+from fractions import Fraction
 import gc
 import hashlib
 import importlib.util
 import io
+import itertools
 import json
 import math
 import os
@@ -233,6 +235,49 @@ def _bank_storage(bank):
     }
 
 
+def _sparse(array):
+    """Nonzero entries of a float64 array as exact fractions, keyed by index."""
+    return {
+        index: Fraction(float(value))
+        for index, value in np.ndenumerate(array)
+        if value != 0
+    }
+
+
+def _sparse_product(left, right):
+    """Exact product of a sparse matrix with a sparse matrix or vector."""
+    by_row = {}
+    for (inner, *rest), value in right.items():
+        by_row.setdefault(inner, []).append((tuple(rest), value))
+    result = {}
+    for (row, inner), value in left.items():
+        for rest, other in by_row.get(inner, ()):
+            key = (row, *rest)
+            result[key] = result.get(key, Fraction(0)) + value * other
+    return result
+
+
+def _fraction_statistic(family, slots, divisor):
+    """Exact mixed statistic of the prepared data over all slot permutations."""
+    order = len(slots)
+    matrices = {index: _sparse(family._matrices[index]) for index in set(slots)}
+    ends = {index: _sparse(family._endpoints[index]) for index in set(slots)}
+    ring = chain = Fraction(0)
+    for word in itertools.permutations(slots):
+        product = matrices[word[0]]
+        for index in word[1:]:
+            product = _sparse_product(product, matrices[index])
+        ring += sum(value for (row, column), value in product.items() if row == column)
+        vector = ends[word[-1]]
+        for index in reversed(word[1:-1]):
+            vector = _sparse_product(matrices[index], vector)
+        first = ends[word[0]]
+        chain += sum(first[key] * value for key, value in vector.items() if key in first)
+    return (
+        Fraction(2 ** (order - 1), order) * ring + Fraction(2) ** (order - 3) * chain
+    ) / divisor
+
+
 def _exception_admission(reference, candidate):
     checks = []
     cases = [
@@ -242,7 +287,7 @@ def _exception_admission(reference, candidate):
     matrices = np.zeros((2, 64, 64))
     matrices[0, :3, :3] = np.diag([1e150, -1e150, 1.0])
     matrices[1, :3, :3] = np.diag([2e150, -2e150, 3.0])
-    cases.append(("exact_work_bound", np.eye(64), matrices))
+    cases.append(("padded_overflow_remainder", np.eye(64), matrices))
     for name, factor, matrices in cases:
         old = reference.GaussianQuadraticFamily.from_factor(factor, matrices)
         new = candidate.GaussianQuadraticFamily.from_factor(factor, matrices)
@@ -253,13 +298,35 @@ def _exception_admission(reference, candidate):
         )
         bank = _prepare(new, queries)
         for method, key in queries:
-            expected = _outcome(lambda: getattr(old, method)(key))
+            reference_outcome = _outcome(lambda: getattr(old, method)(key))
+            expected = reference_outcome
+            if reference_outcome["type"] == "ArithmeticError":
+                # The frozen reference refused at its rational work limit; the
+                # current code returns the correctly rounded exact value.
+                slots = (
+                    key
+                    if method == "mixed_cumulant"
+                    else tuple(i for i, power in enumerate(key) for _ in range(power))
+                )
+                divisor = (
+                    1
+                    if method == "mixed_cumulant"
+                    else math.prod(math.factorial(power) for power in key)
+                )
+                exact = _fraction_statistic(new, slots, divisor)
+                expected = {"type": "float", "bits": _bits([float(exact)])}
             actual = _outcome(lambda: getattr(new, method)(key))
             prepared = _outcome(lambda: getattr(bank, method)(key))
             if not expected == actual == prepared:
                 raise AssertionError("numeric exception admission differs")
             checks.append(
-                {"case": name, "method": method, "key": key, "outcome": expected}
+                {
+                    "case": name,
+                    "method": method,
+                    "key": key,
+                    "outcome": expected,
+                    "reference_outcome": reference_outcome,
+                }
             )
     return checks
 
