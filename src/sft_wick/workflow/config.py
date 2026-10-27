@@ -242,7 +242,8 @@ def _override_step(cur: Any, step: Any, dotted_key: str):
 
 #: Optional ``sweep`` keys an override may add when the file omits them;
 #: each is read by ``_parse_sweep`` with a default.  Every other override
-#: key must already exist, so a misspelt key raises instead of being ignored.
+#: key must already exist, and ``_parse_sweep`` refuses a key outside
+#: ``_SWEEP_KEYS``, so a misspelt key raises instead of being ignored.
 _SWEEP_OPTIONAL_KEYS = frozenset(
     {
         "gl_chunk_size",
@@ -263,6 +264,15 @@ _SWEEP_OPTIONAL_KEYS = frozenset(
     }
 )
 
+#: Every key ``_parse_sweep`` and ``_parse_component_axis`` read.
+_SWEEP_KEYS = _SWEEP_OPTIONAL_KEYS | {
+    "positions_grid",
+    "t_final_grid",
+    "external_times_grid",
+    "component_tuples",
+    "component_pairs",
+}
+
 
 def _apply_override(data: dict, dotted_key: str, value: Any) -> None:
     """Apply an ``"a.b.c"`` (or ``"a[0].b"``) override to a parsed config."""
@@ -277,11 +287,61 @@ def _apply_override(data: dict, dotted_key: str, value: Any) -> None:
     cur[leaf] = value
 
 
+#: Keys each block reads; a key outside its block's set raises.  The
+#: ``expand``, ``propagators`` and ``output`` sets equal the fields of their
+#: config dataclasses; ``tests/test_yaml_spec_coverage.py`` checks that.
+_TOP_LEVEL_KEYS = ("system", "expand", "propagators", "sweep", "output")
+_SYSTEM_KEYS = ("field", "t_min", "linear", "noise", "vertices", "nonlocal_vertices")
+_FIELD_KEYS = ("name", "n_components")
+_EXPAND_KEYS = frozenset(
+    {
+        "observable",
+        "orders",
+        "response_phase",
+        "ito",
+        "collect_topology",
+        "iso_R",
+        "diag_R",
+        "diag_C",
+        "iso_C",
+        "cache_path",
+        "n_jobs",
+        "target",
+    }
+)
+_PROPAGATORS_KEYS = frozenset(
+    {
+        "t_max",
+        "n_grid_t",
+        "dt",
+        "homogeneity",
+        "r_max",
+        "n_grid_r",
+        "n_grid_cos",
+        "x_max",
+        "n_grid_x",
+        "n_jobs",
+        "c_closed_form",
+        "c_closed_form_module",
+        "c_closed_form_attr",
+        "c_closed_form_only",
+        "c_closed_form_vectorized",
+        "cache_path",
+        "interp_method",
+        "c_method",
+        "c_n_gauss",
+        "diag_C",
+    }
+)
+_OUTPUT_KEYS = frozenset({"type", "path", "format", "x", "y", "hue", "facet_col"})
+
+
 def _parse_workflow(data: dict, base_dir: Path) -> WorkflowConfig:
     system_d = _require_dict(data, "system")
     expand_d = _require_dict(data, "expand")
     props_d = _require_dict(data, "propagators")
     sweep_d = _require_dict(data, "sweep")
+    _reject_unknown_keys(data, _TOP_LEVEL_KEYS, "config (top level)")
     output_d = data.get("output", [])
 
     # Extract the top-level dt before parsing system so the linear gamma-spline
@@ -296,7 +356,7 @@ def _parse_workflow(data: dict, base_dir: Path) -> WorkflowConfig:
     )
     expand_cfg = _parse_expand(expand_d)
     props_cfg = _parse_propagators(props_d, base_dir)
-    output_cfgs = [_parse_output(o) for o in (output_d or [])]
+    output_cfgs = [_parse_output(o, i) for i, o in enumerate(output_d or [])]
 
     return WorkflowConfig(
         system=system_cfg,
@@ -322,7 +382,10 @@ def _parse_system(
     default_dt: float | None = None,
     t_max: Any = None,
 ) -> SystemConfig:
+    _reject_unknown_keys(d, _SYSTEM_KEYS, "system")
     fld = d.get("field", {}) or {}
+    if isinstance(fld, dict):
+        _reject_unknown_keys(fld, _FIELD_KEYS, "system.field")
     name = fld.get("name", "phi")
     nc = int(fld.get("n_components", 1))
     t_min = float(d.get("t_min", 0.0))
@@ -899,6 +962,7 @@ def _register_module_by_value(module) -> None:
 
 
 def _parse_expand(d: dict) -> ExpandConfig:
+    _reject_unknown_keys(d, _EXPAND_KEYS, "expand")
     obs = d.get("observable")
     if obs is None:
         raise ValueError("expand.observable is required")
@@ -925,6 +989,7 @@ def _parse_expand(d: dict) -> ExpandConfig:
 
 
 def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
+    _reject_unknown_keys(d, _PROPAGATORS_KEYS, "propagators")
     if "t_max" not in d:
         raise ValueError("propagators.t_max is required")
     module_spec = d.get("c_closed_form_module")
@@ -1036,6 +1101,7 @@ def _parse_sweep(d: dict) -> SweepConfig:
 
     from sft_wick.evaluate import _execution_options
 
+    _reject_unknown_keys(d, _SWEEP_KEYS, "sweep")
     _execution_options(
         d.get("propagator_cache_bytes"),
         d.get("propagator_cache_contract"),
@@ -1081,9 +1147,10 @@ def _parse_sweep(d: dict) -> SweepConfig:
     )
 
 
-def _parse_output(d: dict) -> OutputConfig:
+def _parse_output(d: dict, index: int = 0) -> OutputConfig:
     if "type" not in d:
         raise ValueError("each output entry must specify a 'type'")
+    _reject_unknown_keys(d, _OUTPUT_KEYS, f"output[{index}]")
     t = d["type"]
     if t not in ("table", "npz", "plot"):
         raise ValueError(

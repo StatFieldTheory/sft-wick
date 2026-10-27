@@ -4540,9 +4540,15 @@ class PropagatorCache:
 
         Args:
             t1, t2: Time arrays of shape ``(n,)``.
-            x1, x2: Spatial coordinates.  Scalar or array of shape
-                ``(n,)`` (broadcast if scalar).
-                # TODO(d-dim): support (n, d).
+            x1, x2: Spatial coordinates, each one of: a scalar (one
+                point for every sample); shape ``(n,)`` (one scalar
+                position per sample); shape ``(d,)`` with ``d != n``
+                (one fixed point in d dimensions); shape ``(n, d)``
+                (one point per sample).  A 1-D array of length ``n`` is
+                always read as ``n`` scalar positions, so a fixed
+                d-vector on a batch of ``n == d > 1`` samples must be
+                passed as ``(n, d)``, which
+                :func:`_C_at_fixed_positions` does.
 
         Returns:
             ``(n, N)``, the diagonal C values per component, when

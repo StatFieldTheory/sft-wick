@@ -825,3 +825,179 @@ def test_YC9_seed_null_runs_unseeded(tmp_path):
     assert loaded.sweep.seed is None
     _sweep, totals = run_workflow(loaded, progress=False)
     assert np.all(np.isfinite(totals["value"].to_numpy()))
+
+
+# ---------------------------------------------------------------------------
+# YC10 -- the sweep block refuses a key it does not read
+# ---------------------------------------------------------------------------
+
+#: A value for every optional sweep key, each different from the
+#: SweepConfig default, so a key that is accepted but not read shows up.
+_SWEEP_VALUES = {
+    "orders": [0],
+    "vertex_types": ["F"],
+    "integrate_over": "all",
+    "method": "qmc_scalar",
+    "n_samples": 96,
+    "seed": 5,
+    "n_jobs": 2,
+    "n_gauss": 6,
+    "external_times_grid": {"x": [1.1], "y": [0.9]},
+    "reuse_integrands": True,
+    "gl_chunk_size": 777,
+    "qmc_coupling_chunk_size": 33,
+    "propagator_cache_bytes": 1 << 20,
+    "propagator_cache_contract": "fixed_model",
+    "contraction_backend": "einsum",
+    "contraction_max_bytes": 12345,
+}
+
+
+@pytest.mark.parametrize("typo,value", [
+    ("integrate_ovr", "all"),
+    ("n_gaus", 24),
+    ("gl_chunk_sise", None),
+    ("contraction_backnd", "einsum"),
+    ("external_time_grid", {"x": [1.1], "y": [0.9]}),
+    ("seeds", 7),
+])
+def test_YC10_misspelt_sweep_key_is_refused(tmp_path, typo, value):
+    """Every sweep key was read with a default, so ``integrate_ovr: all``
+    computed the fixed-time observable in place of the time-integrated
+    one, and ``n_gaus: 24`` ran the default 8 nodes, without an error."""
+    cfg = _base_config()
+    cfg["sweep"][typo] = value
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    match = rf"sweep: unknown key\(s\) \['{typo}'\]"
+    with pytest.raises(ValueError, match=match):
+        load_workflow_config(path)
+    # The override path checks that a key exists, which a misspelt key in
+    # the file satisfies; the parser refuses it all the same.
+    with pytest.raises(ValueError, match=match):
+        load_workflow_config(path, overrides={f"sweep.{typo}": value})
+
+
+def test_YC10_every_sweep_key_is_accepted_and_read(tmp_path):
+    """The allowed set is the SweepConfig fields plus the YAML-only name
+    ``component_tuples``, and each optional key reaches its field."""
+    import dataclasses
+
+    from sft_wick.workflow.config import (_SWEEP_KEYS, _SWEEP_OPTIONAL_KEYS,
+                                          SweepConfig)
+
+    fields = {f.name for f in dataclasses.fields(SweepConfig)}
+    assert _SWEEP_KEYS == fields | {"component_tuples"}
+    assert _SWEEP_OPTIONAL_KEYS <= _SWEEP_KEYS
+    required = {"positions_grid", "t_final_grid", "component_tuples",
+                "component_pairs"}
+    assert set(_SWEEP_VALUES) == _SWEEP_KEYS - required
+
+    cfg = _base_config()
+    cfg["sweep"].update(_SWEEP_VALUES)
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    loaded = load_workflow_config(path).sweep
+    default = SweepConfig(positions_grid={}, t_final_grid=[],
+                          component_pairs=[])
+    for key, value in _SWEEP_VALUES.items():
+        assert getattr(default, key) != value, key
+        assert getattr(loaded, key) == value, key
+
+    cfg = _base_config()
+    cfg["sweep"]["component_pairs"] = cfg["sweep"].pop("component_tuples")
+    path.write_text(yaml.safe_dump(cfg))
+    assert load_workflow_config(path).sweep.component_tuples == [
+        (0, 0), (0, 1), (1, 1)]
+
+
+# ---------------------------------------------------------------------------
+# YC11 -- every other block refuses a key it does not read
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("block,typo,where", [
+    pytest.param((), "swep", r"config \(top level\)", id="swep"),
+    pytest.param(("system",), "t_minn", "system", id="t_minn"),
+    pytest.param(("system",), "local_vertices", "system",
+                 id="local_vertices"),
+    pytest.param(("system", "field"), "n_component", "system.field",
+                 id="n_component"),
+    pytest.param(("expand",), "ordrs", "expand", id="ordrs"),
+    pytest.param(("expand",), "diag_c", "expand", id="diag_c"),
+    pytest.param(("propagators",), "n_grid_tt", "propagators",
+                 id="n_grid_tt"),
+    pytest.param(("propagators",), "c_methd", "propagators", id="c_methd"),
+    pytest.param(("output", 0), "fromat", r"output\[0\]", id="fromat"),
+])
+def test_YC11_misspelt_key_is_refused_in_every_block(tmp_path, block, typo,
+                                                     where):
+    """A misspelt key in these blocks used to load and its default was
+    used: ``t_minn`` integrated from 0, ``local_vertices`` dropped every
+    vertex, ``diag_c: false`` kept the diagonal simplification."""
+    cfg = _base_config()
+    cfg["output"] = [{"type": "table", "format": "csv", "path": "o.csv"}]
+    node = cfg
+    for key in block:
+        node = node[key]
+    node[typo] = 0.5
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    with pytest.raises(ValueError,
+                       match=rf"^{where}: unknown key\(s\) \['{typo}'\]"):
+        load_workflow_config(path)
+
+
+def test_YC11_allowed_keys_are_the_config_fields():
+    """expand, propagators and output entries map one-for-one onto their
+    config dataclasses.  The allowed sets are written out, so a field added
+    to a dataclass fails here until the parser reads it and its set holds
+    it."""
+    import dataclasses
+
+    from sft_wick.workflow import config as cf
+
+    for keys, cls in ((cf._EXPAND_KEYS, cf.ExpandConfig),
+                      (cf._PROPAGATORS_KEYS, cf.PropagatorsConfig),
+                      (cf._OUTPUT_KEYS, cf.OutputConfig)):
+        assert keys == {f.name for f in dataclasses.fields(cls)}, cls
+
+
+def test_YC11_the_reference_example_uses_only_accepted_keys():
+    """The annotated example in the user guide lists every key the parser
+    reads; it must parse, and each key must be one its block accepts."""
+    from sft_wick.workflow import config as cf
+
+    lines = (ROOT / "docs" / "user_guide" / "workflow.rst").read_text(
+        ).splitlines()
+    start = next(i for i, line in enumerate(lines)
+                 if line.startswith("Every key the parser recognises"))
+    start = next(i for i in range(start, len(lines))
+                 if lines[i].startswith(".. code-block:: yaml"))
+    body = []
+    for line in lines[start + 1:]:
+        if line and not line.startswith("   "):
+            break
+        body.append(line)
+    doc = yaml.safe_load(textwrap.dedent("\n".join(body)))
+    for block, allowed in (((), cf._TOP_LEVEL_KEYS),
+                           (("system",), cf._SYSTEM_KEYS),
+                           (("system", "field"), cf._FIELD_KEYS),
+                           (("expand",), cf._EXPAND_KEYS),
+                           (("propagators",), cf._PROPAGATORS_KEYS),
+                           (("sweep",), cf._SWEEP_KEYS)):
+        node = doc
+        for key in block:
+            node = node[key]
+        assert set(node) <= set(allowed), block
+    for entry in doc["output"]:
+        assert set(entry) <= cf._OUTPUT_KEYS
+
+
+def test_YC11_every_shipped_workflow_config_loads():
+    """No shipped config uses a key the parser does not read."""
+    paths = sorted(p for p in (ROOT / "examples").rglob("*.yaml")
+                   if "sweep" in (yaml.safe_load(p.read_text()) or {}))
+    paths.append(ROOT / "src" / "sft_wick" / "workflow" / "quickstart.yaml")
+    assert len(paths) >= 11
+    for path in paths:
+        load_workflow_config(path)

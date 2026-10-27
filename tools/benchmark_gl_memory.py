@@ -208,6 +208,10 @@ def worker(args):
             )
             if args.mode == "chunked":
                 kwargs[args.chunk_kwarg] = args.chunk_size
+            elif args.chunk_kwarg in signature.parameters:
+                # The keyword defaults to blocks of 4096 nodes; None is the
+                # eager grid.
+                kwargs[args.chunk_kwarg] = None
             node_count = nodes**DIMENSIONS
             outputs, samples, durations = [], [], []
             traced = None
