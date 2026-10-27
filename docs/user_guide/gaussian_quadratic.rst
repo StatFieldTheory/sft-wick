@@ -231,18 +231,74 @@ Mixed cumulants retain the full slot-permutation sum and repeated-index
 multiplicities. Mixed cumulants and monomial coefficients are supported through
 total order four; higher orders raise. A monomial coefficient divides the mixed
 cumulant by the product of the multi-index factorials.
-Matrix contractions use exact binary-float summation for their signed traces and
-endpoint sums. Nonfinite products or severe cancellation detected by inexpensive
-Frobenius-norm bounds trigger a bounded exact binary-rational contraction of the
-prepared matrices. An excessively large fallback raises ``ArithmeticError``
-requesting higher precision; ordinary dense products remain subject to float64
-roundoff. A mixed cumulant that is zero or nearly zero, for example between
-observables built on disjoint blocks of the input, always takes the exact
-fallback, because float64 cannot tell a true zero from cancellation. The
-fallback costs about ``order! * (order - 1) * N**3`` rational operations and
-is refused above 1e6, so such a cumulant raises from about ``N = 100`` at
-order 2 and ``N = 60`` at order 3. Joint coefficients divide before deciding final float64 range, so a
+
+Every returned mixed cumulant and joint coefficient is one of two things, with
+respect to the prepared matrices and endpoints: the float64 contraction, kept
+only when a rigorous bound on its rounding error is at most ``1e-12`` of its
+magnitude, or the correctly rounded exact value. The float64 contraction sums
+its signed traces and endpoint terms exactly; its matrix products are ordinary
+float64 products. The bound follows the componentwise error analysis of matrix
+products (Higham, *Accuracy and Stability of Numerical Algorithms*, chapter 3)
+and is formed from the elementwise absolute values of the matrices and
+endpoints, with an allowance for underflow and flush-to-zero. It does not rely
+on floating-point exception flags, which BLAS matrix products do not reliably
+report. Its cost is one absolute contraction per class of words with equal
+absolute trace, a few percent of the float64 contraction, and the admission
+decision is made in exact rational arithmetic. The model assumes matrix products
+that form each entry as a sum of its products in some order, with or without
+fused multiply-add, as OpenBLAS, MKL, Accelerate and NumPy's own loops do.
+
+A mixed cumulant whose absolute contractions all vanish, for example between
+observables built on disjoint blocks of the input, is a proved zero and returns
+``0.0`` without a signed contraction. A vanishing absolute contraction is
+accepted only when every term is shown to be at least ``2**-1000``, or when the
+integer zero patterns of the matrices show that no term exists; a term that
+underflowed to zero is not taken for a zero.
+
+Uncertified values are evaluated exactly. These include zeros forced by a
+symmetry, small overlaps between blocks and strongly cancelling contractions.
+Each prepared array is split into integer digit slices on a common
+power-of-two grid. The slice width is chosen so that every partial sum of a
+slice product fits in int64, so NumPy's integer loops (not BLAS) form the
+products exactly in any summation order; the exact rational result is rounded
+once. The bound is conservative for large dense families, which then take the
+exact path too: in a test family of dense positive semidefinite matrices,
+fourth-order queries with four distinct observables were uncertified from
+``N = 128`` and third-order queries from ``N = 500``. Exact evaluation times on
+one core for dense matrices:
+
+.. list-table::
+   :header-rows: 1
+
+   * - ``N``
+     - order 2
+     - order 3
+     - order 4
+   * - 256
+     - 0.01 s
+     - 0.06 s
+     - 0.1 to 0.2 s
+   * - 500
+     - 0.03 s
+     - 0.4 s
+     - 0.7 to 1.4 s
+   * - 1000
+     - 0.15 s
+     - 2.8 s
+     - 5.5 to 13 s
+
+The float64 contraction of the slowest fourth-order query at ``N = 1000``
+takes about 0.4 s. Before forming any product the exact evaluation estimates its
+integer work and memory from the slice counts, and it raises ``ArithmeticError``
+above 1e11 integer multiply-adds or 2 GiB of slices. The slice count of a
+matrix grows with the range of binary exponents among its entries, so refusals
+come from very large ``N`` or from matrices whose entries span hundreds of
+binades. Joint coefficients divide before deciding final float64 range, so a
 coefficient can be finite even when its unscaled cumulant overflows.
+
+The guarantee concerns the prepared matrices and endpoints. Whitening,
+projection and the covariance eigendecomposition are float64 operations whose
+errors it does not cover.
 
 Reuse of selected queries
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -251,15 +307,17 @@ Repeated indices can produce identical ordered matrix words. The native mixed
 calculation computes each such word once and appends its scalar terms for every
 original permutation, in the same order. It does not identify cyclic or reversed
 words, reorder noncommuting matrices, or multiply a rounded sum by a repetition
-count.
+count. The rounding bound and the exact evaluation do group cyclic shifts, and
+reversals of symmetric matrices, because absolute traces and exact traces are
+unchanged by them; each group is weighted by its number of slot permutations.
 
 For native float64 fourth-order queries with at least three distinct observable indices,
 latent dimension at least 256 and one prefix matrix no larger than 8 MiB, the
 calculation can also retain the last identical ordered two-matrix product.
 The latent dimension counts factor columns, not algebraic rank; the byte cap
 permits dimensions through 1024.
-Later factors retain their original left association, and scalar terms and
-cancellation checks retain their original order. At most one prefix matrix is
+Later factors retain their original left association, and scalar terms retain
+their original order. At most one prefix matrix is
 retained within that query; it is released on return. Smaller queries,
 two-observable patterns, oversized prefixes and custom array/family protocols
 use the original route. This trades up to one additional dimension-square work
