@@ -899,9 +899,10 @@ def test_mixed_exact_fallback_returns_padded_overflow_remainder():
 
 def test_mixed_exact_fallback_has_explicit_work_bound():
     # Entries spread over 2000 binades need about 98 digit slices each at
-    # N = 1536; the third-order exact contraction would take about 3e13
-    # multiply-adds and 7 GiB, and is refused before any product. The
-    # magnitudes also withhold the rounding bound, so no float64 value is kept.
+    # N = 1536; the third-order exact contraction would take about 3.6e13
+    # weighted multiply-adds and 2.8 GiB at the peak, and is refused by its
+    # work before any product. The magnitudes also withhold the rounding
+    # bound, so no float64 value is kept.
     random = np.random.default_rng(889)
     dimension = 1536
     raw = random.normal(size=(dimension, dimension))

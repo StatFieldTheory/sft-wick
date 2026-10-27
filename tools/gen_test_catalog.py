@@ -186,8 +186,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "dispatcher: structural zeros (also when magnitudes withhold the error "
         "bound), symmetry and near zeros at N up to 500, ring and endpoint-chain "
         "cancellation swept across the admission threshold, extreme and subnormal "
-        "scales, endpoint underflow, the 0.7.0 cancellation gate and the "
-        "refused-evaluation fallback, a "
+        "scales, chain terms that are not zeros, endpoint underflow, the 0.7.0 "
+        "underflow and cancellation gates and the refused-evaluation fallback, a "
         "caller's raising NumPy error state, dense queries at N = 1500, decaying "
         "couplings below the full exact cost and the recorded work-bound refusal",
         "independent Fraction contractions; block, rank-one and reversal-parity "

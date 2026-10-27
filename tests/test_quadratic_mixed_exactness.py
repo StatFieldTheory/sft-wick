@@ -407,6 +407,46 @@ def test_underflowed_absolute_contraction_is_not_taken_for_zero(latent):
     assert_certified(value, exact)
 
 
+def _chain_only_case(kind):
+    """Order-three data whose ring words vanish by their zero patterns and
+    whose chain words do not.
+
+    ``subnormal_endpoint`` and ``tiny_matrix``: the absolute chain underflows
+    to zero in float64 and the smallest entries rule out the underflow-free
+    proof. ``huge_blocks``: matrices near 1e200 on disjoint blocks withhold
+    the error bound, and endpoints on both blocks keep chain terms.
+    """
+    latent = 3 if kind != "huge_blocks" else 4
+    matrices, endpoints = np.zeros((3, latent, latent)), np.zeros((3, latent))
+    if kind == "subnormal_endpoint":
+        matrices[1] = [[3e-10, 1.1e-10, 0.0], [1.1e-10, -2e-10, 0.0], [0.0, 0.0, 0.7]]
+        endpoints[0] = [1.3e150, -0.4e150, 0.0]
+        endpoints[2] = [7e-321, 2.5e-321, 0.0]
+        return make_family(matrices, endpoints), (0, 1, 2)
+    if kind == "tiny_matrix":
+        matrices[1] = [[3e-200, -1e-200, 0.0], [-1e-200, 2e-200, 0.0], [0.0] * 3]
+        endpoints[0] = [1.7e100, 0.9e100, 0.0]
+        endpoints[2] = [-2e-200, 5e-201, 0.0]
+        return make_family(matrices, endpoints), (0, 1, 2)
+    matrices[0, :2, :2] = [[1.3e200, -0.4e200], [-0.4e200, 2.1e200]]
+    matrices[1, 2:, 2:] = [[-0.7e200, 1.9e200], [1.9e200, 0.3e200]]
+    endpoints[1] = [0.6, -1.4, 2.2, 0.9]
+    return make_family(matrices, endpoints), (0, 1, 1)
+
+
+@pytest.mark.parametrize("kind", ["subnormal_endpoint", "tiny_matrix", "huge_blocks"])
+def test_chain_terms_are_not_taken_for_a_zero(kind):
+    family, slots = _chain_only_case(kind)
+    matrices, endpoints = family._matrices, family._endpoints
+    certificate = certificates.rounding_certificate(matrices, endpoints, slots, 1)
+    assert not certificate.zero
+    exact = fraction_statistic(matrices, endpoints, slots)
+    assert exact != 0
+    value = family.mixed_cumulant(slots)
+    assert value != 0.0
+    assert_certified(value, exact)
+
+
 def _isolated_endpoint_family(latent, tiny, seed):
     random = np.random.default_rng(seed)
     matrices = []
@@ -443,6 +483,34 @@ def test_endpoint_underflow_rounds_exactly_or_keeps_the_certified_value(monkeypa
     huge = make_family(family._matrices * 1e154, family._endpoints)
     with pytest.raises(ArithmeticError):
         huge.mixed_cumulant(slots)
+
+
+@pytest.mark.parametrize("latent", [6, 16])
+def test_underflowed_contraction_is_rounded_exactly_even_when_admitted(latent):
+    # The bound admits these float64 values and the 0.7.0 cancellation test
+    # does not flag them; only the underflow in the endpoint product keeps
+    # them from being returned, as 0.7.0 evaluated them exactly too. Some are
+    # not correctly rounded, so the raise pass decides the returned bits.
+    moved = 0
+    for seed in range(12):
+        family = _isolated_endpoint_family(latent, 1e-170, seed=5700 + seed)
+        matrices, endpoints = family._matrices, family._endpoints
+        for slots in [(0, 1, 2), (0, 1, 2, 0)]:
+            with np.errstate(under="raise"), pytest.raises(FloatingPointError):
+                float_statistic(matrices, endpoints, slots)
+            with np.errstate(under="ignore"):
+                approximate = float_statistic(matrices, endpoints, slots)
+            certificate = certificates.rounding_certificate(
+                matrices, endpoints, slots, 1
+            )
+            assert certificates.admits(certificate, approximate)
+            assert not quadratic._frobenius_cancellation(
+                matrices, endpoints, slots, 1, approximate
+            )
+            exact = integer_statistic(matrices, endpoints, slots)
+            moved += float(approximate) != float(exact)
+            assert family.mixed_cumulant(slots) == float(exact)
+    assert moved
 
 
 def test_only_the_exact_work_refusal_returns_the_certified_value(monkeypatch):
