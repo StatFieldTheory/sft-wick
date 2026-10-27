@@ -825,3 +825,88 @@ def test_YC9_seed_null_runs_unseeded(tmp_path):
     assert loaded.sweep.seed is None
     _sweep, totals = run_workflow(loaded, progress=False)
     assert np.all(np.isfinite(totals["value"].to_numpy()))
+
+
+# ---------------------------------------------------------------------------
+# YC10 -- the sweep block refuses a key it does not read
+# ---------------------------------------------------------------------------
+
+#: A value for every optional sweep key, each different from the
+#: SweepConfig default, so a key that is accepted but not read shows up.
+_SWEEP_VALUES = {
+    "orders": [0],
+    "vertex_types": ["F"],
+    "integrate_over": "all",
+    "method": "qmc_scalar",
+    "n_samples": 96,
+    "seed": 5,
+    "n_jobs": 2,
+    "n_gauss": 6,
+    "external_times_grid": {"x": [1.1], "y": [0.9]},
+    "reuse_integrands": True,
+    "gl_chunk_size": 777,
+    "qmc_coupling_chunk_size": 33,
+    "propagator_cache_bytes": 1 << 20,
+    "propagator_cache_contract": "fixed_model",
+    "contraction_backend": "einsum",
+    "contraction_max_bytes": 12345,
+}
+
+
+@pytest.mark.parametrize("typo,value", [
+    ("integrate_ovr", "all"),
+    ("n_gaus", 24),
+    ("gl_chunk_sise", None),
+    ("contraction_backnd", "einsum"),
+    ("external_time_grid", {"x": [1.1], "y": [0.9]}),
+    ("seeds", 7),
+])
+def test_YC10_misspelt_sweep_key_is_refused(tmp_path, typo, value):
+    """Every sweep key was read with a default, so ``integrate_ovr: all``
+    computed the fixed-time observable in place of the time-integrated
+    one, and ``n_gaus: 24`` ran the default 8 nodes, without an error."""
+    cfg = _base_config()
+    cfg["sweep"][typo] = value
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    match = rf"sweep: unknown key\(s\) \['{typo}'\]"
+    with pytest.raises(ValueError, match=match):
+        load_workflow_config(path)
+    # The override path checks that a key exists, which a misspelt key in
+    # the file satisfies; the parser refuses it all the same.
+    with pytest.raises(ValueError, match=match):
+        load_workflow_config(path, overrides={f"sweep.{typo}": value})
+
+
+def test_YC10_every_sweep_key_is_accepted_and_read(tmp_path):
+    """The allowed set is the SweepConfig fields plus the YAML-only name
+    ``component_tuples``, and each optional key reaches its field."""
+    import dataclasses
+
+    from sft_wick.workflow.config import (_SWEEP_KEYS, _SWEEP_OPTIONAL_KEYS,
+                                          SweepConfig)
+
+    fields = {f.name for f in dataclasses.fields(SweepConfig)}
+    assert _SWEEP_KEYS == fields | {"component_tuples"}
+    assert _SWEEP_OPTIONAL_KEYS <= _SWEEP_KEYS
+    required = {"positions_grid", "t_final_grid", "component_tuples",
+                "component_pairs"}
+    assert set(_SWEEP_VALUES) == _SWEEP_KEYS - required
+
+    cfg = _base_config()
+    cfg["sweep"].update(_SWEEP_VALUES)
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    loaded = load_workflow_config(path).sweep
+    default = SweepConfig(positions_grid={}, t_final_grid=[],
+                          component_pairs=[])
+    for key, value in _SWEEP_VALUES.items():
+        assert getattr(default, key) != value, key
+        assert getattr(loaded, key) == value, key
+
+    cfg = _base_config()
+    cfg["sweep"]["component_pairs"] = cfg["sweep"].pop("component_tuples")
+    path.write_text(yaml.safe_dump(cfg))
+    assert load_workflow_config(path).sweep.component_tuples == [
+        (0, 0), (0, 1), (1, 1)]
+

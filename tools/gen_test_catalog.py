@@ -901,7 +901,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "the L1 specs YAML could not express: custom temporal / spatial / "
         "angular kernels, a matrix-valued explicit R, a matrix "
         "ConstantImpulse; validation of the vertex, kernel and sigma2 "
-        "blocks; overrides into list entries",
+        "blocks; a misspelt sweep key refused; overrides into list "
+        "entries",
         "the equivalent L1 System; scipy quadrature of the defining C "
         "integrals; demo 3's Campbell closed form",
         "exact (YAML vs L1) / 1e-9 - 1e-6",

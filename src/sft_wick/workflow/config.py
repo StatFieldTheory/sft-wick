@@ -242,7 +242,8 @@ def _override_step(cur: Any, step: Any, dotted_key: str):
 
 #: Optional ``sweep`` keys an override may add when the file omits them;
 #: each is read by ``_parse_sweep`` with a default.  Every other override
-#: key must already exist, so a misspelt key raises instead of being ignored.
+#: key must already exist, and ``_parse_sweep`` refuses a key outside
+#: ``_SWEEP_KEYS``, so a misspelt key raises instead of being ignored.
 _SWEEP_OPTIONAL_KEYS = frozenset(
     {
         "gl_chunk_size",
@@ -262,6 +263,15 @@ _SWEEP_OPTIONAL_KEYS = frozenset(
         "integrate_over",
     }
 )
+
+#: Every key ``_parse_sweep`` and ``_parse_component_axis`` read.
+_SWEEP_KEYS = _SWEEP_OPTIONAL_KEYS | {
+    "positions_grid",
+    "t_final_grid",
+    "external_times_grid",
+    "component_tuples",
+    "component_pairs",
+}
 
 
 def _apply_override(data: dict, dotted_key: str, value: Any) -> None:
@@ -1036,6 +1046,7 @@ def _parse_sweep(d: dict) -> SweepConfig:
 
     from sft_wick.evaluate import _execution_options
 
+    _reject_unknown_keys(d, _SWEEP_KEYS, "sweep")
     _execution_options(
         d.get("propagator_cache_bytes"),
         d.get("propagator_cache_contract"),
