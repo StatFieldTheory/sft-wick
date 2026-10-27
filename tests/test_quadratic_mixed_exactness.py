@@ -21,6 +21,8 @@ import pytest
 
 from sft_wick import _mixed_contraction as certificates
 from sft_wick import _mixed_exact as exact_evaluation
+from sft_wick import _mixed_rounding as rounding
+from sft_wick import quadratic
 
 from .mixed_reference import (
     SWEEP,
@@ -405,6 +407,46 @@ def test_underflowed_absolute_contraction_is_not_taken_for_zero(latent):
     assert_certified(value, exact)
 
 
+def _chain_only_case(kind):
+    """Order-three data whose ring words vanish by their zero patterns and
+    whose chain words do not.
+
+    ``subnormal_endpoint`` and ``tiny_matrix``: the absolute chain underflows
+    to zero in float64 and the smallest entries rule out the underflow-free
+    proof. ``huge_blocks``: matrices near 1e200 on disjoint blocks withhold
+    the error bound, and endpoints on both blocks keep chain terms.
+    """
+    latent = 3 if kind != "huge_blocks" else 4
+    matrices, endpoints = np.zeros((3, latent, latent)), np.zeros((3, latent))
+    if kind == "subnormal_endpoint":
+        matrices[1] = [[3e-10, 1.1e-10, 0.0], [1.1e-10, -2e-10, 0.0], [0.0, 0.0, 0.7]]
+        endpoints[0] = [1.3e150, -0.4e150, 0.0]
+        endpoints[2] = [7e-321, 2.5e-321, 0.0]
+        return make_family(matrices, endpoints), (0, 1, 2)
+    if kind == "tiny_matrix":
+        matrices[1] = [[3e-200, -1e-200, 0.0], [-1e-200, 2e-200, 0.0], [0.0] * 3]
+        endpoints[0] = [1.7e100, 0.9e100, 0.0]
+        endpoints[2] = [-2e-200, 5e-201, 0.0]
+        return make_family(matrices, endpoints), (0, 1, 2)
+    matrices[0, :2, :2] = [[1.3e200, -0.4e200], [-0.4e200, 2.1e200]]
+    matrices[1, 2:, 2:] = [[-0.7e200, 1.9e200], [1.9e200, 0.3e200]]
+    endpoints[1] = [0.6, -1.4, 2.2, 0.9]
+    return make_family(matrices, endpoints), (0, 1, 1)
+
+
+@pytest.mark.parametrize("kind", ["subnormal_endpoint", "tiny_matrix", "huge_blocks"])
+def test_chain_terms_are_not_taken_for_a_zero(kind):
+    family, slots = _chain_only_case(kind)
+    matrices, endpoints = family._matrices, family._endpoints
+    certificate = certificates.rounding_certificate(matrices, endpoints, slots, 1)
+    assert not certificate.zero
+    exact = fraction_statistic(matrices, endpoints, slots)
+    assert exact != 0
+    value = family.mixed_cumulant(slots)
+    assert value != 0.0
+    assert_certified(value, exact)
+
+
 def _isolated_endpoint_family(latent, tiny, seed):
     random = np.random.default_rng(seed)
     matrices = []
@@ -441,6 +483,197 @@ def test_endpoint_underflow_rounds_exactly_or_keeps_the_certified_value(monkeypa
     huge = make_family(family._matrices * 1e154, family._endpoints)
     with pytest.raises(ArithmeticError):
         huge.mixed_cumulant(slots)
+
+
+@pytest.mark.parametrize("latent", [6, 16])
+def test_underflowed_contraction_is_rounded_exactly_even_when_admitted(latent):
+    # The bound admits these float64 values and the 0.7.0 cancellation test
+    # does not flag them; only the underflow in the endpoint product keeps
+    # them from being returned, as 0.7.0 evaluated them exactly too. Some are
+    # not correctly rounded, so the raise pass decides the returned bits.
+    moved = 0
+    for seed in range(12):
+        family = _isolated_endpoint_family(latent, 1e-170, seed=5700 + seed)
+        matrices, endpoints = family._matrices, family._endpoints
+        for slots in [(0, 1, 2), (0, 1, 2, 0)]:
+            with np.errstate(under="raise"), pytest.raises(FloatingPointError):
+                float_statistic(matrices, endpoints, slots)
+            with np.errstate(under="ignore"):
+                approximate = float_statistic(matrices, endpoints, slots)
+            certificate = certificates.rounding_certificate(
+                matrices, endpoints, slots, 1
+            )
+            assert certificates.admits(certificate, approximate)
+            assert not quadratic._frobenius_cancellation(
+                matrices, endpoints, slots, 1, approximate
+            )
+            exact = integer_statistic(matrices, endpoints, slots)
+            moved += float(approximate) != float(exact)
+            assert family.mixed_cumulant(slots) == float(exact)
+    assert moved
+
+
+def test_only_the_exact_work_refusal_returns_the_certified_value(monkeypatch):
+    # The query above reaches the exact evaluation with a certified float64
+    # value. A floating-point exception raised there is not the work or
+    # memory refusal, so it propagates instead of returning that value.
+    family = _isolated_endpoint_family(6, 1e-170, seed=5700)
+    slots = (0, 1, 2)
+
+    def trapped(*args):
+        raise FloatingPointError("underflow encountered in multiply")
+
+    monkeypatch.setattr(rounding, "evaluate_query", trapped)
+    with pytest.raises(FloatingPointError):
+        family.mixed_cumulant(slots)
+    with pytest.raises(FloatingPointError):
+        family.prepare_statistics(indices=[slots])
+
+
+def _subnormal_tail_family(latent, seed):
+    """Entries of 2**20 to 2**60 of both signs, a subnormal last row and column."""
+    random = np.random.default_rng(seed)
+    matrices = random.normal(size=(3, latent, latent))
+    matrices *= 2.0**60 * np.exp2(random.integers(-40, 1, size=matrices.shape))
+    matrices = np.triu(matrices) + np.triu(matrices, 1).swapaxes(-1, -2)
+    tail = 3e-320 * random.choice([-1.0, 1.0], size=(3, latent))
+    matrices[:, -1, :] = tail
+    matrices[:, :, -1] = tail
+    return make_family(matrices, random.normal(size=(3, latent)))
+
+
+def _cancelling_subnormal_family(latent, seed):
+    """Entries near 1e9 and one subnormal coupling; tr(A0 A1) cancels."""
+    random = np.random.default_rng(seed)
+    first = symmetric(random, latent) * 1e9
+    first[1, -1] = first[-1, 1] = 7.1e-319
+    second = symmetric(random, latent) * 0.83
+    second -= (np.sum(first * second) / np.sum(first * first)) * first
+    return make_family(np.array([first, (second + second.T) / 2]))
+
+
+@pytest.mark.parametrize("state", [{"under": "raise"}, {"all": "raise"}])
+def test_callers_underflow_trap_leaves_every_value_unchanged(monkeypatch, state):
+    # Slicing these arrays for the exact evaluation underflows by design. Up to
+    # now a caller's np.errstate(under="raise") made the exact path raise
+    # FloatingPointError, or return the float64 value of a contraction that
+    # underflowed, which version 0.7.0 never kept.
+    tail = _subnormal_tail_family(5, seed=2024)
+    cancelling = _cancelling_subnormal_family(5, seed=424242)
+    queries = [
+        (tail, (0, 1)),
+        (tail, (0, 1, 2)),
+        (tail, (0, 0, 1)),
+        (tail, (0, 1, 2, 0)),
+        (tail, (2, 2, 2, 2)),
+        (cancelling, (0, 1)),
+    ]
+    original = quadratic._exact_mixed_coefficient
+    exact_calls = []
+
+    def counted(*args):
+        exact_calls.append(args[2])
+        return original(*args)
+
+    monkeypatch.setattr(quadratic, "_exact_mixed_coefficient", counted)
+    default = [family.mixed_cumulant(slots) for family, slots in queries]
+    joint = tail.joint_coefficient((2, 1, 1))
+    assert len(exact_calls) >= 2
+    with np.errstate(**state):
+        trapped = [family.mixed_cumulant(slots) for family, slots in queries]
+        assert tail.joint_coefficient((2, 1, 1)) == joint
+        selected = tail.prepare_statistics(
+            indices=[slots for family, slots in queries if family is tail],
+            coefficients=[(2, 1, 1)],
+        )
+    assert trapped == default
+    for (family, slots), value in zip(queries, default):
+        exact = integer_statistic(family._matrices, family._endpoints, slots)
+        assert_certified(value, exact)
+        if family is tail:
+            assert selected.mixed_cumulant(slots) == value
+    assert selected.joint_coefficient((2, 1, 1)) == joint
+    exact = integer_statistic(cancelling._matrices, cancelling._endpoints, (0, 1))
+    assert default[-1] == float(exact)
+
+
+def _flagged_block_family(latent, seed):
+    """Positive observables on disjoint blocks over a ``2**-200`` background.
+
+    The covariance, of order ``2**-190``, is far below ``1e-10`` of the
+    Frobenius-norm bound, so the cancellation test of version 0.7.0 flags it;
+    every term is positive, so the rounding bound admits the float64 value.
+    """
+    random = np.random.default_rng(seed)
+    first, second = int(0.4 * latent), int(0.55 * latent)
+
+    def observable(low, high, span, scale):
+        matrix = scale * 2.0**-200 * random.uniform(1, 2, size=(latent, latent))
+        block = np.exp2(-random.uniform(0, span, size=(latent, latent)))
+        block *= random.uniform(1, 3, size=(latent, latent))
+        matrix[low:high, low:high] = block[low:high, low:high]
+        return (matrix + matrix.T) / 2
+
+    return make_family(
+        np.array([observable(0, first, 160, 1.0), observable(second, latent, 140, 1.7)])
+    )
+
+
+def test_flagged_value_rounds_exactly_or_is_returned_certified_when_refused(
+    monkeypatch,
+):
+    slots, moved = (0, 1), 0
+    for seed in range(8):
+        family = _flagged_block_family(60, seed)
+        matrices, endpoints = family._matrices, family._endpoints
+        # Cov(Y0, Y1) = 2 tr(A0 A1) for an identity covariance and no linear term.
+        exact = 2 * sum(
+            (
+                Fraction(float(a)) * Fraction(float(b))
+                for a, b in zip(matrices[0].ravel(), matrices[1].T.ravel())
+            ),
+            Fraction(0),
+        )
+        approximate = float_statistic(matrices, endpoints, slots)
+        certificate = certificates.rounding_certificate(matrices, endpoints, slots, 1)
+        assert certificates.admits(certificate, approximate)
+        assert quadratic._frobenius_cancellation(
+            matrices, endpoints, slots, 1, approximate
+        )
+        moved += float(approximate) != float(exact)
+        # Flagged, so evaluated exactly, as version 0.7.0 did.
+        assert family.mixed_cumulant(slots) == float(exact)
+        # Above the exact work or memory bound, where 0.7.0 raised, the
+        # certified float64 value is returned.
+        with monkeypatch.context() as patch:
+            patch.setattr(exact_evaluation, "EXACT_MEMORY_LIMIT", 0)
+            value = family.mixed_cumulant(slots)
+        assert value == float(approximate)
+        assert_certified(value, exact)
+    # Some float64 values are not correctly rounded, so the flag decides bits.
+    assert moved
+
+
+def test_unadmitted_value_is_refused_above_the_exact_bound(monkeypatch):
+    # A dense fourth-order query that raised no floating-point exception and
+    # that the 0.7.0 test does not flag: 0.7.0 returned its float64 value. The
+    # bound does not admit it, so it is rounded exactly within the exact work
+    # and memory bound and refused above it.
+    matrices, endpoints = dense_family_arrays(32, 4, seed=5820)
+    family = make_family(matrices, endpoints)
+    slots = (0, 1, 2, 3)
+    with np.errstate(under="raise"):
+        approximate = float_statistic(matrices, endpoints, slots)
+    certificate = certificates.rounding_certificate(matrices, endpoints, slots, 1)
+    assert not certificates.admits(certificate, approximate)
+    assert not quadratic._frobenius_cancellation(
+        matrices, endpoints, slots, 1, approximate
+    )
+    exact = integer_statistic(matrices, endpoints, slots)
+    assert family.mixed_cumulant(slots) == float(exact)
+    monkeypatch.setattr(exact_evaluation, "EXACT_MEMORY_LIMIT", 0)
+    with pytest.raises(ArithmeticError, match="exact contraction work bound"):
+        family.mixed_cumulant(slots)
 
 
 # ---------------------------------------------------------------------------

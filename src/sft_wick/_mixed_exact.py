@@ -16,7 +16,8 @@ the entry. The width ``w = (53 - ceil(log2 N)) // 2`` gives
 ``r = A`` and the unit ``U = 2**(base + s w)`` of an occupied offset ``s``,
 ``D_s = trunc(r / U)`` and ``r = r - D_s U``. Each step is exact: scaling
 by a power of two is exact when its result is normal, and a scaled value
-below the normal range has ``|r / U| < 1`` and digit zero; ``D_s U`` is an
+below the normal range has ``|r / U| < 1`` and digit zero (the underflow it
+signals is ignored, whatever the caller's NumPy error state); ``D_s U`` is an
 integer below ``2**w`` times a power of two no smaller than ``2**-1074``; and
 ``r - D_s U`` keeps a subset of the bits of ``r``. No bits lie between
 occupied offsets, so ``|r| < 2**w U`` holds at every step.
@@ -198,15 +199,21 @@ def _times_power_of_two(values: np.ndarray, exponent: int) -> np.ndarray:
 
 
 def _limbs(values: np.ndarray, grid: SliceGrid, width: int) -> _Limbs:
-    """Signed ``width``-bit int32 digits of each entry on the array's grid."""
+    """Signed ``width``-bit int32 digits of each entry on the array's grid.
+
+    A remainder scaled below the normal range has digit zero, and the
+    underflow that scaling signals is ignored whatever the caller's error
+    state: the remainder itself is not changed by it.
+    """
     slices = {offset: np.zeros(values.shape, dtype=np.int32) for offset in grid.offsets}
     units = [(offset, grid.base + offset * width) for offset in grid.offsets[::-1]]
-    for rows, block in _blocks(values):
-        remainder = np.array(block, dtype=np.float64)
-        for offset, exponent in units:
-            digit = np.trunc(_times_power_of_two(remainder, -exponent))
-            remainder -= _times_power_of_two(digit, exponent)
-            slices[offset][rows] = digit
+    with np.errstate(under="ignore"):
+        for rows, block in _blocks(values):
+            remainder = np.array(block, dtype=np.float64)
+            for offset, exponent in units:
+                digit = np.trunc(_times_power_of_two(remainder, -exponent))
+                remainder -= _times_power_of_two(digit, exponent)
+                slices[offset][rows] = digit
     offsets = tuple(offset for offset in grid.offsets if np.any(slices[offset]))
     digits = tuple(slices[offset] for offset in offsets)
     return _Limbs(grid.base, offsets, digits, values.shape)

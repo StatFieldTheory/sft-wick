@@ -235,11 +235,23 @@ cumulant by the product of the multi-index factorials.
 Every returned mixed cumulant and joint coefficient is one of two things, with
 respect to the prepared matrices and endpoints: the float64 contraction, kept
 only when a rigorous bound on its rounding error is at most ``1e-12`` of its
-magnitude, or the correctly rounded exact value. A float64 value is also kept
-only where version 0.7.0 kept it: the contraction raised no floating-point
-exception, and its magnitude is above ``1e-10`` times the Frobenius-norm bound
-that 0.7.0 used to detect cancellation. Every value that 0.7.0 returned is
-therefore returned with the same bits or as the correctly rounded exact value.
+magnitude, or the correctly rounded exact value. ``ArithmeticError`` is raised
+when the bound does not admit the float64 value and the exact evaluation
+exceeds its work or memory limit (given below). The evaluation sets its own
+NumPy error state, so a call inside ``np.errstate(all="raise")`` returns the
+same value.
+
+A float64 value is also kept only where version 0.7.0 kept it: the contraction
+raised no floating-point exception, and its magnitude is above ``1e-10`` times
+the Frobenius-norm bound that 0.7.0 used to detect cancellation. Every value
+that 0.7.0 returned is therefore returned with the same bits or as the
+correctly rounded exact value, except where the bound does not admit it and
+the exact evaluation exceeds its limit; that query raises ``ArithmeticError``.
+When the exact evaluation is refused, a float64 value that the bound admits is
+returned even if it raised an underflow or the 0.7.0 test flags it. Version
+0.7.0 raised ``ArithmeticError`` on all of these queries, because its own
+exact evaluation stopped at ``1e6`` operations.
+
 The float64 contraction sums its signed traces and endpoint terms exactly; its
 matrix products are ordinary float64 products. The bound follows the
 componentwise error analysis of matrix products (Higham, *Accuracy and
@@ -252,8 +264,10 @@ products in some order, with or without fused multiply-add, as OpenBLAS, MKL,
 Accelerate and NumPy's own loops do. The bound costs one absolute contraction
 per class of words with equal absolute value, and the admission decision is
 made in exact rational arithmetic. On one core the bound took 25 to 120
-microseconds per query at ``N = 4`` and ``N = 32``, which made admitted
-queries 5 to 16 percent slower there and 3 to 14 percent slower at ``N = 128``
+microseconds per query at ``N = 4`` and ``N = 32``. A query at ``N = 4`` takes
+0.06 to 0.5 milliseconds, so admitted queries there were about 20 percent
+(order four) to 70 percent (order two) slower than in version 0.7.0. They were
+4 to 25 percent slower at ``N = 32`` and 3 to 14 percent slower at ``N = 128``
 and ``N = 256``.
 
 The bound is about ``(n - 1) N u`` times the same statistic built from the
@@ -299,11 +313,10 @@ correctly rounded exact value. Otherwise a second attempt keeps 64 more
 binades, and a third evaluates the full arrays. For dense matrices whose
 entries lie within a few binades of each other nothing is dropped and the
 first attempt is the full evaluation. An underflow inside the float64
-contraction also leads to the exact evaluation; when that evaluation is
-refused, the float64 value is still returned if the bound admits it, because
-the bound covers underflow. Times on one core of a full query (bound, float64
-contraction and exact evaluation) on dense indefinite matrices, with a
-distinct observable in every slot:
+contraction, or the 0.7.0 cancellation test, also leads to the exact
+evaluation. Times on one core of a full query (bound, float64 contraction and
+exact evaluation) on dense indefinite matrices, with a distinct observable in
+every slot:
 
 .. list-table::
    :header-rows: 1
@@ -329,12 +342,12 @@ distinct observable in every slot:
      - 2.3 s
      - 9.6 s
 
-The float64 contraction alone takes a fifth to a quarter of these times. The
-bound holds the absolute values of the distinct matrices and, at order four,
-up to two absolute pair products. The exact evaluation holds the int32 slices
-of the distinct matrices, up to two exact pair products and seven
-dimension-square scratch arrays; a fourth-order query at ``N = 1000`` peaked at
-about 165 MiB.
+The float64 contraction alone takes about a sixth (order two) to two fifths
+(order four) of these times. The bound holds the absolute values of the
+distinct matrices and, at order four, up to two absolute pair products. The
+exact evaluation holds the int32 slices of the distinct matrices, up to two
+exact pair products and seven dimension-square scratch arrays; a fourth-order
+query at ``N = 1000`` peaked at about 165 MiB.
 
 Matrices with entries over many binades, such as couplings that decay with
 distance, need far fewer slices for their leading bits than for all of them.
@@ -389,8 +402,11 @@ array, so arrays whose entries span hundreds of binades are refused at much
 smaller ``N`` when the full evaluation is needed. It is needed when the leading
 bits cannot decide the rounding: for an exact zero that the zero patterns do
 not prove, such as a zero forced by a symmetry, for a value within the bound
-of a point halfway between two float64 values, and when the float64
-contraction overflows and gives no magnitude. Joint coefficients divide before
+of a point halfway between two float64 values, when the float64 contraction
+overflows and gives no magnitude, and when an absolute row or column sum of an
+array overflows. It can also be needed for a strongly cancelling value whose
+float64 contraction is more than about ``2**64`` times larger, because the
+first attempt then keeps too few bits. Joint coefficients divide before
 deciding final float64 range, so a coefficient can be finite even when its
 unscaled cumulant overflows.
 
