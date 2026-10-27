@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 import yaml
+import sft_wick._dense_contraction as dense
 import sft_wick.evaluate as ev
 from sft_wick._factorized_coupling import native_factorized_integrand
 from sft_wick.perturbation import DiagramTerm
@@ -15,6 +16,16 @@ from .test_execution_controls import (
     _kw,
     _raw,
 )
+
+
+@pytest.fixture(autouse=True)
+def admit_all(monkeypatch):
+    """Run the backend on small fixtures, whatever the cost rule estimates.
+
+    Worker processes keep the cost rule; their results are compared with the
+    same tolerance.
+    """
+    monkeypatch.setattr(dense, "backend_is_cheaper", lambda backend, ordered: True)
 
 
 def _close(actual, expected):

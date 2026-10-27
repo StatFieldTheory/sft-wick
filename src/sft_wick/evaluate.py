@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from contextlib import contextmanager
 from functools import cached_property, lru_cache
 from math import fsum
-from types import FunctionType, MethodType, SimpleNamespace
+from types import MethodType, SimpleNamespace
 from typing import Any, Callable
 
 import hashlib
@@ -7733,125 +7733,17 @@ class DiagramIntegrand:
         return (val, err)
 
 
-# Freeze the complete native class protocol before any optional execution.
-# copyreg may lazily add an empty __slotnames__ list when pickling this class.
-_NATIVE_INTEGRAND_NAMESPACE = dict(DiagramIntegrand.__dict__)
-_NATIVE_INTEGRAND_NAMESPACE.pop("__slotnames__", None)
-_NATIVE_INTEGRAND_CALLABLES = frozenset(
-    name
-    for name, member in _NATIVE_INTEGRAND_NAMESPACE.items()
-    if type(member) in (FunctionType, staticmethod, classmethod)
-)
-_NATIVE_INTEGRAND_FUNCTIONS = []
-for _member in _NATIVE_INTEGRAND_NAMESPACE.values():
-    if type(_member) is FunctionType:
-        _functions = ((_member, None, _member),)
-    elif type(_member) in (staticmethod, classmethod):
-        _functions = ((_member, "__func__", _member.__func__),)
-    elif type(_member) is cached_property:
-        _functions = ((_member, "func", _member.func),)
-    elif type(_member) is property:
-        _functions = tuple(
-            (_member, name, getattr(_member, name)) for name in ("fget", "fset", "fdel")
-        )
-    else:
-        _functions = ()
-    for _descriptor, _attribute, _function in _functions:
-        if type(_function) is FunctionType:
-            _NATIVE_INTEGRAND_FUNCTIONS.append(
-                (
-                    _descriptor,
-                    _attribute,
-                    _function,
-                    _function.__code__,
-                    _function.__defaults__,
-                    dict(_function.__kwdefaults__ or {}),
-                )
-            )
-_NATIVE_INTEGRAND_FUNCTIONS = tuple(_NATIVE_INTEGRAND_FUNCTIONS)
-del _member, _functions
-
-
-def _native_integrand_class():
-    current = DiagramIntegrand.__dict__
-    if any(type(name) is not str for name in current):
-        return False
-    keys = set(current)
-    if "__slotnames__" in keys:
-        slotnames = current["__slotnames__"]
-        if type(slotnames) is not list or slotnames:
-            return False
-        keys.remove("__slotnames__")
-    if keys != _NATIVE_INTEGRAND_NAMESPACE.keys() or any(
-        current[name] is not member
-        for name, member in _NATIVE_INTEGRAND_NAMESPACE.items()
-    ):
-        return False
-    for (
-        descriptor,
-        attribute,
-        function,
-        code,
-        defaults,
-        kwdefaults,
-    ) in _NATIVE_INTEGRAND_FUNCTIONS:
-        if (
-            attribute is not None
-            and getattr(descriptor, attribute) is not function
-            or function.__code__ is not code
-            or function.__defaults__ is not defaults
-        ):
-            return False
-        actual = function.__kwdefaults__
-        if actual is None:
-            actual = {}
-        elif type(actual) is not dict or any(type(name) is not str for name in actual):
-            return False
-        if actual.keys() != kwdefaults.keys() or any(
-            actual[name] is not value for name, value in kwdefaults.items()
-        ):
-            return False
-    return True
-
-
-_NATIVE_DENSE_PHASE = DiagramIntegrand.__dict__["_e_psi"]
-_NATIVE_DENSE_HELPERS = (
-    _real_or_raise,
-    DiagramIntegrand._resolve_component,
-    DiagramIntegrand._r_factor,
-    DiagramIntegrand._c_product,
-)
-
-
 def _native_dense_integrand(integrand):
+    """Whether the ``"einsum"`` backend may contract this integrand.
+
+    The backend accepts the package's own classes only.  Replacing their
+    methods or the module's helpers at run time is unsupported.
+    """
     from .perturbation import DiagramTerm
 
     return (
         type(integrand) is DiagramIntegrand
-        and _native_integrand_class()
-        and type(integrand.__dict__) is dict
-        and not _NATIVE_INTEGRAND_CALLABLES.intersection(integrand.__dict__)
         and type(integrand.diagram_term) is DiagramTerm
-        and DiagramIntegrand.__dict__.get("_e_psi") is _NATIVE_DENSE_PHASE
-        and all(
-            current is native
-            for current, native in zip(
-                (
-                    _real_or_raise,
-                    DiagramIntegrand._resolve_component,
-                    DiagramIntegrand._r_factor,
-                    DiagramIntegrand._c_product,
-                ),
-                _NATIVE_DENSE_HELPERS,
-            )
-        )
-        and all(
-            getattr(integrand, name) is native
-            for name, native in zip(
-                ("_resolve_component", "_r_factor", "_c_product"),
-                _NATIVE_DENSE_HELPERS[1:],
-            )
-        )
     )
 
 
@@ -8097,10 +7989,12 @@ def integrate_moment(
     Already prepared dense integrands retain their coefficient. See the
     resources guide for exact array semantics and preparation boundaries.
 
-    ``contraction_backend="einsum"`` opts into changed rounding on admitted
-    static dense float64 factors; unsupported cases retain the ordered fold.
+    ``contraction_backend="einsum"`` contracts the prepared static coefficient
+    with the propagator batches in pairwise steps. Its result lies within the
+    error bound stated in the resources guide, which the ordered fold also
+    satisfies, and it falls back to the ordered fold when it cannot keep that
+    bound, would raise differently, or is estimated to be slower.
     ``contraction_max_bytes`` bounds planned array workspace, not total memory.
-    Validate complete results against a chosen tolerance before using it.
     """
     _execution_options(
         propagator_cache_bytes,
@@ -8481,10 +8375,12 @@ def integrate_diagrams(
     Already prepared dense integrands retain their coefficient. See the
     resources guide for exact array semantics and preparation boundaries.
 
-    ``contraction_backend="einsum"`` opts into changed rounding on admitted
-    static dense float64 factors; unsupported cases retain the ordered fold.
+    ``contraction_backend="einsum"`` contracts the prepared static coefficient
+    with the propagator batches in pairwise steps. Its result lies within the
+    error bound stated in the resources guide, which the ordered fold also
+    satisfies, and it falls back to the ordered fold when it cannot keep that
+    bound, would raise differently, or is estimated to be slower.
     ``contraction_max_bytes`` bounds planned array workspace, not total memory.
-    Validate complete results against a chosen tolerance before using it.
     """
     _execution_options(
         propagator_cache_bytes,
