@@ -305,13 +305,11 @@ def test_possible_overflow_declines(admit_all, scales):
 
 @pytest.mark.parametrize(
     "scales",
-    [
-        (1e-300, 1.0, 1.0, 1.0),
-        (1e-100, 1e-100, 1e-100, 1e-100),
-        (np.nextafter(0.0, 1.0), 1.0, 1.0, 1.0),
-    ],
+    [(1e-300, 1.0, 1.0, 1.0), (1e-150, 1e-150, 1.0, 1.0), (1e-100, 1e-100, 1e-50, 1e-40)],
 )
-def test_underflow_ranges_are_admitted(admit_all, scales):
+def test_ranges_near_the_underflow_limit_are_admitted(admit_all, scales):
+    """Products of nonzero inputs stay above 2**-1021; the exact results are
+    larger than the bound, so a zero result would fail."""
     ig, cb, rp, jac, _ = _case()
     coefficient = np.full((2, 2), scales[0], dtype=np.float64)
     coefficient[0, 1] *= -1
@@ -321,6 +319,24 @@ def test_underflow_ranges_are_admitted(admit_all, scales):
     result = _candidate(ig, cb, rp, jac)
     assert result is not None
     _check_bound(ig, cb, rp, jac, [], result)
+    assert np.all(result != 0.0)
+
+
+@pytest.mark.parametrize(
+    "scales",
+    [
+        (1e-100, 1e-100, 1e-100, 1e-100),
+        (np.nextafter(0.0, 1.0), 1.0, 1.0, 1.0),
+        (2.0**-560, 2.0**-560, 2.0**300, 2.0**300),
+    ],
+)
+def test_products_that_can_underflow_decline(admit_all, scales):
+    ig, cb, rp, jac, _ = _case()
+    coefficient = np.full((2, 2), scales[0], dtype=np.float64)
+    coefficient[0, 1] *= -1
+    ig = replace(ig, coupling_array=coefficient)
+    cb = [(cb[0][0] * scales[1], "i", "j")]
+    assert _candidate(ig, cb, rp * scales[2], jac * scales[3]) is None
 
 
 def test_signed_cancellation_is_bounded_not_bitwise(admit_all):
@@ -358,7 +374,7 @@ def test_budget_declines_before_numeric_work(admit_all, monkeypatch):
     def forbidden(*args, **kwargs):
         raise AssertionError("numeric inspection reached under a rejected budget")
 
-    for name in ("finite_maximum", "rotated_real_coefficient", "execute"):
+    for name in ("finite_range", "rotated_real_coefficient", "execute"):
         monkeypatch.setattr(dense, name, forbidden)
     assert _candidate(ig, cb, rp, jac, limit=1) is None
 

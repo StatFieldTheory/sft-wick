@@ -9,6 +9,14 @@ declines, or when the public ``coupling_array`` is read, the ordered
 preparation (``DiagramTerm.evaluate_coupling``) builds the dense coefficient
 from the owned copies and the integrand continues on the ordered fold.
 
+A sum of monomials is prepared only when no two monomials have opposite
+signs at any component assignment.  Monomials that cancel would leave the
+contracted result with an error proportional to the sum of the monomial
+magnitudes, while the ordered fold sums the monomials into one coefficient
+before it multiplies the propagators.  The sign check runs once, on sign
+arrays of the factors, and also counts the nonzero coefficients for the
+cost model.
+
 The contraction budget is a conservative ndarray payload, never process RSS.
 Admission accepts the package's own classes and exact float64 or complex128
 coupling arrays; replacing package methods at run time is unsupported.
@@ -26,11 +34,15 @@ from . import _dense_contraction as _dense
 from . import perturbation as _pt
 from ._coupling_plan import _CouplingPlan
 from ._dense_contraction import (
+    QUARTER_TURNS,
     errors_allow_backend,
+    factorized_overhead,
     finish,
-    finite_maximum,
+    finite_range,
+    fixed_labels_ok,
     kernel_layout,
     live_assignments,
+    minimum_backend_cost,
     ordered_cost,
     plan_groups,
     _native_dtype,
@@ -45,6 +57,13 @@ from .expressions import _NATIVE_NUMERIC_EXPRESSION_CLASSES
 
 #: Payload reserved beside a materialized coefficient.
 _SCAN_RESERVE = 64 * 4096
+#: Element operations the build-time sign check may spend (monomials times
+#: assignments times factors); a sum above it is not prepared.
+_MAX_SIGN_WORK = 2**27
+#: Assignments evaluated together by the sign check.
+_SIGN_CHUNK = 2**20
+#: Largest coefficient whose 0/1 zero pattern is kept for the cost model.
+_MASK_ELEMENTS = 2**16
 #: Lowering limits: expression depth and factors per monomial.
 _MAX_DEPTH = 32
 _MAX_FACTORS = 24
@@ -66,8 +85,9 @@ class _Snapshot:
     #: Coupling names and owned read-only copies of their arrays.
     names: tuple
     arrays: tuple
-    #: ``max|component|`` of each array (its real or imaginary part).
-    maxima: tuple
+    #: :func:`~sft_wick._dense_contraction.finite_range` of each array's
+    #: used component (its real or imaginary part).
+    ranges: tuple
     monomials: tuple
     prop_idx: tuple
     fixed: tuple
@@ -75,6 +95,10 @@ class _Snapshot:
     dtype: type
     e_psi: int
     nbytes: int
+    #: Nonzero entries of the summed coefficient (all entries when unknown).
+    nonzero: int
+    #: Its 0/1 float64 zero pattern over the propagator labels, or ``None``.
+    mask: object
 
 
 class _CoefficientOwner:
@@ -96,6 +120,8 @@ class _CoefficientOwner:
         if self.snapshot is not None:
             for array in self.snapshot.arrays:
                 array.flags.writeable = False
+            if self.snapshot.mask is not None:
+                self.snapshot.mask.flags.writeable = False
 
 
 def share_factorized_owner(view, source):
@@ -134,6 +160,9 @@ def factorized_state(integrand):
 
 #: A coupling name no expression can use; it only carries the complex dtype
 #: of coupling values that are not part of the snapshot.
+#: ``DiagramTerm.evaluate_coupling`` makes its result complex when any value
+#: of the coupling dict is complex, used or not; the materialization test
+#: with an unused complex value pins that rule.
 _DTYPE_WITNESS = " complex"
 
 
@@ -249,30 +278,30 @@ def _contract(snapshot, fixed, cb, rp, jac, rb, e_psi, max_bytes):
         or max_bytes <= 0
         or not errors_allow_backend()
         or e_psi != snapshot.e_psi
-        or type(fixed) is not dict
-        or any(not _ordinary_label(k) or type(v) is not int for k, v in fixed.items())
+        or not fixed_labels_ok(fixed)
+    ):
+        return None
+    if (
+        type(cb) not in (list, tuple)
+        or type(rb) not in (list, tuple)
+        or not _dense._float64(rp)
     ):
         return None
     names = {name: (axis, dim) for axis, (name, dim) in enumerate(snapshot.prop_idx, 1)}
     dims = {axis: dim for axis, dim in names.values()}
-    layout = kernel_layout(cb, rb, rp, jac, names, fixed)
-    if layout is None:
-        return None
     samples = rp.size
     assignments = math.prod(dims.values())
-    estimate = ordered_cost(
-        assignments,
-        assignments,
-        live_assignments(dims, None, layout.supports),
-        layout.n_c,
-        layout.n_r,
-        samples,
-    )
-    # Every monomial costs at least its fixed share; decline before planning.
-    fixed_share = _dense._FACTORIZED_CALL + len(snapshot.monomials) * (
-        _dense._BACKEND_MONOMIAL + _dense._BACKEND_MONOMIAL_SAMPLE * samples
-    )
-    if not _dense.backend_is_cheaper(fixed_share, estimate):
+    nonzero = snapshot.nonzero
+    n_c, n_r = len(cb), len(rb)
+    overhead = factorized_overhead(len(snapshot.monomials), samples)
+    # The ordered estimate with every nonzero assignment live bounds it from
+    # above; the step count of every monomial bounds the backend from below.
+    upper = ordered_cost(assignments, nonzero, nonzero, n_c, n_r, samples)
+    steps = sum(len(m.factors) + 1 + n_c + n_r for m in snapshot.monomials)
+    if not _dense.backend_is_cheaper(overhead + minimum_backend_cost(steps), upper):
+        return None
+    layout = kernel_layout(cb, rb, rp, jac, names, fixed)
+    if layout is None:
         return None
     groups = []
     for monomial in snapshot.monomials:
@@ -288,14 +317,22 @@ def _contract(snapshot, fixed, cb, rp, jac, rb, e_psi, max_bytes):
     contraction, _ = planned
     if contraction.workspace > max_bytes:
         return None
-    cost = contraction.cost + _dense._FACTORIZED_CALL
-    if not _dense.backend_is_cheaper(cost, estimate):
+    cost = contraction.cost + overhead
+    if not _dense.backend_is_cheaper(cost, upper):
         return None
-    maxima = tuple(
-        tuple(snapshot.maxima[slot] for slot, _, _, _ in m.factors)
+    live, count_cost = live_assignments(dims, snapshot.mask, layout.supports)
+    if live is None:
+        return None
+    estimate = ordered_cost(
+        assignments, nonzero, min(live, nonzero), layout.n_c, layout.n_r, samples
+    )
+    if not _dense.backend_is_cheaper(cost + count_cost, estimate):
+        return None
+    ranges = tuple(
+        tuple(snapshot.ranges[slot] for slot, _, _, _ in m.factors)
         for m in snapshot.monomials
     )
-    return finish(contraction, layout, maxima, assignments)
+    return finish(contraction, layout, ranges, assignments)
 
 
 def _integrand_class():
@@ -474,7 +511,7 @@ def try_build_factorized(term, spatial, static_cv, fixed, max_bytes):
 
 
 def _component(array):
-    """``(component, phase, max|component|)`` of a real or imaginary array."""
+    """``(component, phase, range)`` of a real or imaginary array."""
     if _native_dtype(array, np.float64):
         component, phase = array, 1 + 0j
     elif not np.any(array.real):
@@ -483,10 +520,84 @@ def _component(array):
         component, phase = array.real, 1 + 0j
     else:
         return None
-    maximum = finite_maximum(component)
-    if maximum is None:
+    scanned = finite_range(component)
+    if scanned is None:
         return None
-    return component, phase, maximum
+    return component, phase, scanned
+
+
+def _chunks(shape, limit):
+    """Prefix length ``p`` and the prefix assignments of a chunked scan.
+
+    The trailing ``shape[p:]`` holds at most ``limit`` elements; ``None`` when
+    that takes more than 4096 chunks.
+    """
+    for p in range(len(shape) + 1):
+        if math.prod(shape[p:]) <= limit:
+            if math.prod(shape[:p]) > 4096:
+                return None
+            return p, np.ndindex(*shape[:p])
+    return None
+
+
+def _coefficient_pattern(monomials, components, shape, available):
+    """Sign agreement and zero pattern of the summed coefficient.
+
+    The sign of monomial ``t`` at assignment ``a`` is the sign of its real
+    phase times the signs of its factor entries, computed exactly on int8
+    sign arrays.  Returns ``(nonzero, mask)``: the number of assignments
+    where some monomial is nonzero and, for at most ``_MASK_ELEMENTS``
+    assignments, that pattern as a 0/1 float64 array.  Returns ``None``
+    when two monomials have opposite signs at some assignment, or when a sum
+    cannot be checked within ``_MAX_SIGN_WORK`` and ``available`` bytes; a
+    single monomial that cannot be checked gives ``(assignments, None)``.
+    """
+    assignments = math.prod(shape)
+    terms = len(monomials)
+    unchecked = None if terms > 1 else (assignments, None)
+    work = assignments * sum(len(m.factors) + 1 for m in monomials)
+    keep_mask = assignments <= _MASK_ELEMENTS
+    available -= sum(component.size for component, _, _ in components)
+    available -= 8 * assignments if keep_mask else 0
+    chunked = _chunks(shape, min(_SIGN_CHUNK, available // 4))
+    if work > _MAX_SIGN_WORK or available < 4 or chunked is None:
+        return unchecked
+    p, prefixes = chunked
+    signs = [np.sign(component).astype(np.int8) for component, _, _ in components]
+    tail = list(range(p + 1, len(shape) + 1))
+    ones = np.broadcast_to(np.ones((), dtype=np.int8), shape[p:])
+    mask = np.zeros(shape, dtype=np.float64) if keep_mask else None
+    nonzero = 0
+    for prefix in prefixes:
+        positive = np.zeros(shape[p:], dtype=bool)
+        negative = np.zeros(shape[p:], dtype=bool)
+        for monomial in monomials:
+            if monomial.phase == 0.0:
+                continue
+            operands = [ones, tail]
+            for slot, _, slices, labels in monomial.factors:
+                index = tuple(
+                    prefix[label - 1] if label <= p else slice(None) for label in labels
+                )
+                kept = [label for label in labels if label > p]
+                operands += [signs[slot][slices][index], kept]
+            value = np.einsum(*operands, tail)
+            if monomial.phase < 0.0:
+                positive |= value < 0
+                negative |= value > 0
+            else:
+                positive |= value > 0
+                negative |= value < 0
+            # Stop at the first monomial that conflicts with an earlier one.
+            if terms > 1 and np.any(positive & negative):
+                return None
+        present = positive | negative
+        nonzero += int(np.count_nonzero(present))
+        if mask is not None:
+            mask[prefix] = present
+    if mask is not None:
+        mask.flags.writeable = False
+    return nonzero, mask
 
 
 def _lower(expression, static_cv, names, fixed):
@@ -568,6 +679,60 @@ def _lower(expression, static_cv, names, fixed):
     return groups, used
 
 
+def _prefactor(term):
+    """``(-i)**n_response`` times the rational prefactor, or ``None``."""
+    rational = term.rational_prefactor
+    n_response = term.n_response
+    e_psi = term.n_external_response
+    if (
+        type(rational) is not Rational
+        or type(rational.numerator) is not int
+        or type(rational.denominator) is not int
+        or not rational.denominator
+        or type(n_response) is not int
+        or not 0 <= n_response <= 1024
+        or type(e_psi) is not int
+        or not 0 <= e_psi <= 1024
+        or (1j) ** e_psi not in QUARTER_TURNS
+    ):
+        return None
+    try:
+        prefactor = [1.0, -1j, -1.0, 1j][n_response % 4] * (
+            rational.numerator / rational.denominator
+        )
+    except (OverflowError, ZeroDivisionError):
+        return None
+    if not math.isfinite(abs(prefactor)) or prefactor == 0:
+        return None
+    return prefactor
+
+
+def _monomials(groups, components, prefactor, e_psi):
+    """The lowered monomials with their real scalar phases, or ``None``.
+
+    Each term must be real after the observable's phase on its own;
+    imaginary terms are never admitted through cancellation against each
+    other.
+    """
+    monomials = []
+    for factors in groups:
+        scalar = complex(prefactor) * (1j**e_psi)
+        operands = []
+        for factor in factors:
+            if factor[0] == "s":
+                _, phase, _ = components[factor[1]]
+                scalar *= phase
+                operands.append((factor[1], phase == 1j, factor[2], factor[3]))
+            elif factor[0] == "r":
+                scalar *= factor[1]
+            else:
+                scalar *= 1j
+        if scalar.imag != 0 or not math.isfinite(scalar.real):
+            return None
+        monomials.append(_Monomial(tuple(operands), scalar.real))
+    return monomials
+
+
 def _try_build_factorized(term, spatial, static_cv, fixed, max_bytes):
     """Return a lazy factorized integrand, otherwise decline with ``None``.
 
@@ -582,8 +747,7 @@ def _try_build_factorized(term, spatial, static_cv, fixed, max_bytes):
         or not _native_term(term)
         or type(static_cv) is not dict
         or any(type(name) is not str for name in static_cv)
-        or type(fixed) is not dict
-        or any(not _ordinary_label(k) or type(v) is not int for k, v in fixed.items())
+        or not fixed_labels_ok(fixed)
     ):
         return None
     for value in static_cv.values():
@@ -600,29 +764,10 @@ def _try_build_factorized(term, spatial, static_cv, fixed, max_bytes):
     prop_idx = term.propagator_indices
     if prop_idx != summation or math.prod(dim for _, dim in prop_idx) <= 1:
         return None
-    rational = term.rational_prefactor
-    n_response = term.n_response
+    prefactor = _prefactor(term)
+    if prefactor is None:
+        return None
     e_psi = term.n_external_response
-    if (
-        type(rational) is not Rational
-        or type(rational.numerator) is not int
-        or type(rational.denominator) is not int
-        or not rational.denominator
-        or type(n_response) is not int
-        or not 0 <= n_response <= 1024
-        or type(e_psi) is not int
-        or not 0 <= e_psi <= 1024
-        or (1j) ** e_psi not in (1 + 0j, 1j, -1 + 0j, -1j)
-    ):
-        return None
-    try:
-        prefactor = [1.0, -1j, -1.0, 1j][n_response % 4] * (
-            rational.numerator / rational.denominator
-        )
-    except (OverflowError, ZeroDivisionError):
-        return None
-    if not math.isfinite(abs(prefactor)) or prefactor == 0:
-        return None
     lowered = _lower(term.coupling_sum, static_cv, names, fixed)
     if lowered is None:
         return None
@@ -642,25 +787,21 @@ def _try_build_factorized(term, spatial, static_cv, fixed, max_bytes):
             return None
         arrays.append(owned)
         components.append(component)
-    maxima = tuple(component[2] for component in components)
-    monomials = []
-    for factors in groups:
-        scalar = complex(prefactor) * (1j**e_psi)
-        operands = []
-        for factor in factors:
-            if factor[0] == "s":
-                _, phase, _ = components[factor[1]]
-                scalar *= phase
-                operands.append((factor[1], phase == 1j, factor[2], factor[3]))
-            elif factor[0] == "r":
-                scalar *= factor[1]
-            else:
-                scalar *= 1j
-        # Each term obeys the action phase on its own; imaginary terms are
-        # never admitted through cancellation against each other.
-        if scalar.imag != 0 or not math.isfinite(scalar.real):
-            return None
-        monomials.append(_Monomial(tuple(operands), scalar.real))
+    ranges = tuple(component[2] for component in components)
+    monomials = _monomials(groups, components, prefactor, e_psi)
+    if monomials is None:
+        return None
+    pattern = _coefficient_pattern(
+        monomials,
+        components,
+        tuple(dim for _, dim in prop_idx),
+        max_bytes - nbytes - _SCAN_RESERVE,
+    )
+    if pattern is None:
+        return None
+    nonzero, mask = pattern
+    if mask is not None:
+        nbytes += mask.nbytes
     dtype = (
         complex
         if isinstance(prefactor, complex)
@@ -673,13 +814,15 @@ def _try_build_factorized(term, spatial, static_cv, fixed, max_bytes):
     snapshot = _Snapshot(
         tuple(used),
         tuple(arrays),
-        maxima,
+        ranges,
         tuple(monomials),
         prop_idx,
         tuple(fixed.items()),
         dtype,
         e_psi,
         nbytes,
+        nonzero,
+        mask,
     )
     cls = _integrand_class()
     integrand = cls(

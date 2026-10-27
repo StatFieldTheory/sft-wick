@@ -335,9 +335,8 @@ def test_public_custom_numerical_contract_retains_ordered_dispatch(
 
 
 @pytest.mark.parametrize("helper", ["_c_product", "_r_factor"])
-@pytest.mark.parametrize("backend", ["ordered"])
 def test_public_same_instance_helper_override_survives_backend_binding(
-    monkeypatch, system_case, helper, backend
+    monkeypatch, system_case, helper
 ):
     _, props, _ = system_case
     integrand = _term().build_integrand(_values())
@@ -360,7 +359,7 @@ def test_public_same_instance_helper_override_survives_backend_binding(
         lambda *a, **k: pytest.fail("instance override entered dense backend"),
     )
     candidate = integrate_moment(
-        integrand, 1.0, props.cache, contraction_backend=backend, **_kw()
+        integrand, 1.0, props.cache, contraction_backend="ordered", **_kw()
     )
     assert calls and _signature(candidate) == _signature(baseline)
     assert integrand.__dict__[helper] is customized

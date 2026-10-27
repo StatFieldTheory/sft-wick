@@ -289,16 +289,34 @@ def test_possible_overflow_declines_at_contraction():
     assert _contract(snapshot, {}, cb, rp, jac, rb, 0, LIMIT) is None
 
 
-@pytest.mark.parametrize("scale", [1e-300, 1e-200, 1e-160])
-def test_underflow_ranges_are_contracted_within_the_bound(scale):
+def _scaled_factors(scale):
     term, cv, _, _, cb, rp, jac, rb = _case()
     signs = np.where(np.arange(8).reshape(2, 2, 2) % 3, 1.0, -1.0)
     cv["F"] = np.full((2, 2, 2), scale) * signs
     cv["G"] = np.full((2, 2, 2), scale)
     candidate = try_build_factorized(term, analyze_spatial(term), cv, {}, LIMIT)
+    return term, cv, candidate, cb, rp, jac, rb
+
+
+@pytest.mark.parametrize("scale", [1e-150, 1e-145])
+def test_ranges_near_the_underflow_limit_are_contracted_within_the_bound(scale):
+    """F G is about 1e-300, every product stays above 2**-1021, and the
+    exact results are larger than the bound."""
+    term, cv, candidate, cb, rp, jac, rb = _scaled_factors(scale)
     fused = _values(candidate, cb, rp, jac, rb)
     assert _stored(candidate)["_factorized_plan"] is not None
     _within_bound(term, cv, {}, fused, cb, rp, jac, rb)
+    assert np.all(fused != 0.0)
+
+
+@pytest.mark.parametrize("scale", [1e-300, 1e-200, 1e-160])
+def test_products_that_can_underflow_materialize(scale):
+    term, cv, candidate, cb, rp, jac, rb = _scaled_factors(scale)
+    baseline = term.build_integrand(cv, {})
+    np.testing.assert_array_equal(
+        _values(candidate, cb, rp, jac, rb), _values(baseline, cb, rp, jac, rb)
+    )
+    assert _stored(candidate)["_factorized_plan"] is None
 
 
 def test_budget_build_decline_and_runtime_fallback():
@@ -584,14 +602,26 @@ def test_positive_sum_materialization_matches_builtin_compensation_and_compiler(
 
 
 @pytest.mark.parametrize("kind", ["opposite_term", "mixed_tensor"])
-def test_signed_sums_are_contracted_within_the_bound(kind):
-    term, cv, _, _, cb, rp, jac, rb = _case()
+def test_sums_with_opposite_signs_decline(kind):
+    """Opposite signs at an assignment would let the monomials cancel."""
+    term, cv, _, _, _, _, _, _ = _case()
     first = term.coupling_sum
     second = Product((Rational(-2, 3), *first.factors[::-1]))
     if kind == "mixed_tensor":
         cv["F"] = cv["F"].copy()
         cv["F"].flat[::3] *= -1
         second = Product((Symbol("F", ("j", "i", "k")), Symbol("G", ("b", "a", "c"))))
+    term = replace(term, coupling_sum=Sum((first, second)))
+    assert try_build_factorized(term, analyze_spatial(term), cv, {"p": 1}, LIMIT) is None
+
+
+def test_signed_tensors_with_agreeing_monomials_are_contracted_within_the_bound():
+    """F of both signs; both monomials carry F's sign at every assignment."""
+    term, cv, _, _, cb, rp, jac, rb = _case()
+    cv["F"] = cv["F"].copy()
+    cv["F"].flat[::3] *= -1
+    first = term.coupling_sum
+    second = Product((Rational(2, 3), *first.factors[::-1]))
     term = replace(term, coupling_sum=Sum((first, second)))
     candidate = try_build_factorized(term, analyze_spatial(term), cv, {"p": 1}, LIMIT)
     assert candidate is not None
@@ -608,21 +638,18 @@ def test_sum_declines_imaginary_cancellation_between_terms():
     assert try_build_factorized(term, analyze_spatial(term), cv, {}, LIMIT) is None
 
 
-def test_known_compensated_cancellation_sum_materializes_like_ordered():
-    term, _, _, _, cb, rp, jac, rb = _case()
+def test_known_compensated_cancellation_sum_retains_original_path():
+    term, _, _, _, _, _, _, _ = _case()
     cv = {"F": np.ones((2,) * 3), "G": np.ones((2,) * 3)}
     magnitudes = [10**16, 1, -(10**16), 1, 1, 1, 1, 1]
     expression = Sum(
         tuple(Product((Rational(m), *term.coupling_sum.factors)) for m in magnitudes)
     )
     term = replace(term, coupling_sum=expression)
-    candidate = try_build_factorized(term, analyze_spatial(term), cv, {}, LIMIT)
-    assert candidate is not None
-    fused = _values(candidate, cb, rp, jac, rb)
-    _within_bound(term, cv, {}, fused, cb, rp, jac, rb, terms=len(magnitudes))
+    assert try_build_factorized(term, analyze_spatial(term), cv, {}, LIMIT) is None
+    actual = term.build_integrand(cv).coupling_array
     np.testing.assert_array_equal(
-        candidate.coupling_array,
-        np.full((2,) * 6, sum(map(float, magnitudes)) * (3 / 7)),
+        actual, np.full((2,) * 6, sum(map(float, magnitudes)) * (3 / 7))
     )
 
 

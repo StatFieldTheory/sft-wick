@@ -49,7 +49,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     "tests/test_factorized_coupling.py": (
         "Integrators",
         "original static monomial snapshots, lazy true ndarray materialization, "
-        "signed and long sums, runtime layouts and refusals, budget failures, pickle boundaries",
+        "sign-agreeing and long sums, sums with opposite signs declined, underflow ranges, "
+        "runtime layouts and refusals, budget failures, pickle boundaries",
         "ordered DiagramTerm component evaluation; Fraction sum over monomials",
         "exact materialized dtype/bytes and fallback results; documented error bound",
     ),
@@ -85,18 +86,23 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     "tests/test_dense_contraction_backend.py": (
         "Integrators",
         "einsum backend admission: coefficient phase rule, zeros, pins/repeated labels, "
-        "diagonal/index-free/partial-support kernels, overflow and underflow ranges, "
+        "diagonal/index-free/partial-support kernels, overflow decline, ranges near the "
+        "underflow limit admitted and products that can underflow declined, "
         "dtype/budget/error-policy declines, cost rule on small fixtures",
         "Fraction sum over component assignments with the ordered semantics; ordered fold",
-        "documented bound 1.01 (m + A T) u S + m A T 2**-1074 P; 1e-12 relative to ordered",
+        "documented bound 1.01 (m + A T) u S; 1e-12 relative to ordered",
     ),
     "tests/test_contraction_error_bound.py": (
         "Integrators",
         "error-bound contract of the einsum and factorized backends on generic signed N = 3 "
-        "diagrams, non-finite values behind zeros, overflow decline, no -0.0, cost-rule "
-        "decline of a 64-monomial sum, admission on L1 diagrams",
-        "Fraction sum over component assignments (dense and per-monomial), ordered fold",
-        "documented bound 1.01 (m + A T) u S + m A T 2**-1074 P; L1 diagrams 1e-12 of the largest",
+        "diagrams, non-finite values behind zeros, overflow and underflow-risk declines, "
+        "monomials of opposite sign declined, unsupported diagonal R entry, no -0.0, "
+        "planner workspace of a four-tensor monomial, live-assignment count and "
+        "coefficient zero pattern, cost-rule decline of a 64-monomial sum, admission on "
+        "L1 diagrams",
+        "Fraction sum over component assignments (dense and summed monomials), ordered fold",
+        "documented bound 1.01 (m + A T) u S with S from the summed coefficient; 1e-12 "
+        "relative where a decline keeps the ordered value; L1 diagrams 1e-12 of the largest",
     ),
     "tests/test_resource_controls.py": (
         "Workflow and YAML",

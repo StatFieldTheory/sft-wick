@@ -135,17 +135,18 @@ def resource_controls(cfg: WorkflowConfig) -> list[dict]:
     backend = sw.contraction_backend
     status = "conditional" if backend in {"einsum", "factorized"} else "disabled"
     reason = (
-        "native static dense float64 factors and exact coefficient phase only; "
-        "requires complete-result tolerance validation; unsupported/budget/range cases fall back; "
-        "existing coefficient preparation remains"
+        "native static float64 batches; within the documented error bound; "
+        "non-finite, overflow or underflow risk, phase-error, budget or cost-rule "
+        "cases run the ordered fold; existing coefficient preparation remains"
         if backend in {"einsum", "factorized"}
         else "ordered component assignment fold"
     )
     if backend == "factorized":
         reason = (
-            "snapshotted native static monomial factors; avoid dense coefficient preparation "
-            "only when admitted; explicit rounding validation and array-payload budget; "
-            "oversized dense fallback fails before allocation"
+            "snapshotted native static monomial factors; within the documented error "
+            "bound; sums whose monomials have opposite signs, non-finite, overflow or "
+            "underflow risk, budget or cost-rule cases materialize the coefficient and "
+            "run the ordered fold; oversized dense fallback fails before allocation"
         )
     if backend == "einsum" and sw.method in {"qmc_scalar", "nquad"}:
         status, reason = "ignored", "method does not use the static batch contraction"

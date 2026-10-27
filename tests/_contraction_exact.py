@@ -8,6 +8,8 @@ the backends compute with the same NumPy call; the reference applies the
 same transform to obtain its inputs.
 
 ``bound`` is the accuracy contract of :mod:`sft_wick._dense_contraction`.
+Its scale ``S`` is always built from the summed coefficient ``c(a)`` that the
+ordered fold multiplies, never from the magnitudes of separate monomials.
 """
 
 from fractions import Fraction
@@ -17,7 +19,6 @@ import numpy as np
 from sft_wick.expressions import ImaginaryUnit, Product, Rational, Sum, Symbol
 
 U = Fraction(1, 2**53)
-ETA = Fraction(1, 2**1074)
 
 
 def dense_coefficients(coeff, e_psi):
@@ -42,11 +43,14 @@ def _times(a, b):
 
 
 def monomial_coefficients(term, values, fixed=None):
-    """``{assignment: (sum_t c_t, sum_t |c_t|)}`` from the original factors.
+    """``{assignment: (c, |c|)}`` with ``c = sum_t c_t`` from the original factors.
 
     Each monomial is multiplied out exactly, including the response phase
     ``(-i)**n_response``, the rational prefactor and the observable rotation
-    ``i**E_psi``; every rotated monomial must be real.
+    ``i**E_psi``; every rotated monomial must be real.  The scale is ``|c|``,
+    the magnitude of the coefficient the ordered fold uses, so a backend
+    whose error grows with ``sum_t |c_t|`` fails the bound when monomials
+    cancel.
     """
     names = [name for name, _ in term.propagator_indices]
     shape = tuple(dim for _, dim in term.propagator_indices)
@@ -91,7 +95,7 @@ def monomial_coefficients(term, values, fixed=None):
             total += value[0]
             magnitude += abs(value[0])
         if magnitude:
-            table[index] = (total, magnitude)
+            table[index] = (total, abs(total))
     return table
 
 
@@ -137,12 +141,9 @@ def exact_sum(table, prop_idx, fixed, c_batches, r_product, jacobians, r_batches
     return exact, scale
 
 
-def bound(scale, factors, assignments, terms=1, maxima_product=1):
-    """The documented error bound for one sample."""
-    accumulated = factors + assignments * terms
-    return Fraction(101, 100) * accumulated * U * scale + (
-        factors * assignments * terms * ETA * Fraction(maxima_product)
-    )
+def bound(scale, factors, assignments, terms=1):
+    """The documented error bound ``1.01 (m + A T) u S`` for one sample."""
+    return Fraction(101, 100) * (factors + assignments * terms) * U * scale
 
 
 def errors_in_units(values, exact, scale):
@@ -157,11 +158,19 @@ def errors_in_units(values, exact, scale):
     return float(worst)
 
 
-def assert_within_bound(
-    values, exact, scale, factors, assignments, terms=1, maxima_product=1
-):
+def assert_within_bound(values, exact, scale, factors, assignments, terms=1):
     assert len(values) == len(exact)
     for value, reference, size in zip(values, exact, scale):
         error = abs(Fraction(float(value)) - reference)
-        limit = bound(size, factors, assignments, terms, maxima_product)
+        limit = bound(size, factors, assignments, terms)
         assert error <= limit, (float(value), float(reference), float(error), float(limit))
+
+
+def assert_relative(values, exact, tolerance):
+    """``|value - exact| <= tolerance * |exact|`` at every sample."""
+    for value, reference in zip(values, exact):
+        error = abs(Fraction(float(value)) - reference)
+        assert error <= Fraction(tolerance) * abs(reference), (
+            float(value),
+            float(reference),
+        )

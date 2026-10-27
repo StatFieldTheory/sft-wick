@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **4212 tests** in 107 files (parametrised
+The suite has **4234 tests** in 107 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -252,7 +252,7 @@ Propagator numerics
 Integrators
 -----------
 
-*1736 tests in 50 files.*
+*1758 tests in 50 files.*
 
 .. list-table::
    :header-rows: 1
@@ -284,10 +284,10 @@ Integrators
      - exact
      - 14
    * - ``test_contraction_error_bound.py``
-     - error-bound contract of the einsum and factorized backends on generic signed N = 3 diagrams, non-finite values behind zeros, overflow decline, no -0.0, cost-rule decline of a 64-monomial sum, admission on L1 diagrams
-     - Fraction sum over component assignments (dense and per-monomial), ordered fold
-     - documented bound 1.01 (m + A T) u S + m A T 2**-1074 P; L1 diagrams 1e-12 of the largest
-     - 37
+     - error-bound contract of the einsum and factorized backends on generic signed N = 3 diagrams, non-finite values behind zeros, overflow and underflow-risk declines, monomials of opposite sign declined, unsupported diagonal R entry, no -0.0, planner workspace of a four-tensor monomial, live-assignment count and coefficient zero pattern, cost-rule decline of a 64-monomial sum, admission on L1 diagrams
+     - Fraction sum over component assignments (dense and summed monomials), ordered fold
+     - documented bound 1.01 (m + A T) u S with S from the summed coefficient; 1e-12 relative where a decline keeps the ordered value; L1 diagrams 1e-12 of the largest
+     - 53
    * - ``test_coupling_scale_invariance.py``
      - small indexed static/dynamic coefficients times large kernels, cancellation and nonzero phase checks
      - ordinary multiplication and summation under reciprocal rescaling
@@ -369,10 +369,10 @@ Integrators
      - 1e-10 (exact C) / 2e-3 (table)
      - 11
    * - ``test_dense_contraction_backend.py``
-     - einsum backend admission: coefficient phase rule, zeros, pins/repeated labels, diagonal/index-free/partial-support kernels, overflow and underflow ranges, dtype/budget/error-policy declines, cost rule on small fixtures
+     - einsum backend admission: coefficient phase rule, zeros, pins/repeated labels, diagonal/index-free/partial-support kernels, overflow decline, ranges near the underflow limit admitted and products that can underflow declined, dtype/budget/error-policy declines, cost rule on small fixtures
      - Fraction sum over component assignments with the ordered semantics; ordered fold
-     - documented bound 1.01 (m + A T) u S + m A T 2**-1074 P; 1e-12 relative to ordered
-     - 67
+     - documented bound 1.01 (m + A T) u S; 1e-12 relative to ordered
+     - 70
    * - ``test_diag_fast_component_labels.py``
      - observable component labels pinned through fixed_indices on a C propagator in the iso_R + diag_C scalar fast path; the Kronecker delta between C legs when il != ir
      - numpy hand contraction over the full C matrices; all five backends against each other; the label-blind value shown to differ; independent two-state OU covariance
@@ -394,10 +394,10 @@ Integrators
      - exact
      - 5
    * - ``test_factorized_coupling.py``
-     - original static monomial snapshots, lazy true ndarray materialization, signed and long sums, runtime layouts and refusals, budget failures, pickle boundaries
+     - original static monomial snapshots, lazy true ndarray materialization, sign-agreeing and long sums, sums with opposite signs declined, underflow ranges, runtime layouts and refusals, budget failures, pickle boundaries
      - ordered DiagramTerm component evaluation; Fraction sum over monomials
      - exact materialized dtype/bytes and fallback results; documented error bound
-     - 101
+     - 104
    * - ``test_gauss_legendre_integrator.py``
      - tensor-product Gauss-Legendre time integration on the causal simplex
      - hand-derived quadrature; QMC
