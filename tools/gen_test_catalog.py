@@ -92,6 +92,19 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Fraction sum over component assignments with the ordered semantics; ordered fold",
         "documented bound 1.01 (m + A T) u S; 1e-12 relative to ordered",
     ),
+    "tests/test_contraction_admission_rules.py": (
+        "Integrators",
+        "admission rules of the einsum and factorized backends one at a time: smallest "
+        "nonzero magnitude of a mixed-sign array (negative, positive, subnormal, beside "
+        "zeros and -0.0) and the underflow declines it decides, sum headroom on both "
+        "sides of the overflow limit and an ordered sum that overflows under "
+        "over='raise', structural zeros (distinct fixed components, conflicting pins), "
+        "factor-sign proof for one-signed tensors in monomials of opposite sign",
+        "magnitudes sorted in Python; Fraction sum over component assignments; ordered "
+        "fold and its floating-point error",
+        "exact equality of ranges; documented bound 1.01 (m + A T) u S; identical value "
+        "or error where a backend declines",
+    ),
     "tests/test_contraction_error_bound.py": (
         "Integrators",
         "error-bound contract of the einsum and factorized backends on generic signed N = 3 "
