@@ -1099,13 +1099,18 @@ def _single_label_response_case(kind, rng):
     against a scalar R product with no R batch (``"scalar"``).  The coupling
     ``(5/7) B(j, k)`` does not carry ``i``, so the ordered fold adds the same
     product once for every value of ``i``.  ``"sum"`` adds the monomial
-    ``(2/3) B(j, k) w(i)``, which carries ``i``, and ``"covered"`` uses that
-    monomial alone.
+    ``(2/3) B(j, k) w(i)``, which carries ``i``, ``"sum_reversed"`` adds the
+    same two monomials in the other order, so a check of the first monomial
+    alone cannot pass both, and ``"covered"`` uses the second monomial alone.
     """
     left, right = {"trace_right": (None, "i"), "scalar": ("i", "i")}.get(kind, ("i", None))
     first = Product((Rational(5, 7), Symbol("B", ("j", "k"))))
     second = Product((Rational(2, 3), Symbol("B", ("j", "k")), Symbol("w", ("i",))))
-    coupling = {"sum": Sum((first, second)), "covered": second}.get(kind, first)
+    coupling = {
+        "sum": Sum((first, second)),
+        "sum_reversed": Sum((second, first)),
+        "covered": second,
+    }.get(kind, first)
     term = DiagramTerm(
         (
             Propagator("C", "j", "k", "x", "y"),
@@ -1126,7 +1131,9 @@ def _single_label_response_case(kind, rng):
     return term, values, {"a": 2}, cb, rb, _signed(rng, SAMPLES), _signed(rng, SAMPLES)
 
 
-@pytest.mark.parametrize("kind", ["trace_left", "trace_right", "scalar", "sum", "covered"])
+@pytest.mark.parametrize(
+    "kind", ["trace_left", "trace_right", "scalar", "sum", "sum_reversed", "covered"]
+)
 def test_factorized_sums_a_label_that_only_a_single_label_response_carries(
     admit_all, kind
 ):
@@ -1143,7 +1150,7 @@ def test_factorized_sums_a_label_that_only_a_single_label_response_carries(
     ordered = _ordered(term.build_integrand(values, fixed), cb, rp, jac, rb)
     table = exact.monomial_coefficients(term, values, fixed)
     reference, scale = exact.exact_sum(table, term.propagator_indices, fixed, cb, rp, jac, rb)
-    terms = 2 if kind == "sum" else 1
+    terms = 2 if kind.startswith("sum") else 1
     # Two tensors, the rational, the prefactor, two C kernels, R, rp and jac.
     for result in (fused, ordered):
         exact.assert_within_bound(result, reference, scale, 9, N**3, terms)
