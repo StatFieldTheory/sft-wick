@@ -435,9 +435,12 @@ def _threshold_arrays(seed, coupling):
     data of order one on the second block. Every word of a query that
     contains slot 0 passes through observable 0, so the statistic is
     ``coupling**k`` times a fixed number, with ``k`` the slots other than 0,
-    while the second block keeps the Frobenius norms of order one. With one
-    nonzero per row, every entry of a float64 product is one rounded product,
-    so the float64 contraction does not depend on the BLAS summation order.
+    while the second block keeps the Frobenius norms of order one. Every
+    entry is a seeded normal draw, or ``coupling`` times one, so the arrays
+    are fixed by the seed and the bits of ``coupling``. With one nonzero per
+    row, every entry of a float64 product of these arrays is one rounded
+    product, so their float64 contraction does not depend on the BLAS
+    summation order.
     """
     random = np.random.default_rng(seed)
     latent = _UPPER + _LOWER
@@ -453,30 +456,30 @@ def _threshold_arrays(seed, coupling):
     return matrices, endpoints
 
 
+def _norm(array):
+    """Frobenius norm from a correctly rounded sum of the rounded squares."""
+    return math.sqrt(math.fsum(value * value for value in np.ravel(array).tolist()))
+
+
 def _frobenius_bound(matrices, endpoints, slots, divisor):
-    """The 0.7.0 bound: ring and endpoint-chain products of Frobenius norms."""
+    """The 0.7.0 bound: ring and endpoint-chain products of Frobenius norms.
+
+    The sums go through ``math.fsum``, so the bits of the bound do not depend
+    on the BLAS or on the summation of the builtin ``sum``, which changed in
+    Python 3.12.
+    """
     order = len(slots)
-    matrix = {index: float(np.linalg.norm(matrices[index])) for index in set(slots)}
-    endpoint = {index: float(np.linalg.norm(endpoints[index])) for index in set(slots)}
+    matrix = {index: _norm(matrices[index]) for index in set(slots)}
+    endpoint = {index: _norm(endpoints[index]) for index in set(slots)}
     ring = math.factorial(order) * 2 ** (order - 1) / order
     ring *= math.prod(matrix[index] for index in slots)
-    chain = 2.0 ** (order - 3) * sum(
+    chain = 2.0 ** (order - 3) * math.fsum(
         endpoint[word[0]]
         * endpoint[word[-1]]
         * math.prod(matrix[index] for index in word[1:-1])
         for word in itertools.permutations(slots)
     )
     return (ring + chain) / divisor
-
-
-def _arrays_at_ratio(seed, slots, divisor, ratio):
-    """Arrays whose float64 statistic is ``ratio`` times the 0.7.0 bound."""
-    power = sum(slot != 0 for slot in slots)
-    probe = 1e-10
-    arrays = _threshold_arrays(seed, probe)
-    measured = abs(float(float_statistic(*arrays, slots, divisor)))
-    measured /= _frobenius_bound(*arrays, slots, divisor)
-    return _threshold_arrays(seed, probe * (ratio / measured) ** (1 / power))
 
 
 def _query_slots(query, argument):
@@ -488,31 +491,64 @@ def _query_slots(query, argument):
 
 
 _THRESHOLD = 1e-10
-# Each seed is the first one at which the float64 value differs from the
-# correctly rounded exact value at all four ratios; the test asserts it.
-# No seed below 600 does so for (0, 0, 1, 1), which is left out.
-_THRESHOLD_QUERIES = [
-    ("mixed_cumulant", (0, 1), 18),
-    ("mixed_cumulant", (0, 0, 1), 0),
-    ("mixed_cumulant", (0, 1, 2), 5),
-    ("mixed_cumulant", (0, 0, 0, 1), 42),
-    ("mixed_cumulant", (0, 1, 1, 1), 8),
-    ("mixed_cumulant", (0, 0, 1, 2), 5),
-    ("joint_coefficient", (3, 1, 0), 76),
-    ("joint_coefficient", (1, 2, 1), 2),
+# Query, argument, seed, target ratio of the float64 statistic to the bound,
+# and the coupling as float64 bits. Each coupling was computed once as
+# 1e-10 * (ratio / s) ** (1 / k), with s the float64 statistic over
+# _frobenius_bound at coupling 1e-10 and k the slots other than 0. The stored
+# bits give every interpreter and BLAS the same arrays; a change of the NumPy
+# random stream would move the ratio and fail its assertion. Each seed is the
+# first at which all four couplings meet the preconditions the test asserts:
+# no floating-point exception, the ratio within a relative 1e-3, admission by
+# the certificate, and a float64 value other than the correctly rounded one.
+# Python 3.10 with NumPy 2.2 and Python 3.14 with NumPy 2.4 pick the same
+# seeds and couplings. No seed below 600 meets them for (0, 0, 1, 1), which
+# is left out.
+_THRESHOLD_CASES = [
+    ("mixed_cumulant", (0, 1), 6, 2e-10, "0x1.3c1b5e7ed1c6fp-26"),
+    ("mixed_cumulant", (0, 1), 6, 1.2e-10, "0x1.7b540afe95553p-27"),
+    ("mixed_cumulant", (0, 1), 6, 8e-11, "0x1.f9c563fe1c718p-28"),
+    ("mixed_cumulant", (0, 1), 6, 4.5e-11, "0x1.1c7f083eefffep-28"),
+    ("mixed_cumulant", (0, 0, 1), 0, 2e-10, "0x1.dd8470b803dedp-28"),
+    ("mixed_cumulant", (0, 0, 1), 0, 1.2e-10, "0x1.1e82aa0802528p-28"),
+    ("mixed_cumulant", (0, 0, 1), 0, 8e-11, "0x1.7e038d600318ap-29"),
+    ("mixed_cumulant", (0, 0, 1), 0, 4.5e-11, "0x1.adc3ff0c037bbp-30"),
+    ("mixed_cumulant", (0, 1, 2), 9, 2e-10, "0x1.85d975d221428p-14"),
+    ("mixed_cumulant", (0, 1, 2), 9, 1.2e-10, "0x1.2df9e0f187d4fp-14"),
+    ("mixed_cumulant", (0, 1, 2), 9, 8e-11, "0x1.ed1ff8a4cbd3cp-15"),
+    ("mixed_cumulant", (0, 1, 2), 9, 4.5e-11, "0x1.71d7fa7b98dedp-15"),
+    ("mixed_cumulant", (0, 0, 0, 1), 4, 2e-10, "0x1.0fe646293297ap-25"),
+    ("mixed_cumulant", (0, 0, 0, 1), 4, 1.2e-10, "0x1.46478764a31c6p-26"),
+    ("mixed_cumulant", (0, 0, 0, 1), 4, 8e-11, "0x1.b30a09db8425dp-27"),
+    ("mixed_cumulant", (0, 0, 0, 1), 4, 4.5e-11, "0x1.e96b4b16f4aa9p-28"),
+    ("mixed_cumulant", (0, 1, 1, 1), 8, 2e-10, "0x1.ae6a3b87ef2b5p-8"),
+    ("mixed_cumulant", (0, 1, 1, 1), 8, 1.2e-10, "0x1.6b06aaf47fa1ep-8"),
+    ("mixed_cumulant", (0, 1, 1, 1), 8, 8e-11, "0x1.3d21e9082bfedp-8"),
+    ("mixed_cumulant", (0, 1, 1, 1), 8, 4.5e-11, "0x1.05c97e0a5ed27p-8"),
+    ("mixed_cumulant", (0, 0, 1, 2), 5, 2e-10, "0x1.48064e2f1bd8fp-12"),
+    ("mixed_cumulant", (0, 0, 1, 2), 5, 1.2e-10, "0x1.fc2c6f3df62e5p-13"),
+    ("mixed_cumulant", (0, 0, 1, 2), 5, 8e-11, "0x1.9eec072b63d65p-13"),
+    ("mixed_cumulant", (0, 0, 1, 2), 5, 4.5e-11, "0x1.373105608ae0cp-13"),
+    ("joint_coefficient", (3, 1, 0), 6, 2e-10, "0x1.5912eec8872fap-25"),
+    ("joint_coefficient", (3, 1, 0), 6, 1.2e-10, "0x1.9e16b823d56c5p-26"),
+    ("joint_coefficient", (3, 1, 0), 6, 8e-11, "0x1.140f256d38f2ep-26"),
+    ("joint_coefficient", (3, 1, 0), 6, 4.5e-11, "0x1.36910a1ae0114p-27"),
+    ("joint_coefficient", (1, 2, 1), 2, 2e-10, "0x1.1d4ffb5178e44p-8"),
+    ("joint_coefficient", (1, 2, 1), 2, 1.2e-10, "0x1.e1489ce6dde4ep-9"),
+    ("joint_coefficient", (1, 2, 1), 2, 8e-11, "0x1.a470a3270eddfp-9"),
+    ("joint_coefficient", (1, 2, 1), 2, 4.5e-11, "0x1.5b10c8d55166ep-9"),
 ]
 
 
-@pytest.mark.parametrize("ratio", [2e-10, 1.2e-10, 8e-11, 4.5e-11])
 @pytest.mark.parametrize(
-    "query,argument,seed",
-    _THRESHOLD_QUERIES,
+    "query,argument,seed,ratio,bits",
+    _THRESHOLD_CASES,
     ids=[
-        f"{query}-{''.join(map(str, value))}" for query, value, _ in _THRESHOLD_QUERIES
+        f"{query}-{''.join(map(str, argument))}-{ratio:g}"
+        for query, argument, _, ratio, _ in _THRESHOLD_CASES
     ],
 )
 def test_cancellation_threshold_is_pinned_from_both_sides(
-    frozen, query, argument, seed, ratio
+    frozen, query, argument, seed, ratio, bits
 ):
     # The float64 value is admitted by the rounding certificate and raises
     # no floating-point exception, so only the 0.7.0 cancellation test
@@ -520,7 +556,7 @@ def test_cancellation_threshold_is_pinned_from_both_sides(
     # correctly rounded exact value (below it). The two differ in every case,
     # so a threshold moved past a neighbouring ratio changes a returned value.
     slots, divisor = _query_slots(query, argument)
-    matrices, endpoints = _arrays_at_ratio(seed, slots, divisor, ratio)
+    matrices, endpoints = _threshold_arrays(seed, float.fromhex(bits))
     with np.errstate(all="raise"):
         approximate = float_statistic(matrices, endpoints, slots, divisor)
     exact = fraction_statistic(matrices, endpoints, slots, divisor)
