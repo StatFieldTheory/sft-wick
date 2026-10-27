@@ -97,9 +97,8 @@ unchanged to 4.5e-16.
 
 `C_at_batch` reads a 1-D position array whose length equals the batch as
 one scalar position per sample.  The eager Gauss-Legendre path, vectorised
-QMC, the zero-dimensional path and `integrate_two_point_qmc` passed a fixed
-d-vector position unchanged, so a batch of exactly d samples read it as d
-scalar positions.  On a 3-D pair with one integrated external time, GL at
+QMC and `integrate_two_point_qmc` passed a fixed d-vector position
+unchanged, so a batch of exactly d samples read it as d scalar positions.  On a 3-D pair with one integrated external time, GL at
 `n_gauss = 3` was 25 % off and QMC at `n_samples = 2` and `4` (2-D and 4-D
 pairs) 29 % and 35 % off; `integrate_two_point_qmc` at order 1 was 8 % and
 44 % off.  Every batch lookup now broadcasts such a vector to `(n, d)` first
@@ -107,6 +106,28 @@ pairs) 29 % and 35 % off; `integrate_two_point_qmc` at order 1 was 8 % and
 length equals the position dimension.  Locked by
 `tests/test_d_dim_spatial.py::test_DD4_*` and `test_DD5_*`, which fail
 without the fix.
+
+### Changed: a key or point name the parser does not read raises
+
+**Breaking.**  A workflow file used to accept any key, and a misspelt one
+fell back to its default without a message: `sweep.gl_chunk_sise` kept the
+default bound, `system.t_minn` integrated from 0, `expand.diag_c: false`
+kept the diagonal simplification, and `system.noise.sigma_2` dropped the
+white noise (with `amplitude: 0.3` added to the quickstart model, the value
+came out 23 times too small).  Every block now
+refuses a key it does not read with `ValueError: <block>: unknown key(s)
+[...]; allowed: [...]`: the top level, `system`, `system.field`,
+`system.noise`, `expand`, `propagators`, `sweep` and each `output` entry
+(the kernel, `sigma2`, `linear` and vertex blocks already did).  A
+top-level key used only to hold YAML anchors or notes is refused too.
+
+`Expansion.evaluate` and `Expansion.sweep` (and `sweep.positions_grid`)
+refuse a position for a point the observable does not name.  A misspelt
+point used to stay at the default position: `positions_grid: {x: [0],
+yy: [0.45]}` returned the value at zero separation, 65 % high on the
+quickstart model.  A point given no position still takes the default.
+All shipped configurations load unchanged
+(`tests/test_yaml_spec_coverage.py`, YC11 and YC12).
 
 ### Changed: the propagator disk cache covers built-in specs only
 

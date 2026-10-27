@@ -241,9 +241,10 @@ exceeds its work or memory limit (given below). The evaluation sets its own
 NumPy error state, so a call inside ``np.errstate(all="raise")`` returns the
 same value.
 
-A float64 value is also kept only where version 0.7.0 kept it: the contraction
-raised no floating-point exception, and its magnitude is above ``1e-10`` times
-the Frobenius-norm bound that 0.7.0 used to detect cancellation. Every value
+Unless the exact evaluation is refused (see below), a float64 value is also
+kept only where version 0.7.0 kept it: the contraction raised no
+floating-point exception, and its magnitude is above ``1e-10`` times the
+Frobenius-norm bound that 0.7.0 used to detect cancellation. Every value
 that 0.7.0 returned is therefore returned with the same bits or as the
 correctly rounded exact value, except where the bound does not admit it and
 the exact evaluation exceeds its limit; that query raises ``ArithmeticError``.

@@ -137,8 +137,11 @@ when an input it reads, or an entry the ordered fold multiplies and the
 backend leaves out (by a zero of a diagonal C table, or before an R support
 excludes the assignment), is not finite, a product could overflow or underflow,
 a coefficient fails the ordered phase check, NumPy's underflow policy is not
-``"ignore"``, the workspace exceeds ``contraction_max_bytes``, or the cost
-rule estimates the backend to be slower. ``factorized`` prepares a monomial,
+``"ignore"``, the workspace exceeds ``contraction_max_bytes``, a size limit
+listed in :doc:`/user_guide/resources` is exceeded, the cost rule estimates
+the backend to be slower, or, for ``factorized``, a summation index is carried
+only by an R that the ordered fold reads as its trace or folds into the scalar
+R product. ``factorized`` prepares a monomial,
 or a sum of monomials that have no opposite signs at any component
 assignment, from owned snapshots of the original coupling tensors; other
 sums use the ordered preparation. Errors, inf and NaN behave as on the

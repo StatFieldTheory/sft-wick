@@ -1161,7 +1161,8 @@ class GaussianQuadraticFamily:
         admitted = native and value is not None and admits(certificate, value)
         # Keep the float64 value only where 0.7.0 kept it as well (no
         # floating-point exception, no Frobenius cancellation flag) and the
-        # certificate admits it; everything else is correctly rounded.
+        # certificate admits it; everything else is correctly rounded, unless
+        # the exact evaluation is refused and the certificate admits it.
         if (
             admitted
             and value is not None

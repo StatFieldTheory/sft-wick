@@ -10,11 +10,12 @@ where ``w`` runs over all ``n!`` slot permutations, repeated ones included.
 ``GaussianQuadraticFamily`` first evaluates it in float64. ``rounding_certificate``
 bounds the rounding error of that evaluation; ``admits`` accepts the float64
 value only when the bound is at most ``MIXED_STATISTIC_RTOL`` times the value.
-The caller keeps an accepted value only when the float64 evaluation raised no
+The caller keeps an accepted value when the float64 evaluation raised no
 floating-point exception and the cancellation test of version 0.7.0 does not
 flag it. Otherwise ``_mixed_rounding.correctly_rounded_statistic`` returns a
 rational that rounds to float64 as the exact statistic of the stored binary
-data does, which the caller rounds once.
+data does, which the caller rounds once.  When that exact evaluation exceeds
+its work or memory limit, the caller still returns an accepted value.
 
 Both concern the prepared matrices and endpoints. Errors committed while
 whitening, projecting or diagonalising a user's model are not covered.
