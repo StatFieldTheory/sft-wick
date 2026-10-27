@@ -34,7 +34,15 @@ New keywords on `Expansion.evaluate` / `Expansion.sweep`, mirrored under
 * `contraction_backend` (`"ordered"` default, `"einsum"`, `"factorized"`) and
   `contraction_max_bytes` (default 64 MiB): how a coupling tensor is
   contracted, and the workspace budget above which a contraction is refused
-  rather than allocated.
+  rather than allocated.  `einsum` and `factorized` run a diagram call only
+  when their result obeys the bound the ordered fold obeys,
+  `|result - exact| <= 1.01 (m + A T) u S`, and every entry the ordered fold
+  multiplies is finite and free of overflow; otherwise they decline and the
+  ordered fold runs.  On 330 diagrams captured from `Expansion.evaluate`
+  (`N` = 2, 3 and 5, orders 2 to 4), `einsum` ran on 204 to 308 of them at
+  2x to 117x the ordered speed per call, and `factorized` on 2 to 4, whose
+  coupling sums have no monomials of opposite sign
+  (`docs/user_guide/resources.rst`).
 * `propagator_cache_bytes` (default `None`, off) with
   `propagator_cache_contract: fixed_model`: a byte-bounded cache of
   propagator lookups, valid only while the model and its callbacks stay fixed.
@@ -54,7 +62,12 @@ modifies the configuration.
 * `GaussianQuadratic`, `GaussianQuadraticFamily`,
   `GaussianQuadraticStatistics` and `GaussianSpectralTail` give the cumulants
   and characteristic function of `Y = b + l·z + zᵀAz` for a finite Gaussian
-  `z` (`docs/user_guide/gaussian_quadratic.rst`).
+  `z` (`docs/user_guide/gaussian_quadratic.rst`).  A mixed cumulant or joint
+  coefficient of a family is the float64 contraction when a rigorous bound
+  puts its rounding error within `1e-12` of its magnitude, and otherwise the
+  correctly rounded exact value of the prepared data; a zero is returned
+  only when it is proved.  The exact evaluation raises `ArithmeticError`
+  above its work or memory limit.
 * `OUWhiteCumulant` evaluates the response contraction of a static
   equal-time noise cumulant under a constant diagonal OU response in closed
   form, removing one time integration per absorbed vertex

@@ -494,8 +494,9 @@ correctness control and does not establish performance acceptance. Traced peaks
 exclude untracked native BLAS allocations; process maximum RSS is global.
 
 ``tools/benchmark_joint_statistic_reuse.py`` compares native ordered-word reuse
-against a frozen prior implementation and compares selected-statistic lookup
-against direct queries. The shared parent family is prepared outside query
+against the earlier implementation archived in ``tests/fixtures`` (unpacked to
+a temporary directory unless ``--reference-src`` names another copy) and
+compares selected-statistic lookup against direct queries. The shared parent family is prepared outside query
 timings. Bank preparation, warm lookup and an actually timed combined
 preparation-plus-query interval are reported separately. It includes repeated
 and all-distinct fourth-order keys, low orders and one-shot use; low-order or

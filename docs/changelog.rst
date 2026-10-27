@@ -29,7 +29,12 @@ comparison command.*
   observables (``GaussianQuadratic`` and its family, statistics and spectral
   tail) and analytic OU white cumulants (``OUWhiteCumulant``). See
   :doc:`user_guide/connected_targets`, :doc:`user_guide/gaussian_quadratic`
-  and :doc:`user_guide/ou_white_cumulant`.
+  and :doc:`user_guide/ou_white_cumulant`. Mixed cumulants of a quadratic
+  family are within ``1e-12`` relative of the exact value or correctly
+  rounded.
+- The opt-in contraction backends ``einsum`` and ``factorized`` run only when
+  their result obeys the ordered fold's error bound; otherwise the ordered
+  fold runs.
 - Vectorised response callables (``ExplicitR(vectorized=True)``, YAML
   ``R_time_vectorized``) and a recipe for changing the integration variable
   (:doc:`user_guide/time_variable`).
