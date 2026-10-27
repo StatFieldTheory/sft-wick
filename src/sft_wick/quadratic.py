@@ -1176,9 +1176,11 @@ class GaussianQuadraticFamily:
                 _magnitude_estimate(value, certificate),
             )
         except ArithmeticError as error:
-            # Above the exact work bound a certified float64 value is still
-            # returned. Out-of-range exact values raise OverflowError.
-            if isinstance(error, OverflowError) or not admitted or value is None:
+            # Above the exact work or memory bound (a plain ArithmeticError) a
+            # certified float64 value is still returned. Out-of-range exact
+            # values raise OverflowError; a floating-point exception or any
+            # other ArithmeticError subclass is not a refusal and propagates.
+            if type(error) is not ArithmeticError or not admitted or value is None:
                 raise
             return _finite_fraction(value, name)
 

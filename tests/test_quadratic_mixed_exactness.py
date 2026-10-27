@@ -21,6 +21,8 @@ import pytest
 
 from sft_wick import _mixed_contraction as certificates
 from sft_wick import _mixed_exact as exact_evaluation
+from sft_wick import _mixed_rounding as rounding
+from sft_wick import quadratic
 
 from .mixed_reference import (
     SWEEP,
@@ -441,6 +443,90 @@ def test_endpoint_underflow_rounds_exactly_or_keeps_the_certified_value(monkeypa
     huge = make_family(family._matrices * 1e154, family._endpoints)
     with pytest.raises(ArithmeticError):
         huge.mixed_cumulant(slots)
+
+
+def test_only_the_exact_work_refusal_returns_the_certified_value(monkeypatch):
+    # The query above reaches the exact evaluation with a certified float64
+    # value. A floating-point exception raised there is not the work or
+    # memory refusal, so it propagates instead of returning that value.
+    family = _isolated_endpoint_family(6, 1e-170, seed=5700)
+    slots = (0, 1, 2)
+
+    def trapped(*args):
+        raise FloatingPointError("underflow encountered in multiply")
+
+    monkeypatch.setattr(rounding, "evaluate_query", trapped)
+    with pytest.raises(FloatingPointError):
+        family.mixed_cumulant(slots)
+    with pytest.raises(FloatingPointError):
+        family.prepare_statistics(indices=[slots])
+
+
+def _subnormal_tail_family(latent, seed):
+    """Entries of 2**20 to 2**60 of both signs, a subnormal last row and column."""
+    random = np.random.default_rng(seed)
+    matrices = random.normal(size=(3, latent, latent))
+    matrices *= 2.0**60 * np.exp2(random.integers(-40, 1, size=matrices.shape))
+    matrices = np.triu(matrices) + np.triu(matrices, 1).swapaxes(-1, -2)
+    tail = 3e-320 * random.choice([-1.0, 1.0], size=(3, latent))
+    matrices[:, -1, :] = tail
+    matrices[:, :, -1] = tail
+    return make_family(matrices, random.normal(size=(3, latent)))
+
+
+def _cancelling_subnormal_family(latent, seed):
+    """Entries near 1e9 and one subnormal coupling; tr(A0 A1) cancels."""
+    random = np.random.default_rng(seed)
+    first = symmetric(random, latent) * 1e9
+    first[1, -1] = first[-1, 1] = 7.1e-319
+    second = symmetric(random, latent) * 0.83
+    second -= (np.sum(first * second) / np.sum(first * first)) * first
+    return make_family(np.array([first, (second + second.T) / 2]))
+
+
+@pytest.mark.parametrize("state", [{"under": "raise"}, {"all": "raise"}])
+def test_callers_underflow_trap_leaves_every_value_unchanged(monkeypatch, state):
+    # Slicing these arrays for the exact evaluation underflows by design. Up to
+    # now a caller's np.errstate(under="raise") made the exact path raise
+    # FloatingPointError, or return the float64 value of a contraction that
+    # underflowed, which version 0.7.0 never kept.
+    tail = _subnormal_tail_family(5, seed=2024)
+    cancelling = _cancelling_subnormal_family(5, seed=424242)
+    queries = [
+        (tail, (0, 1)),
+        (tail, (0, 1, 2)),
+        (tail, (0, 0, 1)),
+        (tail, (0, 1, 2, 0)),
+        (tail, (2, 2, 2, 2)),
+        (cancelling, (0, 1)),
+    ]
+    original = quadratic._exact_mixed_coefficient
+    exact_calls = []
+
+    def counted(*args):
+        exact_calls.append(args[2])
+        return original(*args)
+
+    monkeypatch.setattr(quadratic, "_exact_mixed_coefficient", counted)
+    default = [family.mixed_cumulant(slots) for family, slots in queries]
+    joint = tail.joint_coefficient((2, 1, 1))
+    assert len(exact_calls) >= 2
+    with np.errstate(**state):
+        trapped = [family.mixed_cumulant(slots) for family, slots in queries]
+        assert tail.joint_coefficient((2, 1, 1)) == joint
+        selected = tail.prepare_statistics(
+            indices=[slots for family, slots in queries if family is tail],
+            coefficients=[(2, 1, 1)],
+        )
+    assert trapped == default
+    for (family, slots), value in zip(queries, default):
+        exact = integer_statistic(family._matrices, family._endpoints, slots)
+        assert_certified(value, exact)
+        if family is tail:
+            assert selected.mixed_cumulant(slots) == value
+    assert selected.joint_coefficient((2, 1, 1)) == joint
+    exact = integer_statistic(cancelling._matrices, cancelling._endpoints, (0, 1))
+    assert default[-1] == float(exact)
 
 
 # ---------------------------------------------------------------------------

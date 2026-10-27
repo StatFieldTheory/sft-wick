@@ -19,6 +19,7 @@ import pytest
 
 from sft_wick import _mixed_contraction as certificates
 from sft_wick import _mixed_exact as exact_evaluation
+from sft_wick import _mixed_rounding as rounding
 
 from .mixed_reference import (
     SWEEP,
@@ -118,6 +119,75 @@ def test_uncertified_dense_query_matches_an_independent_integer_reference(slots)
         == expected
     )
     assert family.mixed_cumulant(slots) == float(expected)
+
+
+# ---------------------------------------------------------------------------
+# The caller's floating-point error state
+# ---------------------------------------------------------------------------
+
+
+def _wide_range_arrays(kind, latent, seed):
+    """Symmetric arrays whose slicing scales small entries below float64 range.
+
+    ``subnormal_tail``: entries of 2**20 to 2**60 of both signs with a
+    subnormal last row and column. ``large_and_subnormal``: entries near 1e10
+    and one subnormal coupling. ``wide``: entries near 1e60 and 1e-300 in one
+    matrix. Endpoints are generic, with one subnormal coordinate.
+    """
+    random = np.random.default_rng(seed)
+    matrices = random.normal(size=(3, latent, latent))
+    if kind == "subnormal_tail":
+        matrices *= 2.0**60 * np.exp2(random.integers(-40, 1, size=matrices.shape))
+    elif kind == "large_and_subnormal":
+        matrices *= 1e10
+    else:
+        matrices *= np.where(random.random(matrices.shape) < 0.5, 1e60, 1e-300)
+    matrices = np.triu(matrices) + np.triu(matrices, 1).swapaxes(-1, -2)
+    if kind == "subnormal_tail":
+        tail = 3e-320 * random.choice([-1.0, 1.0], size=(3, latent))
+        matrices[:, -1, :] = tail
+        matrices[:, :, -1] = tail
+    elif kind == "large_and_subnormal":
+        matrices[:, 1, -1] = matrices[:, -1, 1] = [7.1e-319, -3e-320, 2.2e-310]
+    endpoints = random.normal(size=(3, latent)) * np.array([[1.9], [-0.6], [2.4]])
+    endpoints[:, 0] = [5e-322, -1.3e-310, 2e-315]
+    return matrices, endpoints
+
+
+def _slicing_underflows(array, width):
+    """True when slicing ``array`` scales an entry to an inexact subnormal value.
+
+    The first slicing step scales every entry by the top slice unit, so the
+    smallest entry underflows there.
+    """
+    grid = exact_evaluation._grid(array, width)
+    top = grid.base + grid.offsets[-1] * width
+    smallest = Fraction(float(np.min(np.abs(array[array != 0]))))
+    scaled = smallest / Fraction(2) ** top
+    return scaled < Fraction(2) ** -1022 and Fraction(float(scaled)) != scaled
+
+
+@pytest.mark.parametrize("kind", ["subnormal_tail", "large_and_subnormal", "wide"])
+@pytest.mark.parametrize("state", [{"under": "raise"}, {"all": "raise"}])
+def test_exact_evaluator_is_independent_of_the_callers_error_state(kind, state):
+    # Slicing scales every remainder by its slice unit, and a remainder far
+    # below the unit underflows to the digit zero by design. Up to now a
+    # caller's np.errstate(under="raise") turned that into FloatingPointError.
+    latent = 5
+    matrices, endpoints = _wide_range_arrays(kind, latent, seed=5270 + len(kind))
+    width = exact_evaluation.digit_width(latent)
+    assert all(_slicing_underflows(matrix, width) for matrix in matrices)
+    for slots in [(0, 1), (0, 1, 2), (1, 1, 2), (0, 1, 2, 0), (2, 0, 1, 1)]:
+        expected = integer_statistic(matrices, endpoints, slots)
+        with np.errstate(**state):
+            value = exact_evaluation.exact_mixed_statistic(
+                matrices, endpoints, slots, 2
+            )
+            rounded = rounding.correctly_rounded_statistic(
+                matrices, endpoints, slots, 2, abs(expected) / 2 or None
+            )
+        assert value == expected / 2
+        assert float(rounded) == float(expected / 2)
 
 
 # ---------------------------------------------------------------------------
