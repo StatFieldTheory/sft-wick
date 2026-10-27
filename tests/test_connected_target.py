@@ -207,11 +207,14 @@ def test_connected_matches_independent_source_moment_partitions(engine, q):
             total = [a + b for a, b in zip(total, term)]
         moments[size] = total
     expected = _partition_cumulant(q, moments)
+    # Each coefficient is a float64 sum over many diagram terms; its
+    # summation-order roundoff differs between platforms (2e-14 relative
+    # on Linux CI at q = 6), so the tolerance is relative.
     assert _coefficients(q, action, couplings, engine, "moment") == pytest.approx(
-        [float(x) for x in moments[q]], abs=2e-13
+        [float(x) for x in moments[q]], rel=1e-12, abs=2e-13
     )
     assert _coefficients(q, action, couplings, engine, "connected") == pytest.approx(
-        [float(x) for x in expected], abs=2e-13
+        [float(x) for x in expected], rel=1e-12, abs=2e-13
     )
 
 

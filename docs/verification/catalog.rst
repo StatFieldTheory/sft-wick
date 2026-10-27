@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **4191 tests** in 106 files (parametrised
+The suite has **4192 tests** in 106 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -57,7 +57,7 @@ this page is out of date.
 Symbolic engine
 ---------------
 
-*482 tests in 12 files.*
+*483 tests in 12 files.*
 
 .. list-table::
    :header-rows: 1
@@ -117,7 +117,7 @@ Symbolic engine
      - assignment-local converted scalar read reuse, live bindings, ordered phases/dtypes/errors, arithmetic/module/helper hooks and native dtype/layout guards
      - original ordered scalar interpreter and preceding public binding policy; complete-query indexed-read witness
      - exact output dtype/bytes, error text, state and hook/read counts
-     - 75
+     - 76
    * - ``test_simplify.py``
      - simplification passes, diagonal / isotropic index collapse, collection by diagram
      - hand-simplified forms; idempotence

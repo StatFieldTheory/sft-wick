@@ -24,6 +24,15 @@ from sft_wick.expressions import (
 )
 from sft_wick.perturbation import DiagramTerm, _eval_symbolic, _eval_symbolic_batched
 
+#: The native read path reproduces NumPy's ``ndindex`` as implemented from
+#: NumPy 2.3 (``itertools.product``).  Earlier NumPy uses ``nditer``; the path
+#: is then disabled and the ordered interpreter runs, with the same values.
+#: Read and call counts of the native path are checked only where it exists.
+NATIVE_NDINDEX = pytest.mark.skipif(
+    not cp._NATIVE_NDINDEX_PROVENANCE,
+    reason="this NumPy's ndindex is not the itertools.product implementation",
+)
+
 
 def expression(a="a", i="i", j="j"):
     return Sum(
@@ -112,7 +121,8 @@ def test_alpha_and_memo_match_ordered_interpreter(phase, dtype):
             result, count = reads(lambda: dt.evaluate_coupling_batched(cv, 4, pins))
             expected = oracle(dt, cv, 4, pins)
         assert result.dtype == expected.dtype and result.tobytes() == expected.tobytes()
-        assert count == 12  # 3 outer * 2 inner * 2 distinct Symbol reads
+        if cp._NATIVE_NDINDEX_PROVENANCE:
+            assert count == 12  # 3 outer * 2 inner * 2 distinct Symbol reads
         # New invocation and assignments observe replacement and mutable pins.
         pins[next(iter(pins))] = 0
         cv["A"] = cv["A"] + 0.125
@@ -456,6 +466,7 @@ def test_numpy_iterator_method_override_declines_memo(monkeypatch):
     assert count == 288 and result.shape == (4, 3)
 
 
+@NATIVE_NDINDEX
 def test_probe_uses_original_labels_and_rejects_forged_wrapper():
     dt = term("external", "inner", "outer")
     cv = values(batch=0)

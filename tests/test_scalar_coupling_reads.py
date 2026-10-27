@@ -116,7 +116,8 @@ def test_instrumented_complete_query_read_witness(monkeypatch):
             actual = dt.evaluate_coupling(cv, {"a": 0})
     finally:
         sys.setprofile(previous)
-    assert len(calls) == 12  # 3 outer * 2 inner * 2 distinct indexed leaves.
+    if cp._NATIVE_NDINDEX_PROVENANCE:
+        assert len(calls) == 12  # 3 outer * 2 inner * 2 distinct indexed leaves.
     assert actual.tobytes() == interpreter(dt, cv, {"a": 0}).tobytes()
 
 
@@ -350,3 +351,9 @@ def test_fake_ndarray_alias_never_admits_new_scalar_memo(monkeypatch):
     monkeypatch.setattr(np, "ndarray", Fake)
     with np.errstate(all="ignore"):
         assert not cp.native_scalar_symbol_reads({"A": Fake()}, float)
+
+
+def test_native_ndindex_detection_matches_numpy_implementation():
+    """The native path is on exactly when NumPy's ndindex uses itertools.product."""
+    uses_product = "product" in np.ndindex.__init__.__code__.co_names
+    assert cp._NATIVE_NDINDEX_PROVENANCE is uses_product

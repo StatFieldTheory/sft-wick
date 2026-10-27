@@ -12,8 +12,18 @@ import weakref
 import numpy as np
 import pytest
 
+from sft_wick import _coupling_plan as cp
 from sft_wick._coupling_plan import _shared_core, compile_coupling_plan
 from sft_wick._coupling_probe import known_scalar_shape
+
+#: The native read path reproduces NumPy's ``ndindex`` as implemented from
+#: NumPy 2.3 (``itertools.product``).  Earlier NumPy uses ``nditer``; the path
+#: is then disabled and the ordered interpreter runs, with the same values.
+#: Read and call counts of the native path are checked only where it exists.
+NATIVE_NDINDEX = pytest.mark.skipif(
+    not cp._NATIVE_NDINDEX_PROVENANCE,
+    reason="this NumPy's ndindex is not the itertools.product implementation",
+)
 from sft_wick.evaluate import DynamicCouplingPromise
 from sft_wick.expressions import (
     ImaginaryUnit,
@@ -377,6 +387,7 @@ def test_custom_hooks_decline_binding(custom):
     )
 
 
+@NATIVE_NDINDEX
 @pytest.mark.parametrize("vectorized", [False, True])
 def test_successful_probe_removed_and_callbacks_unchanged(vectorized):
     cv = values()
@@ -595,6 +606,7 @@ def test_warning_hook_mutation_preserves_original_sample_zero(target, monkeypatc
     np.testing.assert_array_equal(out[0], baseline)
 
 
+@NATIVE_NDINDEX
 def test_default_policy_optimization_in_fresh_process():
     import os
     import subprocess
