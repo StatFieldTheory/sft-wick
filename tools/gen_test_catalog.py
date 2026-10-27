@@ -160,14 +160,26 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     ),
     "tests/test_quadratic_mixed_exactness.py": (
         "Finite Gaussian observables",
-        "certified mixed cumulants and joint coefficients: structural, symmetry and "
-        "near zeros at N up to 500, cancellation swept across the admission "
-        "threshold, extreme and subnormal scales, int64 digit-width boundaries, "
-        "rounding-certificate validity and the exact work bound",
+        "certified mixed cumulants and joint coefficients through the public "
+        "dispatcher: structural zeros (also when magnitudes withhold the error "
+        "bound), symmetry and near zeros at N up to 500, ring and endpoint-chain "
+        "cancellation swept across the admission threshold, extreme and subnormal "
+        "scales, endpoint underflow, dense queries at N = 1500 and the recorded "
+        "work-bound refusal",
         "independent Fraction contractions; block, rank-one and reversal-parity "
         "closed forms; float64 and exact methods evaluated separately",
-        "exact zeros, correctly rounded or certified 1e-12 relative values; exact "
-        "rational equality for the exact evaluator",
+        "exact zeros, correctly rounded or certified 1e-12 relative values",
+    ),
+    "tests/test_quadratic_exact_contraction.py": (
+        "Finite Gaussian observables",
+        "exact evaluator and rounding certificate of mixed contractions, bypassing "
+        "the dispatcher: float64 digit-width boundaries, narrow digit slices, a "
+        "corrupted BLAS slice product, the documented error formula term by term, "
+        "certificate validity across the admission threshold, dense work and "
+        "memory estimates",
+        "independent Fraction and Python-int contractions; rank-one closed forms; "
+        "the docstring formula over all n! words",
+        "exact rational equality; certificate equality with the formula",
     ),
     "tests/test_gaussian_quadratic.py": (
         "Finite Gaussian observables",

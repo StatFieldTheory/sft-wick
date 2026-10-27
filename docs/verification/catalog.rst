@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **4277 tests** in 107 files (parametrised
+The suite has **4315 tests** in 108 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -692,7 +692,7 @@ Self-consistency
 Finite Gaussian observables
 ---------------------------
 
-*444 tests in 4 files.*
+*482 tests in 5 files.*
 
 .. list-table::
    :header-rows: 1
@@ -713,11 +713,16 @@ Finite Gaussian observables
      - independent Gauss-Hermite moments with set-partition cumulants; analytic scalar cases and test-only contraction counts
      - 3e-12 relative / 3e-12 absolute GH; exact state, errors and operation counts
      - 89
+   * - ``test_quadratic_exact_contraction.py``
+     - exact evaluator and rounding certificate of mixed contractions, bypassing the dispatcher: float64 digit-width boundaries, narrow digit slices, a corrupted BLAS slice product, the documented error formula term by term, certificate validity across the admission threshold, dense work and memory estimates
+     - independent Fraction and Python-int contractions; rank-one closed forms; the docstring formula over all n! words
+     - exact rational equality; certificate equality with the formula
+     - 70
    * - ``test_quadratic_mixed_exactness.py``
-     - certified mixed cumulants and joint coefficients: structural, symmetry and near zeros at N up to 500, cancellation swept across the admission threshold, extreme and subnormal scales, int64 digit-width boundaries, rounding-certificate validity and the exact work bound
+     - certified mixed cumulants and joint coefficients through the public dispatcher: structural zeros (also when magnitudes withhold the error bound), symmetry and near zeros at N up to 500, ring and endpoint-chain cancellation swept across the admission threshold, extreme and subnormal scales, endpoint underflow, dense queries at N = 1500 and the recorded work-bound refusal
      - independent Fraction contractions; block, rank-one and reversal-parity closed forms; float64 and exact methods evaluated separately
-     - exact zeros, correctly rounded or certified 1e-12 relative values; exact rational equality for the exact evaluator
-     - 84
+     - exact zeros, correctly rounded or certified 1e-12 relative values
+     - 52
    * - ``test_quadratic_white_reference_parity.py``
      - OU private scratch and fourth-order native ordered-prefix reuse; bounded memory/protocol bypass, scalar order, range fallback and input state
      - source-pinned frozen reference implementation with exact bytes/error args; independent Gauss-Hermite central cumulants and native matmul line witnesses

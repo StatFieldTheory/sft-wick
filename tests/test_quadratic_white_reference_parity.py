@@ -160,7 +160,9 @@ def test_ordered_prefix_full_call_matches_frozen(prefix_families, rank, slots, d
 
 def _native_product_count(call):
     # Observe native source-line execution without replacing ndarray arithmetic.
-    path = inspect.getsourcefile(quadratic.GaussianQuadraticFamily._mixed_statistic)
+    path = inspect.getsourcefile(
+        quadratic.GaussianQuadraticFamily._mixed_float_statistic
+    )
     assert path is not None
     tree = ast.parse(Path(path).read_text())
     lines = {
@@ -180,7 +182,7 @@ def _native_product_count(call):
         nonlocal count
         if (
             frame.f_code.co_filename == path
-            and frame.f_code.co_name == "_mixed_statistic"
+            and frame.f_code.co_name == "_mixed_float_statistic"
         ):
             if event == "line" and frame.f_lineno in lines:
                 count += 1

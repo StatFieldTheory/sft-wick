@@ -9,6 +9,7 @@ import gc
 import itertools
 import math
 import pickle
+import time
 import weakref
 
 import mpmath as mp
@@ -897,18 +898,22 @@ def test_mixed_exact_fallback_returns_padded_overflow_remainder():
 
 
 def test_mixed_exact_fallback_has_explicit_work_bound():
-    # Entries spread over 2000 binades need about 76 integer digit slices
-    # each; the third-order exact contraction is refused before any product.
+    # Entries spread over 2000 binades need about 98 digit slices each at
+    # N = 1536; the third-order exact contraction would take about 3e13
+    # multiply-adds and 7 GiB, and is refused before any product. The
+    # magnitudes also withhold the rounding bound, so no float64 value is kept.
     random = np.random.default_rng(889)
-    dimension = 512
+    dimension = 1536
     raw = random.normal(size=(dimension, dimension))
     raw *= np.exp2(random.integers(-1000, 1000, size=raw.shape).astype(np.float64))
     wide = raw + raw.T
     family = GaussianQuadraticFamily.from_factor(
         np.eye(dimension), np.array([wide, np.eye(dimension)])
     )
+    started = time.perf_counter()
     with pytest.raises(ArithmeticError, match="exact contraction work bound"):
         family.mixed_cumulant([0, 0, 1])
+    assert time.perf_counter() - started < 30.0
 
 
 def test_family_projection_constants_preserve_a_small_signed_remainder():
