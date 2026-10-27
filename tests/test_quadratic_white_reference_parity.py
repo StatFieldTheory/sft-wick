@@ -7,6 +7,7 @@ from fractions import Fraction
 import hashlib
 import inspect
 import itertools
+import math
 from pathlib import Path
 import struct
 import sys
@@ -21,7 +22,13 @@ from sft_wick import _mixed_contraction as certificates
 from sft_wick import quadratic
 from sft_wick.white_cumulant import OUWhiteCumulant
 
-from .mixed_reference import assert_certified, float_statistic, integer_statistic
+from .mixed_reference import (
+    assert_certified,
+    float_statistic,
+    fraction_statistic,
+    integer_statistic,
+    make_family,
+)
 
 
 @pytest.fixture(scope="module")
@@ -399,3 +406,136 @@ def test_mixed_values_keep_frozen_bits_or_round_correctly(frozen, latent):
                 assert expected[0] is ArithmeticError
                 assert_certified(value, exact)
     assert flagged
+
+
+# ---------------------------------------------------------------------------
+# The 0.7.0 cancellation threshold, from both sides
+# ---------------------------------------------------------------------------
+
+_UPPER, _LOWER = 7, 4
+
+
+def _monomial(random, size):
+    """Symmetric matrix with one nonzero per row: weights on a random involution."""
+    order = random.permutation(size)
+    pairs = int(random.integers(1, size // 2 + 1))
+    matrix = np.zeros((size, size))
+    for k in range(pairs):
+        i, j = order[2 * k], order[2 * k + 1]
+        matrix[i, j] = matrix[j, i] = random.normal()
+    for i in order[2 * pairs :]:
+        matrix[i, i] = random.normal()
+    return matrix
+
+
+def _threshold_arrays(seed, coupling):
+    """Three observables; observable 0 is supported on the first block only.
+
+    Observables 1 and 2 carry ``coupling`` times their first-block data and
+    data of order one on the second block. Every word of a query that
+    contains slot 0 passes through observable 0, so the statistic is
+    ``coupling**k`` times a fixed number, with ``k`` the slots other than 0,
+    while the second block keeps the Frobenius norms of order one. With one
+    nonzero per row, every entry of a float64 product is one rounded product,
+    so the float64 contraction does not depend on the BLAS summation order.
+    """
+    random = np.random.default_rng(seed)
+    latent = _UPPER + _LOWER
+    matrices = np.zeros((3, latent, latent))
+    endpoints = np.zeros((3, latent))
+    matrices[0, :_UPPER, :_UPPER] = _monomial(random, _UPPER)
+    endpoints[0, :_UPPER] = random.normal(size=_UPPER)
+    for index in (1, 2):
+        matrices[index, :_UPPER, :_UPPER] = coupling * _monomial(random, _UPPER)
+        matrices[index, _UPPER:, _UPPER:] = _monomial(random, _LOWER)
+        endpoints[index, :_UPPER] = coupling * random.normal(size=_UPPER)
+        endpoints[index, _UPPER:] = random.normal(size=_LOWER)
+    return matrices, endpoints
+
+
+def _frobenius_bound(matrices, endpoints, slots, divisor):
+    """The 0.7.0 bound: ring and endpoint-chain products of Frobenius norms."""
+    order = len(slots)
+    matrix = {index: float(np.linalg.norm(matrices[index])) for index in set(slots)}
+    endpoint = {index: float(np.linalg.norm(endpoints[index])) for index in set(slots)}
+    ring = math.factorial(order) * 2 ** (order - 1) / order
+    ring *= math.prod(matrix[index] for index in slots)
+    chain = 2.0 ** (order - 3) * sum(
+        endpoint[word[0]]
+        * endpoint[word[-1]]
+        * math.prod(matrix[index] for index in word[1:-1])
+        for word in itertools.permutations(slots)
+    )
+    return (ring + chain) / divisor
+
+
+def _arrays_at_ratio(seed, slots, divisor, ratio):
+    """Arrays whose float64 statistic is ``ratio`` times the 0.7.0 bound."""
+    power = sum(slot != 0 for slot in slots)
+    probe = 1e-10
+    arrays = _threshold_arrays(seed, probe)
+    measured = abs(float(float_statistic(*arrays, slots, divisor)))
+    measured /= _frobenius_bound(*arrays, slots, divisor)
+    return _threshold_arrays(seed, probe * (ratio / measured) ** (1 / power))
+
+
+def _query_slots(query, argument):
+    """Slots and divisor of a ``mixed_cumulant`` or ``joint_coefficient`` call."""
+    if query == "mixed_cumulant":
+        return argument, 1
+    slots = tuple(index for index, power in enumerate(argument) for _ in range(power))
+    return slots, math.prod(math.factorial(power) for power in argument)
+
+
+_THRESHOLD = 1e-10
+# Each seed is the first one at which the float64 value differs from the
+# correctly rounded exact value at all four ratios; the test asserts it.
+# No seed below 600 does so for (0, 0, 1, 1), which is left out.
+_THRESHOLD_QUERIES = [
+    ("mixed_cumulant", (0, 1), 18),
+    ("mixed_cumulant", (0, 0, 1), 0),
+    ("mixed_cumulant", (0, 1, 2), 5),
+    ("mixed_cumulant", (0, 0, 0, 1), 42),
+    ("mixed_cumulant", (0, 1, 1, 1), 8),
+    ("mixed_cumulant", (0, 0, 1, 2), 5),
+    ("joint_coefficient", (3, 1, 0), 76),
+    ("joint_coefficient", (1, 2, 1), 2),
+]
+
+
+@pytest.mark.parametrize("ratio", [2e-10, 1.2e-10, 8e-11, 4.5e-11])
+@pytest.mark.parametrize(
+    "query,argument,seed",
+    _THRESHOLD_QUERIES,
+    ids=[
+        f"{query}-{''.join(map(str, value))}" for query, value, _ in _THRESHOLD_QUERIES
+    ],
+)
+def test_cancellation_threshold_is_pinned_from_both_sides(
+    frozen, query, argument, seed, ratio
+):
+    # The float64 value is admitted by the rounding certificate and raises
+    # no floating-point exception, so only the 0.7.0 cancellation test
+    # decides between the float64 bits (above 1e-10 of the bound) and the
+    # correctly rounded exact value (below it). The two differ in every case,
+    # so a threshold moved past a neighbouring ratio changes a returned value.
+    slots, divisor = _query_slots(query, argument)
+    matrices, endpoints = _arrays_at_ratio(seed, slots, divisor, ratio)
+    with np.errstate(all="raise"):
+        approximate = float_statistic(matrices, endpoints, slots, divisor)
+    exact = fraction_statistic(matrices, endpoints, slots, divisor)
+    bound = _frobenius_bound(matrices, endpoints, slots, divisor)
+    assert abs(float(approximate)) / bound == pytest.approx(ratio, rel=1e-3, abs=0.0)
+    certificate = certificates.rounding_certificate(matrices, endpoints, slots, divisor)
+    assert certificates.admits(certificate, approximate)
+    assert float(approximate) != float(exact)
+    expected = float(approximate) if ratio > _THRESHOLD else float(exact)
+    reference = frozen["quadratic"].GaussianQuadraticFamily.from_factor(
+        np.eye(matrices.shape[-1]), matrices, endpoints
+    )
+    assert np.array_equal(reference._matrices, matrices)
+    assert np.array_equal(reference._endpoints, endpoints)
+    candidate = make_family(matrices, endpoints)
+    outcome = ("float", struct.pack("!d", expected))
+    assert _outcome(lambda: getattr(reference, query)(argument)) == outcome
+    assert _outcome(lambda: getattr(candidate, query)(argument)) == outcome
