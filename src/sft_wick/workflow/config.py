@@ -293,6 +293,7 @@ def _apply_override(data: dict, dotted_key: str, value: Any) -> None:
 _TOP_LEVEL_KEYS = ("system", "expand", "propagators", "sweep", "output")
 _SYSTEM_KEYS = ("field", "t_min", "linear", "noise", "vertices", "nonlocal_vertices")
 _FIELD_KEYS = ("name", "n_components")
+_NOISE_KEYS = ("kappa2", "sigma2")
 _EXPAND_KEYS = frozenset(
     {
         "observable",
@@ -407,6 +408,8 @@ def _parse_system(
     noise = d.get("noise")
     if noise is None:
         raise ValueError("system.noise is required")
+    if isinstance(noise, dict):
+        _reject_unknown_keys(noise, _NOISE_KEYS, "system.noise")
 
     # Validate each vertex block and resolve its coupling (file paths are
     # relative to the YAML file).

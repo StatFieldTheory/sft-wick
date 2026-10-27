@@ -922,6 +922,8 @@ def test_YC10_every_sweep_key_is_accepted_and_read(tmp_path):
                  id="local_vertices"),
     pytest.param(("system", "field"), "n_component", "system.field",
                  id="n_component"),
+    pytest.param(("system", "noise"), "sigma_2", "system.noise",
+                 id="sigma_2"),
     pytest.param(("expand",), "ordrs", "expand", id="ordrs"),
     pytest.param(("expand",), "diag_c", "expand", id="diag_c"),
     pytest.param(("propagators",), "n_grid_tt", "propagators",
@@ -933,7 +935,8 @@ def test_YC11_misspelt_key_is_refused_in_every_block(tmp_path, block, typo,
                                                      where):
     """A misspelt key in these blocks used to load and its default was
     used: ``t_minn`` integrated from 0, ``local_vertices`` dropped every
-    vertex, ``diag_c: false`` kept the diagonal simplification."""
+    vertex, ``diag_c: false`` kept the diagonal simplification, ``sigma_2``
+    dropped the white noise."""
     cfg = _base_config()
     cfg["output"] = [{"type": "table", "format": "csv", "path": "o.csv"}]
     node = cfg
@@ -982,6 +985,7 @@ def test_YC11_the_reference_example_uses_only_accepted_keys():
     for block, allowed in (((), cf._TOP_LEVEL_KEYS),
                            (("system",), cf._SYSTEM_KEYS),
                            (("system", "field"), cf._FIELD_KEYS),
+                           (("system", "noise"), cf._NOISE_KEYS),
                            (("expand",), cf._EXPAND_KEYS),
                            (("propagators",), cf._PROPAGATORS_KEYS),
                            (("sweep",), cf._SWEEP_KEYS)):
@@ -1001,3 +1005,40 @@ def test_YC11_every_shipped_workflow_config_loads():
     assert len(paths) >= 11
     for path in paths:
         load_workflow_config(path)
+
+
+# ---------------------------------------------------------------------------
+# YC12 -- a position for a point the observable does not name is refused
+# ---------------------------------------------------------------------------
+
+def test_YC12_misspelt_point_in_positions_grid_is_refused(tmp_path):
+    """``positions_grid: {x: [0], yy: [0.45]}`` used to leave ``y`` at the
+    default position 0 and return C at zero separation, 65 % high on the
+    quickstart model, with an extra ``yy`` column and no error."""
+    cfg = _base_config()
+    cfg["sweep"]["positions_grid"] = {"x": [0.0], "yy": [0.45]}
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    with pytest.raises(ValueError, match=r"position\(s\) given for \['yy'\]"):
+        run_workflow(load_workflow_config(path), progress=False)
+
+
+def test_YC12_misspelt_point_is_refused_at_L1_and_omitted_points_still_default(
+    tmp_path,
+):
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(_base_config()))
+    system = build_system(load_workflow_config(path).system)
+    exp = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0], progress=False)
+    props = system.propagators(t_max=T_FINAL, n_grid_t=8, progress=False)
+    kw = dict(t_final=T_FINAL, component_pair=(0, 0), method="gauss_legendre",
+              n_gauss=4)
+    with pytest.raises(ValueError, match=r"\['yy'\].*\['x', 'y'\]"):
+        exp.evaluate(props, positions={"x": 0.0, "yy": 0.45}, **kw)
+    with pytest.raises(ValueError, match=r"\['z'\]"):
+        exp.sweep(props, positions_grid={"x": [0.0], "y": [0.45], "z": [1.0]},
+                  t_final_grid=[T_FINAL], component_pairs=[(0, 0)],
+                  method="gauss_legendre", n_gauss=4, progress=False)
+    omitted = exp.evaluate(props, positions={"x": 0.0}, **kw).total
+    explicit = exp.evaluate(props, positions={"x": 0.0, "y": 0.0}, **kw).total
+    assert omitted == explicit
