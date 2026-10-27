@@ -19,6 +19,7 @@ import numpy as np
 
 
 from sft_wick._dense_contraction import DEFAULT_CONTRACTION_MAX_BYTES
+from sft_wick.evaluate import DEFAULT_GL_CHUNK_SIZE
 from sft_wick.evaluate import _cache_has_spatial_table, integrate_moment
 from sft_wick.expressions import Expr, Product, Symbol, Sum, Rational
 
@@ -262,7 +263,7 @@ class Expansion:
         external_times: dict[str, float] | None = None,
         _progress_tick: Any = None,
         _prepared: _PreparedSweepPoint | None = None,
-        gl_chunk_size: int | None = None,
+        gl_chunk_size: int | None = DEFAULT_GL_CHUNK_SIZE,
         qmc_coupling_chunk_size: int | None = None,
         propagator_cache_bytes: int | None = None,
         propagator_cache_contract: str | None = None,
@@ -347,10 +348,12 @@ class Expansion:
                 Cost scales as ``n_gauss^d`` per consistent order of
                 kinked time pairs; bump to 12-20 for stiff integrands
                 at large ``t_final``.
-            gl_chunk_size: positive maximum GL nodes per batch, or ``None``
-                for the default eager grid. Reduces temporary batch memory;
-                preserves all quadrature nodes and causal/kink pieces. Used
-                only by ``method='gauss_legendre'``.
+            gl_chunk_size: positive maximum GL nodes per batch (default
+                4096), or ``None`` for the eager grid at any size.  A grid of
+                at most this many nodes is the eager grid; a larger one is
+                evaluated in blocks, which bounds temporary batch memory and
+                keeps every quadrature node and causal/kink piece. Used only
+                by ``method='gauss_legendre'``.
             qmc_coupling_chunk_size: optional positive dynamic coupling batch
                 bound for vectorized QMC. Raw callbacks must be sample-separable
                 with stable dtype and trailing shape. ``None`` keeps the full
@@ -520,7 +523,7 @@ class Expansion:
         n_gauss: int = 8,
         progress: Any = None,
         reuse_integrands: bool = False,
-        gl_chunk_size: int | None = None,
+        gl_chunk_size: int | None = DEFAULT_GL_CHUNK_SIZE,
         qmc_coupling_chunk_size: int | None = None,
         propagator_cache_bytes: int | None = None,
         propagator_cache_contract: str | None = None,
@@ -593,9 +596,10 @@ class Expansion:
                 are discarded on return; later sweeps observe updated tensors.
                 Trades memory for reduced preparation time, including under
                 either supported joblib parallelism mode.  Default ``False``.
-            gl_chunk_size: optional positive GL batch bound, with the same
-                semantics as in :meth:`evaluate`. Each worker has its own
-                batch arrays; the total memory depends on worker count.
+            gl_chunk_size: positive GL batch bound (default 4096) or
+                ``None``, with the same semantics as in :meth:`evaluate`.
+                Each worker has its own batch arrays; the total memory
+                depends on worker count.
             qmc_coupling_chunk_size: optional dynamic coupling batch bound,
                 with the same contract as in :meth:`evaluate`. Each worker
                 has its own arrays; this does not bound total process memory.

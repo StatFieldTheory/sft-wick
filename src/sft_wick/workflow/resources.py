@@ -46,7 +46,8 @@ def resource_controls(cfg: WorkflowConfig) -> list[dict]:
         if gl is None
         else (
             "blocks GL coordinates and evaluated factors; diagrams with no integration "
-            "variables bypass it; a cap covering all nodes still uses one chunk per integration piece"
+            "variables bypass it; an integration piece of at most this many nodes "
+            "is evaluated as the eager grid"
         )
     )
     if gl is not None and sw.method != "gauss_legendre":

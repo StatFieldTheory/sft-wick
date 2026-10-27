@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **4202 tests** in 106 files (parametrised
+The suite has **4212 tests** in 106 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -252,7 +252,7 @@ Propagator numerics
 Integrators
 -----------
 
-*1704 tests in 49 files.*
+*1714 tests in 49 files.*
 
 .. list-table::
    :header-rows: 1
@@ -402,7 +402,7 @@ Integrators
      - chunked static/dynamic GL, causal and kink domains, aliases, dense matrix propagators, fixed vectors, phase scale, API and workers
      - analytic exponential and polynomial cumulants; exact linear response Taylor coefficients; existing per-diagram paths
      - 2e-12 independent GL references; explicit cancellation scale; QMC unchanged
-     - 69
+     - 79
    * - ``test_gl_chunking.py``
      - bounded tensor-node generation, polynomial weights, lazy large theoretical grids and read-only 1D rule reuse
      - separable polynomial integral and midpoint-rule volume

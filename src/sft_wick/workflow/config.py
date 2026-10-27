@@ -31,6 +31,7 @@ from typing import Any
 import numpy as np
 
 from sft_wick._dense_contraction import DEFAULT_CONTRACTION_MAX_BYTES
+from sft_wick.evaluate import DEFAULT_GL_CHUNK_SIZE
 
 # =========================================================================
 # Internal dataclasses: a thin typed mirror of the L1 ``System`` spec
@@ -142,7 +143,7 @@ class SweepConfig:
     #: Theta kills the R joining two externals at the same time.
     external_times_grid: dict | None = None
     reuse_integrands: bool = False
-    gl_chunk_size: int | None = None
+    gl_chunk_size: int | None = DEFAULT_GL_CHUNK_SIZE
     qmc_coupling_chunk_size: int | None = None
 
     propagator_cache_bytes: int | None = None
@@ -239,6 +240,30 @@ def _override_step(cur: Any, step: Any, dotted_key: str):
     return cur[step]
 
 
+#: Optional ``sweep`` keys an override may add when the file omits them;
+#: each is read by ``_parse_sweep`` with a default.  Every other override
+#: key must already exist, so a misspelt key raises instead of being ignored.
+_SWEEP_OPTIONAL_KEYS = frozenset(
+    {
+        "gl_chunk_size",
+        "qmc_coupling_chunk_size",
+        "reuse_integrands",
+        "propagator_cache_bytes",
+        "propagator_cache_contract",
+        "contraction_backend",
+        "contraction_max_bytes",
+        "method",
+        "n_samples",
+        "seed",
+        "n_jobs",
+        "n_gauss",
+        "orders",
+        "vertex_types",
+        "integrate_over",
+    }
+)
+
+
 def _apply_override(data: dict, dotted_key: str, value: Any) -> None:
     """Apply an ``"a.b.c"`` (or ``"a[0].b"``) override to a parsed config."""
     path = _override_path(dotted_key)
@@ -246,7 +271,9 @@ def _apply_override(data: dict, dotted_key: str, value: Any) -> None:
     for step in path[:-1]:
         cur = _override_step(cur, step, dotted_key)
     leaf = path[-1]
-    _override_step(cur, leaf, dotted_key)  # must already exist
+    optional = path[:-1] == ["sweep"] and leaf in _SWEEP_OPTIONAL_KEYS
+    if not (optional and isinstance(cur, dict)):
+        _override_step(cur, leaf, dotted_key)  # must already exist
     cur[leaf] = value
 
 
@@ -1045,7 +1072,9 @@ def _parse_sweep(d: dict) -> SweepConfig:
         reuse_integrands=_as_bool(
             d.get("reuse_integrands", False), "sweep.reuse_integrands"
         ),
-        gl_chunk_size=_validate_gl_chunk_size(d.get("gl_chunk_size")),
+        gl_chunk_size=_validate_gl_chunk_size(
+            d.get("gl_chunk_size", DEFAULT_GL_CHUNK_SIZE)
+        ),
         qmc_coupling_chunk_size=_validate_qmc_coupling_chunk_size(
             d.get("qmc_coupling_chunk_size")
         ),

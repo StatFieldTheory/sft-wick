@@ -14,8 +14,19 @@ methods and resolutions; values move only where noted below.
 New keywords on `Expansion.evaluate` / `Expansion.sweep`, mirrored under
 `sweep:` in YAML (`docs/user_guide/workflow.rst`, `docs/user_guide/resources.rst`):
 
-* `gl_chunk_size` (default `None`): evaluate Gauss-Legendre tensor nodes in
-  blocks of at most this many, over every causal and kink piece.
+* `gl_chunk_size` (default `4096`): evaluate Gauss-Legendre tensor nodes in
+  blocks of at most this many, over every causal and kink piece.  A grid of
+  at most one block is the eager grid, bit for bit; `None` keeps the eager
+  grid at any size.  On a 331 776-node order-2 grid and a 117 649-node
+  order-4 grid, the default took the same wall time as the eager grid and
+  cut the peak RSS from 812 to 127 MB and from 1272 to 212 MB, with the
+  same totals (`tools/benchmark_gl_chunk_size.py`).  On larger grids the
+  block sums are added with `math.fsum`, so a GL value can change in its
+  last digits, and vectorised hooks (`coupling_vectorized`,
+  `R_time_vectorized`, `c_closed_form_vectorized`) receive blocks of at most
+  4096 rows, so they must treat each sample independently of the batch.
+  `--override sweep.gl_chunk_size=null` selects the eager grid on a file
+  that omits the key.
 * `qmc_coupling_chunk_size` (default `None`): build dynamic coupling tensors
   on `qmc_vectorized` in row blocks.  The callable must be sample-separable.
 * `reuse_integrands` (default `False`): prepare static coupling tensors and

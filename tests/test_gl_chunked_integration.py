@@ -5,7 +5,7 @@ Changing chunk size may regroup floating-point additions, so comparisons
 use explicit error budgets rather than requiring bit equality for GL.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import factorial
 
 import numpy as np
@@ -13,7 +13,11 @@ import pytest
 import yaml
 
 import sft_wick as sw
-from sft_wick.evaluate import integrate_diagrams, integrate_moment
+from sft_wick.evaluate import (
+    DEFAULT_GL_CHUNK_SIZE,
+    integrate_diagrams,
+    integrate_moment,
+)
 from sft_wick.workflow.config import load_workflow_config, run_workflow
 from tests import test_matrix_r_batched as mb
 
@@ -619,15 +623,20 @@ _YAML_BASE = {
 }
 
 
-def test_yaml_default_none_and_chunked_execution_against_exact_cumulant(tmp_path):
+def test_yaml_default_null_and_chunked_execution_against_exact_cumulant(tmp_path):
     import copy
 
     cfg = copy.deepcopy(_YAML_BASE)
     path = tmp_path / "chunked.yaml"
     path.write_text(yaml.safe_dump(cfg))
     default_cfg = load_workflow_config(path)
-    assert default_cfg.sweep.gl_chunk_size is None
-    eager, _ = run_workflow(default_cfg, progress=False)
+    assert default_cfg.sweep.gl_chunk_size == DEFAULT_GL_CHUNK_SIZE == 4096
+    cfg["sweep"]["gl_chunk_size"] = None
+    path.write_text(yaml.safe_dump(cfg))
+    null_cfg = load_workflow_config(path)
+    assert null_cfg.sweep.gl_chunk_size is None
+    eager, _ = run_workflow(null_cfg, progress=False)
+    assert run_workflow(default_cfg, progress=False)[0].rows == eager.rows
     cfg["sweep"]["gl_chunk_size"] = 7
     path.write_text(yaml.safe_dump(cfg))
     chunk_cfg = load_workflow_config(path)
@@ -691,7 +700,7 @@ def test_cli_dry_run_times_the_configured_GL_batches(
         assert value == pytest.approx(2 * (-np.expm1(-1.2)) ** 3, rel=2e-12, abs=0.0)
     if chunk is None:
         assert blocks and set(blocks) == {8**3}
-        assert "gl_chunk_size=" not in output
+        assert "gl_chunk_size=eager" in output
     else:
         assert blocks and max(blocks) == chunk
         assert f"gl_chunk_size={chunk}" in output
@@ -748,3 +757,133 @@ def test_high_dimensional_tensor_rule_never_passes_a_full_product_to_callback():
     assert got.total == pytest.approx(1.0, rel=3e-13, abs=0.0)
     assert calls and max(calls) <= cap
     assert len(calls) > 100
+
+
+@dataclass(eq=False)
+class RecordingConstantKappa:
+    """Vectorised constant coupling that records each batch length."""
+
+    tensor: np.ndarray
+    sizes: list = field(default_factory=list)
+
+    def __call__(self, n_array, t_array):
+        n_samples = np.asarray(t_array).shape[1]
+        self.sizes.append(n_samples)
+        return np.broadcast_to(self.tensor, (n_samples,) + self.tensor.shape).copy()
+
+
+@pytest.mark.parametrize("n_gauss", [15, 16, 17])
+def test_default_bound_is_the_eager_grid_up_to_one_block_and_blocks_beyond(n_gauss):
+    """Three time variables put the default bound between 16**3 = 4096 and
+    17**3 = 4913 nodes.  Up to one block the default must be the eager
+    grid, the same batches and the same bits; beyond it every batch is at
+    most one block, all nodes are still visited and the value moves by
+    reduction-order rounding only."""
+    kappa = RecordingConstantKappa(K_RAW.copy())
+    exp, props = _cumulant(kappa, gamma=[0.7, 1.6], vectorized=True)
+    eager = _eval3(exp, props, None, n_gauss=n_gauss).total
+    eager_sizes, kappa.sizes[:] = list(kappa.sizes), []
+    got = exp.evaluate(
+        props,
+        positions=POS3,
+        t_final=1.4,
+        component_pair=(0, 1, 1),
+        orders=[1],
+        method="gauss_legendre",
+        n_gauss=n_gauss,
+    ).total
+    n_nodes = n_gauss**3
+    assert set(eager_sizes) == {n_nodes}
+    if n_nodes <= DEFAULT_GL_CHUNK_SIZE:
+        assert kappa.sizes == eager_sizes
+        assert got == eager
+    else:
+        assert max(kappa.sizes) == DEFAULT_GL_CHUNK_SIZE
+        assert sum(kappa.sizes) == sum(eager_sizes)
+        assert len(kappa.sizes) > len(eager_sizes)
+        assert got == pytest.approx(eager, rel=1e-14, abs=0.0)
+
+
+def test_explicit_bound_covering_the_grid_is_the_eager_grid():
+    """A bound of at least ``n_gauss**d`` takes the eager path rather than
+    the block generator, so it cannot change a single bit."""
+    kappa = RecordingConstantKappa(K_RAW.copy())
+    exp, props = _cumulant(kappa, gamma=[0.7, 1.6], vectorized=True)
+    eager = _eval3(exp, props, None, n_gauss=5).total
+    for bound in (125, 126, 10**9):
+        assert _eval3(exp, props, bound, n_gauss=5).total == eager
+
+
+def _gl_entry_points():
+    import sft_wick.evaluate as ev
+    from sft_wick.workflow.expansion import Expansion
+
+    return {
+        "integrate_moment": ev.integrate_moment,
+        "_integrate_moment_dispatch": ev._integrate_moment_dispatch,
+        "integrate_diagrams": ev.integrate_diagrams,
+        "_integrate_diagrams_dispatch": ev._integrate_diagrams_dispatch,
+        "_eval_single_diagram": ev._eval_single_diagram,
+        "integrate_moment_gauss_legendre": (
+            ev.DiagramIntegrand.integrate_moment_gauss_legendre
+        ),
+        "Expansion.evaluate": Expansion.evaluate,
+        "Expansion.sweep": Expansion.sweep,
+    }
+
+
+def test_every_GL_entry_point_and_the_sweep_config_share_the_default_bound():
+    import inspect
+
+    from sft_wick.workflow.config import SweepConfig
+
+    defaults = {
+        name: inspect.signature(fn).parameters["gl_chunk_size"].default
+        for name, fn in _gl_entry_points().items()
+    }
+    defaults["SweepConfig"] = SweepConfig.__dataclass_fields__["gl_chunk_size"].default
+    assert defaults == dict.fromkeys(defaults, DEFAULT_GL_CHUNK_SIZE)
+
+
+@pytest.mark.parametrize(
+    ("n_gauss", "bound", "expected"),
+    [
+        (16, DEFAULT_GL_CHUNK_SIZE, None),
+        (17, DEFAULT_GL_CHUNK_SIZE, DEFAULT_GL_CHUNK_SIZE),
+        (5, 125, None),
+        (5, 124, 124),
+    ],
+)
+def test_block_generator_gets_the_eager_grid_when_one_block_covers_it(
+    monkeypatch, n_gauss, bound, expected
+):
+    """Three time variables: ``n_gauss**3 <= bound`` must reach the block
+    generator as the eager grid (``chunk_size=None``)."""
+    import sft_wick.evaluate as ev
+
+    seen = []
+    real = ev._gl_tensor_blocks
+
+    def spy(nodes, weights, n_dimensions, chunk_size):
+        seen.append((n_dimensions, chunk_size))
+        return real(nodes, weights, n_dimensions, chunk_size)
+
+    monkeypatch.setattr(ev, "_gl_tensor_blocks", spy)
+    exp, props = _cumulant(K_RAW.copy(), gamma=[0.7, 1.6])
+    _eval3(exp, props, bound, n_gauss=n_gauss)
+    assert seen and set(seen) == {(3, expected)}
+
+
+def test_override_can_select_the_eager_grid_on_a_file_without_the_key(tmp_path):
+    import copy
+
+    path = tmp_path / "plain.yaml"
+    path.write_text(yaml.safe_dump(copy.deepcopy(_YAML_BASE)))
+    cfg = load_workflow_config(path, overrides={"sweep.gl_chunk_size": None})
+    assert cfg.sweep.gl_chunk_size is None
+    cfg = load_workflow_config(path, overrides={"sweep.gl_chunk_size": 512})
+    assert cfg.sweep.gl_chunk_size == 512
+    with pytest.raises(KeyError, match="gl_chunk_sise"):
+        load_workflow_config(path, overrides={"sweep.gl_chunk_sise": None})
+    with pytest.raises(KeyError):
+        load_workflow_config(path, overrides={"propagators.gl_chunk_size": None})

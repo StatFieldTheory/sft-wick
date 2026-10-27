@@ -18,9 +18,11 @@ Existing controls
      - Tradeoff
    * - ``gl_chunk_size``
      - GL coordinates, mapped times and evaluated factors
-     - Smaller blocks reduce workspace; all nodes are still evaluated.
-       Each block has a fixed Python cost: on an order-4 sweep, blocks of
-       512 nodes took twice as long as eager GL and blocks of 64 ten times.
+     - Default 4096 nodes per block; a grid no larger than one block is
+       the eager grid.  Smaller blocks reduce workspace; all nodes are still
+       evaluated.  Each block has a fixed Python cost: on an order-4 sweep,
+       blocks of 512 nodes took twice as long as eager GL and blocks of 64
+       ten times.  See :ref:`gl-batch-memory` for choosing the value.
    * - ``qmc_coupling_chunk_size``
      - Dynamic coupling construction in vectorized QMC only
      - Smaller raw tensor batches; full Sobol coordinates, R/C arrays,

@@ -64,7 +64,7 @@ def test_method_and_static_eligibility(tmp_path, method, gl_status, qmc_status):
     assert controls["sweep.gl_chunk_size"]["status"] == gl_status
     assert controls["sweep.qmc_coupling_chunk_size"]["status"] == qmc_status
     if method == "gauss_legendre":
-        assert "one chunk" in controls["sweep.gl_chunk_size"]["reason"]
+        assert "eager grid" in controls["sweep.gl_chunk_size"]["reason"]
 
 
 def test_dynamic_feedback_never_calls_callback_and_cap_bypass(tmp_path):

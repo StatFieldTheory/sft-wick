@@ -19,7 +19,10 @@ comparison command.*
 - New sweep options ``gl_chunk_size``, ``qmc_coupling_chunk_size``,
   ``reuse_integrands``, ``contraction_backend``, ``contraction_max_bytes``
   and ``propagator_cache_bytes``, in L1 and YAML. Defaults keep the 0.6.1
-  methods and resolutions. See :doc:`user_guide/resources`.
+  methods and resolutions. ``gl_chunk_size`` defaults to 4096 nodes per
+  block: a grid of at most one block is the eager grid, and a larger one
+  keeps its wall time with a bounded workspace. See
+  :doc:`user_guide/resources`.
 - ``sft-wick compare-resources`` times and memory-profiles resource variants
   of one workflow and checks that they return the same rows.
 - Connected targets (``target="connected"``), finite Gaussian quadratic

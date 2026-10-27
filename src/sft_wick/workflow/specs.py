@@ -1043,7 +1043,9 @@ class LocalVertex:
             per integration point.  ``True``: the batched contract,
             ``fn(n_2d, t_2d)`` with inputs of shape ``(1, n_samples)``
             and an output of shape ``(n_samples,) + (N,)*n``, one call
-            per integrand on the batched integrators.
+            per batch of samples on the batched integrators: a whole
+            integrand under QMC, a block of at most ``gl_chunk_size``
+            nodes under Gauss-Legendre.
 
     Notes:
         Use :attr:`msr_coupling` to retrieve the MSR-factor-applied
@@ -1126,7 +1128,7 @@ class NonLocalVertex:
             every copy of the vertex at its own points and routes
             the legs between the copies.  A diagram in which ``k``
             distinct leg tuples occur calls the callable ``k`` times
-            per sample, or ``k`` times per integrand under
+            per sample, or ``k`` times per batch of samples under
             ``coupling_vectorized=True`` (``k <= m!`` for a single
             copy).  Up to 0.4.2 the callable
             was evaluated at one leg order only; that is correct
@@ -1147,8 +1149,12 @@ class NonLocalVertex:
             length-m ``n_list`` / ``t_list`` once per QMC sample. ``True``
             signals the batched contract, in which the workflow calls
             ``fn`` with shape ``(m, n_samples)`` ``n_list`` /
-            ``t_list`` once per integrand and expects an output of
-            shape ``(n_samples,) + (N,)*m``. Use the batched form
+            ``t_list`` once per batch of samples and expects an output
+            of shape ``(n_samples,) + (N,)*m``.  A batch is a whole
+            integrand under QMC (or a block of ``qmc_coupling_chunk_size``
+            rows) and a block of at most ``gl_chunk_size`` nodes under
+            Gauss-Legendre, so ``fn`` must treat each sample
+            independently of the batch it arrives in. Use the batched form
             when the user callable can amortise its cost across
             samples (numpy ufuncs, special functions, etc.); for
             cheap callables the per-sample form has lower overhead.

@@ -2590,6 +2590,12 @@ class _BatchRealityAccumulator:
 _BATCH_REALITY_PROJECT = _BatchRealityAccumulator.project
 
 
+#: Default maximum Gauss-Legendre nodes per batch.  A grid of at most this
+#: many nodes is the eager grid; larger grids are evaluated in blocks, which
+#: bounds their sample-batch workspace at no measured cost in wall time.
+DEFAULT_GL_CHUNK_SIZE = 4096
+
+
 def _validate_gl_chunk_size(value):
     """Validate the optional GL batch bound without silently coercing it."""
     if value is None:
@@ -7075,7 +7081,7 @@ class DiagramIntegrand:
         external_times: dict[str, float] | None = None,
         _extra_orderings: tuple = (),
         _extra_bounds: tuple = (),
-        gl_chunk_size: int | None = None,
+        gl_chunk_size: int | None = DEFAULT_GL_CHUNK_SIZE,
     ) -> tuple[float, float]:
         """Tensor-product Gauss-Legendre quadrature on the causal
         simplex.
@@ -7140,12 +7146,15 @@ class DiagramIntegrand:
                 exactly).
             positions, integrate_over: Same as
                 :meth:`integrate_moment_qmc_vectorized`.
-            gl_chunk_size: Positive maximum nodes per batch, or ``None``
-                (default) for the eager tensor grid. Chunking retains all
-                nodes and kink pieces while bounding temporary sample-batch
-                workspace. Callback batch sizes and floating-point reduction
-                order change. Vectorised hooks must
-                return samplewise results independent of batch length.
+            gl_chunk_size: Positive maximum nodes per batch (default
+                :data:`DEFAULT_GL_CHUNK_SIZE`, 4096), or ``None`` for the
+                eager tensor grid at any size.  A grid of at most
+                ``gl_chunk_size`` nodes is the eager grid.  Larger grids are
+                evaluated in blocks: every node and kink piece is kept and
+                the sample-batch workspace is bounded, but callback batch
+                sizes and floating-point reduction order change, so
+                vectorised hooks must return samplewise results independent
+                of batch length.
 
         Returns:
             ``(estimate, 0.0)``.  GL is deterministic, so there is
@@ -7259,6 +7268,8 @@ class DiagramIntegrand:
             gl_vars = ext_integrated + int_vars_pf
 
         u_1d, w_1d = _gauss_legendre_unit_rule(n_gauss)
+        if gl_chunk_size is not None and int(n_gauss) ** n_total <= gl_chunk_size:
+            gl_chunk_size = None  # one block is the eager grid
 
         # --- Causal mapping: identical to QMC vectorised path. ---
         parent_map: dict[str, list[str]] = defaultdict(list)
@@ -8016,7 +8027,7 @@ def integrate_moment(
     integrate_over: Any = None,
     n_gauss: int = 8,
     external_times: dict[str, float] | None = None,
-    gl_chunk_size: int | None = None,
+    gl_chunk_size: int | None = DEFAULT_GL_CHUNK_SIZE,
     qmc_coupling_chunk_size: int | None = None,
     propagator_cache_bytes: int | None = None,
     propagator_cache_contract: str | None = None,
@@ -8086,8 +8097,10 @@ def integrate_moment(
         seed: Random seed for reproducibility (QMC only).
         n_gauss: Gauss-Legendre nodes per dimension
             (``'gauss_legendre'`` only).
-        gl_chunk_size: Positive maximum GL nodes per batch; ``None`` keeps
-            eager GL. Validated but unused by other integration methods.
+        gl_chunk_size: Positive maximum GL nodes per batch (default 4096;
+            a grid no larger than one batch is the eager grid); ``None``
+            keeps eager GL at any size. Validated but unused by other
+            integration methods.
         qmc_coupling_chunk_size: Positive maximum dynamic coupling rows per
             vectorized QMC call; requires sample-separable raw callbacks with
             stable dtype and trailing shape. ``None`` preserves the full batch.
@@ -8171,7 +8184,7 @@ def _integrate_moment_dispatch(
     integrate_over: Any = None,
     n_gauss: int = 8,
     external_times: dict[str, float] | None = None,
-    gl_chunk_size: int | None = None,
+    gl_chunk_size: int | None = DEFAULT_GL_CHUNK_SIZE,
     qmc_coupling_chunk_size: int | None = None,
 ) -> tuple[float, float]:
     """Integrate a diagram's contribution over all time variables.
@@ -8237,8 +8250,10 @@ def _integrate_moment_dispatch(
         seed: Random seed for reproducibility (QMC only).
         n_gauss: Gauss-Legendre nodes per dimension
             (``'gauss_legendre'`` only).
-        gl_chunk_size: Positive maximum GL nodes per batch; ``None`` keeps
-            eager GL. Validated but unused by other integration methods.
+        gl_chunk_size: Positive maximum GL nodes per batch (default 4096;
+            a grid no larger than one batch is the eager grid); ``None``
+            keeps eager GL at any size. Validated but unused by other
+            integration methods.
         qmc_coupling_chunk_size: Positive maximum dynamic coupling rows per
             vectorized QMC call; requires sample-separable raw callbacks with
             stable dtype and trailing shape. ``None`` preserves the full batch.
@@ -8349,7 +8364,7 @@ def _eval_single_diagram(
     n_gauss,
     external_times=None,
     _prepared_integrand=None,
-    gl_chunk_size=None,
+    gl_chunk_size=DEFAULT_GL_CHUNK_SIZE,
     qmc_coupling_chunk_size=None,
     contraction_backend="ordered",
     contraction_max_bytes=DEFAULT_CONTRACTION_MAX_BYTES,
@@ -8413,7 +8428,7 @@ def integrate_diagrams(
     external_times: dict[str, float] | None = None,
     progress_tick: Callable | None = None,
     _prepared_integrands: tuple | None = None,
-    gl_chunk_size: int | None = None,
+    gl_chunk_size: int | None = DEFAULT_GL_CHUNK_SIZE,
     qmc_coupling_chunk_size: int | None = None,
     propagator_cache_bytes: int | None = None,
     propagator_cache_contract: str | None = None,
@@ -8440,8 +8455,8 @@ def integrate_diagrams(
         t_min: Lower time bound (default 0).
         direction: Direction value for all spatial points.
         method: Integrator selector accepted by :func:`integrate_moment`.
-        gl_chunk_size: Optional positive GL batch bound, forwarded to
-            :func:`integrate_moment` in serial and joblib workers.
+        gl_chunk_size: Positive GL batch bound (default 4096) or ``None``,
+            forwarded to :func:`integrate_moment` in serial and joblib workers.
         qmc_coupling_chunk_size: Optional positive dynamic coupling batch bound
             for vectorized QMC; see :func:`integrate_moment` for the callback
             contract. Each worker constructs its own arrays.
@@ -8550,7 +8565,7 @@ def _integrate_diagrams_dispatch(
     external_times: dict[str, float] | None = None,
     progress_tick: Callable | None = None,
     _prepared_integrands: tuple | None = None,
-    gl_chunk_size: int | None = None,
+    gl_chunk_size: int | None = DEFAULT_GL_CHUNK_SIZE,
     qmc_coupling_chunk_size: int | None = None,
     contraction_backend="ordered",
     contraction_max_bytes=DEFAULT_CONTRACTION_MAX_BYTES,
@@ -8575,8 +8590,8 @@ def _integrate_diagrams_dispatch(
         t_min: Lower time bound (default 0).
         direction: Direction value for all spatial points.
         method: Integrator selector accepted by :func:`integrate_moment`.
-        gl_chunk_size: Optional positive GL batch bound, forwarded to
-            :func:`integrate_moment` in serial and joblib workers.
+        gl_chunk_size: Positive GL batch bound (default 4096) or ``None``,
+            forwarded to :func:`integrate_moment` in serial and joblib workers.
         qmc_coupling_chunk_size: Optional positive dynamic coupling batch bound
             for vectorized QMC; see :func:`integrate_moment` for the callback
             contract. Each worker constructs its own arrays.

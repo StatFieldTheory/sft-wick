@@ -312,8 +312,9 @@ def _print_summary(cfg) -> None:
         if sw.method == "gauss_legendre"
         else f"n_samples={sw.n_samples}, seed={sw.seed}"
     )
-    if sw.method == "gauss_legendre" and sw.gl_chunk_size is not None:
-        method_detail += f", gl_chunk_size={sw.gl_chunk_size}"
+    if sw.method == "gauss_legendre":
+        gl_bound = "eager" if sw.gl_chunk_size is None else sw.gl_chunk_size
+        method_detail += f", gl_chunk_size={gl_bound}"
     if (
         sw.method in {"qmc", "qmc_vectorized"}
         and sw.qmc_coupling_chunk_size is not None

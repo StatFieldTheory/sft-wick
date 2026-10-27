@@ -1006,7 +1006,7 @@ fields must be present.
      n_samples:        8192            # Sobol samples (QMC paths only)
      seed:             42              # Sobol seed (QMC paths only)
      n_gauss:          8               # GL nodes/dim (gauss_legendre only)
-     gl_chunk_size:    null            # positive batch bound, or eager GL
+     gl_chunk_size:    4096            # GL nodes per batch; null = eager grid
      qmc_coupling_chunk_size: null     # opt-in dynamic coupling batches only
      reuse_integrands: false           # opt-in static preparation per component tuple
 
@@ -1436,8 +1436,8 @@ Section reference: ``sweep``
      - Parallelise across grid points (``-1`` = all cores). Mutually exclusive with ``expand.n_jobs > 1``
    * - ``gl_chunk_size``
      - positive ``int`` or ``null``
-     - ``null``
-     - Maximum GL nodes per batch. Generates and evaluates tensor nodes in blocks, including every causal/kink piece. Used only with ``method: gauss_legendre``
+     - ``4096``
+     - Maximum GL nodes per batch. A grid of at most this many nodes is the eager grid; a larger one is generated and evaluated in blocks, including every causal/kink piece. ``null`` keeps the eager grid at any size. Used only with ``method: gauss_legendre``; see :ref:`gl-batch-memory`
    * - ``reuse_integrands``
      - ``bool``
      - ``false``
@@ -1531,17 +1531,60 @@ These mechanisms complement static sweep reuse and bounded GL batches. Their
 preparation, numeric checks and metadata have a cost: whole integration timings
 and cold/warm measurements still determine their benefit for a workload.
 
+.. _gl-batch-memory:
+
 Bounding Gauss-Legendre batch memory
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Set ``sweep.gl_chunk_size: 4096`` alongside ``sweep.method: gauss_legendre``
-in YAML, or pass ``gl_chunk_size=4096`` to ``Expansion.evaluate`` or
-``Expansion.sweep``. The L0 ``integrate_moment``, ``integrate_diagrams`` and
-``DiagramIntegrand.integrate_moment_gauss_legendre`` accept the same option.
-It must be a positive integer; ``null`` / ``None`` retains the eager grid.
-Other integration methods validate the option but do not use it.
-The CLI summary displays a configured GL bound. Its ``--dry-run`` timing
-probes use the same bound for warm-up and measured evaluations.
+A Gauss-Legendre integral over ``d`` time variables visits ``n_gauss^d``
+nodes, and the eager grid holds coordinates, mapped times and propagator
+arrays for all of them at once, so its memory grows with the same power.
+``sweep.gl_chunk_size`` (default ``4096``) caps the nodes held at once.  A
+grid of at most ``gl_chunk_size`` nodes is the eager grid, with the same
+value to the last bit; a larger grid is evaluated in blocks of that many
+nodes.  ``null`` / ``None`` keeps the eager grid at any size.  The option is
+accepted by ``Expansion.evaluate`` and ``Expansion.sweep``, and by the L0
+``integrate_moment``, ``integrate_diagrams`` and
+``DiagramIntegrand.integrate_moment_gauss_legendre``.  It must be a positive
+integer.  Other integration methods validate the option but do not use it.
+The CLI summary displays the GL bound, and the ``--dry-run`` timing probes
+use it for warm-up and measured evaluations.
+
+The default rarely needs changing.  Lower it for wide dynamic couplings:
+each row of a block holds one raw coupling tensor per dynamic coupling
+symbol, ``N^m`` complex entries for a callable ``κ^(m)``, so with ``N^m``
+in the thousands a block of 4096 rows is itself large.  Lower it only as far
+as the memory requires, because each block carries a fixed Python cost: on
+an order-4 grid of 4096 nodes per diagram, a bound of 1024 took 10 % longer
+than eager GL and 256 took 40 % longer, and on an order-4 sweep 512 took
+twice as long and 64 ten times as long.  Bounds of 4096, 16384 and 65536
+took the same wall time as eager GL to within 5 % in every measurement,
+with one thread per process:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 22 22 22
+
+   * - Workload (``integrate_over: all``)
+     - Bound
+     - Wall time
+     - Peak RSS
+   * - order 2, ``N = 2``, ``n_gauss = 24`` (331 776 nodes)
+     - eager / 65536 / 4096
+     - 18.2 / 18.0 / 18.4 s
+     - 812 / 452 / 127 MB
+   * - order 4, ``N = 2``, ``n_gauss = 7`` (117 649 nodes)
+     - eager / 65536 / 4096
+     - 263 / 265 / 263 s
+     - 1272 / 775 / 212 MB
+
+Both rows returned the same total for every bound.  The script is
+``tools/benchmark_gl_chunk_size.py``.
+
+The bound removes the out-of-memory failure that used to stop a grid sized
+far beyond the machine, so such a grid now runs until it finishes.
+``sft-wick run --dry-run`` times one diagram evaluation per order at one
+grid point and prints the projected cost before anything runs.
 
 The tensor grid is generated directly in blocks, so node coordinates, mapped
 times, propagator arrays and dynamic coupling batches have at most
