@@ -82,6 +82,11 @@ class _Monomial:
     factors: tuple
     #: Real scalar: prefactor, rational factors and phases of this monomial.
     phase: float
+    #: ``(magnitude, magnitude)`` of the prefactor and of each rational
+    #: factor whose magnitude is not 1.  The ordered preparation multiplies
+    #: them one at a time, so the range rules count each as a factor of its
+    #: own rather than their folded product ``phase``.
+    scales: tuple
 
 
 @dataclass(frozen=True)
@@ -335,10 +340,10 @@ def _contract(snapshot, fixed, cb, rp, jac, rb, e_psi, max_bytes):
     if not _dense.backend_is_cheaper(cost + count_cost, estimate):
         return None
     ranges = tuple(
-        tuple(snapshot.ranges[slot] for slot, _, _, _ in m.factors)
+        tuple(snapshot.ranges[slot] for slot, _, _, _ in m.factors) + m.scales
         for m in snapshot.monomials
     )
-    return finish(contraction, layout, ranges, assignments)
+    return finish(contraction, layout, ranges, assignments, phase_is_factor=False)
 
 
 def _integrand_class():
@@ -805,6 +810,7 @@ def _monomials(groups, components, prefactor, e_psi):
     for factors in groups:
         scalar = complex(prefactor) * (1j**e_psi)
         operands = []
+        magnitudes = [abs(prefactor)]
         for factor in factors:
             if factor[0] == "s":
                 _, phase, _ = components[factor[1]]
@@ -812,11 +818,17 @@ def _monomials(groups, components, prefactor, e_psi):
                 operands.append((factor[1], phase == 1j, factor[2], factor[3]))
             elif factor[0] == "r":
                 scalar *= factor[1]
+                magnitudes.append(abs(factor[1]))
             else:
                 scalar *= 1j
         if scalar.imag != 0 or not math.isfinite(scalar.real):
             return None
-        monomials.append(_Monomial(tuple(operands), scalar.real))
+        # A factor of magnitude 1 changes no exponent; zero has no smallest
+        # nonzero magnitude, as in finite_range.
+        scales = tuple(
+            (value, value if value else math.inf) for value in magnitudes if value != 1.0
+        )
+        monomials.append(_Monomial(tuple(operands), scalar.real, scales))
     return monomials
 
 

@@ -303,8 +303,13 @@ A backend returns a value for a diagram call only when
 * no product or partial sum of those entries can overflow, in any
   evaluation order,
 * no product of nonzero inputs can fall below ``2**-1021``, in any
-  evaluation order (the sum of the binary exponents of the smallest nonzero
-  magnitudes of all factors is at least -1021),
+  evaluation order (summed over the factors, the binary exponent of the
+  smallest nonzero magnitude, counted as 0 for a factor whose magnitudes
+  are at least 1, is at least -1021); for ``factorized`` the rational
+  prefactor and every rational of a monomial count as factors of their own
+  in this rule and the previous one, because the ordered preparation
+  multiplies them one at a time, so rationals whose product is moderate do
+  not hide a partial product that overflows or underflows,
 * for ``factorized``, the monomials have no opposite signs at any
   assignment (checked once, when the integrand is prepared),
 * every coefficient passes the phase check of the ordered fold,

@@ -23,7 +23,10 @@ agreement is still prepared (N = 17, six indices), and the two checks are
 compared directly on both sides of that limit.  A summation index that only
 an R without a partner index (or an R folded into the scalar R product)
 carries makes ``factorized`` decline, at the kernel level and on a real
-scalar-R cache.
+scalar-R cache.  The prefactor and every rational of a monomial count as
+factors of their own in the range rules: rationals that cancel in their
+product while the ordered preparation overflows or underflows make the call
+decline, and the exponent limits are checked on both sides.
 """
 
 from dataclasses import replace
@@ -1192,3 +1195,128 @@ def test_factorized_single_label_response_against_a_scalar_response_cache():
     )
     assert abs(fused[0] - ordered[0]) <= 1e-12 * abs(ordered[0])
 
+
+_SCALAR_CASES = {
+    # (r, r2, prefactor, F scale, G scale) of r F(i, j) r2 G(k, l).
+    "overflow": (Rational(2**40), Rational(1), Rational(1, 2**40), 2.0**500, 2.0**498),
+    "overflow_inside": (Rational(10**200), Rational(1, 10**300), Rational(1), 1e150, 1.0),
+    "underflow": (Rational(1, 2**60), Rational(1), Rational(2**60), 2.0**-500, 2.0**-500),
+    "underflow_inside": (Rational(1, 10**200), Rational(10**300), Rational(1), 1e-150, 1.0),
+    "phase_underflow": (Rational(1, 10**200), Rational(1), Rational(1, 10**200), 1e300, 1.0),
+}
+
+
+def _scalar_case(case, rng):
+    """``r F(i, j) r2 G(k, l)`` with prefactor ``p`` over ``C(i, k)`` and
+    ``C(j, l)``.  The scalars cancel in the folded phase of the monomial;
+    the ordered preparation multiplies them one at a time, left to right,
+    and applies ``p`` last, so its products overflow (``"overflow*"``),
+    underflow (``"underflow*"``) or stay in range while the folded phase
+    underflows to zero (``"phase_underflow"``)."""
+    r, r2, prefactor, f_scale, g_scale = _SCALAR_CASES[case]
+    term = DiagramTerm(
+        (Propagator("C", "i", "k", "x", "y"), Propagator("C", "j", "l", "x", "y")),
+        Product((r, Symbol("F", ("i", "j")), r2, Symbol("G", ("k", "l")))),
+        prefactor,
+        (),
+        tuple((label, N) for label in ("i", "j", "k", "l")),
+        0,
+    )
+    values = {"F": _signed(rng, (N, N)) * f_scale, "G": _signed(rng, (N, N)) * g_scale}
+    cb = [(_signed(rng, (SAMPLES, N, N)), "i", "k"), (_signed(rng, (SAMPLES, N, N)), "j", "l")]
+    return term, values, cb, _signed(rng, SAMPLES), _signed(rng, SAMPLES)
+
+
+def _value_or_error(compute):
+    """The value, or the type and message of the ``ValueError`` raised."""
+    try:
+        return compute()
+    except ValueError as error:
+        return type(error), str(error)
+
+
+@pytest.mark.parametrize("case", list(_SCALAR_CASES))
+def test_factorized_counts_each_rational_and_the_prefactor_as_a_factor(admit_all, case):
+    """Rules (2) and (3) count every rational of a monomial and the rational
+    prefactor on their own, as the ordered preparation meets them.  Each case
+    declines, so the factorized call returns the ordered value or raises the
+    ordered phase error (an infinite coefficient)."""
+    rng = np.random.default_rng(9860 + len(case))
+    term, values, cb, rp, jac = _scalar_case(case, rng)
+    candidate = try_build_factorized(term, analyze_spatial(term), values, {}, LIMIT)
+    assert candidate is not None
+    with np.errstate(all="ignore"):
+        expected = _value_or_error(
+            lambda: _ordered(term.build_integrand(values, {}), cb, rp, jac, [])
+        )
+        got = _value_or_error(lambda: candidate._static_values(cb, rp, jac, r_batches=[]))
+    if case.startswith("overflow"):
+        assert type(expected) is tuple and expected[0] is ValueError
+        assert type(got) is tuple and got == expected
+    else:
+        np.testing.assert_array_equal(got, expected)
+    assert factorized_state(candidate)[1] is None, "the factorized call contracted"
+    if case == "phase_underflow":
+        table = exact.monomial_coefficients(term, values, {})
+        reference, _ = exact.exact_sum(table, term.propagator_indices, {}, cb, rp, jac, [])
+        exact.assert_relative(expected, reference, 1e-12)
+
+
+@pytest.mark.parametrize(
+    "rational, prefactor, admitted, accurate",
+    [
+        # Exponent sum 1020 (admitted) and 1021 (declined).
+        (Rational(2**1017), Rational(1), True, True),
+        (Rational(2**1018), Rational(1), False, True),
+        (Rational(1), Rational(2**1017), True, True),
+        (Rational(1), Rational(2**1018), False, True),
+        # Exponent floor sum -1021 (admitted) and -1022 (declined).
+        (Rational(1, 2**1017), Rational(1), True, True),
+        (Rational(1, 2**1018), Rational(1), False, True),
+        (Rational(1), Rational(1, 2**1017), True, True),
+        (Rational(1), Rational(1, 2**1018), False, True),
+        # Both limits at once, with a folded phase of 1.
+        (Rational(2**1017), Rational(1, 2**1017), True, True),
+        (Rational(2**1018), Rational(1, 2**1018), False, True),
+        # The extremes: the smallest subnormal and the largest power of two.
+        (Rational(1, 2**1074), Rational(1), False, False),
+        (Rational(2**1023), Rational(1), False, False),
+    ],
+)
+def test_factorized_scalar_ranges_at_the_exponent_limits(
+    admit_all, rational, prefactor, admitted, accurate
+):
+    """``r F(i)`` with prefactor ``p`` over ``C(i, a)``, N = 4: both sides of
+    the overflow limit and of the underflow limit, carried by the rational,
+    by the prefactor or by both.  Every other input has magnitude in [0.55,
+    0.99) (exponent bound 0, floor -1) and the sum over four assignments
+    adds two bits.  An admitted call and the ordered fold both lie within
+    the bound; a declined call returns the ordered value."""
+    n = 4
+    term = DiagramTerm(
+        (Propagator("C", "i", "a", "x", "y"),),
+        Product((rational, Symbol("F", ("i",)))),
+        prefactor,
+        (),
+        (("i", n),),
+        0,
+    )
+    rng = np.random.default_rng(9870)
+    values = {"F": _signed(rng, n, 0.55, 0.99)}
+    fixed = {"a": 2}
+    cb = [(_signed(rng, (SAMPLES, n, n), 0.55, 0.99), "i", "a")]
+    rp, jac = _signed(rng, SAMPLES, 0.55, 0.99), _signed(rng, SAMPLES, 0.55, 0.99)
+    candidate = try_build_factorized(term, analyze_spatial(term), values, fixed, LIMIT)
+    assert candidate is not None
+    with np.errstate(over="ignore"):
+        fused = candidate._static_values(cb, rp, jac, r_batches=[])
+        ordered = _ordered(term.build_integrand(values, fixed), cb, rp, jac, [])
+    assert (factorized_state(candidate)[1] is not None) == admitted
+    if not admitted:
+        np.testing.assert_array_equal(fused, ordered)
+    if accurate:
+        table = exact.monomial_coefficients(term, values, fixed)
+        reference, scale = exact.exact_sum(table, term.propagator_indices, fixed, cb, rp, jac, [])
+        # The tensor, the rational, the prefactor, C, rp and jac.
+        for result in (fused, ordered):
+            exact.assert_within_bound(result, reference, scale, 6, n)

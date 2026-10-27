@@ -34,7 +34,10 @@ that excludes the assignment), (2) no product or partial sum of those
 entries can overflow in any evaluation order, (3) no product of nonzero
 inputs can fall below
 ``2**-1021`` in any evaluation order, so that every underflow error is
-smaller than ``u/2`` times the magnitudes it came from, (4) for
+smaller than ``u/2`` times the magnitudes it came from (for
+``"factorized"`` the prefactor and every rational factor of a monomial are
+inputs of their own in (2) and (3), because the ordered preparation
+multiplies them one at a time), (4) for
 ``"factorized"``, the monomials of a sum have no opposite signs at any
 assignment, so that ``sum_t |c_t(a)| = |c(a)|``, (5) every coefficient
 passes the phase rule of :func:`sft_wick.evaluate._real_or_raise`, (6)
@@ -870,12 +873,17 @@ def _range_admits(headroom, ranges) -> bool:
     return upper <= _MAX_EXPONENT and lower >= _MIN_EXPONENT
 
 
-def finish(contraction, layout, coefficient_ranges, assignments):
+def finish(contraction, layout, coefficient_ranges, assignments, *, phase_is_factor=True):
     """Numeric admission and execution of a planned contraction.
 
     ``coefficient_ranges`` holds, per group, the :func:`finite_range` of each
-    coefficient operand (``None`` when one is not finite).  Returns the
-    sample vector or ``None``.
+    coefficient operand (``None`` when one is not finite).  With
+    ``phase_is_factor`` the group's phase counts as one more factor in the
+    range rules.  ``"factorized"`` passes ``False`` and appends the ranges
+    of the scalars its phase folds together (the prefactor and each
+    rational), because the ordered preparation multiplies those one at a
+    time and their product can be in range where a partial product is not.
+    Returns the sample vector or ``None``.
     """
     if not _supports_hold(layout.zero_checks):
         return None
@@ -912,9 +920,10 @@ def finish(contraction, layout, coefficient_ranges, assignments):
         factors = len(operands) + len(kernels) + 1
         if factors + assignments * terms > _MAX_ACCUMULATED:
             return None
-        magnitude = abs(phase)
-        scale = (magnitude, magnitude if magnitude else math.inf)
-        if not _range_admits(headroom, (*kernel_ranges, *ranges, scale)):
+        if phase_is_factor:
+            magnitude = abs(phase)
+            ranges = (*ranges, (magnitude, magnitude if magnitude else math.inf))
+        if not _range_admits(headroom, (*kernel_ranges, *ranges)):
             return None
     result = None
     for phase, operands, steps in contraction.groups:
