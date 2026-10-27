@@ -128,25 +128,21 @@ independent task/batch-local caches and serialization clears active entries;
 contents are not shared across invocations. Declaring ``fixed_model`` does not verify callback purity
 or make mutable model data safe to change during evaluation.
 
-The dense backend validates per-component coefficient phase before contraction.
-It admits only its documented native static dense subset, retains ordered
-fallbacks, and can change accumulation rounding. It provides no runtime global
-rounding certificate. Declare observable-specific tolerances in the explicit
-resource comparison and require complete-result acceptance before interpreting
-its time/memory ratios. See :doc:`../user_guide/resources` for eligibility,
-lifetimes, memory-accounting boundaries and executable YAML examples.
-
-``factorized`` preparation owns original factor snapshots for monomials or
-bounded native sums of monomials (at most 32 terms in a top-level sum). Each
-term must independently pass phase and finite-value admission; fusion cannot
-be admitted by cross-term imaginary cancellation. Multi-term sums also require
-uniform nonzero signs in each monomial's selected array components and matching
-term signs after scalar phases, excluding cross-monomial real cancellation.
-Mixed or opposing signs retain the ordered path; this additional sign constraint
-does not apply to single monomials. Native kernel batches still require finite
-values and admitted scales. Complete-result rounding validation remains required
-after these coefficient checks. Existing compiled coefficient plans retain their original path;
-use fresh workflow preparation for cost comparison.
+``einsum`` and ``factorized`` evaluate each static diagram's sum over
+component assignments as pairwise contractions. A result lies within the
+error bound ``1.01 (m + A T) u S`` of the exact sum of the same float64
+inputs, which the ordered fold also satisfies; ``S`` is built from the summed
+coefficient the ordered fold uses. A diagram call runs on the ordered fold
+when an input it reads is not finite, a product could overflow or underflow,
+a coefficient fails the ordered phase check, NumPy's underflow policy is not
+``"ignore"``, the workspace exceeds ``contraction_max_bytes``, or the cost
+rule estimates the backend to be slower. ``factorized`` prepares a monomial,
+or a sum of monomials that have no opposite signs at any component
+assignment, from owned snapshots of the original coupling tensors; other
+sums use the ordered preparation. Errors, inf and NaN behave as on the
+ordered fold. Replacing package methods at run time is unsupported. See
+:doc:`../user_guide/resources` for the bound, the admission and cost rules,
+the measured speeds and executable YAML examples.
 
 Reading the public ``coupling_array`` restores the original ndarray using the
 existing ordered product and builtin sum evaluation, then disables fusion; that

@@ -230,32 +230,43 @@ A different summation order rounds differently, so a backend result differs
 from the ordered one in its last bits. Both satisfy the same bound. At each
 sample let
 
-* ``S`` be the sum, over assignments and monomials, of the absolute value of
-  each product of factors,
+* ``S`` be the sum over assignments of the absolute value of the
+  coefficient times its propagator factors, where the coefficient is the one
+  the ordered fold multiplies (for ``factorized``, the sum of the monomials
+  at that assignment),
 * ``A`` be the number of component assignments, ``T`` the number of monomials
   (``T = 1`` for ``einsum``) and ``m`` the number of factors in one product,
-* ``P`` be the product over the factors of ``max(1, max|factor|)``, and
-  ``u = 2**-53``.
+  and ``u = 2**-53``.
 
 Then
 
 .. math::
 
-   |\mathrm{result} - \mathrm{exact}| \le 1.01\,(m + A T)\,u\,S
-   + m A T \, 2^{-1074} P ,
+   |\mathrm{result} - \mathrm{exact}| \le 1.01\,(m + A T)\,u\,S ,
 
 where "exact" is the sum computed in exact arithmetic from the same float64
-inputs. The second term covers gradual underflow; it matters only for inputs
-near ``1e-300``. The bound is relative to ``S``, not to the result: when the
-products cancel, every summation order, the ordered one included, can leave a
-large relative error in the result. ``tests/test_contraction_error_bound.py``
-checks the bound against an exact rational reference on generic signed
-diagrams.
+inputs. The bound has no underflow term: a backend runs only when no product
+of nonzero inputs can fall below ``2**-1021``, so an underflowing operation
+loses less than ``u/2`` of the magnitudes it combines, and the ordered fold
+does not underflow on these inputs either. The bound is relative to ``S``,
+not to the result: when the products cancel, every summation order, the
+ordered one included, can leave a large relative error in the result.
+``tests/test_contraction_error_bound.py`` checks the bound against an exact
+rational reference on generic signed diagrams.
+
+``factorized`` contracts each monomial separately and adds the results. Its
+error would grow with the sum of the monomial magnitudes, which exceeds
+``S`` when monomials of opposite sign cancel at an assignment, while the
+ordered fold adds the monomials into one coefficient first. A sum of
+monomials is therefore prepared for ``factorized`` only when no two of its
+monomials have opposite signs at any assignment; then the two sums are
+equal and the bound above holds. The check runs once per diagram, on the
+signs of the coupling tensors.
 
 The largest errors observed on 330 diagrams captured from
 :meth:`~sft_wick.workflow.Expansion.evaluate` (``N`` = 2, 3 and 5, signed
 ``F`` and static ``κ³``, distinct rates, orders 2 to 4, ``diag_C`` on and
-off), with every diagram forced through each backend and compared with an
+off), with every diagram forced past the cost rule and compared with an
 exact rational sum at three samples, are
 
 ============  ===================================  ==========
@@ -263,11 +274,13 @@ Backend       Largest error in units of ``u S``    Diagrams
 ============  ===================================  ==========
 ordered       2.13                                 330
 einsum        1.80                                 330
-factorized    1.93                                 228
+factorized    0.56                                 8
 ============  ===================================  ==========
 
-The factorized reference multiplies out every monomial and was computed for
-the 228 diagrams with ``A T`` at most 20000.
+``factorized`` prepared 9 of the 330 diagrams; the other 321 are sums whose
+monomials have opposite signs at some assignment. The factorized reference
+multiplies out every monomial and was computed for the 8 of them with
+``A T`` at most 20000.
 
 When a backend runs
 ~~~~~~~~~~~~~~~~~~~
@@ -276,6 +289,11 @@ A backend returns a value for a diagram call only when
 
 * every input array it reads is finite,
 * no product or partial sum can overflow, in any evaluation order,
+* no product of nonzero inputs can fall below ``2**-1021``, in any
+  evaluation order (the sum of the binary exponents of the smallest nonzero
+  magnitudes of all factors is at least -1021),
+* for ``factorized``, the monomials have no opposite signs at any
+  assignment (checked once, when the integrand is prepared),
 * every coefficient passes the phase check of the ordered fold,
 * NumPy's underflow policy is ``"ignore"`` (the default; see
   ``numpy.seterr``),
@@ -302,65 +320,86 @@ Cost rule
 ~~~~~~~~~
 
 The cost estimates are computed from array shapes, R supports and the zero
-pattern of the coefficient. They involve no timing, so the choice of backend,
-and hence the result, does not depend on machine load. The ordered estimate
+pattern of the coefficient. ``einsum`` reads the pattern from the coefficient
+array; ``factorized`` counts the nonzero coefficients once, when it prepares
+the integrand, and keeps the pattern itself for coefficients of at most 65536
+entries. The estimates involve no timing, so the choice of backend, and
+hence the result, does not depend on machine load. The ordered estimate
 counts the Python work per assignment and one vector operation per factor of
 each contributing assignment. The backend estimate counts fixed costs, passes
 over the propagator batches and the operations of the planned pairwise
 contraction. The constants were fitted to timings of 275 diagram calls on
 Python 3.10 with NumPy 2.2 and Python 3.14 with NumPy 2.4, and shifted so
-that the ordered fold is underestimated and the backend overestimated; no
-admitted call in that set was slower than the ordered fold. Small diagrams,
-for which the ordered fold takes tens of microseconds, keep the ordered fold.
-So does a ``factorized`` sum with many monomials over a small coefficient,
-where contracting every monomial costs more than the ordered fold.
+that the ordered fold is underestimated and the backend overestimated.
+Small diagrams, for which the ordered fold takes tens of microseconds, keep
+the ordered fold; most of them are declined from their array counts and
+sample count alone, before any array is inspected. So does a ``factorized``
+sum with many monomials over a small coefficient, where contracting every
+monomial costs more than the ordered fold.
+
+The contraction path is chosen greedily: at each step two operands that
+share an index are contracted, the pair with the fewest loop iterations
+first. Two coupling tensors without a common index are never multiplied
+into an outer product while another pair is left, which keeps the
+intermediates of a ``factorized`` monomial at the size of one tensor times
+its propagator batches.
 
 Measured speed
 ~~~~~~~~~~~~~~
 
-Timings below are from one Apple M-series machine with one BLAS thread. For
-one diagram call (the static contraction alone) on the 330 captured diagrams,
-with the cost rule in force:
+Timings below are from one Apple M-series machine with one BLAS thread,
+Python 3.14 and NumPy 2.4. For one diagram call (the static contraction
+alone) on the 330 captured diagrams, with the cost rule in force and the
+default 64 MiB budget:
 
-=========  =========================  =============================
-Samples    einsum: admitted, speed    factorized: admitted, speed
-=========  =========================  =============================
-1024       204 of 330, 5.8x to 97x    25 of 330, 2.7x to 74x
-4096       312 of 330, 1.4x to 75x    23 of 330, 3.3x to 49x
-65536      312 of 330, 1.8x to 85x    21 of 330, 2.2x to 33x
-=========  =========================  =============================
+=========  ==========================  =============================
+Samples    einsum: admitted, speed     factorized: admitted, speed
+=========  ==========================  =============================
+1024       204 of 330, 7.8x to 108x    2 of 330, 11x to 79x
+4096       300 of 330, 2.0x to 117x    2 of 330, 11x to 63x
+65536      308 of 330, 2.5x to 107x    4 of 330, 2.1x to 98x
+=========  ==========================  =============================
 
 The speed is the ordered time divided by the backend time, over the admitted
-diagrams.
+diagrams; no admitted call was slower than the ordered fold. ``factorized``
+runs on few of these diagrams because most of their coupling sums have
+monomials of opposite sign.
 
 End to end, :meth:`~sft_wick.workflow.Expansion.evaluate` with
 ``qmc_vectorized`` spends most of its time outside the static contraction,
 in coefficient preparation, propagator lookups and sampling, so the gain is
-smaller than per call:
+smaller than per call. The columns give the ordered time divided by the
+backend time:
 
 ===  ======  ======  =======  ==========  =======  ==========
 N    Orders  diag_C  Samples  ordered s   einsum   factorized
 ===  ======  ======  =======  ==========  =======  ==========
-2    2, 3    off     4096     0.09        1.0x     1.0x
-2    2, 3    off     65536    1.30        1.0x     1.0x
-2    2, 3    on      65536    1.03        1.0x     1.0x
-3    2, 3    off     4096     0.22        1.1x     1.3x
-3    2, 3    off     65536    2.19        1.1x     1.0x
-5    2, 3    off     4096     2.08        1.2x     8.0x
-5    2, 3    off     65536    10.1        1.9x     1.8x
-5    2, 3    on      65536    1.55        1.1x     1.0x
-2    4       on      4096     1.45        1.0x     1.0x
-3    4       on      4096     2.66        1.3x     1.0x
-2    4       off     4096     437         1.0x     1.0x
-2    4       off     65536    466         1.0x
+2    2, 3    off     4096     0.09        1.01     0.98
+2    2, 3    off     65536    1.27        1.01     1.00
+2    2, 3    on      4096     0.07        1.02     0.99
+2    2, 3    on      65536    1.01        1.00     1.01
+3    2, 3    off     4096     0.21        1.12     1.02
+3    2, 3    off     65536    2.14        1.12     1.02
+3    2, 3    on      4096     0.08        1.01     1.01
+3    2, 3    on      65536    1.17        1.01     1.01
+5    2, 3    off     4096     2.02        1.17     1.06
+5    2, 3    off     65536    9.95        1.56     1.10
+5    2, 3    on      4096     0.10        0.98     1.01
+5    2, 3    on      65536    1.50        1.10     1.04
+2    4       on      4096     1.37        1.02     0.95
+3    4       on      4096     2.58        1.31     0.98
 ===  ======  ======  =======  ==========  =======  ==========
 
-Times are the best of two runs, except the last two rows (one run), where
-preparing the 4096-entry coefficient of each of 94 diagrams takes most of
-the time. ``factorized`` gains most where coefficient preparation dominates
-and its calls are admitted (``N = 5``, orders 2 and 3). When a call of either
-backend declines, the evaluation does what the ordered fold does; in these
-runs the time then stayed within 3 percent of the ordered time.
+Times are the best of two runs; differences of 2 percent are within the
+run-to-run spread. When a call of either backend declines, the evaluation
+does what the ordered fold does after the declined attempt. Most small
+calls decline from their array counts alone. For calls of 30 to 340
+microseconds a declined ``einsum`` call still took 7 to 14 percent longer
+(median over the diagrams of a run) than the ordered fold, and
+``gauss_legendre`` runs made of such calls took 5 to 9 percent longer.
+``factorized`` attempts to prepare every diagram; a sum it declines at
+preparation costs the attempt, 2 to 25 percent of the ordered coefficient
+preparation, which accounts for the ratios below 1 in the order-4 rows.
 
 Workspace budget
 ~~~~~~~~~~~~~~~~
@@ -399,7 +438,9 @@ The lazy coefficient of ``factorized``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Preparation snapshots the native float64 or complex128 coupling arrays of
-the monomials and keeps the symbolic product and term order. The returned
+the monomials and keeps the symbolic product and term order. A sum whose
+monomials have opposite signs at some assignment is not prepared this way;
+the ordered preparation builds its coefficient. The returned
 object preserves the public ``DiagramIntegrand`` interface. Reading
 ``ig.coupling_array`` materializes the genuine coefficient ndarray, with the
 original dtype and the values the ordered preparation computes, then
