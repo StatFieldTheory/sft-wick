@@ -15,7 +15,10 @@ contracted result with an error proportional to the sum of the monomial
 magnitudes, while the ordered fold sums the monomials into one coefficient
 before it multiplies the propagators.  The sign check runs once, on sign
 arrays of the factors, and also counts the nonzero coefficients for the
-cost model.
+cost model.  When that per-assignment check would take too much work, the
+sum is prepared only if the factor signs alone prove agreement (every
+factor holds one sign apart from zeros, and every monomial has the same
+resulting sign), and the nonzero count is replaced by a lower bound.
 
 The contraction budget is a conservative ndarray payload, never process RSS.
 Admission accepts the package's own classes and exact float64 or complex128
@@ -57,8 +60,9 @@ from .expressions import _NATIVE_NUMERIC_EXPRESSION_CLASSES
 
 #: Payload reserved beside a materialized coefficient.
 _SCAN_RESERVE = 64 * 4096
-#: Element operations the build-time sign check may spend (monomials times
-#: assignments times factors); a sum above it is not prepared.
+#: Element operations the build-time per-assignment sign check may spend
+#: (monomials times assignments times factors).  Above it a sum is prepared
+#: only when the signs of its factors prove agreement.
 _MAX_SIGN_WORK = 2**27
 #: Assignments evaluated together by the sign check.
 _SIGN_CHUNK = 2**20
@@ -95,7 +99,9 @@ class _Snapshot:
     dtype: type
     e_psi: int
     nbytes: int
-    #: Nonzero entries of the summed coefficient (all entries when unknown).
+    #: Nonzero entries of the summed coefficient, or a lower bound (the
+    #: largest count of one monomial) when the per-assignment check was not
+    #: run.
     nonzero: int
     #: Its 0/1 float64 zero pattern over the propagator labels, or ``None``.
     mask: object
@@ -540,6 +546,80 @@ def _chunks(shape, limit):
     return None
 
 
+def _factor_sign(component):
+    """1 or -1 when every nonzero entry has that sign, 0 when all are zero,
+    ``None`` when the entries hold both signs (entries are finite)."""
+    if component.size == 0:
+        return 0
+    high = float(np.max(component))
+    low = float(np.min(component))
+    if low >= 0.0:
+        return 1 if high > 0.0 else 0
+    if high <= 0.0:
+        return -1
+    return None
+
+
+def _signs_agree(monomials, components):
+    """Whether the factor signs alone prove that no two monomials differ in sign.
+
+    A monomial whose factors each hold one sign (zeros allowed) is, at every
+    assignment, zero or of one fixed sign: its phase's sign times its factor
+    signs.  Returns ``True`` when every monomial that is not identically zero
+    has the same fixed sign.  The work is one pass over each distinct factor.
+    """
+    signs = {}
+    common = 0
+    for monomial in monomials:
+        if monomial.phase == 0.0:
+            continue
+        sign = 1 if monomial.phase > 0.0 else -1
+        for slot, _, slices, _ in monomial.factors:
+            # Slices are hashable only from Python 3.12.
+            key = (slot, tuple(None if type(item) is slice else item for item in slices))
+            if key not in signs:
+                signs[key] = _factor_sign(components[slot][0][slices])
+            if signs[key] is None:
+                return False
+            sign *= signs[key]
+        if sign and common and sign != common:
+            return False
+        common = common or sign
+    return True
+
+
+def _nonzero_count(monomial, components, shape, available):
+    """Assignments at which every factor of ``monomial`` is nonzero.
+
+    Contracts the 0/1 patterns of the factors along a planned path, so the
+    work is that of the contraction, not of the assignment tensor.  Returns
+    0, a valid lower bound, when the patterns and the path do not fit
+    ``available`` bytes.
+    """
+    if monomial.phase == 0.0:
+        return 0
+    operands = []
+    used = set()
+    for slot, _, slices, labels in monomial.factors:
+        operands.append(((components[slot][0][slices] != 0).astype(np.float64), labels))
+        used.update(labels)
+    free = math.prod(dim for axis, dim in enumerate(shape, 1) if axis not in used)
+    if not operands:
+        return free
+    # A one-element sample axis gives the planner its required output label.
+    operands.append((np.ones(1), (0,)))
+    plan = _dense.plan_contraction(
+        tuple(array.shape for array, _ in operands),
+        tuple(labels for _, labels in operands),
+    )
+    if plan is None:
+        return 0
+    steps, _, workspace = plan
+    if 8 * (workspace + sum(array.size for array, _ in operands)) > available:
+        return 0
+    return free * int(_dense.execute(operands, steps)[0])
+
+
 def _coefficient_pattern(monomials, components, shape, available):
     """Sign agreement and zero pattern of the summed coefficient.
 
@@ -547,21 +627,28 @@ def _coefficient_pattern(monomials, components, shape, available):
     phase times the signs of its factor entries, computed exactly on int8
     sign arrays.  Returns ``(nonzero, mask)``: the number of assignments
     where some monomial is nonzero and, for at most ``_MASK_ELEMENTS``
-    assignments, that pattern as a 0/1 float64 array.  Returns ``None``
-    when two monomials have opposite signs at some assignment, or when a sum
-    cannot be checked within ``_MAX_SIGN_WORK`` and ``available`` bytes; a
-    single monomial that cannot be checked gives ``(assignments, None)``.
+    assignments, that pattern as a 0/1 float64 array.  When this
+    per-assignment check would exceed ``_MAX_SIGN_WORK`` element operations
+    or ``available`` bytes, agreement must follow from the factor signs
+    alone (:func:`_signs_agree`); ``nonzero`` is then the largest count of
+    one monomial, a lower bound that is exact for a single monomial, and
+    ``mask`` is ``None``.  Returns ``None`` when two monomials have opposite
+    signs at some assignment, or when neither check proves agreement.
     """
     assignments = math.prod(shape)
     terms = len(monomials)
-    unchecked = None if terms > 1 else (assignments, None)
     work = assignments * sum(len(m.factors) + 1 for m in monomials)
     keep_mask = assignments <= _MASK_ELEMENTS
-    available -= sum(component.size for component, _, _ in components)
-    available -= 8 * assignments if keep_mask else 0
-    chunked = _chunks(shape, min(_SIGN_CHUNK, available // 4))
-    if work > _MAX_SIGN_WORK or available < 4 or chunked is None:
-        return unchecked
+    scan_bytes = available - sum(component.size for component, _, _ in components)
+    scan_bytes -= 8 * assignments if keep_mask else 0
+    chunked = _chunks(shape, min(_SIGN_CHUNK, scan_bytes // 4)) if scan_bytes >= 4 else None
+    if work > _MAX_SIGN_WORK or chunked is None:
+        if terms > 1 and not _signs_agree(monomials, components):
+            return None
+        nonzero = max(
+            _nonzero_count(monomial, components, shape, available) for monomial in monomials
+        )
+        return nonzero, None
     p, prefixes = chunked
     signs = [np.sign(component).astype(np.int8) for component, _, _ in components]
     tail = list(range(p + 1, len(shape) + 1))

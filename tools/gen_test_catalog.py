@@ -99,7 +99,11 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "monomials of opposite sign declined, unsupported diagonal R entry, no -0.0, "
         "planner workspace of a four-tensor monomial, live-assignment count and "
         "coefficient zero pattern, cost-rule decline of a 64-monomial sum, admission on "
-        "L1 diagrams",
+        "L1 diagrams, values a diagonal C table multiplies by zero (NaN, inf, overflow) "
+        "declined with the ordered errors, values behind an R-support pin admitted, "
+        "R factors multiplied before a later support excludes them declined, "
+        "sign check and factor-sign proof on both sides of the work limit, N = 17 sums "
+        "beyond it",
         "Fraction sum over component assignments (dense and summed monomials), ordered fold",
         "documented bound 1.01 (m + A T) u S with S from the summed coefficient; 1e-12 "
         "relative where a decline keeps the ordered value; L1 diagrams 1e-12 of the largest",

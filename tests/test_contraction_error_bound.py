@@ -12,7 +12,15 @@ through; overflow and products that can underflow must decline; monomials
 of opposite sign must decline; the output holds no ``-0.0``; the planner
 keeps a four-tensor monomial inside the default budget; the cost rule
 declines a pathological many-monomial sum; realistic L1 diagrams are
-admitted.
+admitted.  A value the ordered fold multiplies by a zero of a diagonal C
+table (NaN, inf, or an overflowing product) makes both backends decline, so
+the call returns or raises what the ordered fold does, while a value behind
+an R-support pin, which the ordered fold skips, does not.  An R factor the
+ordered fold multiplies before a later R support excludes the assignment
+must not overflow or meet an invalid operation either.  Beyond the work
+limit of the per-assignment sign check, a sum whose factor signs prove
+agreement is still prepared (N = 17, six indices), and the two checks are
+compared directly on both sides of that limit.
 """
 
 from dataclasses import replace
@@ -700,3 +708,378 @@ def test_realistic_l1_diagrams_are_admitted(monkeypatch):
     for result in (dense_result, fused_result):
         for got, want in zip(result.per_diagram, ordered.per_diagram):
             assert abs(got["value"] - want["value"]) <= 1e-12 * scale
+
+
+def _hidden_case(layout, hidden, rng):
+    """A diagram whose ordered fold multiplies ``hidden`` by a structural zero.
+
+    A diagonal ``(n, N)`` C table is zero where its two labels differ, and
+    the ordered fold multiplies that zero vector by the other factors of the
+    assignment.  In ``"pinned"`` the table ``C(i, a)`` with ``a = 1`` pins
+    ``i``, and the full ``C(i, j)`` holds ``hidden`` at ``i = 0``.  In
+    ``"merged"`` the tables ``C(a, i)``, ``C(i, j)``, ``C(j, b)`` with
+    ``a = b = 1`` merge ``i`` and ``j`` and pin both, and ``C(i, j)`` holds
+    ``hidden`` at component 0.  Every coefficient is nonzero.  ``"overflow"``
+    puts ``1e300`` there and scales ``C(k, b)`` by ``1e10``, so the ordered
+    product overflows before it meets the zero.
+    """
+    value = 1e300 if hidden == "overflow" else hidden
+    if layout == "pinned":
+        labels, fixed = ("i", "j", "k"), {"a": 1, "b": 2}
+        full = _signed(rng, (SAMPLES, N, N))
+        full[:, 0, :] = value
+        partner = _signed(rng, (SAMPLES, N, N)) * (1e10 if hidden == "overflow" else 1.0)
+        cb = [
+            (full, "i", "j"),
+            (partner, "k", "b"),
+            (_signed(rng, (SAMPLES, N)), "i", "a"),
+        ]
+        rb = [(_signed(rng, (SAMPLES, N, N)), "j", "k", np.ones((N, N), dtype=bool))]
+    else:
+        labels, fixed = ("i", "j"), {"a": 1, "b": 1}
+        table = _signed(rng, (SAMPLES, N))
+        table[:, 0] = value
+        cb = [
+            (_signed(rng, (SAMPLES, N)), "a", "i"),
+            (table, "i", "j"),
+            (_signed(rng, (SAMPLES, N)), "j", "b"),
+        ]
+        rb = [(_signed(rng, (SAMPLES, N, N)), "j", "i", np.ones((N, N), dtype=bool))]
+    term = DiagramTerm(
+        tuple(Propagator("C", left, right, "x", "y") for _, left, right in cb),
+        Product((Rational(1), Symbol("F", labels))),
+        Rational(1),
+        (),
+        tuple((label, N) for label in labels),
+        0,
+    )
+    values = {"F": _signed(rng, (N,) * len(labels))}
+    return term, values, fixed, cb, rb, _signed(rng, SAMPLES), _signed(rng, SAMPLES)
+
+
+def _outcome(compute):
+    """The value, or the type and message of the floating-point error."""
+    with np.errstate(over="raise", invalid="raise", under="ignore"):
+        try:
+            return compute()
+        except FloatingPointError as error:
+            return type(error), str(error)
+
+
+# In "merged" the zero precedes the large factors of the ordered product, so
+# an overflow case has no ordered overflow to reproduce.
+@pytest.mark.parametrize(
+    "layout, hidden",
+    [(layout, hidden) for layout in ("pinned", "merged") for hidden in (np.nan, np.inf, -np.inf)]
+    + [("pinned", "overflow")],
+)
+def test_values_a_diagonal_c_table_multiplies_by_zero_decline(admit_all, layout, hidden):
+    """The ordered fold returns NaN (or raises under a strict error policy)
+    for a value it multiplies by a structural zero; both backends decline,
+    so the requested backend returns or raises exactly that."""
+    rng = np.random.default_rng(9800)
+    term, values, fixed, cb, rb, rp, jac = _hidden_case(layout, hidden, rng)
+    baseline = term.build_integrand(values, fixed)
+    with np.errstate(all="ignore"):
+        ordered = _ordered(baseline, cb, rp, jac, rb)
+        assert np.all(np.isnan(ordered)), "the fixture must reach the hidden value"
+        assert _einsum(baseline, cb, rp, jac, rb) is None
+        candidate = try_build_factorized(term, analyze_spatial(term), values, fixed, LIMIT)
+        assert candidate is not None
+        fused = candidate._static_values(cb, rp, jac, r_batches=rb)
+    assert factorized_state(candidate)[1] is None, "the factorized call contracted"
+    np.testing.assert_array_equal(fused, ordered)
+    expected = _outcome(lambda: _ordered(baseline, cb, rp, jac, rb))
+    requested = (
+        replace(baseline, _contraction_backend="einsum"),
+        try_build_factorized(term, analyze_spatial(term), values, fixed, LIMIT),
+    )
+    for integrand in requested:
+        got = _outcome(lambda: integrand._static_values(cb, rp, jac, r_batches=rb))
+        if type(expected) is tuple:
+            assert got == expected
+        else:
+            np.testing.assert_array_equal(got, expected)
+
+
+@pytest.mark.parametrize("hidden", [np.nan, np.inf])
+def test_values_behind_a_response_support_pin_are_admitted(admit_all, hidden):
+    """An R whose support is the identity pins ``i`` like the diagonal C table
+    above, but the ordered fold skips the assignments it excludes instead of
+    multiplying them by zero.  A value there is read by neither evaluation,
+    so both backends run and stay within the bound."""
+    rng = np.random.default_rng(9805)
+    labels, fixed = ("i", "j", "k"), {"a": 1, "b": 2}
+    full = _signed(rng, (SAMPLES, N, N))
+    full[:, 0, :] = hidden
+    identity = np.eye(N, dtype=bool)
+    cb = [(full, "i", "j"), (_signed(rng, (SAMPLES, N, N)), "k", "b")]
+    rb = [
+        (_signed(rng, (SAMPLES, N, N)) * identity, "i", "a", identity),
+        (_signed(rng, (SAMPLES, N, N)), "j", "k", np.ones((N, N), dtype=bool)),
+    ]
+    rp, jac = _signed(rng, SAMPLES), _signed(rng, SAMPLES)
+    term = DiagramTerm(
+        (
+            Propagator("C", "i", "j", "x", "y"),
+            Propagator("C", "k", "b", "x", "y"),
+            Propagator("R", "i", "a", "x", "z"),
+            Propagator("R", "j", "k", "x", "z"),
+        ),
+        Product((Rational(1), Symbol("F", labels))),
+        Rational(1),
+        (),
+        tuple((label, N) for label in labels),
+        0,
+    )
+    values = {"F": _signed(rng, (N, N, N))}
+    baseline = term.build_integrand(values, fixed)
+    candidate = try_build_factorized(term, analyze_spatial(term), values, fixed, LIMIT)
+    with np.errstate(over="raise", invalid="raise", under="ignore"):
+        ordered = _ordered(baseline, cb, rp, jac, rb)
+        dense_values = _einsum(baseline, cb, rp, jac, rb)
+        fused = candidate._static_values(cb, rp, jac, r_batches=rb)
+    assert dense_values is not None
+    assert factorized_state(candidate)[1] is not None, "the factorized call declined"
+    table = exact.monomial_coefficients(term, values, fixed)
+    reference, scale = exact.exact_sum(table, term.propagator_indices, fixed, cb, rp, jac, rb)
+    # The tensor, the rational, two C and two R kernels, rp and jac.
+    for result in (ordered, dense_values, fused):
+        exact.assert_within_bound(result, reference, scale, 8, N**3)
+
+
+@pytest.mark.parametrize("event", ["overflow", "invalid"])
+def test_response_factors_read_before_a_later_support_excludes_them_decline(
+    admit_all, event
+):
+    """The ordered fold multiplies R batches in order and stops at the first
+    unsupported entry, so ``R0(i, j)`` is multiplied at ``i = 2`` before the
+    identity support of ``R1(i, b)``, ``b = 1``, excludes that assignment.
+    ``1e300`` there with a ``1e10`` scalar R product overflows, and ``inf``
+    against an exact zero of the scalar R product is invalid.  Both backends
+    decline, so a strict error policy raises the ordered error and the
+    default policy returns the ordered value."""
+    rng = np.random.default_rng(9807)
+    labels, fixed = ("i", "j"), {"b": 1}
+    identity = np.eye(N, dtype=bool)
+    first = _signed(rng, (SAMPLES, N, N))
+    rp = _signed(rng, SAMPLES)
+    if event == "overflow":
+        first[:, 2, :] = 1e300
+        rp = rp * 1e10
+    else:
+        first[:, 2, :] = np.inf
+        rp[3] = 0.0
+    cb = [(_signed(rng, (SAMPLES, N, N)), "j", "b")]
+    rb = [
+        (first, "i", "j", np.ones((N, N), dtype=bool)),
+        (_signed(rng, (SAMPLES, N, N)) * identity, "i", "b", identity),
+    ]
+    jac = _signed(rng, SAMPLES)
+    term = DiagramTerm(
+        (
+            Propagator("C", "j", "b", "x", "y"),
+            Propagator("R", "i", "j", "x", "z"),
+            Propagator("R", "i", "b", "x", "z"),
+        ),
+        Product((Rational(1), Symbol("F", labels))),
+        Rational(1),
+        (),
+        tuple((label, N) for label in labels),
+        0,
+    )
+    values = {"F": _signed(rng, (N, N))}
+    baseline = term.build_integrand(values, fixed)
+    with np.errstate(all="ignore"):
+        ordered = _ordered(baseline, cb, rp, jac, rb)
+        assert np.all(np.isfinite(ordered))
+        assert _einsum(baseline, cb, rp, jac, rb) is None
+        candidate = try_build_factorized(term, analyze_spatial(term), values, fixed, LIMIT)
+        fused = candidate._static_values(cb, rp, jac, r_batches=rb)
+    assert factorized_state(candidate)[1] is None, "the factorized call contracted"
+    np.testing.assert_array_equal(fused, ordered)
+    expected = _outcome(lambda: _ordered(baseline, cb, rp, jac, rb))
+    assert expected[0] is FloatingPointError
+    requested = (
+        replace(baseline, _contraction_backend="einsum"),
+        try_build_factorized(term, analyze_spatial(term), values, fixed, LIMIT),
+    )
+    for integrand in requested:
+        assert _outcome(lambda: integrand._static_values(cb, rp, jac, r_batches=rb)) == expected
+
+
+def _uniform_sum(n, zeros, rng):
+    """``F(i,j) G(k,l) H(m,n) - (2/3) P(j,i) Q(k,l) W(n,m)`` over six labels.
+
+    F, Q and W are nonpositive and the others nonnegative, so both monomials
+    are nonpositive at every assignment; ``zeros`` sets about a fifth of
+    every tensor's entries to zero.
+    """
+    signs = {"F": -1.0, "G": 1.0, "H": 1.0, "P": 1.0, "Q": -1.0, "W": -1.0}
+    values = {}
+    for name, sign in signs.items():
+        tensor = sign * rng.uniform(0.5, 1.5, (n, n))
+        if zeros:
+            tensor[rng.random((n, n)) < 0.2] = 0.0
+        values[name] = tensor
+    first = (Symbol("F", ("i", "j")), Symbol("G", ("k", "l")), Symbol("H", ("m", "n")))
+    second = (Symbol("P", ("j", "i")), Symbol("Q", ("k", "l")), Symbol("W", ("n", "m")))
+    expression = Sum(
+        (Product((Rational(1), *first)), Product((Rational(-2, 3), *second)))
+    )
+    pairs = (("i", "j"), ("k", "l"), ("m", "n"))
+    term = DiagramTerm(
+        tuple(Propagator("C", left, right, "x", "y") for left, right in pairs),
+        expression,
+        Rational(1),
+        (),
+        tuple((label, n) for label in ("i", "j", "k", "l", "m", "n")),
+        0,
+    )
+    return term, values
+
+
+def _pair_sums(tensor, kernel):
+    """Exact ``sum_ab T[a, b] K[s, a, b]`` and ``sum_ab |T K|`` per sample."""
+    from fractions import Fraction
+
+    sums, sizes = [], []
+    for sample in kernel:
+        terms = [
+            Fraction(float(t)) * Fraction(float(k))
+            for t, k in zip(tensor.ravel(), sample.ravel())
+        ]
+        sums.append(sum(terms))
+        sizes.append(sum(abs(term) for term in terms))
+    return sums, sizes
+
+
+@pytest.mark.parametrize("zeros", [False, True])
+def test_factorized_sum_beyond_the_per_assignment_sign_check_is_admitted(zeros):
+    """N = 17 and six labels: 2.4e7 assignments, more than the per-assignment
+    sign check may visit.  The factor signs alone prove that the monomials
+    agree, so the sum is prepared and contracted (at the default cost rule)
+    instead of raising the materialization budget error."""
+    from fractions import Fraction
+
+    rng = np.random.default_rng(9810 + zeros)
+    n, samples = 17, 4
+    term, values = _uniform_sum(n, zeros, rng)
+    candidate = try_build_factorized(term, analyze_spatial(term), values, {}, LIMIT)
+    assert candidate is not None
+    snapshot = factorized_state(candidate)[1]
+    assert snapshot.mask is None
+    counts = [
+        np.prod([np.count_nonzero(values[name]) for name in names])
+        for names in (("F", "G", "H"), ("P", "Q", "W"))
+    ]
+    assert snapshot.nonzero == max(counts)
+    kernels = [_signed(rng, (samples, n, n)) for _ in range(3)]
+    pairs = (("i", "j"), ("k", "l"), ("m", "n"))
+    cb = [(kernel, left, right) for kernel, (left, right) in zip(kernels, pairs)]
+    rp, jac = _signed(rng, samples), _signed(rng, samples)
+    fused = candidate._static_values(cb, rp, jac, r_batches=[])
+    assert factorized_state(candidate)[1] is not None, "the call declined"
+    monomials = (
+        (Fraction(1), ("F", "G", "H"), (False, False, False)),
+        (Fraction(-2, 3), ("P", "Q", "W"), (True, False, True)),
+    )
+    reference = [Fraction(0)] * samples
+    scale = [Fraction(0)] * samples
+    for phase, names, transposed in monomials:
+        value = [phase] * samples
+        size = [abs(phase)] * samples
+        for name, flip, kernel in zip(names, transposed, kernels):
+            sums, sizes = _pair_sums(values[name].T if flip else values[name], kernel)
+            value = [v * s for v, s in zip(value, sums)]
+            size = [v * s for v, s in zip(size, sizes)]
+        reference = [r + v for r, v in zip(reference, value)]
+        scale = [r + v for r, v in zip(scale, size)]
+    outer = [Fraction(float(r)) * Fraction(float(j)) for r, j in zip(rp, jac)]
+    reference = [r * o for r, o in zip(reference, outer)]
+    scale = [s * abs(o) for s, o in zip(scale, outer)]
+    # Three tensors, the rational, three kernels, rp and jac.
+    exact.assert_within_bound(fused, reference, scale, 9, n**6, 2)
+
+
+def _boundary_sum(kind, rng):
+    """Two monomials over ``i, j, k`` with a repeated label and a fixed slice.
+
+    ``uniform``: every tensor holds one sign (with zeros) and both monomials
+    are negative.  ``agreeing``: ``F`` holds both signs, but both monomials
+    carry it, so they agree at every assignment.  ``conflicting``: the
+    monomials have opposite signs.  ``single``: one monomial with a
+    mixed-sign tensor.
+    """
+    n = 4
+    F = _signed(rng, (n, n))
+    G = rng.uniform(0.2, 1.3, (n, n, n))
+    H = -rng.uniform(0.2, 1.3, (n, n))
+    for tensor in (F, G, H):
+        tensor[rng.random(tensor.shape) < 0.3] = 0.0
+    if kind == "uniform":
+        F = -np.abs(F)
+    first = Product((Rational(1), Symbol("F", ("i", "j")), Symbol("G", ("k", "k", "p"))))
+    second = Product((Rational(-3, 5), Symbol("F", ("i", "j")), Symbol("H", ("j", "k"))))
+    if kind == "uniform":
+        second = Product((Rational(3, 5), Symbol("G", ("i", "j", "p")), Symbol("H", ("j", "k"))))
+    elif kind == "conflicting":
+        second = Product((Rational(3, 5), Symbol("F", ("i", "j")), Symbol("H", ("j", "k"))))
+    expression = first if kind == "single" else Sum((first, second))
+    term = DiagramTerm(
+        tuple(Propagator("C", label, "p", "x", "y") for label in ("i", "j", "k")),
+        expression,
+        Rational(1),
+        (),
+        tuple((label, n) for label in ("i", "j", "k")),
+        0,
+    )
+    return term, {"F": F, "G": G, "H": H}, {"p": 2}
+
+
+@pytest.mark.parametrize("kind", ["uniform", "agreeing", "conflicting", "single"])
+def test_sign_check_and_factor_sign_proof_at_the_work_limit(monkeypatch, kind):
+    """Both sides of the work limit, evaluated directly: the per-assignment
+    check gives the exact nonzero count; the factor-sign proof never admits a
+    sum the per-assignment check rejects, and counts the largest monomial."""
+    import sft_wick._factorized_coupling as factorized
+
+    rng = np.random.default_rng(9830)
+    term, values, fixed = _boundary_sum(kind, rng)
+    spatial = analyze_spatial(term)
+    table = exact.monomial_coefficients(term, values, fixed)
+    union = sum(1 for value, size in table.values() if size)
+    monomials = term.coupling_sum.terms if type(term.coupling_sum) is Sum else (term.coupling_sum,)
+    largest = max(
+        len(exact.monomial_coefficients(replace(term, coupling_sum=monomial), values, fixed))
+        for monomial in monomials
+    )
+    monkeypatch.setattr(factorized, "_MAX_SIGN_WORK", 2**62)
+    checked = try_build_factorized(term, spatial, values, fixed, LIMIT)
+    monkeypatch.setattr(factorized, "_MAX_SIGN_WORK", 0)
+    proved = try_build_factorized(term, spatial, values, fixed, LIMIT)
+    if kind == "conflicting":
+        assert checked is None and proved is None
+        return
+    assert checked is not None
+    assert factorized_state(checked)[1].nonzero == union
+    if kind == "agreeing":
+        assert proved is None
+        return
+    assert proved is not None
+    snapshot = factorized_state(proved)[1]
+    assert snapshot.mask is None
+    assert snapshot.nonzero == largest <= union
+    if kind == "single":
+        assert largest == union
+
+
+def test_factorized_sum_beyond_the_sign_check_with_a_mixed_sign_factor_declines():
+    """Without a factor-sign proof the oversized sum is not prepared, and the
+    dense fallback above the budget raises before it is allocated."""
+    rng = np.random.default_rng(9820)
+    n = 17
+    term, values = _uniform_sum(n, False, rng)
+    values["G"] = _signed(rng, (n, n))
+    with pytest.raises(ValueError, match="factorized coefficient materialization"):
+        try_build_factorized(term, analyze_spatial(term), values, {}, LIMIT)

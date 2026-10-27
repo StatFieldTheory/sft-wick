@@ -261,7 +261,13 @@ ordered fold adds the monomials into one coefficient first. A sum of
 monomials is therefore prepared for ``factorized`` only when no two of its
 monomials have opposite signs at any assignment; then the two sums are
 equal and the bound above holds. The check runs once per diagram, on the
-signs of the coupling tensors.
+signs of the coupling tensors, assignment by assignment. When that would
+take more than ``2**27`` element operations (the number of assignments
+times the number of tensors plus one, summed over the monomials; for
+example two monomials of three tensors over six indices of 17 components),
+the sum is prepared only if the signs of its tensors alone settle the
+question: every tensor holds entries of one sign apart from zeros, and
+every monomial has the same resulting sign.
 
 The largest errors observed on 330 diagrams captured from
 :meth:`~sft_wick.workflow.Expansion.evaluate` (``N`` = 2, 3 and 5, signed
@@ -287,8 +293,13 @@ When a backend runs
 
 A backend returns a value for a diagram call only when
 
-* every input array it reads is finite,
-* no product or partial sum can overflow, in any evaluation order,
+* every input array it reads is finite, and so is every entry the ordered
+  fold multiplies that the backend leaves out: entries at components a
+  diagonal C table (``diag_C``) rules out, which the ordered fold multiplies
+  by that table's zero, and R entries the ordered fold multiplies before it
+  reaches a later R factor whose support excludes the assignment,
+* no product or partial sum of those entries can overflow, in any
+  evaluation order,
 * no product of nonzero inputs can fall below ``2**-1021``, in any
   evaluation order (the sum of the binary exponents of the smallest nonzero
   magnitudes of all factors is at least -1021),
@@ -304,9 +315,14 @@ Otherwise that call runs on the ordered fold. A backend therefore never
 returns inf or NaN where the ordered fold returns a finite value, and every
 error the ordered fold raises (an imaginary diagram value from a mis-specified
 action, an index-free C that is not a multiple of the identity) is raised with
-the same type and message. A backend never returns ``-0.0``. A non-finite
-value that the ordered fold never reads, for example one multiplied only by
-zero coefficients, makes the backend decline.
+the same type and message. An inf or NaN among the entries the ordered fold
+multiplies by a diagonal C table's zero, or a product there that overflows,
+gives NaN, and an overflow or invalid operation among the R entries it
+multiplies before an excluding support is a floating-point event (an error
+under ``numpy.seterr(over="raise")``); in both cases the backend declines
+and the call returns that NaN or raises that error. A backend never returns
+``-0.0``. A non-finite value that the ordered fold never reads, for example
+one multiplied only by zero coefficients, makes the backend decline.
 
 Dynamic (callable) couplings, propagator batches that are not float64,
 component labels that are numeric literals or unresolved, and subclasses of
@@ -323,10 +339,12 @@ The cost estimates are computed from array shapes, R supports and the zero
 pattern of the coefficient. ``einsum`` reads the pattern from the coefficient
 array; ``factorized`` counts the nonzero coefficients once, when it prepares
 the integrand, and keeps the pattern itself for coefficients of at most 65536
-entries. The estimates involve no timing, so the choice of backend, and
-hence the result, does not depend on machine load. The ordered estimate
-counts the Python work per assignment and one vector operation per factor of
-each contributing assignment. The backend estimate counts fixed costs, passes
+entries. Where the per-assignment sign check is skipped, the count is the
+largest count of a single monomial, which can only underestimate the
+ordered fold's work. The estimates involve no timing, so the choice of
+backend, and hence the result, does not depend on machine load. The ordered
+estimate counts the Python work per assignment and one vector operation per
+factor of each contributing assignment. The backend estimate counts fixed costs, passes
 over the propagator batches and the operations of the planned pairwise
 contraction. The constants were fitted to timings of 275 diagram calls on
 Python 3.10 with NumPy 2.2 and Python 3.14 with NumPy 2.4, and shifted so

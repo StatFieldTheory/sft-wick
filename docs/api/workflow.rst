@@ -133,7 +133,9 @@ component assignments as pairwise contractions. A result lies within the
 error bound ``1.01 (m + A T) u S`` of the exact sum of the same float64
 inputs, which the ordered fold also satisfies; ``S`` is built from the summed
 coefficient the ordered fold uses. A diagram call runs on the ordered fold
-when an input it reads is not finite, a product could overflow or underflow,
+when an input it reads, or an entry the ordered fold multiplies and the
+backend leaves out (by a zero of a diagonal C table, or before an R support
+excludes the assignment), is not finite, a product could overflow or underflow,
 a coefficient fails the ordered phase check, NumPy's underflow policy is not
 ``"ignore"``, the workspace exceeds ``contraction_max_bytes``, or the cost
 rule estimates the backend to be slower. ``factorized`` prepares a monomial,

@@ -27,8 +27,12 @@ bound has no underflow term because of rule (3) below, and it holds for
 ``"factorized"`` with the summed coefficient because of rule (4).
 
 Behaviour contract.  A backend only returns a result when (1) every array it
-reads is finite, (2) no product or partial sum can overflow in any
-evaluation order, (3) no product of nonzero inputs can fall below
+reads is finite, and so is every entry the ordered fold multiplies although
+the backend's index structure excludes it (by the zero of a diagonal
+``(n, N)`` C table, or as an R factor before the fold reaches the R support
+that excludes the assignment), (2) no product or partial sum of those
+entries can overflow in any evaluation order, (3) no product of nonzero
+inputs can fall below
 ``2**-1021`` in any evaluation order, so that every underflow error is
 smaller than ``u/2`` times the magnitudes it came from, (4) for
 ``"factorized"``, the monomials of a sum have no opposite signs at any
@@ -102,6 +106,9 @@ _BACKEND_ELEMENT = 0.7
 #: Backend: passes over every kernel element (copy, two range scans and the
 #: zero-skipping magnitude scan of arrays holding zeros or both signs).
 _KERNEL_PASSES = 3.5
+#: Backend: passes over a kernel view the ordered fold multiplies beyond the
+#: backend's slice (one range scan; see :func:`plan_groups`).
+_READ_PASSES = 2.5
 #: Backend (einsum): cost per coefficient element (rotation, masks, scan).
 _BACKEND_COEFFICIENT = 60.0
 #: Backend: fixed cost of one pairwise contraction step.
@@ -264,15 +271,27 @@ class KernelLayout:
     (``("isotropic", C)`` or ``("trace", R)``), always with labels ``(0,)``.
     ``deltas`` lists label pairs a structurally diagonal factor sets equal and
     ``pins`` labels it fixes to a component; ``zero`` marks a diagonal factor
-    between two different fixed components.  ``supports`` keeps each resolved
-    R support with its labels for the ordered cost estimate, and
+    between two different fixed components.  ``skipped_deltas`` and
+    ``skipped_pins`` are the subsets that come from the support of R batch
+    ``p``, stored as ``(left, right, p)`` and ``(label, value, p)``.  The
+    ordered fold multiplies the factors of an assignment a diagonal C table
+    excludes by that table's zero; at an assignment an R support excludes it
+    stops before the C factors, after multiplying the R batches that precede
+    batch ``p``.  ``ranks`` gives, per operand, the last R batch whose
+    support the ordered fold checks before it multiplies that operand: ``p``
+    for R batch ``p``, ``inf`` (every batch) for C factors and the Jacobian
+    and ``-1`` (none) for the scalar R product.  ``supports`` keeps each
+    resolved R support with its labels for the ordered cost estimate, and
     ``zero_checks`` the R entries outside their support, which must vanish.
     """
 
     operands: tuple
+    ranks: tuple
     deferred: tuple
     deltas: tuple
     pins: tuple
+    skipped_deltas: tuple
+    skipped_pins: tuple
     zero: bool
     supports: tuple
     zero_checks: tuple
@@ -314,9 +333,12 @@ class _LayoutParts:
     names: dict
     fixed: dict
     operands: list = field(default_factory=list)
+    ranks: list = field(default_factory=list)
     deferred: list = field(default_factory=list)
     deltas: list = field(default_factory=list)
     pins: list = field(default_factory=list)
+    skipped_deltas: list = field(default_factory=list)
+    skipped_pins: list = field(default_factory=list)
     supports: list = field(default_factory=list)
     zero_checks: list = field(default_factory=list)
     zero: bool = False
@@ -335,21 +357,34 @@ class _LayoutParts:
         b = _resolve(right, dim, self.names, self.fixed)
         return None if a is None or b is None else (a, b)
 
-    def diagonal(self, vectors, left, right) -> None:
-        """Add a diagonal factor ``delta_ab v[:, a]``."""
+    def add(self, operand, rank) -> None:
+        self.operands.append(operand)
+        self.ranks.append(rank)
+
+    def diagonal(self, vectors, left, right, rank, skipped=None) -> None:
+        """Add a diagonal factor ``delta_ab v[:, a]``.
+
+        ``skipped`` is the index of the R batch whose support this is: the
+        ordered fold skips the assignments with ``a != b`` instead of
+        multiplying them by zero.
+        """
         if left[0] == "sum" and right[0] == "sum":
-            self.operands.append((vectors, (0, left[1])))
+            self.add((vectors, (0, left[1])), rank)
             if left[1] != right[1]:
                 self.deltas.append((left[1], right[1]))
+                if skipped is not None:
+                    self.skipped_deltas.append((left[1], right[1], skipped))
         elif left[0] == "pin" and right[0] == "pin":
             if left[1] != right[1]:
                 self.zero = True
             else:
-                self.operands.append((vectors[:, left[1]], (0,)))
+                self.add((vectors[:, left[1]], (0,)), rank)
         else:
             free, pinned = (left, right) if left[0] == "sum" else (right, left)
-            self.operands.append((vectors[:, pinned[1]], (0,)))
+            self.add((vectors[:, pinned[1]], (0,)), rank)
             self.pins.append((free[1], pinned[1]))
+            if skipped is not None:
+                self.skipped_pins.append((free[1], pinned[1], skipped))
 
     def add_c(self, batch) -> bool:
         if type(batch) is not tuple or len(batch) != 3:
@@ -358,19 +393,19 @@ class _LayoutParts:
         if not self.batch_ok(array, (2, 3)):
             return False
         if left is None and right is None:
-            self.operands.append((None, (0,)))
+            self.add((None, (0,)), math.inf)
             self.deferred.append(("isotropic", array))
             return True
         resolved = self.pair(left, right, array.shape[1])
         if resolved is None:
             return False
         if array.ndim == 3:
-            self.operands.append(_select(array, *resolved))
+            self.add(_select(array, *resolved), math.inf)
         else:
-            self.diagonal(array, *resolved)
+            self.diagonal(array, *resolved, math.inf)
         return True
 
-    def add_r(self, batch) -> bool:
+    def add_r(self, batch, rank) -> bool:
         if type(batch) is not tuple or len(batch) != 4:
             return False
         array, left, right, support = batch
@@ -384,7 +419,7 @@ class _LayoutParts:
         ):
             return False
         if not (left and right):
-            self.operands.append((None, (0,)))
+            self.add((None, (0,)), rank)
             self.deferred.append(("trace", array))
             return True
         resolved = self.pair(left, right, dim)
@@ -394,13 +429,13 @@ class _LayoutParts:
         on_diagonal = np.diagonal(support)
         if np.count_nonzero(support) == np.count_nonzero(on_diagonal):
             diagonal = np.diagonal(array, axis1=1, axis2=2)
-            self.diagonal(diagonal, *resolved)
+            self.diagonal(diagonal, *resolved, rank, skipped=rank)
             # A diagonal entry outside the support is skipped by the ordered
             # fold, so it must hold zero for the diagonal read to be exact.
             for k in np.flatnonzero(~on_diagonal):
                 self.zero_checks.append(diagonal[:, k])
         else:
-            self.operands.append(_select(array, *resolved))
+            self.add(_select(array, *resolved), rank)
             if not support.all():
                 self.zero_checks.append((array, ~support))
         return True
@@ -428,16 +463,20 @@ def kernel_layout(c_batches, r_batches, r_product, jacobians, names, fixed):
     ):
         return None
     parts = _LayoutParts(r_product.size, names, fixed)
-    parts.operands.extend(((r_product, (0,)), (jacobians, (0,))))
+    parts.add((r_product, (0,)), -1)
+    parts.add((jacobians, (0,)), math.inf)
     if not all(parts.add_c(batch) for batch in c_batches):
         return None
-    if not all(parts.add_r(batch) for batch in r_batches):
+    if not all(parts.add_r(batch, rank) for rank, batch in enumerate(r_batches)):
         return None
     return KernelLayout(
         tuple(parts.operands),
+        tuple(parts.ranks),
         tuple(parts.deferred),
         tuple(parts.deltas),
         tuple(parts.pins),
+        tuple(parts.skipped_deltas),
+        tuple(parts.skipped_pins),
         parts.zero,
         tuple(parts.supports),
         tuple(parts.zero_checks),
@@ -712,9 +751,26 @@ class Contraction:
     """A planned contraction of one or more coefficient groups."""
 
     groups: tuple  # ((phase, ((array, labels), ...), steps), ...)
-    kernels: tuple  # ((array or deferred position, sample-last labels), ...)
+    # ((array or deferred position, sample-last labels, read or None), ...)
+    kernels: tuple
     cost: float
     workspace: int
+
+
+def _pinned_labels(labels, classes):
+    return tuple(label for label in labels if label and classes[label][0] == "pin")
+
+
+def _read_classes(layout, dims, rank):
+    """Label classes of the exclusions the ordered fold skips before it
+    multiplies an operand of ``rank``: those of R batches up to ``rank``.
+
+    A subset of the constraints of the full classes, so its pins never
+    conflict where the full classes exist.
+    """
+    deltas = [(a, b) for a, b, batch in layout.skipped_deltas if batch <= rank]
+    pins = [(label, value) for label, value, batch in layout.skipped_pins if batch <= rank]
+    return label_classes(dims, deltas, pins)
 
 
 def plan_groups(groups, layout, dims, samples):
@@ -722,34 +778,51 @@ def plan_groups(groups, layout, dims, samples):
 
     ``groups`` holds ``(phase, coefficient_operands)`` with operand labels
     over the summation labels of ``dims``.  Kernel operands are planned in
-    the sample-last layout :func:`finish` copies them into.  Returns
-    ``(Contraction, classes)`` or ``None`` when the diagram vanishes
-    structurally or a plan fails.  The cost covers the kernel passes and the
-    planned steps; :func:`factorized_overhead` adds the per-monomial work.
+    the sample-last layout :func:`finish` copies them into.  A kernel that
+    the full label classes slice more than the ordered fold does (a pin from
+    a diagonal C table, or from an R support the ordered fold checks only
+    after it has multiplied this kernel) also keeps ``read``, the view the
+    ordered fold multiplies, for the range checks.  Returns ``(Contraction,
+    classes)`` or ``None`` when the diagram vanishes structurally or a plan
+    fails.  The cost covers the kernel passes and the planned steps;
+    :func:`factorized_overhead` adds the per-monomial work.
     """
     if layout.zero:
         return None
     classes = label_classes(dims, layout.deltas, layout.pins)
     if classes is None:
         return None
+    read_classes = {}
     kernels = []
     shapes = []
+    read_sizes = []
     deferred_index = 0
-    for array, labels in layout.operands:
+    for (array, labels), rank in zip(layout.operands, layout.ranks):
         if array is None:
-            kernels.append((deferred_index, (0,)))
+            kernels.append((deferred_index, (0,), None))
             shapes.append((samples,))
             deferred_index += 1
             continue
+        read = None
+        if rank not in read_classes:
+            read_classes[rank] = _read_classes(layout, dims, rank)
+        if _pinned_labels(labels, classes) != _pinned_labels(labels, read_classes[rank]):
+            read = apply_classes(array, labels, read_classes[rank])[0]
+            read_sizes.append(read.size)
         array, labels = apply_classes(array, labels, classes)
         shape, labels = sample_last(array.shape, labels)
-        kernels.append((array, labels))
+        kernels.append((array, labels, read))
         shapes.append(shape)
     kernel_shapes = tuple(shapes)
-    kernel_labels = tuple(labels for _, labels in kernels)
+    kernel_labels = tuple(labels for _, labels, _ in kernels)
     planned = []
     elements = sum(math.prod(shape) for shape in kernel_shapes)
-    cost = _BACKEND_CALL + _KERNEL_PASSES * elements * _BACKEND_ELEMENT + samples
+    cost = (
+        _BACKEND_CALL
+        + _KERNEL_PASSES * elements * _BACKEND_ELEMENT
+        + _READ_PASSES * sum(read_sizes) * _BACKEND_ELEMENT
+        + samples
+    )
     workspace = 0
     for phase, operands in groups:
         resolved = tuple(apply_classes(a, labels, classes) for a, labels in operands)
@@ -771,7 +844,7 @@ def plan_groups(groups, layout, dims, samples):
             workspace += samples * int(np.count_nonzero(check[1]))
     # Sample-last kernel copies, the bit-pattern temporary of one range scan,
     # the accumulator and one group result.
-    largest = max(math.prod(shape) for shape in kernel_shapes)
+    largest = max(max(math.prod(shape) for shape in kernel_shapes), *read_sizes, 0)
     workspace += elements + largest + samples * (2 if len(groups) > 1 else 1)
     return Contraction(tuple(planned), tuple(kernels), cost, 8 * workspace), classes
 
@@ -800,7 +873,7 @@ def finish(contraction, layout, coefficient_ranges, assignments):
         return None
     kernels = []
     kernel_ranges = []
-    for array, labels in contraction.kernels:
+    for array, labels, read in contraction.kernels:
         if type(array) is int:
             array = deferred[array]
         elif array.ndim > 1 and labels[-1] == 0:
@@ -808,6 +881,16 @@ def finish(contraction, layout, coefficient_ranges, assignments):
         scanned = finite_range(array)
         if scanned is None:
             return None
+        if read is not None:
+            # The ordered fold also multiplies these entries: by a diagonal C
+            # table's zero, or before it reaches the R support that excludes
+            # them.  inf or NaN there, or an overflowing product, gives NaN
+            # or a floating-point event, so rules (1) and (2) cover them.
+            # Rule (3) concerns the products the backend forms.
+            covered = finite_range(read)
+            if covered is None:
+                return None
+            scanned = (covered[0], scanned[1])
         kernel_ranges.append(scanned)
         kernels.append((array, labels))
     terms = len(contraction.groups)
