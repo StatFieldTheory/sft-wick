@@ -121,12 +121,14 @@ refuses a key it does not read with `ValueError: <block>: unknown key(s)
 (the kernel, `sigma2`, `linear` and vertex blocks already did).  A
 top-level key used only to hold YAML anchors or notes is refused too.
 
-`Expansion.evaluate` and `Expansion.sweep` (and `sweep.positions_grid`)
-refuse a position for a point the observable does not name.  A misspelt
-point used to stay at the default position: `positions_grid: {x: [0],
-yy: [0.45]}` returned the value at zero separation, 65 % high on the
-quickstart model.  A point given no position still takes the default.
-All shipped configurations load unchanged
+`sweep.positions_grid` refuses a point that `expand.observable` does not
+name when the file is loaded.  A misspelt point used to stay at the
+default position: `positions_grid: {x: [0], yy: [0.45]}` returned the value
+at zero separation, 65 % high on the quickstart model, and added a `yy`
+column.  The L1 `positions` argument of `Expansion.evaluate` and
+`Expansion.sweep` still accepts points the observable does not use, so one
+positions dict can serve several observables; a point given no position
+takes the default there.  All shipped configurations load unchanged
 (`tests/test_yaml_spec_coverage.py`, YC11 and YC12).
 
 ### Changed: the propagator disk cache covers built-in specs only

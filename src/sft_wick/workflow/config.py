@@ -337,6 +337,31 @@ _PROPAGATORS_KEYS = frozenset(
 _OUTPUT_KEYS = frozenset({"type", "path", "format", "x", "y", "hue", "facet_col"})
 
 
+def _check_position_labels(expand_cfg, sweep_cfg) -> None:
+    """Refuse a ``sweep.positions_grid`` point the observable does not name.
+
+    A point without a position sits at the default coordinate, so a
+    misspelt name would place the intended point there and return the value
+    for the wrong separation; the stray name would also add a column and
+    repeat every row.  The L1 ``positions`` argument still accepts points the
+    observable does not use.
+    """
+    from .system import _OBS_PATTERN
+
+    labels = set()
+    for spec in expand_cfg.observable:
+        m = _OBS_PATTERN.match(spec) if isinstance(spec, str) else None
+        if m is None:
+            return  # System.expand reports the malformed observable
+        labels.add(m.group("spatial"))
+    unknown = sorted(str(k) for k in sweep_cfg.positions_grid if k not in labels)
+    if unknown:
+        raise ValueError(
+            f"sweep.positions_grid: position(s) given for {unknown}, which "
+            f"expand.observable does not name; its points are {sorted(labels)}."
+        )
+
+
 def _parse_workflow(data: dict, base_dir: Path) -> WorkflowConfig:
     system_d = _require_dict(data, "system")
     expand_d = _require_dict(data, "expand")
@@ -356,6 +381,7 @@ def _parse_workflow(data: dict, base_dir: Path) -> WorkflowConfig:
         system_d, base_dir, default_dt=default_dt, t_max=props_d.get("t_max")
     )
     expand_cfg = _parse_expand(expand_d)
+    _check_position_labels(expand_cfg, sweep_cfg)
     props_cfg = _parse_propagators(props_d, base_dir)
     output_cfgs = [_parse_output(o, i) for i, o in enumerate(output_d or [])]
 

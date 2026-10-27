@@ -46,9 +46,8 @@ comparison command.*
   Gauss-Legendre, vectorised QMC, ``integrate_two_point_qmc``); such values
   were 8-44 % off.
 - Breaking: a workflow key the parser does not read raises ``ValueError`` in
-  every block, and a position for a point the observable does not name
-  raises in ``Expansion.evaluate`` and ``Expansion.sweep``; a misspelt key
-  or point used to fall back to its default.
+  every block, and so does a ``sweep.positions_grid`` point the observable
+  does not name; a misspelt key or point used to fall back to its default.
 - The propagator disk cache (``cache_path``) covers built-in specs only;
   systems with user callables compute their tables on every call.
 - Fixed: batch contractions dropped coefficients below ``1e-20`` in

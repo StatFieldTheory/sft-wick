@@ -74,22 +74,6 @@ def _guard_external_times(expansion, propagators, ext_times, label):
             )
 
 
-def _guard_position_labels(expansion, labels, label) -> None:
-    """Refuse a position for a point the observable does not name.
-
-    A point without a position sits at the default coordinate, so a
-    misspelt label would place the intended point there and return a value
-    for the wrong separation.
-    """
-    known = {sp for (_name, _comp, sp) in (expansion.observable_repr or ())}
-    unknown = sorted(str(k) for k in (labels or ()) if k not in known)
-    if unknown:
-        raise ValueError(
-            f"{label}: position(s) given for {unknown}, which the observable "
-            f"does not name; its points are {sorted(known)}."
-        )
-
-
 def _guard_single_site(expansion, diagram_terms, positions) -> None:
     """Refuse external points at different positions that a diagram of a
     multiplicative-noise system joins through response propagators.
@@ -450,7 +434,6 @@ class Expansion:
             external_times,
             "Expansion.evaluate",
         )
-        _guard_position_labels(self, positions, "Expansion.evaluate")
         _guard_single_site(self, diagram_terms, positions)
 
         _total, details = integrate_diagrams(
@@ -768,7 +751,6 @@ class Expansion:
 
         pos_keys = list(positions_grid.keys())
         pos_values = [positions_grid[k] for k in pos_keys]
-        _guard_position_labels(self, pos_keys, "Expansion.sweep")
 
         # The component axis: one index per observable operator, so a 3- or
         # 4-point observable sweeps triples or quadruples.  Up to 0.4.x the

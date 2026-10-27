@@ -1014,18 +1014,24 @@ def test_YC11_every_shipped_workflow_config_loads():
 def test_YC12_misspelt_point_in_positions_grid_is_refused(tmp_path):
     """``positions_grid: {x: [0], yy: [0.45]}`` used to leave ``y`` at the
     default position 0 and return C at zero separation, 65 % high on the
-    quickstart model, with an extra ``yy`` column and no error."""
+    quickstart model, with an extra ``yy`` column and no error.  The file
+    is now refused when it is loaded."""
     cfg = _base_config()
     cfg["sweep"]["positions_grid"] = {"x": [0.0], "yy": [0.45]}
     path = tmp_path / "c.yaml"
     path.write_text(yaml.safe_dump(cfg))
-    with pytest.raises(ValueError, match=r"position\(s\) given for \['yy'\]"):
-        run_workflow(load_workflow_config(path), progress=False)
+    with pytest.raises(
+        ValueError,
+        match=r"^sweep\.positions_grid: position\(s\) given for \['yy'\]"
+        r".*\['x', 'y'\]",
+    ):
+        load_workflow_config(path)
 
 
-def test_YC12_misspelt_point_is_refused_at_L1_and_omitted_points_still_default(
-    tmp_path,
-):
+def test_YC12_L1_positions_may_name_points_the_observable_does_not_use(tmp_path):
+    """One positions dict serves observables over different points, so L1
+    accepts names the observable does not use, and a point with no position
+    takes the default."""
     path = tmp_path / "c.yaml"
     path.write_text(yaml.safe_dump(_base_config()))
     system = build_system(load_workflow_config(path).system)
@@ -1033,12 +1039,10 @@ def test_YC12_misspelt_point_is_refused_at_L1_and_omitted_points_still_default(
     props = system.propagators(t_max=T_FINAL, n_grid_t=8, progress=False)
     kw = dict(t_final=T_FINAL, component_pair=(0, 0), method="gauss_legendre",
               n_gauss=4)
-    with pytest.raises(ValueError, match=r"\['yy'\].*\['x', 'y'\]"):
-        exp.evaluate(props, positions={"x": 0.0, "yy": 0.45}, **kw)
-    with pytest.raises(ValueError, match=r"\['z'\]"):
-        exp.sweep(props, positions_grid={"x": [0.0], "y": [0.45], "z": [1.0]},
-                  t_final_grid=[T_FINAL], component_pairs=[(0, 0)],
-                  method="gauss_legendre", n_gauss=4, progress=False)
+    named = exp.evaluate(props, positions={"x": 0.0, "y": 0.45}, **kw).total
+    extra = exp.evaluate(props, positions={"x": 0.0, "y": 0.45, "z": 9.0},
+                         **kw).total
+    assert extra == named
     omitted = exp.evaluate(props, positions={"x": 0.0}, **kw).total
     explicit = exp.evaluate(props, positions={"x": 0.0, "y": 0.0}, **kw).total
     assert omitted == explicit
