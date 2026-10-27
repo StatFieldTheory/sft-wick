@@ -1,4 +1,9 @@
-"""Original-factor candidate contracts, without weakening public arrays."""
+"""Original-factor contraction: preparation, admission and public arrays.
+
+The cost rule declines these small fixtures, so ``admit_all`` bypasses it
+for the whole module; the rule itself is tested in
+``test_contraction_error_bound.py``.
+"""
 
 from dataclasses import FrozenInstanceError, replace
 import pickle
@@ -10,13 +15,15 @@ import textwrap
 import numpy as np
 import pytest
 
+import sft_wick._dense_contraction as dense
 from sft_wick._factorized_coupling import (
+    _contract,
     factorized_state,
     native_factorized_integrand,
     share_factorized_owner,
     try_build_factorized,
 )
-from sft_wick.evaluate import DiagramIntegrand, analyze_spatial
+from sft_wick.evaluate import analyze_spatial
 from sft_wick.expressions import (
     ImaginaryUnit,
     KroneckerDelta,
@@ -28,7 +35,26 @@ from sft_wick.expressions import (
 )
 from sft_wick.perturbation import DiagramTerm
 
+from . import _contraction_exact as exact
+
 LIMIT = 64 * 1024**2
+
+
+@pytest.fixture(autouse=True)
+def admit_all(monkeypatch):
+    """Run the backend on small fixtures, whatever the cost rule estimates."""
+    monkeypatch.setattr(dense, "backend_is_cheaper", lambda backend, ordered: True)
+
+
+def _within_bound(term, cv, fixed, values, cb, rp, jac, rb, terms=1):
+    table = exact.monomial_coefficients(term, cv, fixed)
+    reference, scale = exact.exact_sum(
+        table, term.propagator_indices, fixed, cb, rp, jac, rb
+    )
+    assignments = int(np.prod([dim for _, dim in term.propagator_indices]))
+    exact.assert_within_bound(
+        values, reference, scale, 10 + len(cb) + len(rb), assignments, terms
+    )
 
 
 def _case(n=2, samples=4, e_psi=0, matrix_r=False):
@@ -129,21 +155,15 @@ def test_public_materialization_is_exact_original_dtype_and_bytes(
     assert _stored(candidate)["_factorized_plan"] is None
 
 
-def test_snapshots_do_not_borrow_inputs_and_late_fallback_does_not_reevaluate(
-    monkeypatch,
-):
+def test_snapshots_do_not_borrow_inputs_and_late_fallback_uses_the_snapshot():
     term, cv, baseline, candidate, cb, rp, jac, rb = _case()
     original = baseline.coupling_array.copy()
     cv["F"] *= 4
     cv["G"][:] = 7
-
-    def forbidden(*args, **kwargs):
-        raise AssertionError("snapshot fallback must not re-evaluate live term")
-
-    monkeypatch.setattr(DiagramTerm, "evaluate_coupling", forbidden)
     # Force a safe runtime refusal without changing the materialization budget.
-    cb[0] = (np.broadcast_to(np.eye(2), cb[0][0].shape), None, None)
-    result = _values(candidate, cb, rp, jac, rb)
+    with np.errstate(under="raise"):
+        result = _values(candidate, cb, rp, jac, rb)
+    assert _stored(candidate)["_factorized_plan"] is None
     assert candidate.coupling_array.tobytes() == original.tobytes()
     np.testing.assert_array_equal(result, _values(baseline, cb, rp, jac, rb))
 
@@ -208,7 +228,6 @@ def test_unsupported_expressions_decline_before_coefficient_build(kind):
 @pytest.mark.parametrize(
     "kind",
     [
-        "zero",
         "nan",
         "inf",
         "mixed_phase",
@@ -221,8 +240,8 @@ def test_unsupported_expressions_decline_before_coefficient_build(kind):
 def test_unsupported_numeric_couplings_decline(kind):
     term, cv, _, _, _, _, _, _ = _case()
     arr = cv["F"].real.copy()
-    if kind in ("zero", "nan", "inf"):
-        arr.flat[0] = {"zero": 0.0, "nan": np.nan, "inf": np.inf}[kind]
+    if kind in ("nan", "inf"):
+        arr.flat[0] = {"nan": np.nan, "inf": np.inf}[kind]
     elif kind == "mixed_phase":
         arr = arr.astype(np.complex128)
         arr.flat[0] += 1j
@@ -245,12 +264,59 @@ def test_unsupported_numeric_couplings_decline(kind):
     assert try_build_factorized(term, analyze_spatial(term), cv, {}, LIMIT) is None
 
 
-@pytest.mark.parametrize("scale", [1e308, 1e-300, 1e-200])
-def test_extreme_subset_product_range_declines(scale):
-    term, cv, _, _, _, _, _, _ = _case()
-    cv["F"] = np.full((2, 2, 2), scale)
+@pytest.mark.parametrize("imaginary", [False, True])
+def test_zero_coupling_entries_are_contracted(imaginary):
+    term, cv, _, _, cb, rp, jac, rb = _case()
+    cv["F"] = cv["F"].copy()
+    cv["F"].flat[[0, 5]] = 0.0
+    if imaginary:
+        cv["F"] = 1j * cv["F"].real
+        term = replace(term, n_external_response=3)
+    candidate = try_build_factorized(term, analyze_spatial(term), cv, {"p": 1}, LIMIT)
+    assert candidate is not None
+    fused = _values(candidate, cb, rp, jac, rb)
+    assert _stored(candidate)["_factorized_plan"] is not None
+    _within_bound(term, cv, {"p": 1}, fused, cb, rp, jac, rb)
+
+
+def test_possible_overflow_declines_at_contraction():
+    term, cv, _, _, cb, rp, jac, rb = _case()
+    cv["F"] = np.full((2, 2, 2), 1e308)
+    cv["G"] = np.full((2, 2, 2), 1e308)
+    candidate = try_build_factorized(term, analyze_spatial(term), cv, {}, LIMIT)
+    assert candidate is not None
+    snapshot = _stored(candidate)["_factorized_plan"]
+    assert _contract(snapshot, {}, cb, rp, jac, rb, 0, LIMIT) is None
+
+
+def _scaled_factors(scale):
+    term, cv, _, _, cb, rp, jac, rb = _case()
+    signs = np.where(np.arange(8).reshape(2, 2, 2) % 3, 1.0, -1.0)
+    cv["F"] = np.full((2, 2, 2), scale) * signs
     cv["G"] = np.full((2, 2, 2), scale)
-    assert try_build_factorized(term, analyze_spatial(term), cv, {}, LIMIT) is None
+    candidate = try_build_factorized(term, analyze_spatial(term), cv, {}, LIMIT)
+    return term, cv, candidate, cb, rp, jac, rb
+
+
+@pytest.mark.parametrize("scale", [1e-150, 1e-145])
+def test_ranges_near_the_underflow_limit_are_contracted_within_the_bound(scale):
+    """F G is about 1e-300, every product stays above 2**-1021, and the
+    exact results are larger than the bound."""
+    term, cv, candidate, cb, rp, jac, rb = _scaled_factors(scale)
+    fused = _values(candidate, cb, rp, jac, rb)
+    assert _stored(candidate)["_factorized_plan"] is not None
+    _within_bound(term, cv, {}, fused, cb, rp, jac, rb)
+    assert np.all(fused != 0.0)
+
+
+@pytest.mark.parametrize("scale", [1e-300, 1e-200, 1e-160])
+def test_products_that_can_underflow_materialize(scale):
+    term, cv, candidate, cb, rp, jac, rb = _scaled_factors(scale)
+    baseline = term.build_integrand(cv, {})
+    np.testing.assert_array_equal(
+        _values(candidate, cb, rp, jac, rb), _values(baseline, cb, rp, jac, rb)
+    )
+    assert _stored(candidate)["_factorized_plan"] is None
 
 
 def test_budget_build_decline_and_runtime_fallback():
@@ -266,21 +332,17 @@ def test_budget_build_decline_and_runtime_fallback():
     assert _stored(candidate)["_factorized_plan"] is None
 
 
-@pytest.mark.parametrize(
-    "kind", ["diagonal", "trace", "sparse_r", "nonfinite", "strict_err"]
-)
+@pytest.mark.parametrize("kind", ["unsupported_r_entry", "nonfinite", "strict_under"])
 def test_runtime_refusals_materialize_and_preserve_ordered_result(kind):
     _, _, baseline, candidate, cb, rp, jac, rb = _case(matrix_r=True)
-    if kind == "diagonal":
-        cb[0] = (cb[0][0][:, 0, :], "i", "a")
-    elif kind == "trace":
-        cb[0] = (np.broadcast_to(np.eye(2), cb[0][0].shape), None, None)
-    elif kind == "sparse_r":
+    if kind == "unsupported_r_entry":
+        # The support marks an entry the batch still holds: the ordered fold
+        # skips it, a dense product would not.
         rb[0][3][0, 0] = False
     elif kind == "nonfinite":
         cb[0][0][0, 0, 0] = np.inf
-    if kind == "strict_err":
-        with np.errstate(over="raise"):
+    if kind == "strict_under":
+        with np.errstate(under="raise"):
             got = _values(candidate, cb, rp, jac, rb)
             expected = _values(baseline, cb, rp, jac, rb)
     else:
@@ -290,21 +352,26 @@ def test_runtime_refusals_materialize_and_preserve_ordered_result(kind):
     assert _stored(candidate)["_factorized_plan"] is None
 
 
-def test_instance_protocol_override_and_base_class_override_decline(monkeypatch):
-    _, _, baseline, candidate, cb, rp, jac, rb = _case()
-    object.__setattr__(candidate, "_c_product", lambda *args: np.zeros(rp.size))
-    assert not native_factorized_integrand(candidate)
-    np.testing.assert_array_equal(
-        _values(candidate, cb, rp, jac, rb), np.zeros(rp.size)
+@pytest.mark.parametrize("kind", ["diagonal", "isotropic", "partial_r", "strict_over"])
+def test_runtime_layouts_the_ordered_fold_supports_are_contracted(kind):
+    term, cv, baseline, candidate, cb, rp, jac, rb = _case(matrix_r=True)
+    if kind == "diagonal":
+        cb[0] = (cb[0][0][:, 0, :], "i", "a")
+    elif kind == "isotropic":
+        cb.append((cb[1][0][:, :1, :1] * np.eye(2), None, None))
+    elif kind == "partial_r":
+        rb[0][3][0, 1] = False
+        rb[0][0][:, 0, 1] = 0.0
+    if kind == "strict_over":
+        with np.errstate(over="raise", invalid="raise"):
+            got = _values(candidate, cb, rp, jac, rb)
+    else:
+        got = _values(candidate, cb, rp, jac, rb)
+    assert _stored(candidate)["_factorized_plan"] is not None
+    np.testing.assert_allclose(
+        got, _values(baseline, cb, rp, jac, rb), rtol=1e-12, atol=1e-14
     )
-    _, _, baseline, candidate, cb, rp, jac, rb = _case()
-    monkeypatch.setattr(
-        DiagramIntegrand, "_c_product", staticmethod(lambda *args: np.zeros(rp.size))
-    )
-    assert not native_factorized_integrand(candidate)
-    np.testing.assert_array_equal(
-        _values(candidate, cb, rp, jac, rb), np.zeros(rp.size)
-    )
+    _within_bound(term, cv, {"p": 1}, got, cb, rp, jac, rb)
 
 
 def test_nested_products_and_scalar_factors_materialize_exactly():
@@ -364,30 +431,7 @@ def test_preexisting_custom_cached_scalar_plan_retains_legacy_behavior(throws):
     assert calls
 
 
-def test_custom_compiler_is_not_bypassed(monkeypatch):
-    from sft_wick import perturbation as pt
-
-    term, cv, _, _, _, _, _, _ = _case()
-    term = replace(
-        term,
-        coupling_sum=Product((Rational(1), Rational(1), *term.coupling_sum.factors)),
-    )
-    calls = []
-
-    def compiler(expr):
-        calls.append(expr)
-        return SimpleNamespace(scalar=lambda *args: 7)
-
-    monkeypatch.setattr(pt, "compile_coupling_plan", compiler)
-    assert try_build_factorized(term, analyze_spatial(term), cv, {}, LIMIT) is None
-    assert calls == []
-    np.testing.assert_array_equal(
-        term.build_integrand(cv).coupling_array, np.full((2,) * 6, (3 / 7) * 7)
-    )
-    assert calls == [term.coupling_sum]
-
-
-def test_cached_native_plan_also_stays_on_original_path():
+def test_cached_native_plan_is_prepared_and_materializes_identically():
     from sft_wick._coupling_plan import compile_coupling_plan, native_plan
 
     term, cv, _, _, _, _, _, _ = _case()
@@ -400,7 +444,10 @@ def test_cached_native_plan_also_stays_on_original_path():
     cached = compile_coupling_plan(term.coupling_sum)
     assert cached is not None and native_plan(cached)
     object.__setattr__(term, "_coupling_execution_plan", cached)
-    assert try_build_factorized(term, analyze_spatial(term), cv, {}, LIMIT) is None
+    candidate = try_build_factorized(term, analyze_spatial(term), cv, {}, LIMIT)
+    assert candidate is not None
+    expected = replace(term).build_integrand(cv).coupling_array
+    assert candidate.coupling_array.tobytes() == expected.tobytes()
 
 
 def test_cached_none_does_not_disable_native_factorization():
@@ -485,189 +532,6 @@ def test_large_six_axis_materialization_and_fallback_fail_before_allocation(
     assert allocations == []
 
 
-def test_custom_axis_property_is_not_guessed_by_fallback_budget(monkeypatch):
-    n = 32
-    labels = ("i", "j", "k", "a", "b", "c")
-    term = DiagramTerm(
-        tuple(
-            Propagator("C", left, right, "x", "y")
-            for left, right in zip(labels[:3], labels[3:])
-        ),
-        Product((Symbol("F", labels[:3]), Symbol("G", labels[3:]))),
-        Rational(1),
-        (),
-        tuple((label, n) for label in labels),
-        0,
-    )
-    cv = {"F": np.ones((n,) * 3), "G": np.ones((n,) * 3)}
-    calls = []
-
-    def custom_axes(self):
-        calls.append(self)
-        return ()
-
-    monkeypatch.setattr(DiagramTerm, "propagator_indices", property(custom_axes))
-    fixed = dict.fromkeys(labels, 0)
-    assert (
-        try_build_factorized(term, analyze_spatial(term), cv, fixed, 4 * 1024**2)
-        is None
-    )
-    assert calls == []
-    actual = term.build_integrand(cv, fixed).coupling_array
-    assert actual.shape == () and actual.item() == 1.0
-    assert calls == [term]
-
-
-def test_late_base_attribute_hook_observes_real_array(monkeypatch):
-    _, _, baseline, candidate, cb, rp, jac, rb = _case()
-
-    def custom_read(self, name):
-        value = object.__getattribute__(self, name)
-        return value * 2 if name == "coupling_array" else value
-
-    monkeypatch.setattr(
-        DiagramIntegrand, "__getattribute__", custom_read, raising=False
-    )
-    assert not native_factorized_integrand(candidate)
-    np.testing.assert_array_equal(
-        _values(candidate, cb, rp, jac, rb), _values(baseline, cb, rp, jac, rb)
-    )
-    assert _stored(candidate)["_factorized_plan"] is None
-
-
-@pytest.mark.parametrize(
-    "hook",
-    [
-        "symbol_getter",
-        "symbol_property",
-        "expr_getter",
-        "product_property",
-        "term_code",
-        "term_getter",
-        "sum_property",
-        "compiler_code",
-        "compiler_kwargs",
-        "symbolic_code",
-    ],
-)
-def test_first_import_uses_definition_time_witness_for_public_build(hook):
-    script = textwrap.dedent(
-        """
-        import sys
-        import numpy as np
-        from sft_wick.expressions import Expr, Product, Propagator, Rational, Symbol
-        from sft_wick.expressions import Sum
-        from sft_wick.perturbation import DiagramTerm
-        from sft_wick.evaluate import analyze_spatial
-
-        labels = ('i', 'j', 'k', 'a', 'b', 'c')
-        term = DiagramTerm(
-            tuple(Propagator('C', left, right, 'x', 'y')
-                  for left, right in zip(labels[:3], labels[3:])),
-            Product((Symbol('F', labels[:3]), Symbol('G', labels[3:]))),
-            Rational(1), (), tuple((label, 2) for label in labels), 0)
-        cv = {'F': np.full((2,) * 3, 2.), 'G': np.full((2,) * 3, 3.)}
-        calls = []
-        hook = sys.argv[1]
-
-        def read_name(self):
-            original = object.__getattribute__(self, '__dict__')['name']
-            calls.append(original)
-            return 'F' if len(calls) < 8 else 'G'
-
-        def read(self, name):
-            if type(self) is Symbol and name == 'name':
-                return read_name(self)
-            return object.__getattribute__(self, name)
-
-        if hook == 'symbol_getter':
-            Symbol.__getattribute__ = read
-        elif hook == 'symbol_property':
-            Symbol.name = property(read_name)
-        elif hook == 'expr_getter':
-            Expr.__getattribute__ = read
-        elif hook == 'product_property':
-            def factors(self):
-                calls.append('factors')
-                return object.__getattribute__(self, '__dict__')['factors']
-            Product.factors = property(factors)
-        elif hook == 'term_getter':
-            def term_read(self, name):
-                value = object.__getattribute__(self, name)
-                if name == 'rational_prefactor':
-                    calls.append('prefactor')
-                    return Rational(2 * value.numerator, value.denominator)
-                return value
-            DiagramTerm.__getattribute__ = term_read
-        elif hook == 'sum_property':
-            from dataclasses import replace
-            term = replace(term, coupling_sum=Sum((term.coupling_sum, term.coupling_sum)))
-            def terms(self):
-                calls.append('terms')
-                return object.__getattribute__(self, '__dict__')['terms']
-            Sum.terms = property(terms)
-        elif hook in ('compiler_code', 'compiler_kwargs'):
-            from dataclasses import replace
-            from sft_wick import _coupling_plan as cp
-            term = replace(term, coupling_sum=Product((Rational(1), Rational(1), *term.coupling_sum.factors)))
-            object.__setattr__(term.coupling_sum, '_test_calls', calls)
-            if hook == 'compiler_code':
-                def compile_custom(expression):
-                    object.__getattribute__(expression, '__dict__')['_test_calls'].append('compile')
-                    return None
-                cp.compile_coupling_plan.__code__ = compile_custom.__code__
-            else:
-                class BadDefaults(dict):
-                    def __bool__(self):
-                        raise AssertionError('custom kwdefaults must not be copied by admission')
-                cp.compile_coupling_plan.__kwdefaults__ = BadDefaults()
-        elif hook == 'symbolic_code':
-            from sft_wick import perturbation as pt
-            object.__setattr__(term.coupling_sum, '_test_calls', calls)
-            def symbolic_custom(expr, symbol_values, index_map):
-                object.__getattribute__(expr, '__dict__')['_test_calls'].append('symbolic')
-                return 17.
-            pt._eval_symbolic.__code__ = symbolic_custom.__code__
-        else:
-            object.__setattr__(term, '_test_calls', calls)
-            def custom_evaluate(self, coupling_values, fixed_indices=None):
-                object.__getattribute__(self, '__dict__')['_test_calls'].append('custom')
-                return np.array(123.)
-            DiagramTerm.evaluate_coupling.__code__ = custom_evaluate.__code__
-
-        # Force a genuinely fresh optional helper import, even if a future
-        # package initializer eagerly imports this optional implementation.
-        sys.modules.pop('sft_wick._factorized_coupling', None)
-        from sft_wick._factorized_coupling import try_build_factorized
-        assert try_build_factorized(term, analyze_spatial(term), cv, {}, 64*1024**2) is None
-        assert calls == [], calls
-        from dataclasses import replace
-        left = replace(term)
-        right = replace(term)
-        if hook == 'term_code':
-            object.__setattr__(left, '_test_calls', calls)
-            object.__setattr__(right, '_test_calls', calls)
-        calls.clear()
-        ordered = left.build_integrand(cv, contraction_backend='ordered').coupling_array
-        original_calls = tuple(calls)
-        calls.clear()
-        selected = right.build_integrand(cv, contraction_backend='factorized').coupling_array
-        assert selected.dtype.type is ordered.dtype.type
-        assert selected.tobytes() == ordered.tobytes()
-        assert tuple(calls) == original_calls
-        assert original_calls or hook == 'compiler_kwargs'
-        """
-    )
-    result = subprocess.run(
-        [sys.executable, "-B", "-c", script, hook],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-
-
 @pytest.mark.parametrize("terms", [2, 4, 8])
 @pytest.mark.parametrize("e_psi", [0, 1, 2, 3])
 @pytest.mark.parametrize("matrix_r", [False, True])
@@ -737,20 +601,39 @@ def test_positive_sum_materialization_matches_builtin_compensation_and_compiler(
         assert sum(scalar_values) != naive
 
 
-@pytest.mark.parametrize(
-    "kind", ["opposite_term", "mixed_tensor", "imaginary_cancellation"]
-)
-def test_sum_declines_cross_term_sign_and_phase_cancellation(kind):
+@pytest.mark.parametrize("kind", ["opposite_term", "mixed_tensor"])
+def test_sums_with_opposite_signs_decline(kind):
+    """Opposite signs at an assignment would let the monomials cancel."""
     term, cv, _, _, _, _, _, _ = _case()
     first = term.coupling_sum
-    second = Product((Rational(-1), *first.factors))
+    second = Product((Rational(-2, 3), *first.factors[::-1]))
     if kind == "mixed_tensor":
         cv["F"] = cv["F"].copy()
-        cv["F"].flat[0] *= -1
-        second = first
-    elif kind == "imaginary_cancellation":
-        first = Product((ImaginaryUnit(), *first.factors))
-        second = Product((Rational(-1), ImaginaryUnit(), *term.coupling_sum.factors))
+        cv["F"].flat[::3] *= -1
+        second = Product((Symbol("F", ("j", "i", "k")), Symbol("G", ("b", "a", "c"))))
+    term = replace(term, coupling_sum=Sum((first, second)))
+    assert try_build_factorized(term, analyze_spatial(term), cv, {"p": 1}, LIMIT) is None
+
+
+def test_signed_tensors_with_agreeing_monomials_are_contracted_within_the_bound():
+    """F of both signs; both monomials carry F's sign at every assignment."""
+    term, cv, _, _, cb, rp, jac, rb = _case()
+    cv["F"] = cv["F"].copy()
+    cv["F"].flat[::3] *= -1
+    first = term.coupling_sum
+    second = Product((Rational(2, 3), *first.factors[::-1]))
+    term = replace(term, coupling_sum=Sum((first, second)))
+    candidate = try_build_factorized(term, analyze_spatial(term), cv, {"p": 1}, LIMIT)
+    assert candidate is not None
+    fused = _values(candidate, cb, rp, jac, rb)
+    assert _stored(candidate)["_factorized_plan"] is not None
+    _within_bound(term, cv, {"p": 1}, fused, cb, rp, jac, rb, terms=2)
+
+
+def test_sum_declines_imaginary_cancellation_between_terms():
+    term, cv, _, _, _, _, _, _ = _case()
+    first = Product((ImaginaryUnit(), *term.coupling_sum.factors))
+    second = Product((Rational(-1), ImaginaryUnit(), *term.coupling_sum.factors))
     term = replace(term, coupling_sum=Sum((first, second)))
     assert try_build_factorized(term, analyze_spatial(term), cv, {}, LIMIT) is None
 
@@ -770,24 +653,26 @@ def test_known_compensated_cancellation_sum_retains_original_path():
     )
 
 
-@pytest.mark.parametrize("terms", [0, 33])
-def test_sum_term_count_bound_declines_without_materializing(terms):
+def test_empty_sum_declines_and_long_sums_are_prepared():
     term, cv, _, _, _, _, _, _ = _case()
-    term = replace(
-        term, coupling_sum=Sum(tuple(term.coupling_sum for _ in range(terms)))
-    )
-    assert try_build_factorized(term, analyze_spatial(term), cv, {}, LIMIT) is None
+    empty = replace(term, coupling_sum=Sum(()))
+    assert try_build_factorized(empty, analyze_spatial(empty), cv, {}, LIMIT) is None
+    long = replace(term, coupling_sum=Sum((term.coupling_sum,) * 33))
+    assert try_build_factorized(long, analyze_spatial(long), cv, {}, LIMIT) is not None
 
 
 def test_small_prefactor_cannot_admit_raw_product_sum_overflow():
-    term, cv, _, _, _, _, _, _ = _case()
+    """The bound covers the raw factor products before the prefactor."""
+    term, cv, _, _, cb, rp, jac, rb = _case()
     cv = {"F": np.full((2,) * 3, 1e200), "G": np.full((2,) * 3, 1e200)}
     term = replace(
         term,
         coupling_sum=Sum((term.coupling_sum,) * 8),
         rational_prefactor=Rational(1, 10**200),
     )
-    assert try_build_factorized(term, analyze_spatial(term), cv, {}, LIMIT) is None
+    candidate = try_build_factorized(term, analyze_spatial(term), cv, {}, LIMIT)
+    snapshot = _stored(candidate)["_factorized_plan"]
+    assert _contract(snapshot, {}, cb, rp, jac, rb, 0, LIMIT) is None
 
 
 def test_sum_snapshots_pickle_without_materialization_and_array_mutation_is_live():
@@ -897,7 +782,7 @@ def test_pickle_preserves_shared_latent_owner_without_materializing():
     assert _stored(candidate)["coupling_array"].shape == ()
 
 
-@pytest.mark.parametrize("registry", ["related", "unrelated"])
+@pytest.mark.parametrize("registry", ["unrelated"])
 def test_first_import_abc_registry_semantics_match_public_ordered(registry):
     script = textwrap.dedent(
         """

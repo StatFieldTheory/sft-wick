@@ -49,9 +49,10 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     "tests/test_factorized_coupling.py": (
         "Integrators",
         "original static monomial snapshots, lazy true ndarray materialization, "
-        "ordered fallback and budget failures, protocol and pickle boundaries",
-        "ordered DiagramTerm component evaluation and adversarial protocol changes",
-        "exact materialized dtype/bytes and fallback results; admitted contraction 1e-12 / 1e-14",
+        "sign-agreeing and long sums, sums with opposite signs declined, underflow ranges, "
+        "runtime layouts and refusals, budget failures, pickle boundaries",
+        "ordered DiagramTerm component evaluation; Fraction sum over monomials",
+        "exact materialized dtype/bytes and fallback results; documented error bound",
     ),
     "tests/test_factorized_public.py": (
         "Workflow and YAML",
@@ -69,7 +70,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     "tests/test_execution_controls.py": (
         "Workflow and YAML",
         "L0/L1/YAML execution choices, upfront contracts, serial lifetime and error "
-        "cleanup, real dense admission, custom instance hooks, fixed comparison promise and loky parity",
+        "cleanup, real dense admission, subclass and instance-helper dispatch, fixed comparison "
+        "promise and loky parity",
         "native DiagramTerm complete values/errors, deterministic counting callbacks, "
         "IEEE float-bit signatures and configured-module nonexecution witnesses",
         "exact cache/default/worker results; 1e-12 relative / 1e-14 absolute dense cases",
@@ -83,10 +85,28 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     ),
     "tests/test_dense_contraction_backend.py": (
         "Integrators",
-        "explicit static dense contraction, coefficient phase, pins/repeated labels, "
-        "full matrices, dtype/range/budget/custom/error-policy fallbacks",
-        "independent ordered component fold, actual DiagramTerm batches, adversarial cancellation",
-        "1e-12 relative / 1e-14 absolute admitted finite probes; no universal rounding bound",
+        "einsum backend admission: coefficient phase rule, zeros, pins/repeated labels, "
+        "diagonal/index-free/partial-support kernels, overflow decline, ranges near the "
+        "underflow limit admitted and products that can underflow declined, "
+        "dtype/budget/error-policy declines, cost rule on small fixtures",
+        "Fraction sum over component assignments with the ordered semantics; ordered fold",
+        "documented bound 1.01 (m + A T) u S; 1e-12 relative to ordered",
+    ),
+    "tests/test_contraction_error_bound.py": (
+        "Integrators",
+        "error-bound contract of the einsum and factorized backends on generic signed N = 3 "
+        "diagrams, non-finite values behind zeros, overflow and underflow-risk declines, "
+        "monomials of opposite sign declined, unsupported diagonal R entry, no -0.0, "
+        "planner workspace of a four-tensor monomial, live-assignment count and "
+        "coefficient zero pattern, cost-rule decline of a 64-monomial sum, admission on "
+        "L1 diagrams, values a diagonal C table multiplies by zero (NaN, inf, overflow) "
+        "declined with the ordered errors, values behind an R-support pin admitted, "
+        "R factors multiplied before a later support excludes them declined, "
+        "sign check and factor-sign proof on both sides of the work limit, N = 17 sums "
+        "beyond it",
+        "Fraction sum over component assignments (dense and summed monomials), ordered fold",
+        "documented bound 1.01 (m + A T) u S with S from the summed coefficient; 1e-12 "
+        "relative where a decline keeps the ordered value; L1 diagrams 1e-12 of the largest",
     ),
     "tests/test_resource_controls.py": (
         "Workflow and YAML",

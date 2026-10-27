@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **4212 tests** in 106 files (parametrised
+The suite has **4272 tests** in 107 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -252,7 +252,7 @@ Propagator numerics
 Integrators
 -----------
 
-*1714 tests in 49 files.*
+*1786 tests in 50 files.*
 
 .. list-table::
    :header-rows: 1
@@ -283,6 +283,11 @@ Integrators
      - the distinct-label spelling of the same observable
      - exact
      - 14
+   * - ``test_contraction_error_bound.py``
+     - error-bound contract of the einsum and factorized backends on generic signed N = 3 diagrams, non-finite values behind zeros, overflow and underflow-risk declines, monomials of opposite sign declined, unsupported diagonal R entry, no -0.0, planner workspace of a four-tensor monomial, live-assignment count and coefficient zero pattern, cost-rule decline of a 64-monomial sum, admission on L1 diagrams, values a diagonal C table multiplies by zero (NaN, inf, overflow) declined with the ordered errors, values behind an R-support pin admitted, R factors multiplied before a later support excludes them declined, sign check and factor-sign proof on both sides of the work limit, N = 17 sums beyond it
+     - Fraction sum over component assignments (dense and summed monomials), ordered fold
+     - documented bound 1.01 (m + A T) u S with S from the summed coefficient; 1e-12 relative where a decline keeps the ordered value; L1 diagrams 1e-12 of the largest
+     - 71
    * - ``test_coupling_scale_invariance.py``
      - small indexed static/dynamic coefficients times large kernels, cancellation and nonzero phase checks
      - ordinary multiplication and summation under reciprocal rescaling
@@ -364,10 +369,10 @@ Integrators
      - 1e-10 (exact C) / 2e-3 (table)
      - 11
    * - ``test_dense_contraction_backend.py``
-     - explicit static dense contraction, coefficient phase, pins/repeated labels, full matrices, dtype/range/budget/custom/error-policy fallbacks
-     - independent ordered component fold, actual DiagramTerm batches, adversarial cancellation
-     - 1e-12 relative / 1e-14 absolute admitted finite probes; no universal rounding bound
-     - 60
+     - einsum backend admission: coefficient phase rule, zeros, pins/repeated labels, diagonal/index-free/partial-support kernels, overflow decline, ranges near the underflow limit admitted and products that can underflow declined, dtype/budget/error-policy declines, cost rule on small fixtures
+     - Fraction sum over component assignments with the ordered semantics; ordered fold
+     - documented bound 1.01 (m + A T) u S; 1e-12 relative to ordered
+     - 70
    * - ``test_diag_fast_component_labels.py``
      - observable component labels pinned through fixed_indices on a C propagator in the iso_R + diag_C scalar fast path; the Kronecker delta between C legs when il != ir
      - numpy hand contraction over the full C matrices; all five backends against each other; the label-blind value shown to differ; independent two-state OU covariance
@@ -389,10 +394,10 @@ Integrators
      - exact
      - 5
    * - ``test_factorized_coupling.py``
-     - original static monomial snapshots, lazy true ndarray materialization, ordered fallback and budget failures, protocol and pickle boundaries
-     - ordered DiagramTerm component evaluation and adversarial protocol changes
-     - exact materialized dtype/bytes and fallback results; admitted contraction 1e-12 / 1e-14
-     - 113
+     - original static monomial snapshots, lazy true ndarray materialization, sign-agreeing and long sums, sums with opposite signs declined, underflow ranges, runtime layouts and refusals, budget failures, pickle boundaries
+     - ordered DiagramTerm component evaluation; Fraction sum over monomials
+     - exact materialized dtype/bytes and fallback results; documented error bound
+     - 104
    * - ``test_gauss_legendre_integrator.py``
      - tensor-product Gauss-Legendre time integration on the causal simplex
      - hand-derived quadrature; QMC
@@ -512,7 +517,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*535 tests in 17 files.*
+*523 tests in 17 files.*
 
 .. list-table::
    :header-rows: 1
@@ -534,10 +539,10 @@ Workflow and YAML
      - exact / 2e-4
      - 18
    * - ``test_execution_controls.py``
-     - L0/L1/YAML execution choices, upfront contracts, serial lifetime and error cleanup, real dense admission, custom instance hooks, fixed comparison promise and loky parity
+     - L0/L1/YAML execution choices, upfront contracts, serial lifetime and error cleanup, real dense admission, subclass and instance-helper dispatch, fixed comparison promise and loky parity
      - native DiagramTerm complete values/errors, deterministic counting callbacks, IEEE float-bit signatures and configured-module nonexecution witnesses
      - exact cache/default/worker results; 1e-12 relative / 1e-14 absolute dense cases
-     - 51
+     - 39
    * - ``test_factorized_public.py``
      - factorized preparation via public GL/QMC, complete expansion/sweep/YAML rows, worker serialization and scalar budget feedback
      - ordered complete values/errors/axis metadata and public custom builder witnesses

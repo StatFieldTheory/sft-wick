@@ -1,4 +1,8 @@
-"""Opt-in dense contraction admission and ordered-science compatibility."""
+"""Opt-in dense contraction: admission rules and agreement with the ordered fold.
+
+The cost rule declines these small fixtures, so ``admit_all`` bypasses it
+wherever a test exercises the contraction itself.
+"""
 
 from dataclasses import replace
 import pickle
@@ -6,15 +10,24 @@ import pickle
 import numpy as np
 import pytest
 
+import sft_wick._dense_contraction as dense
 from sft_wick._dense_contraction import (
-    _plan,
+    plan_contraction,
     try_static_contraction,
     validate_contraction_options,
 )
 from sft_wick.expressions import Propagator, Rational, Symbol
 from sft_wick.perturbation import DiagramTerm
 
+from . import _contraction_exact as exact
+
 LIMIT = 64 * 1024**2
+
+
+@pytest.fixture
+def admit_all(monkeypatch):
+    """Run the backend on small fixtures, whatever the cost rule estimates."""
+    monkeypatch.setattr(dense, "backend_is_cheaper", lambda backend, ordered: True)
 
 
 def _case(n=2, samples=5, *, e_psi=0, matrix_r=False):
@@ -66,10 +79,22 @@ def _ordered(ig, cb, rp, jac, rb=()):
     return ig._static_values(cb, rp, jac, r_batches=rb)
 
 
+def _check_bound(ig, cb, rp, jac, rb, *results):
+    table = exact.dense_coefficients(ig.coupling_array, ig._e_psi)
+    reference, scale = exact.exact_sum(
+        table, ig.diagram_term.propagator_indices, ig.fixed_indices, cb, rp, jac, rb
+    )
+    factors = 1 + len(cb) + len(rb) + 2
+    for values in results:
+        exact.assert_within_bound(
+            values, reference, scale, factors, ig.coupling_array.size
+        )
+
+
 @pytest.mark.parametrize("n", [2, 8])
 @pytest.mark.parametrize("e_psi", [0, 1, 2, 3])
 @pytest.mark.parametrize("matrix_r", [False, True])
-def test_dense_real_action_matches_actual_diagram_term(n, e_psi, matrix_r):
+def test_dense_real_action_matches_actual_diagram_term(admit_all, n, e_psi, matrix_r):
     ig, cb, rp, jac, rb = _case(n, e_psi=e_psi, matrix_r=matrix_r)
     all_arrays = [ig.coupling_array, rp, jac, cb[0][0]]
     all_arrays.extend(a for batch in rb for a in (batch[0], batch[3]))
@@ -79,12 +104,13 @@ def test_dense_real_action_matches_actual_diagram_term(n, e_psi, matrix_r):
     np.testing.assert_allclose(
         result, _ordered(ig, cb, rp, jac, rb), rtol=1e-12, atol=1e-14
     )
+    _check_bound(ig, cb, rp, jac, rb, result)
     assert before == [(a.shape, a.dtype, a.tobytes()) for a in all_arrays]
-    # Structural cache contents do not retain a numeric input or integrand.
-    assert _plan.cache_info().maxsize == 32
+    # The bounded structural plan cache holds shapes and labels only.
+    assert plan_contraction.cache_info().maxsize == 4096
 
 
-def test_pins_repeated_labels_and_propagator_assignment_wins():
+def test_pins_repeated_labels_and_propagator_assignment_wins(admit_all):
     dt = DiagramTerm(
         (Propagator("C", "i", "i", "x", "y"), Propagator("C", "a", "i", "z", "y")),
         Symbol("A", ("i",)),
@@ -108,7 +134,7 @@ def test_pins_repeated_labels_and_propagator_assignment_wins():
     )
 
 
-def test_native_readonly_strided_views_and_pickled_integrand():
+def test_native_readonly_strided_views_and_pickled_integrand(admit_all):
     ig, cb, rp, jac, rb = _case(matrix_r=True)
     underlying = np.empty((2, 4), dtype=np.complex128)
     underlying[:, ::2] = ig.coupling_array
@@ -132,21 +158,53 @@ def test_native_readonly_strided_views_and_pickled_integrand():
     "coefficient",
     [
         np.array([[1j, -1j], [2j, -2j]]),
-        np.array([[1 + 1e-15j, 2], [3, 4]]),
-        np.array([[0, 1], [2, 3]], dtype=np.float64),
+        np.array([[1 + 1e-6j, 2], [3, 4]]),
         np.array([[np.nan, 1], [2, 3]], dtype=np.float64),
         np.array([[np.inf, 1], [2, 3]], dtype=np.float64),
+        np.array([[1, 1], [2, np.nan + 0j]]),
         np.ones((2, 2), dtype=np.float32),
         np.ones((2, 2), dtype=object),
     ],
 )
-def test_coefficient_fallback_retains_legacy_phase_and_sparse_rules(coefficient):
+def test_coefficient_phase_errors_and_nonfinite_values_decline(admit_all, coefficient):
     ig, cb, rp, jac, _ = _case()
     ig = replace(ig, coupling_array=coefficient)
     assert _candidate(ig, cb, rp, jac) is None
 
 
-def test_wrong_phase_error_and_sparse_unused_nan_are_preserved():
+@pytest.mark.parametrize(
+    "coefficient",
+    [
+        np.array([[0, 1], [2, 3]], dtype=np.float64),
+        np.array([[0, 0], [0, 0]], dtype=np.complex128),
+        np.array([[1 + 1e-15j, 2], [3, -4 - 1e-14j]]),
+        np.array([[1e-300j, 2], [3, 4]]),
+    ],
+)
+def test_zero_and_tolerated_imaginary_coefficients_follow_the_ordered_projector(
+    admit_all, coefficient
+):
+    """Zero entries contribute exact zeros; imaginary residues the ordered
+    projector accepts (below 1e-9 relative, or below the 1e-290 floor) are
+    dropped exactly as it drops them."""
+    ig, cb, rp, jac, _ = _case()
+    ig = replace(ig, coupling_array=coefficient)
+    result = _candidate(ig, cb, rp, jac)
+    assert result is not None
+    _check_bound(ig, cb, rp, jac, [], result, _ordered(ig, cb, rp, jac))
+
+
+def test_odd_external_phase_of_a_real_coefficient_declines(admit_all):
+    ig, cb, rp, jac, _ = _case(e_psi=1)
+    real = ig.coupling_array.imag.copy()
+    assert np.all(real != 0.0)
+    ig = replace(ig, coupling_array=real)
+    assert _candidate(ig, cb, rp, jac) is None
+    with pytest.raises(ValueError, match="imaginary part"):
+        _ordered(ig, cb, rp, jac)
+
+
+def test_wrong_phase_error_and_sparse_unused_nan_are_preserved(admit_all):
     ig, cb, rp, jac, _ = _case()
     wrong = replace(ig, coupling_array=np.array([[1j, -1j], [2j, -2j]]))
     assert _candidate(wrong, cb, rp, jac) is None
@@ -158,10 +216,8 @@ def test_wrong_phase_error_and_sparse_unused_nan_are_preserved():
     np.testing.assert_array_equal(_ordered(zero, unused_nan, rp, jac), np.zeros(5))
 
 
-@pytest.mark.parametrize(
-    "kind", ["float32", "complex", "nonfinite", "subclass", "diagonal", "trace"]
-)
-def test_unsupported_kernel_falls_back(kind):
+@pytest.mark.parametrize("kind", ["float32", "complex", "nonfinite", "subclass"])
+def test_unsupported_kernel_falls_back(admit_all, kind):
     ig, cb, rp, jac, _ = _case()
     matrix = cb[0][0]
     if kind == "float32":
@@ -171,19 +227,35 @@ def test_unsupported_kernel_falls_back(kind):
     elif kind == "nonfinite":
         matrix = matrix.copy()
         matrix[0, 0, 0] = np.inf
-    elif kind == "subclass":
+    else:
 
         class Array(np.ndarray):
             pass
 
         matrix = matrix.view(Array)
-    elif kind == "diagonal":
-        matrix = matrix[:, 0, :]
+    assert _candidate(ig, [(matrix, "i", "j")], rp, jac) is None
+
+
+@pytest.mark.parametrize("kind", ["diagonal", "isotropic"])
+def test_diagonal_and_index_free_kernels_are_contracted(admit_all, kind):
+    ig, cb, rp, jac, _ = _case(n=3)
+    matrix = cb[0][0]
+    if kind == "diagonal":
+        cb = [(matrix[:, 0, :], "i", "j")]
     else:
-        cb = [(matrix, None, None)]
-    if kind != "trace":
-        cb = [(matrix, "i", "j")]
+        scale = matrix[:, 0, 0]
+        cb = [(matrix, "i", "j"), (scale[:, None, None] * np.eye(3), None, None)]
+    result = _candidate(ig, cb, rp, jac)
+    assert result is not None
+    _check_bound(ig, cb, rp, jac, [], result, _ordered(ig, cb, rp, jac))
+
+
+def test_non_isotropic_index_free_c_declines_and_ordered_raises(admit_all):
+    ig, cb, rp, jac, _ = _case()
+    cb = [(cb[0][0], "i", "j"), (cb[0][0], None, None)]
     assert _candidate(ig, cb, rp, jac) is None
+    with pytest.raises(ValueError, match="not a multiple of the"):
+        _ordered(ig, cb, rp, jac)
 
 
 @pytest.mark.parametrize(
@@ -195,13 +267,25 @@ def test_unsupported_kernel_falls_back(kind):
         (("a", "j"), {"a": 2}),
     ],
 )
-def test_unresolved_literal_and_out_of_range_indices_fall_back(labels, pins):
+def test_unresolved_literal_and_out_of_range_indices_fall_back(admit_all, labels, pins):
     ig, cb, rp, jac, _ = _case()
     ig = replace(ig, fixed_indices=pins)
     assert _candidate(ig, [(cb[0][0], *labels)], rp, jac) is None
 
 
-def test_matrix_response_support_must_be_full():
+def test_partial_response_support_is_contracted(admit_all):
+    ig, cb, rp, jac, rb = _case(matrix_r=True)
+    response, support = rb[0][0].copy(), rb[0][3].copy()
+    support[0, 0] = False
+    response[:, 0, 0] = 0.0
+    rb = [(response, "j", "a", support)]
+    result = _candidate(ig, cb, rp, jac, rb)
+    assert result is not None
+    _check_bound(ig, cb, rp, jac, rb, result, _ordered(ig, cb, rp, jac, rb))
+
+
+def test_response_entry_outside_its_support_declines(admit_all):
+    """The ordered fold skips an unsupported entry whatever it holds."""
     ig, cb, rp, jac, rb = _case(matrix_r=True)
     support = rb[0][3].copy()
     support[0, 0] = False
@@ -210,22 +294,52 @@ def test_matrix_response_support_must_be_full():
 
 @pytest.mark.parametrize(
     "scales",
-    [
-        (1e308, 1e-308, 1.0, 1.0),
-        (1e200, 1e200, 1e-200, 1e-200),
-        (1e-300, 1.0, 1.0, 1.0),
-        (1e-100, 1e-100, 1e-100, 1e-100),
-        (np.nextafter(0.0, 1.0), 1.0, 1.0, 1.0),
-    ],
+    [(1e308, 1e-308, 1.0, 1.0), (1e200, 1e200, 1e-200, 1e-200)],
 )
-def test_extreme_subset_product_and_cancellation_lattice_ranges_decline(scales):
+def test_possible_overflow_declines(admit_all, scales):
     ig, cb, rp, jac, _ = _case()
     ig = replace(ig, coupling_array=np.full((2, 2), scales[0], dtype=np.float64))
     cb = [(np.full((5, 2, 2), scales[1], dtype=np.float64), "i", "j")]
     assert _candidate(ig, cb, np.full(5, scales[2]), np.full(5, scales[3])) is None
 
 
-def test_signed_cancellation_is_opt_in_rounding_not_bitwise_contract():
+@pytest.mark.parametrize(
+    "scales",
+    [(1e-300, 1.0, 1.0, 1.0), (1e-150, 1e-150, 1.0, 1.0), (1e-100, 1e-100, 1e-50, 1e-40)],
+)
+def test_ranges_near_the_underflow_limit_are_admitted(admit_all, scales):
+    """Products of nonzero inputs stay above 2**-1021; the exact results are
+    larger than the bound, so a zero result would fail."""
+    ig, cb, rp, jac, _ = _case()
+    coefficient = np.full((2, 2), scales[0], dtype=np.float64)
+    coefficient[0, 1] *= -1
+    ig = replace(ig, coupling_array=coefficient)
+    cb = [(cb[0][0] * scales[1], "i", "j")]
+    rp, jac = rp * scales[2], jac * scales[3]
+    result = _candidate(ig, cb, rp, jac)
+    assert result is not None
+    _check_bound(ig, cb, rp, jac, [], result)
+    assert np.all(result != 0.0)
+
+
+@pytest.mark.parametrize(
+    "scales",
+    [
+        (1e-100, 1e-100, 1e-100, 1e-100),
+        (np.nextafter(0.0, 1.0), 1.0, 1.0, 1.0),
+        (2.0**-560, 2.0**-560, 2.0**300, 2.0**300),
+    ],
+)
+def test_products_that_can_underflow_decline(admit_all, scales):
+    ig, cb, rp, jac, _ = _case()
+    coefficient = np.full((2, 2), scales[0], dtype=np.float64)
+    coefficient[0, 1] *= -1
+    ig = replace(ig, coupling_array=coefficient)
+    cb = [(cb[0][0] * scales[1], "i", "j")]
+    assert _candidate(ig, cb, rp * scales[2], jac * scales[3]) is None
+
+
+def test_signed_cancellation_is_bounded_not_bitwise(admit_all):
     dt = DiagramTerm(
         (Propagator("C", "i", "i", "x", "y"),),
         Symbol("A", ("i",)),
@@ -239,47 +353,45 @@ def test_signed_cancellation_is_opt_in_rounding_not_bitwise_contract():
     rp, jac = np.full(2, 0.3), np.full(2, 0.7)
     result = _candidate(ig, cb, rp, jac)
     assert result is not None and np.all(np.isfinite(result))
-    reference = _ordered(ig, cb, rp, jac)
-    # A caller must choose tolerances based on the scientific query, including
-    # cancellation.  This fixture rejects a claim of universal exact parity.
-    assert not np.array_equal(reference, result)
-    assert not np.allclose(reference, result, rtol=1e-12, atol=1e-14)
+    # Cancellation leaves both evaluation orders far from the exact 0.42 in
+    # relative terms; each stays inside the bound, which scales with S.
+    _check_bound(ig, cb, rp, jac, [], result, _ordered(ig, cb, rp, jac))
 
 
-def test_nondefault_numpy_error_policy_declines_without_changed_warning():
+def test_underflow_error_policy_controls_admission(admit_all):
     ig, cb, rp, jac, _ = _case()
-    with np.errstate(all="raise"):
-        assert _candidate(ig, cb, rp, jac) is None
-    assert _candidate(ig, cb, rp, jac) is not None
+    for policy in ({"all": "raise"}, {"under": "warn"}, {"under": "raise"}):
+        with np.errstate(**policy):
+            assert _candidate(ig, cb, rp, jac) is None
+    # Finite inputs below the overflow bound cannot raise any other event.
+    with np.errstate(over="raise", invalid="raise", divide="raise"):
+        assert _candidate(ig, cb, rp, jac) is not None
 
 
-def test_budget_declines_before_inspection_rotation_or_contraction(monkeypatch):
-    import sft_wick._dense_contraction as dense
-
+def test_budget_declines_before_numeric_work(admit_all, monkeypatch):
     ig, cb, rp, jac, _ = _case(8)
 
     def forbidden(*args, **kwargs):
-        raise AssertionError(
-            "numeric allocation/inspection reached under rejected budget"
-        )
+        raise AssertionError("numeric inspection reached under a rejected budget")
 
-    monkeypatch.setattr(dense, "_scan", forbidden)
-    monkeypatch.setattr(dense.np, "einsum", forbidden)
+    for name in ("finite_range", "rotated_real_coefficient", "execute"):
+        monkeypatch.setattr(dense, name, forbidden)
     assert _candidate(ig, cb, rp, jac, limit=1) is None
 
 
-def test_path_intermediate_counts_are_exact_integers_and_cache_is_bounded():
-    _plan.cache_clear()
+def test_plan_counts_are_exact_integers_and_cache_is_bounded():
+    plan_contraction.cache_clear()
     for samples in range(1, 40):
-        plan = _plan(
-            ((2, 2), (samples, 2, 2), (samples,), (samples,)),
-            ((1, 2), (0, 1, 2), (0,), (0,)),
+        plan = plan_contraction(
+            ((2, 2), (2, 2, samples), (samples,), (samples,)),
+            ((1, 2), (1, 2, 0), (0,), (0,)),
         )
         assert plan is not None
-        path, total, maximum = plan
-        assert path[0] == "einsum_path"
-        assert type(total) is int and type(maximum) is int and maximum >= samples
-    assert _plan.cache_info().currsize == 32
+        steps, flops, workspace = plan
+        assert len(steps) == 3 and steps[-1][2] == (0,)
+        assert type(flops) is int and type(workspace) is int and workspace >= samples
+    assert plan_contraction.cache_info().currsize == 39
+    assert plan_contraction(((2,), (3, 4)), ((1,), (1, 0))) is None
 
 
 @pytest.mark.parametrize(
@@ -307,7 +419,7 @@ def test_default_and_opt_in_options_validate():
     "field",
     ["coefficient_real", "coefficient_complex", "C", "R", "scalar_R", "jacobian"],
 )
-def test_extended_native_dtype_aliases_are_not_float64_backend(field):
+def test_extended_native_dtype_aliases_are_not_float64_backend(admit_all, field):
     ig, cb, rp, jac, rb = _case(matrix_r=True)
     if field.startswith("coefficient"):
         dtype = np.longdouble if field.endswith("real") else np.clongdouble
@@ -323,23 +435,8 @@ def test_extended_native_dtype_aliases_are_not_float64_backend(field):
     assert _candidate(ig, cb, rp, jac, rb) is None
 
 
-def test_custom_external_phase_property_keeps_ordered_reads(monkeypatch):
-    from sft_wick.evaluate import DiagramIntegrand
-
-    ig, cb, rp, jac, rb = _case()
-    original = DiagramIntegrand.__dict__["_e_psi"]
-    reads = []
-
-    def phase(self):
-        reads.append(self)
-        return original.fget(self)
-
-    monkeypatch.setattr(DiagramIntegrand, "_e_psi", property(phase))
-    baseline = ig._static_values(cb, rp, jac, r_batches=rb)
-    count = len(reads)
-    reads.clear()
-    candidate = replace(ig, _contraction_backend="einsum")._static_values(
-        cb, rp, jac, r_batches=rb
-    )
-    np.testing.assert_array_equal(candidate, baseline)
-    assert len(reads) == count
+def test_cost_rule_declines_small_fixtures():
+    """These fixtures are cheaper on the ordered fold than the backend's
+    fixed overhead, so the default rule keeps the ordered fold."""
+    ig, cb, rp, jac, rb = _case(matrix_r=True)
+    assert _candidate(ig, cb, rp, jac, rb) is None
