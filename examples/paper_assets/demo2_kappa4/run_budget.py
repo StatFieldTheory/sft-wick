@@ -184,6 +184,15 @@ def verified_rows(system, props, order, vertex_types, channel, r_list, t_list,
     rtol = {"fffk": 1e-4, "ffk4": 1e-4, "ffff": 1e-3}[channel] if rtol is None else rtol
     if not np.isfinite(rtol) or rtol <= 0:
         raise ValueError("rtol must be finite and positive")
+    if vertex_types is None:
+        expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=[order],
+                                  progress=False)
+        expected_vertex_types = tuple(expansion.by_vertex_type(order))
+    else:
+        # Validation and every refined sweep must see the same selection,
+        # including when the caller supplied a one-shot iterator.
+        vertex_types = tuple(vertex_types)
+        expected_vertex_types = vertex_types
     inputs = [Path(__file__), HERE.parents[1]/"demo2/k3_R_coupling.py",
               HERE.parents[1]/"demo2/ordered_exponentials.py",
               HERE/"k4_R_contracted.py", HERE.parents[1]/"reference/demo2_moments.py",
@@ -196,7 +205,7 @@ def verified_rows(system, props, order, vertex_types, channel, r_list, t_list,
         n = max(12, int(np.ceil(7 + {"fffk": 3.2, "ffk4": 3.0, "ffff": 2.4}[channel]*np.sqrt(tv))))
         keys = ["y", "t_final", "a", "b", "vertex_type", "order"]
         expected_keys = {(r, tv, a, b, vt, order)
-                         for r in r_list for a, b in PAIRS for vt in vertex_types}
+                         for r in r_list for a, b in PAIRS for vt in expected_vertex_types}
 
         def validate(df):
             required = keys + ["value", "n_gauss", "seconds"]

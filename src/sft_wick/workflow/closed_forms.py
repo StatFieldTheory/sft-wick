@@ -324,3 +324,9 @@ def builtin_closed_form_for(system: Any) -> ClosedFormC | None:
         sigma2=sigma2_tuple,
         t_min=float(system.t_min),
     )
+
+
+# Preserve definitions before the lazy disk-cache identity helper is imported.
+from ._native_protocol import capture_native_protocol as _capture_native_protocol
+
+_NATIVE_CALLABLE_PROTOCOL = _capture_native_protocol(globals(), ("ClosedFormC",))

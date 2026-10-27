@@ -57,7 +57,7 @@ extensions = [
 ]
 
 templates_path = ["_templates"]
-exclude_patterns = ["_build", "**.ipynb_checkpoints"]
+exclude_patterns = ["_build", "**.ipynb_checkpoints", "research/**"]
 
 # -- Options for autodoc -----------------------------------------------------
 

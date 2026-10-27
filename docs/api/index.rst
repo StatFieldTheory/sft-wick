@@ -34,6 +34,8 @@ The remaining helpers are imported from their own module:
    wick
    propagators
    spectral
+   quadratic
+   white_cumulant
    selfconsistency
    perturbation
    simplify

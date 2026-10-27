@@ -14,9 +14,15 @@ Usage:
     print(result.to_latex())
 """
 
+from importlib import import_module as _import_module
+from typing import TYPE_CHECKING as _TYPE_CHECKING
+
+if _TYPE_CHECKING:
+    from . import drawing as drawing
+    from .drawing import DiagramRenderer as DiagramRenderer
+
 from .action import Action
 from .diagrams import FeynmanDiagram
-from .drawing import DiagramRenderer
 from .drawing_tikz import TikzRenderer
 from .render_labels import (
     default_external_label,
@@ -76,9 +82,26 @@ from .spectral import (
     SpectralPropagatorCache,
     spectral_cache,
 )
-from .perturbation import DiagramTerm, PerturbativeResult, compute_moment, compute_moment_numerical
+from .quadratic import (
+    GaussianQuadratic,
+    GaussianQuadraticFamily,
+    GaussianQuadraticStatistics,
+    GaussianSpectralTail,
+)
+from .white_cumulant import OUWhiteCumulant
+from .perturbation import (
+    DiagramTerm,
+    PerturbativeResult,
+    compute_moment,
+    compute_moment_numerical,
+)
 from .propagators import contract_pair
-from .simplify import collect_by_diagram, collect_by_topology, diagonal_propagators, simplify
+from .simplify import (
+    collect_by_diagram,
+    collect_by_topology,
+    diagonal_propagators,
+    simplify,
+)
 from .vertices import Vertex, VertexInstance
 from .wick import wick_contract
 
@@ -114,7 +137,16 @@ from .workflow import (  # noqa: E402
     System,
 )
 
+# Reload used to rebind this export from the drawing module. Clear only its
+# cached root binding so reload still observes the real class on next access.
+globals().pop("DiagramRenderer", None)
+
 __all__ = [
+    "GaussianQuadratic",
+    "GaussianQuadraticFamily",
+    "GaussianQuadraticStatistics",
+    "GaussianSpectralTail",
+    "OUWhiteCumulant",
     "SelfConsistencyResult",
     "max_abs_distance",
     "solve_self_consistency",
@@ -209,3 +241,17 @@ __all__ = [
     "simplify",
     "wick_contract",
 ]
+
+
+def __getattr__(name: str) -> object:
+    """Load Matplotlib only when its public renderer/module is requested."""
+    if name in ("DiagramRenderer", "drawing"):
+        module = _import_module(".drawing", __name__)
+        value = module.DiagramRenderer if name == "DiagramRenderer" else module
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | {"DiagramRenderer", "drawing"})

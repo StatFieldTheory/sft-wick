@@ -1006,6 +1006,9 @@ fields must be present.
      n_samples:        8192            # Sobol samples (QMC paths only)
      seed:             42              # Sobol seed (QMC paths only)
      n_gauss:          8               # GL nodes/dim (gauss_legendre only)
+     gl_chunk_size:    null            # positive batch bound, or eager GL
+     qmc_coupling_chunk_size: null     # opt-in dynamic coupling batches only
+     reuse_integrands: false           # opt-in static preparation per component tuple
 
      n_jobs:           1               # parallel over grid points
                                        # (mutually exclusive with expand.n_jobs > 1)
@@ -1431,6 +1434,214 @@ Section reference: ``sweep``
      - ``int``
      - ``1``
      - Parallelise across grid points (``-1`` = all cores). Mutually exclusive with ``expand.n_jobs > 1``
+   * - ``gl_chunk_size``
+     - positive ``int`` or ``null``
+     - ``null``
+     - Maximum GL nodes per batch. Generates and evaluates tensor nodes in blocks, including every causal/kink piece. Used only with ``method: gauss_legendre``
+   * - ``reuse_integrands``
+     - ``bool``
+     - ``false``
+     - Prepare static coupling tensors and spatial analysis once per component tuple within this sweep. Dynamic diagrams keep the ordinary preparation path. See below for the memory trade-off
+   * - ``qmc_coupling_chunk_size``
+     - positive ``int`` or ``null``
+     - ``null``
+     - Maximum rows per dynamic coupling construction on vectorized QMC paths. Requires sample-separable raw callbacks with stable dtype and trailing shape. R/C and final statistics remain whole; see below
+
+Reusing static integrands in a sweep
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For configuration feedback and an explicit comparison of time/memory choices,
+see :doc:`resources`.
+
+Set ``sweep.reuse_integrands: true`` in YAML, or pass
+``reuse_integrands=True`` to ``Expansion.sweep``, when many positions or
+times share the same static coupling tensors. Each requested component tuple
+gets its own prepared integrands, retaining the exact diagram weights, ordered
+tensor slots, equal-time aliases and absorbed response lines. Propagators,
+coordinates, integration nodes and numerical error estimates are still evaluated
+at each grid point. The option works with either sweep or diagram parallelism;
+the existing restriction against nested pools remains.
+
+The bindings last for one sweep call. Later calls rebuild them from the current
+couplings, so edits to input arrays between sweeps are observed. Coupling callables
+are evaluated through the ordinary path at the current sample points, and their
+results are never cached. Keep model tensors fixed during a sweep.
+
+Preparation now retains coefficient arrays for all requested component tuples
+instead of one point at a time. Memory therefore grows with the component-axis
+size and each diagram's surviving tensor dimensions; process workers may carry
+additional copies. A short sweep or expensive integration may see little benefit.
+The default remains ``false``. Compare full timings including preparation at the
+same integrator settings before enabling it for a large model.
+
+Indexed static and dynamic batch-contraction paths no longer prune coefficients
+solely because their magnitude is below ``1e-20``. Only exact-zero entries are
+skipped by the sparsity check; a reciprocal rescaling of a small coefficient and
+a large kernel therefore retains its contribution. This correction applies with
+or without ``reuse_integrands``. Existing MSR phase projection tolerances remain.
+
+Reusing coupling expression structure
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Large native coupling sums with repeated component assignments prepare a private
+ordered execution plan on the first evaluation of each diagram term. It retains
+symbol names, index rules and operation order; each evaluation reads the current
+coupling tensors and component pins. Scalar and batched arithmetic retain their
+existing conversion and summation rules. No callback results or propagator values
+are retained by this plan, and no user option is required.
+
+Leaf-only and small expressions, one-assignment contractions, custom expression
+nodes and long integer labels keep the ordinary evaluator. Each immutable term
+owns its expression wrapper, which rebuilds on pickle. A bounded process-local
+cache shares executable cores for matching ordered native metadata after
+parameterising component labels. Each wrapper keeps the caller's label mapping;
+literal spellings, symbol names, spatial metadata and operation order stay
+explicit. This shares execution metadata while every diagram and integration
+remains separate. The cache retains no caller tensors or pins.
+
+Within large plans, repeated ordered symbol-index tuples are resolved once per
+component assignment when dictionaries, integer pins and numeric arrays have no
+custom lookup or indexing hooks. Large batched plans can also reuse indexed
+native views or scalars within that assignment, reading each at its first
+original occurrence. Every multiplication and addition still occurs in its
+original order. No-index reshape results are excluded because they may own
+large copies. Changed tensors and pins are read on every new invocation;
+custom bindings or arithmetic handlers retain the existing path and errors.
+
+Large scalar plans can also reuse successfully converted indexed reads within
+one component assignment for ordinary native NumPy numeric dtypes. Every scalar
+shape check and conversion still occurs at the first original occurrence, and
+all arithmetic keeps its original order. No-index Symbols stay live. A new
+assignment or call reads current inputs again. Extended/custom dtypes, dtype
+metadata, custom conversion or arithmetic hooks, and active trace/profile hooks
+keep the preceding scalar read policy. The assignment memo retains only
+converted Python scalars; numeric arrays remain live inputs on each new call.
+
+Dynamic batches can avoid the sample-zero scalar contraction when conservative
+native checks prove its scalar shape, indexing and finite arithmetic will succeed.
+The proof limits full-tensor scanning and scalar output size to 4096 elements
+respectively; a large tensor with a small pinned slice therefore keeps the old
+probe. Custom floating-point/warning handlers, nonfinite values, uncertain shapes,
+unsupported nodes and changed NumPy helper protocols also retain scalar-first
+evaluation. Unrecognised helper implementations conservatively decline these
+optimisations. Batch fallback uses
+the exact scalar result and reuses the already materialised tensor stacks.
+
+These mechanisms complement static sweep reuse and bounded GL batches. Their
+preparation, numeric checks and metadata have a cost: whole integration timings
+and cold/warm measurements still determine their benefit for a workload.
+
+Bounding Gauss-Legendre batch memory
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Set ``sweep.gl_chunk_size: 4096`` alongside ``sweep.method: gauss_legendre``
+in YAML, or pass ``gl_chunk_size=4096`` to ``Expansion.evaluate`` or
+``Expansion.sweep``. The L0 ``integrate_moment``, ``integrate_diagrams`` and
+``DiagramIntegrand.integrate_moment_gauss_legendre`` accept the same option.
+It must be a positive integer; ``null`` / ``None`` retains the eager grid.
+Other integration methods validate the option but do not use it.
+The CLI summary displays a configured GL bound. Its ``--dry-run`` timing
+probes use the same bound for warm-up and measured evaluations.
+
+The tensor grid is generated directly in blocks, so node coordinates, mapped
+times, propagator arrays and dynamic coupling batches have at most
+``gl_chunk_size`` rows. This bounds their temporary workspace; it does not
+bound the model, propagator caches or static component tensors. Every one of
+the ``n_gauss^d`` nodes and every kink partition is still evaluated. Small
+blocks repeat dispatch work and can increase wall time. Parallel workers each
+hold their own block arrays, so worker count still affects total memory.
+
+The same causal mapping, Jacobians, equal-time and absorbed aliases, external
+time limits and component contractions apply within each block. Changing
+reduction order can change the rounded result; block totals use
+``math.fsum``, while each block retains the existing NumPy reduction. Compare
+cancelling observables with a suitable absolute tolerance. The returned GL
+error remains ``0.0`` as a deterministic placeholder; it does not certify
+quadrature convergence.
+
+Batch evaluation is dispatched separately for each block. User-provided
+vectorised R, C and coupling hooks must define each sample independently of
+batch length or invocation count.
+Dynamic coupling phase checks preserve the scale of the entire final kink
+partition, separately per component assignment, without retaining sample arrays
+or reevaluating samples solely for phase validation. Fixed vector positions are
+explicitly broadcast so a
+three-node block cannot reinterpret a fixed three-dimensional position as three
+scalar positions.
+
+One-dimensional GL rules are model-independent and read-only. A process-local
+LRU retains at most 32 rules keyed by node count; it stores no tensor-product
+grid, geometry or model data. This is a bound on rule count, rather than bytes.
+Rules can be reused across sweep calls; static integrand bindings retain their
+one-sweep lifetime described above.
+
+Declared kinks against a fixed external time are also split when the other
+endpoint is an integrated external point, including an absorbed vertex's
+partner time. Multiple integrated external predecessors in a causal ``max``
+lower bound are also ordered, and lower cuts are propagated to resolve the resulting
+branch changes. This corrects omitted splits in the previous GL and nquad
+paths independently of ``gl_chunk_size``. It can change their values at fixed
+resolution for these cases; the quadrature rule on each resulting piece is
+unchanged.
+
+Bounding dynamic coupling stacks in QMC
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Set ``sweep.qmc_coupling_chunk_size: 512`` alongside
+``sweep.method: qmc_vectorized`` in YAML, or pass
+``qmc_coupling_chunk_size=512`` to ``Expansion.evaluate`` or
+``Expansion.sweep``. The L0 ``integrate_moment``, ``integrate_diagrams`` and
+``DiagramIntegrand.integrate_moment_qmc_vectorized`` accept the same option.
+A positive Python or NumPy integer is required; booleans are rejected.
+``null`` / ``None`` keeps the original single coupling call. Static
+couplings, integrals with no time variables and a bound at least
+``n_samples`` also keep their original path. ``method: qmc`` uses the option
+only when its cache selects vectorized QMC. Scalar QMC, GL and nquad validate
+the option but do not use it.
+
+This option partitions only construction of dynamic symbol tensors and their
+coupling contractions. It assembles one complete contracted coupling array,
+then uses the original whole-batch R/C support selection, component phase
+checks, Jacobians, causal masking, mean and eight-batch error estimate.
+The same single Sobol draw, row order, external times, equal-time aliases and
+fixed spatial coordinates are retained. It does not partition propagator
+lookups or substitute an average of block means.
+
+Each **raw symbol callback** must compute every sample independently of batch
+length, other samples and invocation count, with stable dtype and trailing
+shape. Model values, component pins and callback state must remain fixed for
+the evaluation. ``vectorized=True`` only declares batch support; it does
+not establish these additional properties. Batch normalization, callbacks
+that branch on batch length and stateful invocation-dependent kernels are
+outside this opt-in contract. Contracted block outputs are checked for numeric
+dtype, exact row count and stable dtype/trailing shape before copying. These
+checks cannot prove raw callback stability: the built-in promise's complex
+output can conceal a raw dtype change.
+
+Vectorized callbacks are called once per symbol per block, in chunk-major
+order rather than the original symbol-major order. Nonvectorized callbacks
+still evaluate each sample for each active symbol, but their grouping and
+exception order can change; symbolic sample-zero shape probes can repeat per
+block. Input time views remain independently addressable and are not recycled
+through an overwritten scratch buffer. Callbacks retaining inputs or outputs
+can prevent memory reclamation.
+
+The bound limits rows in raw dynamic symbol stacks. Full Sobol coordinates,
+mapped times, R/C arrays, the contracted coupling output and final values
+remain allocated, so this is **not a bound on total memory or RSS**. Native
+``OUWhiteCumulant.max_output_bytes`` is checked against each actual requested
+batch; a smaller request can fit when the original whole-batch request was
+rejected. Its component overflow guards still apply to every request. Native
+OU ordinary/scaled arithmetic admission can depend on the requested batch,
+so arbitrary partitions can change floating-point rounding. No universal
+bitwise equality is promised.
+
+Smaller blocks repeat dispatch, allocations and contractions and can increase
+wall time. Benchmark an appropriate block size for the actual workload;
+there is no automatic activation. Each parallel worker owns its arrays, and
+worker count still affects total memory. The CLI displays a configured QMC
+bound and forwards it to dry-run evaluations. Those timing probes use fewer
+samples than a large production run and do not certify its memory peak.
 
 Section reference: ``output`` (optional list of plugins)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1646,3 +1857,39 @@ code path:
 
 The homogeneity is inferred from the spec automatically and does not
 normally need to be set directly.
+
+Explicit lookup reuse and contraction order
+-------------------------------------------
+
+The ``sweep`` YAML block and :meth:`~sft_wick.workflow.Expansion.evaluate` /
+:meth:`~sft_wick.workflow.Expansion.sweep` accept
+``propagator_cache_bytes``, ``propagator_cache_contract``,
+``contraction_backend`` and ``contraction_max_bytes``. Defaults preserve the
+ordered evaluator and disable lookup caching. See :doc:`resources` for the
+fixed-model promise, admitted dense and original-factor subsets, memory boundaries and complete
+result comparison. These options do not change sampling or quadrature nodes.
+
+``contraction_backend: factorized`` can avoid preparing the coefficient tensor
+for native static monomials or bounded native sums of monomials before vectorized
+QMC or GL. Top-level sums admit at most 32 monomial terms; each term must pass
+phase checks independently; fusion cannot be admitted by cancellation of
+non-real contributions between terms. Multi-term sums additionally require
+uniform nonzero signs in each monomial's selected array components and matching
+term signs after scalar phases; mixed or opposing signs retain the ordered
+path. Single monomials may still have mixed-sign factors. Native propagator
+batches still require finite-value and scale admission. These checks do not
+certify later contractions or integration; changed rounding needs complete-result
+validation. Its public coefficient
+array remains a genuine ndarray when read, and reading it disables fusion. Known
+native dense materialization or fallback can raise above
+``contraction_max_bytes``; this is array-payload admission, not a process memory
+limit. Rebuild with ``ordered`` or increase the budget if that materialization
+is intended. Previously evaluated diagram terms with a compiled coefficient
+plan may retain their original path; compare fresh workflow preparations.
+Scalar and custom/dynamic paths have the boundaries described in :doc:`resources`.
+
+Persisted propagator tables share only supported, unchanged native linear and
+noise identities. Complete array bytes are keyed; explicit response and user
+closed-form callbacks bypass shared disk caching. Their arbitrary external
+state cannot be automatically identified. Query-local lookup caching remains
+controlled by its separate ``fixed_model`` promise.

@@ -169,7 +169,7 @@ REF_RC = 1.797229e-04
 #: script compared against until 2026-09-12.  It is 4.6 % above both
 #: package routes: the notebook integrates the raw 4-D kappa3 rule with its
 #: own hand-written Gauss-Legendre, which is the rule that is not converged
-#: (see CLAUDE.md and examples/demo2/INTERPRETATION.md).  The notebook is
+#: (see examples/demo2/INTERPRETATION.md).  The notebook is
 #: not re-run here.
 REF_NOTEBOOK = 1.884322e-04
 

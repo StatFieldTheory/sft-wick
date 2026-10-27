@@ -1,18 +1,35 @@
 """Perturbative expansion driver.
 
-Computes <O>_S = sum_{n=0}^{N} (-1)^n / n! * <O * S_int^n>_{S_0}
-using Wick's theorem for each order.
+The default moment target computes the raw series
+sum_{n=0}^{N} (-1)^n / n! * <O * S_int^n>_{S_0},
+using Wick's theorem for each order. It is a normalized moment only when
+the vacuum partition function is one. The connected target selects
+source-connected contributions under the linked-cluster assumptions.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import factorial
+from functools import cached_property
+from math import factorial, prod
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from .action import Action
+from ._connected import (
+    ConnectedIncidence,
+    connected_sequence_possible,
+    validate_target,
+)
+from ._dense_contraction import DEFAULT_CONTRACTION_MAX_BYTES
+from ._coupling_plan import (
+    compile_coupling_plan,
+    native_bindings,
+    native_plan,
+    native_scalar_symbol_reads,
+    native_symbol_reads,
+)
 from .expressions import (
     ZERO,
     Expr,
@@ -40,7 +57,14 @@ from .simplify import (
     simplify,
 )
 from .vertices import VertexInstance
-from .wick import Pairing, SpatialSignature, wick_contract, wick_contract_spatial
+from .wick import (
+    Pairing,
+    SpatialSignature,
+    evaluate_pairing,
+    generate_valid_pairings,
+    wick_contract,
+    wick_contract_spatial,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -63,14 +87,19 @@ class PerturbativeResult:
             list of :class:`DiagramInfo` records at that order.
     """
 
+    # Class default also supplies metadata for old pickled moment results.
+    target = "moment"
+
     def __init__(
         self,
         order_terms: dict[int, Expr],
         total: Expr,
         diagrams_by_order: dict[int, list[DiagramInfo]],
         diagram_terms_by_order: dict[int, list[DiagramTerm]] | None = None,
+        target: str = "moment",
     ) -> None:
         self.order_terms = order_terms
+        self.target = target
         self.total = total
         self.diagrams_by_order = diagrams_by_order
         self.diagram_terms_by_order: dict[int, list[DiagramTerm]] = (
@@ -126,8 +155,11 @@ class PerturbativeResult:
             dts = self.diagram_terms_by_order.get(n, [])
             if dts:
                 term_strs = [dt.to_latex() for dt in dts]
-                combined = " + ".join(term_strs) if len(term_strs) == 1 else \
-                    " \\\\\n    + ".join(term_strs)
+                combined = (
+                    " + ".join(term_strs)
+                    if len(term_strs) == 1
+                    else " \\\\\n    + ".join(term_strs)
+                )
                 lines.append(f"O({n}): {combined}")
             else:
                 expr = self.order_terms[n]
@@ -175,9 +207,7 @@ class PerturbativeResult:
             "external_labels",
         }
         draw_all_kwargs = {
-            key: kwargs.pop(key)
-            for key in list(kwargs.keys())
-            if key in draw_all_keys
+            key: kwargs.pop(key) for key in list(kwargs.keys()) if key in draw_all_keys
         }
 
         renderer = DiagramRenderer(**kwargs)
@@ -317,6 +347,28 @@ class DiagramTerm:
     #: the real axis; see :meth:`observable_phase_factor`.
     n_external_response: int = 0
 
+    @cached_property
+    def _coupling_execution_plan(self):
+        """Structure-only native plan, owned by this exact immutable term.
+
+        Leave leaf/small trees and one-assignment cases on their original
+        path; compilation cannot amortize there. Numeric inputs are never
+        retained, and generated functions rebuild on ordinary pickling.
+        """
+        if type(self) is not DiagramTerm or type(self.summation_indices) is not tuple:
+            return None
+        for item in self.summation_indices:
+            if (
+                type(item) is not tuple
+                or len(item) != 2
+                or type(item[0]) is not str
+                or type(item[1]) is not int
+            ):
+                return None
+        if prod(dim for _, dim in self.summation_indices) < 4:
+            return None
+        return compile_coupling_plan(self.coupling_sum)
+
     @property
     def propagator_indices(self) -> tuple[tuple[str, int], ...]:
         """Summation indices that appear in at least one propagator."""
@@ -337,13 +389,13 @@ class DiagramTerm:
                 prop_idx_set.add(p.index_left)
             if p.index_right:
                 prop_idx_set.add(p.index_right)
-        return tuple(item for item in self.summation_indices if item[0] not in prop_idx_set)
+        return tuple(
+            item for item in self.summation_indices if item[0] not in prop_idx_set
+        )
 
     def spatial_topology(self) -> list[tuple[str, str, str]]:
         """Return ``(kind, spatial_left, spatial_right)`` for each propagator."""
-        return [
-            (p.kind, p.spatial_left, p.spatial_right) for p in self.propagators
-        ]
+        return [(p.kind, p.spatial_left, p.spatial_right) for p in self.propagators]
 
     def response_phase_factor(self) -> complex:
         """Return ``(-i)^n_response`` as a complex number."""
@@ -407,28 +459,82 @@ class DiagramTerm:
         import numpy as np
 
         phase = self.response_phase_factor()  # (-i)^n_response
-        pref = phase * (self.rational_prefactor.numerator / self.rational_prefactor.denominator)
+        pref = phase * (
+            self.rational_prefactor.numerator / self.rational_prefactor.denominator
+        )
         base_map: dict[str, int] = dict(fixed_indices) if fixed_indices else {}
-        dtype = complex if (
-            isinstance(pref, complex) or
-            any(np.iscomplexobj(v) for v in coupling_values.values())
-        ) else float
+        dtype = (
+            complex
+            if (
+                isinstance(pref, complex)
+                or any(np.iscomplexobj(v) for v in coupling_values.values())
+            )
+            else float
+        )
 
-        prop_idx = self.propagator_indices    # outer axes of result
+        prop_idx = self.propagator_indices  # outer axes of result
         coup_idx = self.coupling_only_indices  # summed internally
 
         prop_shape = tuple(dim for _, dim in prop_idx)
         coup_shape = tuple(dim for _, dim in coup_idx)
 
+        evaluate_symbolic = _eval_symbolic
+        bind_indices = None
+        if type(self) is DiagramTerm and (
+            (
+                type(self.coupling_sum) is Sum
+                and type(self.coupling_sum.terms) is tuple
+                and len(self.coupling_sum.terms) >= 4
+            )
+            or (
+                type(self.coupling_sum) is Product
+                and type(self.coupling_sum.factors) is tuple
+                and len(self.coupling_sum.factors) >= 4
+            )
+        ):
+            plan = self._coupling_execution_plan
+            if plan is not None:
+                evaluate_symbolic = plan.scalar
+                if (
+                    native_plan(plan)
+                    and plan.core.reuse_indices
+                    and native_bindings(coupling_values, base_map)
+                ):
+                    if plan.core.reuse_symbol_reads and native_scalar_symbol_reads(
+                        coupling_values, dtype
+                    ):
+
+                        def _bind_reused_scalar_indices(index_map):
+                            return plan.bind_indices(index_map, reuse_symbols=True)
+
+                        bind_indices = _bind_reused_scalar_indices
+
+                    else:
+                        bind_indices = plan.bind_indices
+
         def _sum_coupling(prop_map: dict[str, int]) -> "np.number":
             """Evaluate coupling_sum with prop_map fixed, summing over coup_idx."""
             if not coup_idx:
-                return dtype(_eval_symbolic(self.coupling_sum, coupling_values, prop_map))
+                return dtype(
+                    evaluate_symbolic(
+                        self.coupling_sum,
+                        coupling_values,
+                        bind_indices(prop_map) if bind_indices else prop_map,
+                    )
+                )
             total = dtype(0)
             for cidx in np.ndindex(*coup_shape):
-                index_map = {**prop_map,
-                             **{name: v for (name, _), v in zip(coup_idx, cidx)}}
-                total += dtype(_eval_symbolic(self.coupling_sum, coupling_values, index_map))
+                index_map = {
+                    **prop_map,
+                    **{name: v for (name, _), v in zip(coup_idx, cidx)},
+                }
+                total += dtype(
+                    evaluate_symbolic(
+                        self.coupling_sum,
+                        coupling_values,
+                        bind_indices(index_map) if bind_indices else index_map,
+                    )
+                )
             return total
 
         if not prop_idx:
@@ -438,8 +544,7 @@ class DiagramTerm:
 
         result = np.zeros(prop_shape, dtype=dtype)
         for pidx in np.ndindex(*prop_shape):
-            prop_map = {**base_map,
-                        **{name: v for (name, _), v in zip(prop_idx, pidx)}}
+            prop_map = {**base_map, **{name: v for (name, _), v in zip(prop_idx, pidx)}}
             result[pidx] = _sum_coupling(prop_map)
         return pref * result
 
@@ -497,15 +602,45 @@ class DiagramTerm:
         prop_shape = tuple(dim for _, dim in prop_idx)
         coup_shape = tuple(dim for _, dim in coup_idx)
 
+        evaluate_symbolic_batched = _eval_symbolic_batched
+        bind_indices = None
+        if type(self) is DiagramTerm and (
+            (
+                type(self.coupling_sum) is Sum
+                and type(self.coupling_sum.terms) is tuple
+                and len(self.coupling_sum.terms) >= 4
+            )
+            or (
+                type(self.coupling_sum) is Product
+                and type(self.coupling_sum.factors) is tuple
+                and len(self.coupling_sum.factors) >= 4
+            )
+        ):
+            plan = self._coupling_execution_plan
+            if plan is not None:
+                evaluate_symbolic_batched = plan.batched
+                if (
+                    native_plan(plan)
+                    and plan.core.reuse_indices
+                    and native_bindings(coupling_values_batched, base_map)
+                ):
+                    if plan.core.reuse_symbol_reads and native_symbol_reads():
+
+                        def bind_indices(index_map):
+                            return plan.bind_indices(index_map, reuse_symbols=True)
+
+                    else:
+                        bind_indices = plan.bind_indices
+
         def _sum_coupling_batched(prop_map: dict[str, int]) -> np.ndarray:
             """Evaluate ``coupling_sum`` for a fixed ``prop_map``,
             summing over the coupling-only indices.  Returns
             ``(n_samples,)``."""
             if not coup_idx:
-                val = _eval_symbolic_batched(
+                val = evaluate_symbolic_batched(
                     self.coupling_sum,
                     coupling_values_batched,
-                    prop_map,
+                    bind_indices(prop_map) if bind_indices else prop_map,
                     n_samples,
                 )
                 return np.broadcast_to(
@@ -517,10 +652,10 @@ class DiagramTerm:
                     **prop_map,
                     **{name: v for (name, _), v in zip(coup_idx, cidx)},
                 }
-                val = _eval_symbolic_batched(
+                val = evaluate_symbolic_batched(
                     self.coupling_sum,
                     coupling_values_batched,
-                    index_map,
+                    bind_indices(index_map) if bind_indices else index_map,
                     n_samples,
                 )
                 total = total + np.asarray(val, dtype=dtype)
@@ -643,7 +778,11 @@ class DiagramTerm:
         new_props = []
         for p in self.propagators:
             il = sub.get(p.index_left, p.index_left) if p.index_left else p.index_left
-            ir = sub.get(p.index_right, p.index_right) if p.index_right else p.index_right
+            ir = (
+                sub.get(p.index_right, p.index_right)
+                if p.index_right
+                else p.index_right
+            )
             new_props.append(
                 Propagator(p.kind, il, ir, p.spatial_left, p.spatial_right)
             )
@@ -654,9 +793,11 @@ class DiagramTerm:
         # caller's ``fixed_indices`` will pin at evaluation time.
         substituted_coupling = simplify(_apply_index_sub(self.coupling_sum, sub))
         if external_deltas:
-            if isinstance(substituted_coupling, Rational) \
-                    and substituted_coupling.numerator == 1 \
-                    and substituted_coupling.denominator == 1:
+            if (
+                isinstance(substituted_coupling, Rational)
+                and substituted_coupling.numerator == 1
+                and substituted_coupling.denominator == 1
+            ):
                 # Plain unity coupling: replace it with the delta product.
                 if len(external_deltas) == 1:
                     new_coupling = external_deltas[0]
@@ -667,28 +808,29 @@ class DiagramTerm:
                     tuple(external_deltas) + substituted_coupling.factors
                 )
             else:
-                new_coupling = Product(
-                    tuple(external_deltas) + (substituted_coupling,)
-                )
+                new_coupling = Product(tuple(external_deltas) + (substituted_coupling,))
         else:
             new_coupling = substituted_coupling
 
         # Update summation indices (remove eliminated)
         new_sum_indices = tuple(
-            (name, dim) for name, dim in self.summation_indices
+            (name, dim)
+            for name, dim in self.summation_indices
             if name not in eliminated
         )
 
         # Isotropic: strip equal component indices from R/C propagators
         if iso_R or iso_C:
             new_props = [
-                Propagator(p.kind, None, None, p.spatial_left, p.spatial_right)
-                if (
-                    p.index_left is not None
-                    and p.index_left == p.index_right
-                    and ((p.kind == "R" and iso_R) or (p.kind == "C" and iso_C))
+                (
+                    Propagator(p.kind, None, None, p.spatial_left, p.spatial_right)
+                    if (
+                        p.index_left is not None
+                        and p.index_left == p.index_right
+                        and ((p.kind == "R" and iso_R) or (p.kind == "C" and iso_C))
+                    )
+                    else p
                 )
-                else p
                 for p in new_props
             ]
 
@@ -834,14 +976,10 @@ class DiagramTerm:
                 sl = _latex_index(p.spatial_left)
                 sr = _latex_index(p.spatial_right)
                 if il and ir:
-                    prop_parts.append(
-                        f"{p.kind}_{{{il}{ir}}}({sl}, {sr})"
-                    )
+                    prop_parts.append(f"{p.kind}_{{{il}{ir}}}({sl}, {sr})")
                 elif il or ir:
                     idx = il or ir
-                    prop_parts.append(
-                        f"{p.kind}_{{{idx}}}({sl}, {sr})"
-                    )
+                    prop_parts.append(f"{p.kind}_{{{idx}}}({sl}, {sr})")
                 else:
                     prop_parts.append(f"{p.kind}({sl}, {sr})")
 
@@ -868,12 +1006,16 @@ class DiagramTerm:
         surviving integration variables.
         """
         from .evaluate import analyze_spatial
+
         return analyze_spatial(self)
 
     def build_integrand(
         self,
         coupling_values: dict,
         fixed_indices: dict[str, int] | None = None,
+        *,
+        contraction_backend: str = "ordered",
+        contraction_max_bytes: int = DEFAULT_CONTRACTION_MAX_BYTES,
     ) -> "DiagramIntegrand":
         """Build a :class:`~sft_wick.evaluate.DiagramIntegrand` for numerical evaluation.
 
@@ -908,6 +1050,17 @@ class DiagramTerm:
                 all-ndarray values keep the fast vectorised path.
             fixed_indices: Optional pinned index values for observable
                 component labels (e.g. ``{'a': 1, 'b': 1}``).
+            contraction_backend: ``"ordered"`` (default), ``"einsum"`` or
+                ``"factorized"``. The last choice can prepare owned native
+                static monomial factors without the dense coefficient. Reading
+                its public ``coupling_array`` restores the genuine ordered
+                ndarray and disables fusion. Integration wrappers must also
+                receive ``contraction_backend="factorized"`` to retain fusion.
+            contraction_max_bytes: Positive conservative array-payload budget.
+                For factorized preparation, known native coefficient restoration
+                above it raises before allocation. Rebuild with ordered or
+                increase the budget when materialization is intended; unknown
+                dynamic/custom shapes and process RSS are outside this bound.
 
         Returns:
             A :class:`DiagramIntegrand` that can evaluate the integrand at
@@ -921,6 +1074,10 @@ class DiagramTerm:
             _interpretation_dependent_r,
             analyze_spatial,
         )
+
+        from ._dense_contraction import validate_contraction_options
+
+        validate_contraction_options(contraction_backend, contraction_max_bytes)
         # An equal-point R kept by ito=False whose value depends on the
         # Ito/Stratonovich reading: the numerical layer can only give the Ito
         # value, so refuse instead of returning it under the other name.
@@ -933,7 +1090,8 @@ class DiagramTerm:
 
         # Detect dynamic (callable) coupling values.
         dynamic_names = {
-            name: fn for name, fn in coupling_values.items()
+            name: fn
+            for name, fn in coupling_values.items()
             if callable(fn) and not isinstance(fn, np.ndarray)
         }
 
@@ -945,7 +1103,8 @@ class DiagramTerm:
         # value is never needed.
         symbol_names_in_coupling = _collect_symbol_names(self.coupling_sum)
         active_dynamic = {
-            name: fn for name, fn in dynamic_names.items()
+            name: fn
+            for name, fn in dynamic_names.items()
             if name in symbol_names_in_coupling
         }
 
@@ -954,13 +1113,26 @@ class DiagramTerm:
             # callables from coupling_values (they'd crash the
             # static evaluator) and evaluate statically.
             static_cv = {
-                name: v for name, v in coupling_values.items()
+                name: v
+                for name, v in coupling_values.items()
                 if name not in dynamic_names
             }
+            if contraction_backend == "factorized":
+                from ._factorized_coupling import try_build_factorized
+
+                candidate = try_build_factorized(
+                    self, spatial, static_cv, fi, contraction_max_bytes
+                )
+                if candidate is not None:
+                    return candidate
             coeff = self.evaluate_coupling(static_cv, fi)
             return DiagramIntegrand(
-                diagram_term=self, spatial=spatial, coupling_array=coeff,
+                diagram_term=self,
+                spatial=spatial,
+                coupling_array=coeff,
                 fixed_indices=fi,
+                _contraction_backend=contraction_backend,
+                _contraction_max_bytes=contraction_max_bytes,
             )
 
         # Dynamic path.  Each occurrence of a callable symbol names its own
@@ -984,7 +1156,8 @@ class DiagramTerm:
                 raise _no_spatial_args_error(name)
 
         static_values = {
-            name: np.asarray(v) for name, v in coupling_values.items()
+            name: np.asarray(v)
+            for name, v in coupling_values.items()
             if name not in dynamic_names
         }
 
@@ -992,15 +1165,15 @@ class DiagramTerm:
         # evaluates each at its own legs and contracts the renamed sum, in
         # which every term reads the tensor of its own leg order.
         split_sum, legs_by_key = _split_callable_occurrences(
-            self.coupling_sum, active_dynamic,
+            self.coupling_sum,
+            active_dynamic,
             reserved=set(coupling_values) | symbol_names_in_coupling,
         )
         promise = DynamicCouplingPromise(
             diagram_term=replace(self, coupling_sum=split_sum),
             static_values=static_values,
             dynamic_values={
-                key: active_dynamic[name]
-                for key, (name, _legs) in legs_by_key.items()
+                key: active_dynamic[name] for key, (name, _legs) in legs_by_key.items()
             },
             spatial_args_by_name={
                 key: legs for key, (_name, legs) in legs_by_key.items()
@@ -1016,11 +1189,18 @@ class DiagramTerm:
         placeholder = np.zeros(prop_shape, dtype=complex)
 
         return DiagramIntegrand(
-            diagram_term=self, spatial=spatial,
+            diagram_term=self,
+            spatial=spatial,
             coupling_array=placeholder,
             fixed_indices=fi,
             dynamic_coupling=promise,
+            _contraction_backend=contraction_backend,
+            _contraction_max_bytes=contraction_max_bytes,
         )
+
+
+_NATIVE_BUILD_INTEGRAND = DiagramTerm.__dict__["build_integrand"]
+_NATIVE_BUILD_INTEGRAND_CODE = _NATIVE_BUILD_INTEGRAND.__code__
 
 
 def _collect_r_absorbed_pairs(
@@ -1128,8 +1308,12 @@ def _pin_absorbed_leg_indices(dt: DiagramTerm) -> DiagramTerm:
             partner_idx, leg_idx = p.index_right, p.index_left
         else:
             continue
-        if (partner_idx is None or leg_idx is None
-                or partner_idx == leg_idx or leg_idx not in summed):
+        if (
+            partner_idx is None
+            or leg_idx is None
+            or partner_idx == leg_idx
+            or leg_idx not in summed
+        ):
             continue
         sub[leg_idx] = partner_idx
     if not sub:
@@ -1139,8 +1323,8 @@ def _pin_absorbed_leg_indices(dt: DiagramTerm) -> DiagramTerm:
         propagators=tuple(_apply_index_sub(p, sub) for p in dt.propagators),
         coupling_sum=simplify(_apply_index_sub(dt.coupling_sum, sub)),
         summation_indices=tuple(
-            (name, dim) for name, dim in dt.summation_indices
-            if name not in sub),
+            (name, dim) for name, dim in dt.summation_indices if name not in sub
+        ),
     )
 
 
@@ -1160,8 +1344,7 @@ def _split_by_instance_structure(
     props: tuple[Propagator, ...],
     coupling: Expr,
     vertex_instances,
-) -> list[tuple[Expr, tuple[tuple[str, str], ...],
-                tuple[tuple[str, str], ...]]]:
+) -> list[tuple[Expr, tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]]]:
     """Split a collected coupling sum by the leg structure of its terms.
 
     :func:`_collect_grouped_wick` merges pairings related by a relabelling of
@@ -1191,22 +1374,34 @@ def _split_by_instance_structure(
         RuntimeError: a term does not name every copy of such a vertex
             exactly once, so its leg structure is undefined.
     """
-    et_names = {vi.vertex.coupling for vi in vertex_instances
-                if getattr(vi.vertex, "equal_time", False)}
-    rc_names = {vi.vertex.coupling for vi in vertex_instances
-                if getattr(vi.vertex, "already_R_contracted", False)}
+    et_names = {
+        vi.vertex.coupling
+        for vi in vertex_instances
+        if getattr(vi.vertex, "equal_time", False)
+    }
+    rc_names = {
+        vi.vertex.coupling
+        for vi in vertex_instances
+        if getattr(vi.vertex, "already_R_contracted", False)
+    }
     if not et_names and not rc_names:
         return [(coupling, (), ())]
 
-    leg_rank = {var: k for k, var in enumerate(
-        var for vi in vertex_instances for var in vi.spatial_variables)}
-    n_structured = sum(1 for vi in vertex_instances
-                       if vi.vertex.coupling in et_names | rc_names)
+    leg_rank = {
+        var: k
+        for k, var in enumerate(
+            var for vi in vertex_instances for var in vi.spatial_variables
+        )
+    }
+    n_structured = sum(
+        1 for vi in vertex_instances if vi.vertex.coupling in et_names | rc_names
+    )
     terms = coupling.terms if isinstance(coupling, Sum) else (coupling,)
     groups: dict[tuple, list[Expr]] = {}
     for term in terms:
-        syms = [s for s in _symbols_in(term)
-                if s.name in et_names or s.name in rc_names]
+        syms = [
+            s for s in _symbols_in(term) if s.name in et_names or s.name in rc_names
+        ]
         if len(syms) != n_structured:
             raise RuntimeError(
                 f"internal: a coupling-sum term names {len(syms)} copies of "
@@ -1214,10 +1409,12 @@ def _split_by_instance_structure(
                 f"diagram has {n_structured}, so its leg structure is "
                 f"undefined: {term!r}"
             )
-        classes = frozenset(frozenset(s.spatial_args) for s in syms
-                            if s.name in et_names)
-        absorbed = frozenset(leg for s in syms if s.name in rc_names
-                             for leg in s.spatial_args)
+        classes = frozenset(
+            frozenset(s.spatial_args) for s in syms if s.name in et_names
+        )
+        absorbed = frozenset(
+            leg for s in syms if s.name in rc_names for leg in s.spatial_args
+        )
         groups.setdefault((classes, absorbed), []).append(term)
 
     out = []
@@ -1227,10 +1424,11 @@ def _split_by_instance_structure(
             rep = min(cls, key=leg_rank.__getitem__)
             aliases.update((leg, rep) for leg in cls if leg != rep)
         pairs, leg_aliases = _collect_r_absorbed_pairs(
-            props, vertex_instances, absorbed_legs=absorbed,
+            props,
+            vertex_instances,
+            absorbed_legs=absorbed,
         )
-        sub = (group_terms[0] if len(group_terms) == 1
-               else Sum(tuple(group_terms)))
+        sub = group_terms[0] if len(group_terms) == 1 else Sum(tuple(group_terms))
         out.append((sub, tuple(sorted(aliases | set(leg_aliases))), pairs))
     return out
 
@@ -1509,8 +1707,11 @@ def check_distinct_external_labels(observable, order: int = 1) -> None:
     raise ValueError(
         f"{seen[lab]} external operators share the same spatial label "
         f"{lab!r}"
-        + (f" (also: {', '.join(repr(x) for x in repeated[1:])})"
-           if len(repeated) > 1 else "")
+        + (
+            f" (also: {', '.join(repr(x) for x in repeated[1:])})"
+            if len(repeated) > 1
+            else ""
+        )
         + ".  This is not supported: the spatial contraction is keyed by "
         "label, so operators sharing one are collapsed without their "
         "distinct component-index routings, giving a silently wrong "
@@ -1533,19 +1734,24 @@ def compute_moment(
     diag_C: bool = False,
     iso_R: bool = False,
     iso_C: bool = False,
+    *,
+    target: str = "moment",
 ) -> PerturbativeResult:
     r"""Compute the perturbative expansion of an observable.
 
-    Evaluates
+    The default moment target evaluates the raw series
 
     .. math::
 
-       \langle \mathcal{O} \rangle_S
-       = \sum_{n=0}^{N} \frac{(-1)^n}{n!}\,
+       \sum_{n=0}^{N} \frac{(-1)^n}{n!}\,
          \langle \mathcal{O}\, S_{\mathrm{int}}^{\,n} \rangle_{S_0}
 
-    up to the requested perturbative order.  In the MSR formalism the
-    partition function :math:`Z = 1`, so there is no denominator.
+    up to the requested perturbative order. For a normalized causal Itô
+    MSR action, the vacuum partition function is one and this is the
+    normalized moment. Generic raw actions need not have that property;
+    the moment target does not insert a denominator. The connected target
+    instead selects formal linked-cluster source contributions as described
+    by the ``target`` argument and the connected-target guide.
 
     Args:
         observable: List of field operators defining the observable
@@ -1601,11 +1807,22 @@ def compute_moment(
             diagonal R entries are equal, :math:`R_{ii} = R`.  The
             component index is dropped from R propagators entirely.
         iso_C: If ``True`` (implies ``diag_C``), the same for C.
+        target: ``'moment'`` (default) keeps the legacy unnormalized
+            expansion. ``'connected'`` keeps only diagrams connected through
+            propagators and complete vertex instances, including nonlocal
+            input-cumulant vertices. Each observable occurrence is a separate
+            source insertion even at coincident coordinates. Under the
+            linked-cluster assumptions this is the normalized formal source
+            correlator; for a normalized causal Itô MSR action and physical
+            insertions it is the joint cumulant. Generic raw actions need not
+            have partition function one. This does not group composite
+            observables or prove convergence/realizability of a probability law.
 
     Returns:
         A :class:`PerturbativeResult` containing order-by-order
         expressions, a combined total, and Feynman diagram information.
     """
+    validate_target(target, observable)
     check_distinct_external_labels(observable, order)
     # E_psi: response legs carried by the observable itself.  Fixes the
     # phase needed to rotate a diagram value onto the real axis.
@@ -1626,12 +1843,19 @@ def compute_moment(
 
         if n == 0:
             # Zeroth order: just <O>_{S_0}
-            wick_result, pairings = wick_contract(observable, ito=ito)
+            incidence = (
+                ConnectedIncidence.from_instances(observable, [])
+                if target == "connected"
+                else None
+            )
+            wick_result, pairings = _wick_contract_target(
+                observable,
+                ito,
+                incidence,
+            )
             order_exprs.append(wick_result)
             for p in pairings:
-                order_diagrams.append(
-                    DiagramInfo(observable, [], p, Rational(1), 0)
-                )
+                order_diagrams.append(DiagramInfo(observable, [], p, Rational(1), 0))
                 # Build DiagramTerm for order 0
                 props = []
                 for i, j in p:
@@ -1639,18 +1863,24 @@ def compute_moment(
                     if isinstance(pr, Propagator):
                         props.append(pr)
                 if props:
-                    order_dterms.append(DiagramTerm(
-                        propagators=tuple(props),
-                        coupling_sum=Rational(1),
-                        rational_prefactor=Rational(1),
-                        integration_vars=(),
-                        summation_indices=(),
-                        n_response=sum(1 for pr in props if pr.kind == "R"),
-                        n_external_response=_n_ext_response,
-                    ))
+                    order_dterms.append(
+                        DiagramTerm(
+                            propagators=tuple(props),
+                            coupling_sum=Rational(1),
+                            rational_prefactor=Rational(1),
+                            integration_vars=(),
+                            summation_indices=(),
+                            n_response=sum(1 for pr in props if pr.kind == "R"),
+                            n_external_response=_n_ext_response,
+                        )
+                    )
         else:
             # Expand S_int^n using multinomial theorem
             for vertex_seq, multinomial_coeff in action.all_vertex_combinations(n):
+                if target == "connected" and not connected_sequence_possible(
+                    len(observable), vertex_seq
+                ):
+                    continue
                 idx_ctx = IndexContext()
 
                 # Instantiate each vertex copy
@@ -1663,6 +1893,14 @@ def compute_moment(
                 all_ops = list(observable)
                 for vi in vertex_instances:
                     all_ops.extend(vi.field_operators)
+                incidence = (
+                    ConnectedIncidence.from_instances(
+                        observable,
+                        vertex_instances,
+                    )
+                    if target == "connected"
+                    else None
+                )
 
                 # Build prefactor: (-1)^n / n! * multinomial_coeff
                 prefactor = Rational(sign * multinomial_coeff, fact)
@@ -1677,15 +1915,11 @@ def compute_moment(
                     pure_coupling = Rational(1)
 
                 # Full coupling product (with prefactor) for the expression
-                coupling_product = Product(
-                    tuple([prefactor] + coupling_syms)
-                )
+                coupling_product = Product(tuple([prefactor] + coupling_syms))
 
                 # Collect integration variables (vertex spatial points)
                 integration_vars: frozenset[str] = frozenset(
-                    var
-                    for vi in vertex_instances
-                    for var in vi.spatial_variables
+                    var for vi in vertex_instances for var in vi.spatial_variables
                 )
 
                 # Build summation index info for DiagramTerm
@@ -1694,17 +1928,19 @@ def compute_moment(
                     for comp_idx in vi.component_indices:
                         for op in vi.field_operators:
                             if op.component_index == comp_idx:
-                                sum_indices.append(
-                                    (comp_idx, op.field.n_components)
-                                )
+                                sum_indices.append((comp_idx, op.field.n_components))
                                 break
                 int_vars_sorted = tuple(sorted(integration_vars))
 
                 if collect_topology:
                     # --- Hybrid: spatial topology + component routing ---
                     spatial_results = wick_contract_spatial(
-                        all_ops, ito=ito, vertex_points=integration_vars,
+                        all_ops,
+                        ito=ito,
+                        vertex_points=integration_vars,
                     )
+                    if incidence is not None:
+                        spatial_results = incidence.prune_topologies(spatial_results)
                     if not spatial_results:
                         continue
 
@@ -1715,8 +1951,15 @@ def compute_moment(
                     pairings: list[Pairing] = []
                     for sig, (ref_props, mult, rep_pairing) in spatial_results.items():
                         routings = _enumerate_component_routings(
-                            ref_props, rep_pairing, all_ops, integration_vars,
+                            ref_props,
+                            rep_pairing,
+                            all_ops,
+                            integration_vars,
                         )
+                        if incidence is not None:
+                            routings = incidence.select_routings(routings)
+                        if not routings:
+                            continue
                         groups[sig] = routings
                         pairings.extend(p for _, p in routings)
 
@@ -1733,8 +1976,10 @@ def compute_moment(
                         if vi.equal_time_aliases
                     )
                     inner = _collect_grouped_wick(
-                        groups, pure_coupling,
-                        internal_indices, integration_vars,
+                        groups,
+                        pure_coupling,
+                        internal_indices,
+                        integration_vars,
                         same_time_groups=same_time_groups,
                     )
                     if _is_zero(inner):
@@ -1746,31 +1991,40 @@ def compute_moment(
                     # already_R_contracted copies differently from term to
                     # term becomes one DiagramTerm per leg structure, each
                     # with its own measure (_split_by_instance_structure).
-                    for dt_props, dt_coupling in _extract_diagram_records(
-                        inner
-                    ):
-                        for sub_coupling, aliases, absorbed in (
-                            _split_by_instance_structure(
-                                dt_props, dt_coupling, vertex_instances,
-                            )
+                    for dt_props, dt_coupling in _extract_diagram_records(inner):
+                        for (
+                            sub_coupling,
+                            aliases,
+                            absorbed,
+                        ) in _split_by_instance_structure(
+                            dt_props,
+                            dt_coupling,
+                            vertex_instances,
                         ):
-                            order_dterms.append(_pin_absorbed_leg_indices(
-                                DiagramTerm(
-                                    propagators=dt_props,
-                                    coupling_sum=sub_coupling,
-                                    rational_prefactor=prefactor,
-                                    integration_vars=int_vars_sorted,
-                                    summation_indices=tuple(sum_indices),
-                                    n_response=sum(
-                                        1 for p in dt_props if p.kind == "R"
-                                    ),
-                                    equal_time_aliases=aliases,
-                                    r_absorbed_pairs=absorbed,
-                                    n_external_response=_n_ext_response,
-                                )))
+                            order_dterms.append(
+                                _pin_absorbed_leg_indices(
+                                    DiagramTerm(
+                                        propagators=dt_props,
+                                        coupling_sum=sub_coupling,
+                                        rational_prefactor=prefactor,
+                                        integration_vars=int_vars_sorted,
+                                        summation_indices=tuple(sum_indices),
+                                        n_response=sum(
+                                            1 for p in dt_props if p.kind == "R"
+                                        ),
+                                        equal_time_aliases=aliases,
+                                        r_absorbed_pairs=absorbed,
+                                        n_external_response=_n_ext_response,
+                                    )
+                                )
+                            )
                 else:
                     # --- Operator-level Wick contraction ---
-                    wick_result, pairings = wick_contract(all_ops, ito=ito)
+                    wick_result, pairings = _wick_contract_target(
+                        all_ops,
+                        ito,
+                        incidence,
+                    )
                     if _is_zero(wick_result):
                         continue
                     term = Product((coupling_product, wick_result))
@@ -1815,18 +2069,23 @@ def compute_moment(
             # (Hybrid path: _collect_grouped_wick already produced coupling sums)
             if diag_R or diag_C:
                 simplified = diagonal_propagators(
-                    simplified, diag_R=diag_R, diag_C=diag_C, iso_R=iso_R, iso_C=iso_C,
+                    simplified,
+                    diag_R=diag_R,
+                    diag_C=diag_C,
+                    iso_R=iso_R,
+                    iso_C=iso_C,
                 )
             order_terms[n] = (
-                apply_response_phase(simplified) if response_phase
-                else simplified
+                apply_response_phase(simplified) if response_phase else simplified
             )
         else:
             order_terms[n] = ZERO
 
         if diag_R or diag_C:
             order_dterms = [
-                dt.apply_diagonal(diag_R=diag_R, diag_C=diag_C, iso_R=iso_R, iso_C=iso_C)
+                dt.apply_diagonal(
+                    diag_R=diag_R, diag_C=diag_C, iso_R=iso_R, iso_C=iso_C
+                )
                 for dt in order_dterms
             ]
 
@@ -1834,7 +2093,9 @@ def compute_moment(
         dt_by_order[n] = order_dterms
 
     # Total
-    all_terms = [order_terms[n] for n in range(order + 1) if not _is_zero(order_terms[n])]
+    all_terms = [
+        order_terms[n] for n in range(order + 1) if not _is_zero(order_terms[n])
+    ]
     if not all_terms:
         total = ZERO
     elif len(all_terms) == 1:
@@ -1845,8 +2106,42 @@ def compute_moment(
             total = apply_response_phase(total)
 
     return PerturbativeResult(
-        order_terms, total, diagrams_by_order, dt_by_order,
+        order_terms,
+        total,
+        diagrams_by_order,
+        dt_by_order,
+        target=target,
     )
+
+
+def _wick_contract_target(operators, ito, incidence):
+    """Select occurrence pairings before expression lowering.
+
+    The moment path delegates unchanged. The connected path filters complete
+    incidence pairings before evaluating their propagator products.
+    """
+    if incidence is None:
+        return wick_contract(operators, ito=ito)
+    # Match the public Wick entry points: cycle memoization belongs to one
+    # contraction, rather than accumulating arbitrary source labels forever.
+    from .wick import _r_cycle_cache
+
+    _r_cycle_cache.clear()
+    if len(operators) % 2 or len(operators) // 2 < incidence.n_nodes - 1:
+        return ZERO, []
+    phi = [i for i, op in enumerate(operators) if op.is_physical]
+    psi = [i for i, op in enumerate(operators) if op.is_response]
+    terms, pairings = [], []
+    for pairing in generate_valid_pairings(phi, psi, operators, ito):
+        if not incidence.is_connected(pairing):
+            continue
+        evaluated = evaluate_pairing(operators, pairing, ito=ito)
+        if evaluated is not None:
+            terms.append(evaluated[0])
+            pairings.append(pairing)
+    if not terms:
+        return ZERO, []
+    return (terms[0] if len(terms) == 1 else Sum(tuple(terms))), pairings
 
 
 def _collect_grouped_wick(
@@ -1893,7 +2188,9 @@ def _collect_grouped_wick(
 
         for props, _pairing in group_entries[1:]:
             comp_perm = _fast_component_match(
-                ref_props, props, internal_indices,
+                ref_props,
+                props,
+                internal_indices,
             )
             if comp_perm is not None:
                 perms.append(comp_perm)
@@ -1911,7 +2208,9 @@ def _collect_grouped_wick(
 
     for ref_props, perms in spatial_collected:
         canon, mapping = _canonical_diagram_form(
-            ref_props, integration_vars, same_time_groups,
+            ref_props,
+            integration_vars,
+            same_time_groups,
         )
         canonical_groups[canon].append((ref_props, perms, mapping))
 
@@ -1938,14 +2237,18 @@ def _collect_grouped_wick(
                 cross_comp_perm: dict[str, str] = {}
             else:
                 cross_result = _match_propagators_after_spatial(
-                    ref_props_0, ref_props, spatial_perm, internal_indices,
+                    ref_props_0,
+                    ref_props,
+                    spatial_perm,
+                    internal_indices,
                 )
                 if cross_result is None:
                     # Cannot merge: add each within-group perm separately
                     for wp in perms:
                         permuted = _apply_perm_to_coupling(pure_coupling, wp)
                         prop_expr = (
-                            Product(tuple(ref_props)) if len(ref_props) > 1
+                            Product(tuple(ref_props))
+                            if len(ref_props) > 1
                             else ref_props[0]
                         )
                         result_terms.append(Product((permuted, prop_expr)))
@@ -1975,9 +2278,7 @@ def _collect_grouped_wick(
             # Fast path: check if all are identical
             if all(t == all_coupling_terms[0] for t in all_coupling_terms[1:]):
                 n_terms = len(all_coupling_terms)
-                coupling_expr = Product(
-                    (Rational(n_terms, 1), all_coupling_terms[0])
-                )
+                coupling_expr = Product((Rational(n_terms, 1), all_coupling_terms[0]))
             else:
                 # Hash-based dedup instead of full simplify
                 term_counts: dict[Expr, int] = {}
@@ -1992,8 +2293,7 @@ def _collect_grouped_wick(
                 coupling_expr = deduped[0] if len(deduped) == 1 else Sum(tuple(deduped))
 
         prop_expr = (
-            Product(tuple(ref_props_0)) if len(ref_props_0) > 1
-            else ref_props_0[0]
+            Product(tuple(ref_props_0)) if len(ref_props_0) > 1 else ref_props_0[0]
         )
         result_terms.append(Product((coupling_expr, prop_expr)))
 
@@ -2028,7 +2328,9 @@ def _enumerate_component_routings(
     # and classify each slot by (spatial_point, field_type).
     # slots_at_point[spatial_point][field_type] = [(edge_idx, side), ...]
     slots_at_point: dict[str, dict[str, list[tuple[int, str]]]] = {}
-    ops_at_slots: dict[str, dict[str, list[int]]] = {}  # same structure but stores op indices
+    ops_at_slots: dict[str, dict[str, list[int]]] = (
+        {}
+    )  # same structure but stores op indices
 
     for edge_idx, (op_left, op_right) in enumerate(rep_pairing):
         prop = ref_props[edge_idx]
@@ -2118,18 +2420,18 @@ def _enumerate_component_routings(
             # Build propagator with the new component indices
             ol = all_ops[left_op]
             or_ = all_ops[right_op]
-            new_props.append(Propagator(
-                kind=prop.kind,
-                index_left=ol.component_index,
-                index_right=or_.component_index,
-                spatial_left=ol.spatial_arg,
-                spatial_right=or_.spatial_arg,
-            ))
+            new_props.append(
+                Propagator(
+                    kind=prop.kind,
+                    index_left=ol.component_index,
+                    index_right=or_.component_index,
+                    spatial_left=ol.spatial_arg,
+                    spatial_right=or_.spatial_arg,
+                )
+            )
 
         # De-duplicate: canonicalize the pairing
-        canon_pairing = tuple(sorted(
-            tuple(sorted(pair)) for pair in new_pairs
-        ))
+        canon_pairing = tuple(sorted(tuple(sorted(pair)) for pair in new_pairs))
         if canon_pairing in seen_pairings:
             continue
         seen_pairings.add(canon_pairing)
@@ -2171,22 +2473,32 @@ def _fast_component_match(
         for i, p in enumerate(other_props):
             if p.kind == "C":
                 # Try canonical key
-                ckey = ("C", min(p.spatial_left, p.spatial_right),
-                        max(p.spatial_left, p.spatial_right))
+                ckey = (
+                    "C",
+                    min(p.spatial_left, p.spatial_right),
+                    max(p.spatial_left, p.spatial_right),
+                )
                 flipped = p.spatial_left > p.spatial_right
                 other_by_key_flip[ckey].append((i, flipped))
             else:
-                other_by_key_flip[(p.kind, p.spatial_left, p.spatial_right)].append((i, False))
+                other_by_key_flip[(p.kind, p.spatial_left, p.spatial_right)].append(
+                    (i, False)
+                )
 
         ref_by_key_canon: dict[tuple, list[tuple[int, bool]]] = defaultdict(list)
         for i, p in enumerate(ref_props):
             if p.kind == "C":
-                ckey = ("C", min(p.spatial_left, p.spatial_right),
-                        max(p.spatial_left, p.spatial_right))
+                ckey = (
+                    "C",
+                    min(p.spatial_left, p.spatial_right),
+                    max(p.spatial_left, p.spatial_right),
+                )
                 flipped = p.spatial_left > p.spatial_right
                 ref_by_key_canon[ckey].append((i, flipped))
             else:
-                ref_by_key_canon[(p.kind, p.spatial_left, p.spatial_right)].append((i, False))
+                ref_by_key_canon[(p.kind, p.spatial_left, p.spatial_right)].append(
+                    (i, False)
+                )
 
         if set(ref_by_key_canon.keys()) != set(other_by_key_flip.keys()):
             return None
@@ -2203,8 +2515,7 @@ def _fast_component_match(
                 oi, o_flip = oi_list[0]
                 actual_flip = r_flip != o_flip
                 if not _try_add_index_perm(
-                    perm, ref_props[ri], other_props[oi],
-                    actual_flip, internal_indices
+                    perm, ref_props[ri], other_props[oi], actual_flip, internal_indices
                 ):
                     return None
             else:
@@ -2216,8 +2527,11 @@ def _fast_component_match(
                     for (ri, r_flip), (oi, o_flip) in zip(ri_list, op):
                         actual_flip = r_flip != o_flip
                         if not _try_add_index_perm(
-                            test_perm, ref_props[ri], other_props[oi],
-                            actual_flip, internal_indices
+                            test_perm,
+                            ref_props[ri],
+                            other_props[oi],
+                            actual_flip,
+                            internal_indices,
                         ):
                             ok = False
                             break
@@ -2249,8 +2563,11 @@ def _fast_component_match(
                 ok = True
                 for ri, oi in zip(ri_list, op):
                     if not _try_add_index_perm(
-                        test_perm, ref_props[ri], other_props[oi],
-                        False, internal_indices
+                        test_perm,
+                        ref_props[ri],
+                        other_props[oi],
+                        False,
+                        internal_indices,
                     ):
                         ok = False
                         break
@@ -2301,9 +2618,9 @@ def _apply_perm_to_coupling(coupling: Expr, perm: dict[str, str]) -> Expr:
     if not perm:
         return coupling
     if isinstance(coupling, Product):
-        return Product(tuple(
-            _apply_perm_to_coupling(f, perm) for f in coupling.factors
-        ))
+        return Product(
+            tuple(_apply_perm_to_coupling(f, perm) for f in coupling.factors)
+        )
     if isinstance(coupling, Symbol):
         new_indices = tuple(perm.get(i, i) for i in coupling.indices)
         new_spatial = tuple(perm.get(s, s) for s in coupling.spatial_args)
@@ -2347,7 +2664,8 @@ def _extract_diagram_records(
                 continue
             if coupling_factors:
                 coupling: Expr = (
-                    coupling_factors[0] if len(coupling_factors) == 1
+                    coupling_factors[0]
+                    if len(coupling_factors) == 1
                     else Product(tuple(coupling_factors))
                 )
             else:
@@ -2419,6 +2737,7 @@ def _eval_symbolic(
     if isinstance(expr, Symbol):
         arr = symbol_values[expr.name]
         if expr.indices:
+
             def _resolve(i: str) -> int:
                 if i in index_map:
                     return index_map[i]
@@ -2430,6 +2749,7 @@ def _eval_symbolic(
                         f"Index '{i}' not found in index_map and is not a literal integer. "
                         "Pass it via the fixed_indices argument of evaluate_coupling()."
                     ) from None
+
             idx = tuple(_resolve(i) for i in expr.indices)
             val = arr[idx]
         else:
@@ -2456,9 +2776,7 @@ def _eval_symbolic(
             result *= _eval_symbolic(f, symbol_values, index_map)
         return result
     if isinstance(expr, Sum):
-        return sum(
-            _eval_symbolic(t, symbol_values, index_map) for t in expr.terms
-        )
+        return sum(_eval_symbolic(t, symbol_values, index_map) for t in expr.terms)
     if isinstance(expr, KroneckerDelta):
         # Resolve each index against ``index_map``; literal observable
         # indices ('0', '1', ...) are treated as ints. The delta is
@@ -2474,6 +2792,7 @@ def _eval_symbolic(
                     f"and is not a literal integer. Pass it via the "
                     f"fixed_indices argument of evaluate_coupling()."
                 ) from None
+
         return 1.0 if _resolve(expr.index1) == _resolve(expr.index2) else 0.0
     if isinstance(expr, ImaginaryUnit):
         return 1j
@@ -2558,6 +2877,7 @@ def _eval_symbolic_batched(
                 f"only in a single-component system, where every "
                 f"component axis has length 1."
             )
+
         # Resolve component indices to integers (literal '1' → 0 etc.)
         def _resolve(i: str) -> int:
             if i in index_map:
@@ -2570,6 +2890,7 @@ def _eval_symbolic_batched(
                     f"literal integer. Pass it via the fixed_indices "
                     f"argument of evaluate_coupling()."
                 ) from None
+
         idx = tuple(_resolve(i) for i in expr.indices)
         # Detect whether ``arr`` carries a leading sample axis.
         # rank of the static tensor is len(expr.indices); compare
@@ -2587,6 +2908,7 @@ def _eval_symbolic_batched(
             f"rank+1 (with leading sample axis of length {n_samples})."
         )
     if isinstance(expr, KroneckerDelta):
+
         def _resolve(i: str) -> int:
             if i in index_map:
                 return int(index_map[i])
@@ -2598,18 +2920,25 @@ def _eval_symbolic_batched(
                     f"and is not a literal integer. Pass it via the "
                     f"fixed_indices argument of evaluate_coupling()."
                 ) from None
+
         return 1.0 if _resolve(expr.index1) == _resolve(expr.index2) else 0.0
     if isinstance(expr, Product):
         result: object = 1.0
         for f in expr.factors:
             result = result * _eval_symbolic_batched(
-                f, symbol_values_batched, index_map, n_samples,
+                f,
+                symbol_values_batched,
+                index_map,
+                n_samples,
             )
         return result
     if isinstance(expr, Sum):
         terms = [
             _eval_symbolic_batched(
-                t, symbol_values_batched, index_map, n_samples,
+                t,
+                symbol_values_batched,
+                index_map,
+                n_samples,
             )
             for t in expr.terms
         ]
@@ -2688,6 +3017,8 @@ def compute_moment_numerical(
     iso_R: bool = False,
     iso_C: bool = False,
     n_jobs: int = 1,
+    *,
+    target: str = "moment",
 ) -> dict[int, list[DiagramTerm]]:
     r"""Compute diagram terms using nauty graph isomorphism.
 
@@ -2716,6 +3047,12 @@ def compute_moment_numerical(
         n_jobs: Number of parallel workers for nauty canonicalization
             and component routing.  ``1`` = sequential (default),
             ``-1`` = use all CPU cores.  Requires ``joblib``.
+        target: ``'moment'`` (default) or ``'connected'``; the latter selects
+            occurrence/vertex incidence before expensive canonicalization
+            and routing when labels have distinct owners. Labels shared by
+            different owners use exact per-routing filtering. The normalized
+            formal source-correlator interpretation and its assumptions are
+            described in :func:`compute_moment`.
 
     Returns:
         ``{order_n: [DiagramTerm, ...]}`` for each order with
@@ -2730,6 +3067,7 @@ def compute_moment_numerical(
             must refuse the same spelling; see
             :func:`check_distinct_external_labels`.
     """
+    validate_target(target, observable)
     check_distinct_external_labels(observable, order)
     # E_psi: response legs carried by the observable itself.  Fixes the
     # phase needed to rotate a diagram value onto the real axis.
@@ -2752,7 +3090,12 @@ def compute_moment_numerical(
         if n == 0:
             # Zeroth order: <O>_{S_0}
             if len(observable) >= 2:
-                _, pairings = wick_contract(observable, ito=ito)
+                incidence = (
+                    ConnectedIncidence.from_instances(observable, [])
+                    if target == "connected"
+                    else None
+                )
+                _, pairings = _wick_contract_target(observable, ito, incidence)
                 for p in pairings:
                     props = []
                     for i, j in p:
@@ -2771,12 +3114,18 @@ def compute_moment_numerical(
                         )
                         if diag_R or diag_C:
                             dt = dt.apply_diagonal(
-                                diag_R=diag_R, diag_C=diag_C,
-                                iso_R=iso_R, iso_C=iso_C,
+                                diag_R=diag_R,
+                                diag_C=diag_C,
+                                iso_R=iso_R,
+                                iso_C=iso_C,
                             )
                         integrands.append(dt)
         else:
             for vertex_seq, mc in action.all_vertex_combinations(n):
+                if target == "connected" and not connected_sequence_possible(
+                    len(observable), vertex_seq
+                ):
+                    continue
                 idx_ctx = IndexContext()
                 vis = [
                     VertexInstance.instantiate(v, idx_ctx, copy_id=k)
@@ -2786,6 +3135,11 @@ def compute_moment_numerical(
                 all_ops = list(observable)
                 for vi in vis:
                     all_ops.extend(vi.field_operators)
+                incidence = (
+                    ConnectedIncidence.from_instances(observable, vis)
+                    if target == "connected"
+                    else None
+                )
 
                 integration_vars = frozenset(
                     var for vi in vis for var in vi.spatial_variables
@@ -2797,14 +3151,16 @@ def compute_moment_numerical(
                 for vi in vis:
                     for k, v in vi.equal_time_aliases or ():
                         _eq_time_alias_pairs2.append((k, v))
-                eq_time_aliases_tuple2 = tuple(
-                    sorted(_eq_time_alias_pairs2)
-                )
+                eq_time_aliases_tuple2 = tuple(sorted(_eq_time_alias_pairs2))
 
                 # Spatial topology enumeration
                 spatial_results = wick_contract_spatial(
-                    all_ops, ito=ito, vertex_points=integration_vars,
+                    all_ops,
+                    ito=ito,
+                    vertex_points=integration_vars,
                 )
+                if incidence is not None:
+                    spatial_results = incidence.prune_topologies(spatial_results)
                 if not spatial_results:
                     continue
 
@@ -2820,9 +3176,7 @@ def compute_moment_numerical(
                     for comp_idx in vi.component_indices:
                         for op in vi.field_operators:
                             if op.component_index == comp_idx:
-                                sum_indices.append(
-                                    (comp_idx, op.field.n_components)
-                                )
+                                sum_indices.append((comp_idx, op.field.n_components))
                                 break
 
                 prefactor = Rational(sign * mc, fact)
@@ -2831,43 +3185,50 @@ def compute_moment_numerical(
 
                 def _process_topology(ref_props, mult, rep_pairing):
                     """Nauty key + pruned routing for one topology."""
-                    key = _canonical_key_nauty(
-                        ref_props, integration_vars
+                    # Preserve the legacy moment pipeline, including its
+                    # canonicalization-before-routing order.
+                    key = (
+                        _canonical_key_nauty(ref_props, integration_vars)
+                        if incidence is None
+                        else None
                     )
-                    routings = [
-                        props for props, _pairing in
-                        _enumerate_component_routings(
-                            ref_props, rep_pairing, all_ops,
-                            integration_vars,
-                        )
-                    ]
+                    routing_records = _enumerate_component_routings(
+                        ref_props,
+                        rep_pairing,
+                        all_ops,
+                        integration_vars,
+                    )
+                    if incidence is not None:
+                        routing_records = incidence.select_routings(routing_records)
+                    if not routing_records:
+                        return None, []
+                    if key is None:
+                        key = _canonical_key_nauty(ref_props, integration_vars)
+                    routings = [props for props, _pairing in routing_records]
                     return key, routings
 
                 # Run pipeline (parallel if beneficial)
                 if n_jobs != 1 and len(topo_list) > 100:
                     try:
                         from joblib import Parallel, delayed
+
                         topo_results = Parallel(n_jobs=n_jobs)(
                             delayed(_process_topology)(rp, m, p)
                             for rp, m, p in topo_list
                         )
                     except ImportError:
                         topo_results = [
-                            _process_topology(rp, m, p)
-                            for rp, m, p in topo_list
+                            _process_topology(rp, m, p) for rp, m, p in topo_list
                         ]
                 else:
                     topo_results = [
-                        _process_topology(rp, m, p)
-                        for rp, m, p in topo_list
+                        _process_topology(rp, m, p) for rp, m, p in topo_list
                     ]
 
                 # Group by canonical key
                 canon_groups: dict[bytes, list] = defaultdict(list)
                 ref_props_by_key: dict[bytes, list] = {}
-                for (rp, _m, _p), (key, routings) in zip(
-                    topo_list, topo_results
-                ):
+                for (rp, _m, _p), (key, routings) in zip(topo_list, topo_results):
                     if routings:
                         canon_groups[key].extend(routings)
                         if key not in ref_props_by_key:
@@ -2883,14 +3244,19 @@ def compute_moment_numerical(
                     coupling_syms: list[Expr] = []
                     for vi in vis:
                         idx_vals = tuple(
-                            op.component_index
-                            for op in vi.field_operators
+                            index
+                            for index in (
+                                op.component_index for op in vi.field_operators
+                            )
+                            if index is not None
                         )
-                        coupling_syms.append(Symbol(
-                            name=vi.vertex.coupling,
-                            indices=idx_vals,
-                            spatial_args=(),
-                        ))
+                        coupling_syms.append(
+                            Symbol(
+                                name=vi.vertex.coupling,
+                                indices=idx_vals,
+                                spatial_args=(),
+                            )
+                        )
                     coupling_expr: Expr = (
                         Product(tuple(coupling_syms))
                         if len(coupling_syms) > 1
@@ -2899,37 +3265,42 @@ def compute_moment_numerical(
 
                     for props in all_routing_props:
                         props_tuple = tuple(props)
-                        r_absorbed_pairs2, leg_aliases2 = (
-                            _collect_r_absorbed_pairs(props_tuple, vis)
+                        r_absorbed_pairs2, leg_aliases2 = _collect_r_absorbed_pairs(
+                            props_tuple, vis
                         )
                         merged_aliases2 = (
-                            tuple(sorted(
-                                set(eq_time_aliases_tuple2) | set(leg_aliases2)
-                            ))
-                            if leg_aliases2 else eq_time_aliases_tuple2
+                            tuple(
+                                sorted(set(eq_time_aliases_tuple2) | set(leg_aliases2))
+                            )
+                            if leg_aliases2
+                            else eq_time_aliases_tuple2
                         )
-                        integrands.append(_pin_absorbed_leg_indices(
-                            DiagramTerm(
-                                propagators=props_tuple,
-                                coupling_sum=coupling_expr,
-                                rational_prefactor=prefactor,
-                                integration_vars=int_vars_sorted,
-                                summation_indices=tuple(sum_indices),
-                                n_response=sum(
-                                    1 for p in props_tuple
-                                    if p.kind == "R"
-                                ),
-                                equal_time_aliases=merged_aliases2,
-                                r_absorbed_pairs=r_absorbed_pairs2,
-                                n_external_response=_n_ext_response,
-                            )))
+                        integrands.append(
+                            _pin_absorbed_leg_indices(
+                                DiagramTerm(
+                                    propagators=props_tuple,
+                                    coupling_sum=coupling_expr,
+                                    rational_prefactor=prefactor,
+                                    integration_vars=int_vars_sorted,
+                                    summation_indices=tuple(sum_indices),
+                                    n_response=sum(
+                                        1 for p in props_tuple if p.kind == "R"
+                                    ),
+                                    equal_time_aliases=merged_aliases2,
+                                    r_absorbed_pairs=r_absorbed_pairs2,
+                                    n_external_response=_n_ext_response,
+                                )
+                            )
+                        )
 
         # Apply diagonal constraints
         if (diag_R or diag_C) and integrands:
             integrands = [
                 dt.apply_diagonal(
-                    diag_R=diag_R, diag_C=diag_C,
-                    iso_R=iso_R, iso_C=iso_C,
+                    diag_R=diag_R,
+                    diag_C=diag_C,
+                    iso_R=iso_R,
+                    iso_C=iso_C,
                 )
                 for dt in integrands
             ]
@@ -2938,3 +3309,62 @@ def compute_moment_numerical(
             result[n] = integrands
 
     return result
+
+
+# Method identity witnesses for conservative dynamic sample-zero admission.
+_NATIVE_COMPILE_PLAN = compile_coupling_plan
+_NATIVE_COUPLING_METHODS = {
+    name: DiagramTerm.__dict__[name]
+    for name in (
+        "evaluate_coupling",
+        "evaluate_coupling_batched",
+        "response_phase_factor",
+        "propagator_indices",
+        "coupling_only_indices",
+        "_coupling_execution_plan",
+    )
+}
+
+
+# Definition-time namespace/code witnesses complement the method identities
+# above; a lazily imported backend must reject earlier customizations as well.
+def _capture_native_numeric_term_protocol():
+    from .expressions import _freeze_native_numeric_protocol
+
+    missing = object()
+    symbolic = (
+        _eval_symbolic,
+        _eval_symbolic.__code__,
+        _eval_symbolic.__defaults__,
+        dict(_eval_symbolic.__kwdefaults__ or {}),
+    )
+    functions = (DiagramTerm.evaluate_coupling, _eval_symbolic)
+    global_reads = tuple(
+        (function.__globals__, name, function.__globals__.get(name, missing))
+        for function in functions
+        for name in function.__code__.co_names
+    )
+    builtin_reads = tuple(
+        (function.__builtins__, name, function.__builtins__[name])
+        for function in functions
+        for name in function.__code__.co_names
+        if name not in function.__globals__ and name in function.__builtins__
+    )
+    return (
+        _freeze_native_numeric_protocol(DiagramTerm),
+        symbolic,
+        global_reads,
+        builtin_reads,
+        missing,
+    )
+
+
+(
+    _NATIVE_NUMERIC_TERM_PROTOCOL,
+    _NATIVE_NUMERIC_SYMBOLIC_PROTOCOL,
+    _NATIVE_NUMERIC_COUPLING_GLOBALS,
+    _NATIVE_NUMERIC_COUPLING_BUILTINS,
+    _NATIVE_NUMERIC_COUPLING_MISSING,
+) = _capture_native_numeric_term_protocol()
+_NATIVE_NUMERIC_TERM_BASES = DiagramTerm.__bases__
+del _capture_native_numeric_term_protocol

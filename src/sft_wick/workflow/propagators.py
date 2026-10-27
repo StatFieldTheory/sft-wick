@@ -185,17 +185,37 @@ class Propagators:
             )
         c_method_resolved = _resolve_c_method_family(system, c_method)
 
-        # Spec key = all inputs that affect the built cache content.
+        system_identity = closed_identity = None
+        if cache_path is not None:
+            from ._propagator_identity import native_closed_form_identity
+
+            system_identity = _minimal_propagator_spec(system)
+            closed_identity = native_closed_form_identity(c_fn)
+        native_selection = (
+            c_closed_form is None
+            or type(c_closed_form) is str
+            and c_closed_form == "auto"
+        )
+        shared_cache_path = (
+            cache_path
+            if system_identity is not None
+            and closed_identity is not None
+            and native_selection
+            else None
+        )
+        # Explicit/unversioned callbacks compute normally and never share a
+        # persisted model/table payload based on repr or Python object identity.
         spec_key = {
-            "system_hash": _minimal_propagator_spec(system),
+            "system_hash": system_identity,
             "hom": hom,
             "t_max": t_max,
             "n_grid_t": n_grid_t,
-            "r_max": r_max, "n_grid_r": n_grid_r,
+            "r_max": r_max,
+            "n_grid_r": n_grid_r,
             "n_grid_cos": n_grid_cos,
-            "x_max": x_max, "n_grid_x": n_grid_x,
-            "c_closed_form_repr":
-                None if c_fn is None else repr(c_fn),
+            "x_max": x_max,
+            "n_grid_x": n_grid_x,
+            "c_closed_form_repr": closed_identity,
             "c_closed_form_only": c_closed_form_only,
             "c_closed_form_vectorized": c_closed_form_vectorized,
             "interp_method": interp_method,
@@ -208,15 +228,20 @@ class Propagators:
             model = system.build_propagator_model(diag_C=diag_C)
             if c_fn is not None:
                 cache = _ClosedFormPropagatorCache(
-                    model=model, homogeneity=hom, c_fn=c_fn,
+                    model=model,
+                    homogeneity=hom,
+                    c_fn=c_fn,
                     interp_method=interp_method,
-                    c_method=c_method_resolved, n_gauss=int(c_n_gauss),
+                    c_method=c_method_resolved,
+                    n_gauss=int(c_n_gauss),
                 )
             else:
                 cache = PropagatorCache(
-                    model=model, homogeneity=hom,
+                    model=model,
+                    homogeneity=hom,
                     interp_method=interp_method,
-                    c_method=c_method_resolved, n_gauss=int(c_n_gauss),
+                    c_method=c_method_resolved,
+                    n_gauss=int(c_n_gauss),
                 )
 
             if c_closed_form_only:
@@ -225,32 +250,41 @@ class Propagators:
                 # routes lookups straight through the closed form.
                 cache._closed_form_only = True
                 cache._closed_form_vectorized = c_closed_form_vectorized
-                return cls(cache=cache, homogeneity=hom, is_lazy=False,
-                           c_source=c_fn_source)
+                return cls(
+                    cache=cache, homogeneity=hom, is_lazy=False, c_source=c_fn_source
+                )
 
             is_lazy = False
             if hom == "translation":
                 cache.precompute_C_table_translation(
-                    t_max=t_max, n_grid_t=n_grid_t,
-                    r_max=r_max, n_grid_r=n_grid_r,
+                    t_max=t_max,
+                    n_grid_t=n_grid_t,
+                    r_max=r_max,
+                    n_grid_r=n_grid_r,
                     n_jobs=n_jobs,
-                    c_method=c_method, n_gauss=int(c_n_gauss),
+                    c_method=c_method,
+                    n_gauss=int(c_n_gauss),
                 )
                 is_lazy = (r_max is None) or (n_grid_r is None)
             elif hom == "rotation":
                 cache.precompute_C_table_rotation(
-                    t_max=t_max, n_grid_t=n_grid_t,
+                    t_max=t_max,
+                    n_grid_t=n_grid_t,
                     n_grid_cos=n_grid_cos,
                     n_jobs=n_jobs,
-                    c_method=c_method, n_gauss=int(c_n_gauss),
+                    c_method=c_method,
+                    n_gauss=int(c_n_gauss),
                 )
                 is_lazy = n_grid_cos is None
             else:  # general
                 cache.precompute_C_table_general(
-                    t_max=t_max, n_grid_t=n_grid_t,
-                    x_max=x_max, n_grid_x=n_grid_x,
+                    t_max=t_max,
+                    n_grid_t=n_grid_t,
+                    x_max=x_max,
+                    n_grid_x=n_grid_x,
                     n_jobs=n_jobs,
-                    c_method=c_method, n_gauss=int(c_n_gauss),
+                    c_method=c_method,
+                    n_gauss=int(c_n_gauss),
                 )
                 is_lazy = (x_max is None) or (n_grid_x is None)
 
@@ -271,11 +305,19 @@ class Propagators:
                 if lazy is not None:
                     lazy.n_jobs = 1
 
-            return cls(cache=cache, homogeneity=hom, is_lazy=is_lazy,
-                       c_source=c_fn_source or _quadrature_source(cache))
+            return cls(
+                cache=cache,
+                homogeneity=hom,
+                is_lazy=is_lazy,
+                c_source=c_fn_source or _quadrature_source(cache),
+            )
 
+        if cache_path is not None and shared_cache_path is None:
+            return _build()
         return load_or_compute(
-            cache_path, spec_key, _build,
+            shared_cache_path,
+            spec_key,
+            _build,
             operation_name="propagator table",
         )
 
@@ -291,6 +333,7 @@ def _resolve_closed_form(system, c_closed_form):
                 f"got {c_closed_form!r}."
             )
         from .closed_forms import builtin_closed_form_for
+
         cf = builtin_closed_form_for(system)
         if cf is None:
             return None, None
@@ -307,9 +350,15 @@ def _kernel_family_is_structured(system) -> bool:
     """Whether every kernel piece is one of the package's own analytic
     families (so its smoothness is known and Gauss-Legendre is safe)."""
     from .specs import (
-        ConstantImpulse, CustomImpulse, CustomKernel, DiagonalA,
-        MultiplicativeImpulse, SeparableRotation, SeparableTranslation,
+        ConstantImpulse,
+        CustomImpulse,
+        CustomKernel,
+        DiagonalA,
+        MultiplicativeImpulse,
+        SeparableRotation,
+        SeparableTranslation,
     )
+
     if getattr(system, "explicit_R", None) is not None:
         return False
     if not isinstance(system.linear, DiagonalA) or callable(system.linear.gamma):
@@ -325,9 +374,10 @@ def _kernel_family_is_structured(system) -> bool:
         return False
     s2 = system.noise.sigma2
     # MultiplicativeImpulse enters C through its constant part D0 only.
-    if s2 is not None and (isinstance(s2, CustomImpulse)
-                           or not isinstance(s2, (ConstantImpulse,
-                                                  MultiplicativeImpulse))):
+    if s2 is not None and (
+        isinstance(s2, CustomImpulse)
+        or not isinstance(s2, (ConstantImpulse, MultiplicativeImpulse))
+    ):
         return False
     return True
 
@@ -380,7 +430,6 @@ def propagators_from_cache(cache) -> "Propagators":
     return Propagators(cache=cache, homogeneity="translation", is_lazy=False)
 
 
-
 class _ClosedFormPropagatorCache(PropagatorCache):
     """PropagatorCache that delegates ``_C_value_direct`` to a user callable.
 
@@ -398,9 +447,7 @@ class _ClosedFormPropagatorCache(PropagatorCache):
     def __init__(self, *args, c_fn=None, **kwargs):
         super().__init__(*args, **kwargs)
         if c_fn is None:
-            raise ValueError(
-                "_ClosedFormPropagatorCache requires a c_fn callable."
-            )
+            raise ValueError("_ClosedFormPropagatorCache requires a c_fn callable.")
         self._c_fn = c_fn
 
     # -- structure known to the lazy spline cache --------------------------
@@ -416,15 +463,19 @@ class _ClosedFormPropagatorCache(PropagatorCache):
         """The built-in closed form factorises as ``κ_x(r) · C(0; …)``
         unless it carries a white-noise term; a user callable is opaque."""
         cf = self._c_fn
-        if getattr(cf, "separable_translation", False) \
-                and getattr(cf, "sigma2", None) is None \
-                and hasattr(cf, "spatial_factor"):
+        if (
+            getattr(cf, "separable_translation", False)
+            and getattr(cf, "sigma2", None) is None
+            and hasattr(cf, "spatial_factor")
+        ):
             return cf.spatial_factor
         return None
 
     def _c_time_symmetric(self) -> bool:
-        return bool(getattr(self._c_fn, "separable_translation", False)) \
+        return (
+            bool(getattr(self._c_fn, "separable_translation", False))
             and self.model.diag_C
+        )
 
     def _c_source_label(self) -> str:
         return "closed form"
@@ -449,14 +500,7 @@ class _ClosedFormPropagatorCache(PropagatorCache):
 
 
 def _minimal_propagator_spec(system) -> Any:
-    """Lightweight spec key for propagator-cache hashing.  Includes
-    only the fields that actually determine the cache content (not
-    the interaction vertices)."""
-    return {
-        "n_components": system.n_components,
-        "t_min": system.t_min,
-        "iso_R": system.iso_R,
-        "linear_repr": repr(system.linear),
-        "noise_kappa2_repr": repr(system.noise.kappa2),
-        "noise_sigma2_repr": repr(system.noise.sigma2),
-    }
+    """Complete native content identity, or None when sharing is unsupported."""
+    from ._propagator_identity import native_propagator_identity
+
+    return native_propagator_identity(system)

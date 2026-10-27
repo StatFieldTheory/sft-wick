@@ -580,9 +580,9 @@ class CustomKernel:
 
     .. note::
 
-       **Pass a callable OBJECT, not a bare function, if you use
-       ``cache_path``.**  The expansion and propagator cache keys are
-       built from ``repr()`` of the spec, and ``repr()`` of a plain
+       **Pass a callable OBJECT, not a bare function, if you use the
+       expansion cache.**  The expansion cache key is built from
+       ``repr()`` of the spec, and ``repr()`` of a plain
        function embeds its memory address, so the key changes every
        process and the cache never hits.  A module-level ``def`` is
        affected exactly as much as a ``lambda``; what fixes it is a
@@ -604,6 +604,11 @@ class CustomKernel:
        because the symbolic enumeration does not depend on coupling
        values.  A frozen dataclass also pickles cleanly for joblib, so
        it is the better choice under ``n_jobs > 1`` regardless.
+
+       The propagator disk cache (``System.propagators(cache_path=...)``)
+       is used only for built-in specs since 0.7.0.  A system with a
+       ``CustomKernel`` computes its tables on every call and writes no
+       cache file, whatever the callable's ``repr``.
     """
 
     fn: Callable
@@ -1241,3 +1246,19 @@ class NonLocalVertex:
                 vectorized=self.coupling_vectorized,
             )
         return factor * np.asarray(bare)
+
+
+# Preserve definitions before the lazy disk-cache identity helper is imported.
+from ._native_protocol import capture_native_protocol as _capture_native_protocol
+
+_NATIVE_CALLABLE_PROTOCOL = _capture_native_protocol(
+    globals(),
+    (
+        "FieldSpec", "DiagonalA", "GaussianNoise", "SeparableTranslation",
+        "SeparableRotation", "ExponentialTemporal", "GaussianTemporal",
+        "ExponentialSpatial", "GaussianSpatial", "LegendreAngular", "ConstantImpulse",
+        "LinearOp", "Kappa2", "Sigma2", "_StaticIsoR", "_StaticMatR",
+        "_SeparableTranslationKappa2", "_SeparableRotationKappa2",
+        "_ConstantImpulseIso", "_ConstantImpulseMat",
+    ),
+)

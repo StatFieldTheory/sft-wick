@@ -70,8 +70,11 @@ class CostEstimate:
             f"(positions x t_final x external times x component tuples); "
             f"distinct separations: {self.n_distinct_separations}",
             f"[sft-wick]   integrator: {self.sweep_method}, "
-            + (f"n_samples={self.n_samples} per diagram per grid point"
-               if self.sweep_method.startswith("qmc") else "deterministic nodes"),
+            + (
+                f"n_samples={self.n_samples} per diagram per grid point"
+                if self.sweep_method.startswith("qmc")
+                else "deterministic nodes"
+            ),
             f"[sft-wick]   C propagator: {self.c_source}"
             + (" (lazy per-separation table)" if self.is_lazy else ""),
         ]
@@ -89,8 +92,12 @@ class CostEstimate:
         lines.append(
             f"[sft-wick]   sweep: {self.n_grid_points} x {n_diag} diagram "
             f"evaluations = {self.est_sweep_serial_s:.0f} s serial"
-            + (f" (~{self.est_sweep_serial_s / max(1, self._n_workers()):.0f} s "
-               f"on {self._n_workers()} workers)" if self.sweep_n_jobs != 1 else "")
+            + (
+                f" (~{self.est_sweep_serial_s / max(1, self._n_workers()):.0f} s "
+                f"on {self._n_workers()} workers)"
+                if self.sweep_n_jobs != 1
+                else ""
+            )
         )
         lines.append(
             f"[sft-wick]   ROUGH TOTAL: {_fmt_duration(self.est_total_serial_s)} "
@@ -102,6 +109,7 @@ class CostEstimate:
 
     def _n_workers(self) -> int:
         import os
+
         if self.sweep_n_jobs == -1:
             return os.cpu_count() or 1
         return max(1, int(self.sweep_n_jobs))
@@ -140,19 +148,31 @@ def _estimate(cfg, bench_seconds, build_system, load_c) -> CostEstimate:
     system = build_system(cfg.system)
     expand_diag_C = cfg.expand.diag_C and cfg.propagators.diag_C
     expansion = system.expand(
-        observable=cfg.expand.observable, orders=cfg.expand.orders,
-        response_phase=cfg.expand.response_phase, ito=cfg.expand.ito,
-        collect_topology=cfg.expand.collect_topology, iso_R=cfg.expand.iso_R,
-        diag_R=cfg.expand.diag_R, diag_C=expand_diag_C, iso_C=cfg.expand.iso_C,
+        observable=cfg.expand.observable,
+        orders=cfg.expand.orders,
+        response_phase=cfg.expand.response_phase,
+        ito=cfg.expand.ito,
+        collect_topology=cfg.expand.collect_topology,
+        iso_R=cfg.expand.iso_R,
+        diag_R=cfg.expand.diag_R,
+        diag_C=expand_diag_C,
+        iso_C=cfg.expand.iso_C,
         cache_path=cfg.expand.cache_path,
+        target=cfg.expand.target,
     )
     sw = cfg.sweep
-    orders = (sorted(set(int(o) for o in sw.orders))
-              if sw.orders is not None else list(expansion.orders))
+    orders = (
+        sorted(set(int(o) for o in sw.orders))
+        if sw.orders is not None
+        else list(expansion.orders)
+    )
     vt = None if sw.vertex_types is None else set(sw.vertex_types)
     diagrams_per_order = {
-        o: sum(1 for dt in expansion.diagrams(o)
-               if vt is None or expansion._vertex_type_label(dt) in vt)
+        o: sum(
+            1
+            for dt in expansion.diagrams(o)
+            if vt is None or expansion._vertex_type_label(dt) in vt
+        )
         for o in orders
     }
     # The component axis, checked against the observable exactly as the
@@ -160,12 +180,18 @@ def _estimate(cfg, bench_seconds, build_system, load_c) -> CostEstimate:
     from .expansion import _resolve_component_tuples
 
     comps = _resolve_component_tuples(
-        None, sw.component_tuples, expansion.observable_repr,
-        system.n_components, "sweep.component_tuples",
+        None,
+        sw.component_tuples,
+        expansion.observable_repr,
+        system.n_components,
+        "sweep.component_tuples",
     )
     n_pos = int(np.prod([len(v) for v in sw.positions_grid.values()]))
-    n_et = int(np.prod([len(v) for v in (sw.external_times_grid or {}).values()])) \
-        if sw.external_times_grid else 1
+    n_et = (
+        int(np.prod([len(v) for v in (sw.external_times_grid or {}).values()]))
+        if sw.external_times_grid
+        else 1
+    )
     n_grid = n_pos * len(sw.t_final_grid) * n_et * len(comps)
     n_sep = _distinct_separations(sw.positions_grid)
 
@@ -174,19 +200,29 @@ def _estimate(cfg, bench_seconds, build_system, load_c) -> CostEstimate:
     pc = cfg.propagators
     c_fn = load_c(pc)
     props = system.propagators(
-        t_max=pc.t_max, n_grid_t=pc.n_grid_t, homogeneity=pc.homogeneity,
-        r_max=pc.r_max, n_grid_r=pc.n_grid_r, n_grid_cos=pc.n_grid_cos,
-        x_max=pc.x_max, n_grid_x=pc.n_grid_x, n_jobs=1, c_closed_form=c_fn,
-        interp_method=pc.interp_method, c_closed_form_only=pc.c_closed_form_only,
+        t_max=pc.t_max,
+        n_grid_t=pc.n_grid_t,
+        homogeneity=pc.homogeneity,
+        r_max=pc.r_max,
+        n_grid_r=pc.n_grid_r,
+        n_grid_cos=pc.n_grid_cos,
+        x_max=pc.x_max,
+        n_grid_x=pc.n_grid_x,
+        n_jobs=1,
+        c_closed_form=c_fn,
+        interp_method=pc.interp_method,
+        c_closed_form_only=pc.c_closed_form_only,
         c_closed_form_vectorized=pc.c_closed_form_vectorized,
-        c_method=pc.c_method, c_n_gauss=pc.c_n_gauss, diag_C=pc.diag_C,
+        c_method=pc.c_method,
+        c_n_gauss=pc.c_n_gauss,
+        diag_C=pc.diag_C,
     )
     notes: list[str] = []
     cache = props.cache
     if props.c_source.startswith("closed_form") or pc.c_closed_form_only:
         n_c_calls, t_c = 0, None
     else:
-        n_cells = pc.n_grid_t ** 2
+        n_cells = pc.n_grid_t**2
         # Half the cells when the table is fixed by its t2 >= t1 half: an
         # even kernel for a diagonal table, the transposition
         # C_ab(t1, t2) = C_ba(t2, t1) for a full one.
@@ -195,8 +231,10 @@ def _estimate(cfg, bench_seconds, build_system, load_c) -> CostEstimate:
         if props.is_lazy:
             n_tables = 1 if cache._lazy_spatial_factor() is not None else n_sep
             if n_tables > 1:
-                notes.append(f"lazy table rebuilt for each of the {n_sep} "
-                             f"distinct separations (kernel not separable)")
+                notes.append(
+                    f"lazy table rebuilt for each of the {n_sep} "
+                    f"distinct separations (kernel not separable)"
+                )
         else:
             n_tables = int(pc.n_grid_r or pc.n_grid_cos or (pc.n_grid_x or 1) ** 2)
         n_c_calls = n_cells * n_tables
@@ -213,30 +251,54 @@ def _estimate(cfg, bench_seconds, build_system, load_c) -> CostEstimate:
             reps += 1
         t_c = (time.perf_counter() - t0) / reps
         if pc.n_jobs != 1:
-            notes.append(f"propagators.n_jobs={pc.n_jobs}: table build "
-                         f"parallelises across cells")
+            notes.append(
+                f"propagators.n_jobs={pc.n_jobs}: table build "
+                f"parallelises across cells"
+            )
 
     # One diagram per order at one grid point, on a small throw-away
     # table so a slow quadrature does not dominate the benchmark.
     bench_props = system.propagators(
-        t_max=pc.t_max, n_grid_t=6, n_jobs=1, c_closed_form=c_fn,
+        t_max=pc.t_max,
+        n_grid_t=6,
+        n_jobs=1,
+        c_closed_form=c_fn,
         c_closed_form_only=pc.c_closed_form_only,
         c_closed_form_vectorized=pc.c_closed_form_vectorized,
-        c_method=pc.c_method, c_n_gauss=min(pc.c_n_gauss, 12), diag_C=pc.diag_C,
+        c_method=pc.c_method,
+        c_n_gauss=min(pc.c_n_gauss, 12),
+        diag_C=pc.diag_C,
     )
     n_bench = min(int(sw.n_samples), 2048)
     pos = {k: v[0] for k, v in sw.positions_grid.items()}
     t_f = float(max(sw.t_final_grid))
-    et = ({k: v[0] for k, v in sw.external_times_grid.items()}
-          if sw.external_times_grid else None)
+    et = (
+        {k: v[0] for k, v in sw.external_times_grid.items()}
+        if sw.external_times_grid
+        else None
+    )
     t_diag: dict[int, float] = {}
 
     def _evaluate(o, n):
         return expansion.evaluate(
-            bench_props, positions=pos, t_final=t_f, external_times=et,
-            component_pair=comps[0], orders=[o],
-            vertex_types=sw.vertex_types, integrate_over=sw.integrate_over,
-            method=sw.method, n_samples=n, seed=sw.seed, n_gauss=sw.n_gauss,
+            bench_props,
+            positions=pos,
+            t_final=t_f,
+            external_times=et,
+            component_pair=comps[0],
+            orders=[o],
+            vertex_types=sw.vertex_types,
+            integrate_over=sw.integrate_over,
+            method=sw.method,
+            n_samples=n,
+            seed=sw.seed,
+            n_gauss=sw.n_gauss,
+            gl_chunk_size=sw.gl_chunk_size,
+            **(
+                {}
+                if sw.qmc_coupling_chunk_size is None
+                else {"qmc_coupling_chunk_size": sw.qmc_coupling_chunk_size}
+            ),
         )
 
     # Warm up on the cheapest order: the first evaluation at a separation
@@ -256,10 +318,16 @@ def _estimate(cfg, bench_seconds, build_system, load_c) -> CostEstimate:
             dt *= int(sw.n_samples) / n_bench
         t_diag[o] = dt
     return CostEstimate(
-        diagrams_per_order=diagrams_per_order, n_grid_points=n_grid,
-        n_distinct_separations=n_sep, sweep_method=sw.method,
-        n_samples=int(sw.n_samples), c_source=props.c_source,
-        is_lazy=props.is_lazy, n_c_calls=n_c_calls, t_c_call=t_c,
-        t_diagram_per_order=t_diag, sweep_n_jobs=int(sw.n_jobs),
+        diagrams_per_order=diagrams_per_order,
+        n_grid_points=n_grid,
+        n_distinct_separations=n_sep,
+        sweep_method=sw.method,
+        n_samples=int(sw.n_samples),
+        c_source=props.c_source,
+        is_lazy=props.is_lazy,
+        n_c_calls=n_c_calls,
+        t_c_call=t_c,
+        t_diagram_per_order=t_diag,
+        sweep_n_jobs=int(sw.n_jobs),
         notes=tuple(notes),
     )

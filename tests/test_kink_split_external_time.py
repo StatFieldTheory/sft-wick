@@ -51,8 +51,10 @@ FIXED = {"x": T_X, "y": T_Y}
 
 
 def _spatial(orderings, c_pairs, ivars=("u", "v")):
+    points = {point for pair in (*orderings, *c_pairs) for point in pair}
     return SimpleNamespace(
         equal_time_aliases=(), time_integration_vars=tuple(ivars),
+        external_points=tuple(sorted(points - set(ivars))),
         time_orderings=list(orderings),
         c_propagators=[(l, r, None, None) for l, r in c_pairs])
 

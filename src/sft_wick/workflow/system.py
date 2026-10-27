@@ -31,13 +31,11 @@ from .specs import (
     SeparableTranslation,
 )
 
-
 #: Offsets from ``t_min`` at which R, κ² and σ² are probed for off-diagonal
 #: component entries, and the positions used for κ² and σ².  Irregular
 #: values, so that a kernel is unlikely to vanish off the diagonal at every
 #: probe point by coincidence.
-_PROBE_TIME_PAIRS = ((0.37, 0.0), (1.3, 0.55), (2.9, 1.7), (0.8, 0.8),
-                     (4.1, 0.2))
+_PROBE_TIME_PAIRS = ((0.37, 0.0), (1.3, 0.55), (2.9, 1.7), (0.8, 0.8), (4.1, 0.2))
 _PROBE_POSITION_PAIRS = ((0.0, 0.0), (0.0, 0.43), (1.1, -0.7))
 _OFFDIAG_RTOL = 1e-12
 
@@ -151,16 +149,19 @@ class System:
             if sigma2.n_components != self.n_components:
                 raise ValueError(
                     f"MultiplicativeImpulse has N = {sigma2.n_components} "
-                    f"components but the field has {self.n_components}.")
-            taken = ({v.name for v in self.vertices}
-                     | {v.name for v in self.nonlocal_vertices})
+                    f"components but the field has {self.n_components}."
+                )
+            taken = {v.name for v in self.vertices} | {
+                v.name for v in self.nonlocal_vertices
+            }
             clash = sorted(taken & {v.name for v in sigma2.vertices()})
             if clash:
                 raise ValueError(
                     f"vertex name(s) {clash} are used both by the system's "
                     f"vertices and by the MultiplicativeImpulse; rename one "
                     f"(MultiplicativeImpulse(vertex_names=..., "
-                    f"drift_names=...)).  Coupling values are keyed by name.")
+                    f"drift_names=...)).  Coupling values are keyed by name."
+                )
 
     # --------------------------------------------------------------- #
     # Derived properties
@@ -194,13 +195,18 @@ class System:
         down to ``t_min`` (at its own node spacing) when it starts above
         it, so that no R below the grid comes from spline extrapolation."""
         lin = self.linear
-        if (isinstance(lin, DiagonalA) and callable(lin.gamma)
-                and self.t_min < lin.t_min_cache):
-            spacing = ((lin.t_max_cache - lin.t_min_cache)
-                       / max(lin.n_grid_cache - 1, 1))
+        if (
+            isinstance(lin, DiagonalA)
+            and callable(lin.gamma)
+            and self.t_min < lin.t_min_cache
+        ):
+            spacing = (lin.t_max_cache - lin.t_min_cache) / max(lin.n_grid_cache - 1, 1)
             n_grid = int(np.ceil((lin.t_max_cache - self.t_min) / spacing)) + 1
-            return replace(lin, t_min_cache=float(self.t_min),
-                           n_grid_cache=max(n_grid, lin.n_grid_cache))
+            return replace(
+                lin,
+                t_min_cache=float(self.t_min),
+                n_grid_cache=max(n_grid, lin.n_grid_cache),
+            )
         return lin
 
     def _r_offdiagonal(self) -> bool | None:
@@ -214,23 +220,30 @@ class System:
             return False
         if self.explicit_R is None and isinstance(self.linear, DiagonalA):
             return False
-        R = (self.explicit_R if self.explicit_R is not None
-             else self.linear.build_R_callable())
+        R = (
+            self.explicit_R
+            if self.explicit_R is not None
+            else self.linear.build_R_callable()
+        )
         t0 = float(self.t_min)
         return _probe_offdiagonal(
-            R, [(t0 + a, t0 + b) for a, b in _PROBE_TIME_PAIRS if a > b])
+            R, [(t0 + a, t0 + b) for a, b in _PROBE_TIME_PAIRS if a > b]
+        )
 
     def _kappa2_offdiagonal(self) -> bool | None:
         kappa2 = self.noise.kappa2
         if isinstance(kappa2, (SeparableTranslation, SeparableRotation)):
-            return False                     # κ_t κ_x · I_N by construction
+            return False  # κ_t κ_x · I_N by construction
         fn = kappa2.build_callable(self.n_components)
         t0 = float(self.t_min)
-        return _probe_offdiagonal(fn, [
-            (x1, t0 + a, x2, t0 + b)
-            for x1, x2 in _PROBE_POSITION_PAIRS
-            for a, b in _PROBE_TIME_PAIRS
-        ])
+        return _probe_offdiagonal(
+            fn,
+            [
+                (x1, t0 + a, x2, t0 + b)
+                for x1, x2 in _PROBE_POSITION_PAIRS
+                for a, b in _PROBE_TIME_PAIRS
+            ],
+        )
 
     def _sigma2_offdiagonal(self) -> bool | None:
         sigma2 = self.noise.sigma2
@@ -240,18 +253,24 @@ class System:
             return _offdiagonal(np.asarray(sigma2.amplitude, dtype=float))
         fn = sigma2.build_callable(self.n_components)
         t0 = float(self.t_min)
-        return _probe_offdiagonal(fn, [
-            (x1, t0 + a, x2)
-            for x1, x2 in _PROBE_POSITION_PAIRS
-            for a, _ in _PROBE_TIME_PAIRS
-        ])
+        return _probe_offdiagonal(
+            fn,
+            [
+                (x1, t0 + a, x2)
+                for x1, x2 in _PROBE_POSITION_PAIRS
+                for a, _ in _PROBE_TIME_PAIRS
+            ],
+        )
 
     def _c_offdiagonal(self) -> bool | None:
         """Whether ``C = ∫R κ² R + ∫R σ² R`` has off-diagonal entries:
         ``True`` if R, κ² or σ² has one, ``None`` if a probe could not tell
         and none of the others found one."""
-        parts = (self._r_offdiagonal(), self._kappa2_offdiagonal(),
-                 self._sigma2_offdiagonal())
+        parts = (
+            self._r_offdiagonal(),
+            self._kappa2_offdiagonal(),
+            self._sigma2_offdiagonal(),
+        )
         if any(p is True for p in parts):
             return True
         return None if None in parts else False
@@ -296,10 +315,10 @@ class System:
 
     def build_fields(self) -> tuple[Field, Field]:
         """Return ``(phi, psi)`` :class:`Field` objects."""
-        phi = Field(self.field.name, "physical",
-                    n_components=self.n_components)
-        psi = Field(self.field.response_name, "response",
-                    n_components=self.n_components)
+        phi = Field(self.field.name, "physical", n_components=self.n_components)
+        psi = Field(
+            self.field.response_name, "response", n_components=self.n_components
+        )
         return phi, psi
 
     def build_action(self) -> Action:
@@ -311,9 +330,7 @@ class System:
             # Convention: first axis = ψ, rest = φ.  ``n_legs`` reads a
             # tensor's rank, or the declared ``rank`` of a callable.
             fields = [psi] + [phi] * (lv.n_legs - 1)
-            raw_vertices.append(
-                Vertex(fields=fields, coupling=lv.name, local=True)
-            )
+            raw_vertices.append(Vertex(fields=fields, coupling=lv.name, local=True))
 
         for nv in self.nonlocal_vertices:
             raw_vertices.append(
@@ -331,9 +348,7 @@ class System:
         for mv in self.multiplicative_vertices:
             rank = np.asarray(mv.coupling).ndim
             fields = [psi] * mv.n_psi + [phi] * (rank - mv.n_psi)
-            raw_vertices.append(
-                Vertex(fields=fields, coupling=mv.name, local=True)
-            )
+            raw_vertices.append(Vertex(fields=fields, coupling=mv.name, local=True))
 
         return Action(vertices=raw_vertices)
 
@@ -384,6 +399,7 @@ class System:
         iso_C: bool = False,
         cache_path: Any = None,
         progress: Any = None,
+        target: str = "moment",
     ) -> "Expansion":
         """Run the perturbative expansion and return an
         :class:`Expansion` object.
@@ -400,6 +416,11 @@ class System:
             progress: progress-bar setting for the per-order expansion
                 (``True`` / ``False`` / callable / ``None`` = inherit);
                 see :mod:`sft_wick.progress`.
+            target: ``'moment'`` (default) or ``'connected'``. Each observable
+                occurrence is one source insertion. Connected diagrams give
+                formal joint cumulants for the normalized causal Itô MSR
+                system; see :func:`~sft_wick.perturbation.compute_moment` for
+                normalization and source-correlator boundaries.
 
         Raises:
             ValueError: with ``diag_R=True`` and a non-scalar R
@@ -429,20 +450,33 @@ class System:
             raise ValueError(_DIAG_C_REFUSAL)
 
         obs_ops, obs_repr = _parse_observable(
-            observable, self, max(orders_list),
+            observable,
+            self,
+            max(orders_list),
         )
+        from sft_wick._connected import validate_target
+
+        validate_target(target, obs_ops)
 
         spec_key = {
             "system_hash": _system_spec_key(self),
             "observable": obs_repr,
             "orders": tuple(orders_list),
             "flags": (
-                response_phase, ito, collect_topology,
-                iso_R_val, diag_R, diag_C, iso_C,
+                response_phase,
+                ito,
+                collect_topology,
+                iso_R_val,
+                diag_R,
+                diag_C,
+                iso_C,
             ),
         }
 
         max_order = max(orders_list)
+        # Keep the preexisting moment cache key exactly unchanged.
+        if target != "moment":
+            spec_key["target"] = target
 
         def _compute():
             reset_uid_counter()
@@ -458,17 +492,18 @@ class System:
                 diag_C=diag_C,
                 iso_R=iso_R_val,
                 iso_C=iso_C,
+                target=target,
             )
             return {
-                "dts_by_order": {
-                    o: result.diagram_terms(o) for o in orders_list
-                },
+                "dts_by_order": {o: result.diagram_terms(o) for o in orders_list},
                 "raw_result": result,
             }
 
         with _progress_scope(progress):
             payload = load_or_compute(
-                cache_path, spec_key, _compute,
+                cache_path,
+                spec_key,
+                _compute,
                 operation_name="expansion",
             )
 
@@ -478,6 +513,7 @@ class System:
             orders=tuple(orders_list),
             observable_repr=obs_repr,
             raw_result=payload["raw_result"],
+            target=target,
         )
 
     def propagators(
@@ -607,8 +643,12 @@ class System:
         from .propagators import Propagators
 
         lin = self._effective_linear
-        if (self.explicit_R is None and isinstance(lin, DiagonalA)
-                and callable(lin.gamma) and t_max > lin.t_max_cache):
+        if (
+            self.explicit_R is None
+            and isinstance(lin, DiagonalA)
+            and callable(lin.gamma)
+            and t_max > lin.t_max_cache
+        ):
             raise ValueError(
                 f"t_max={t_max} exceeds DiagonalA.t_max_cache="
                 f"{lin.t_max_cache}: the cumulative-rate spline behind R "
@@ -705,9 +745,11 @@ def _parse_observable(observable, system: System, _max_order: int = 1):
     if all(isinstance(o, FieldOperator) for o in ops):
         check_distinct_external_labels(ops, _max_order)
         repr_list = tuple(
-            (o.field.name,
-             tuple(o.component_indices) if o.component_indices else None,
-             o.spatial_arg)
+            (
+                o.field.name,
+                tuple(o.component_indices) if o.component_indices else None,
+                o.spatial_arg,
+            )
             for o in ops
         )
         return tuple(ops), repr_list
@@ -734,9 +776,15 @@ def _system_spec_key(system: System) -> Any:
         "noise_kappa2_repr": repr(system.noise.kappa2),
         "noise_sigma2_repr": repr(system.noise.sigma2),
         "vertices": tuple(
-            (v.name, "callable", v.n_legs) if callable(v.coupling)
-            else (v.name, np.asarray(v.coupling).shape,
-                  float(np.sum(np.abs(np.asarray(v.coupling)))))
+            (
+                (v.name, "callable", v.n_legs)
+                if callable(v.coupling)
+                else (
+                    v.name,
+                    np.asarray(v.coupling).shape,
+                    float(np.sum(np.abs(np.asarray(v.coupling)))),
+                )
+            )
             for v in system.vertices
         ),
         "nonlocal_vertices": tuple(
@@ -745,3 +793,9 @@ def _system_spec_key(system: System) -> Any:
         ),
         "t_min": system.t_min,
     }
+
+
+# Preserve definitions before the lazy disk-cache identity helper is imported.
+from ._native_protocol import capture_native_protocol as _capture_native_protocol
+
+_NATIVE_CALLABLE_PROTOCOL = _capture_native_protocol(globals(), ("System",))

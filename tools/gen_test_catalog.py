@@ -41,100 +41,321 @@ SUBJECTS = [
     "Drawing and LaTeX",
     "Spectral propagators",
     "Self-consistency",
+    "Finite Gaussian observables",
 ]
 
 # file -> (subject, what is checked, reference, tolerance)
 FILE_META: dict[str, tuple[str, str, str, str]] = {
+    "tests/test_factorized_coupling.py": (
+        "Integrators",
+        "original static monomial snapshots, lazy true ndarray materialization, "
+        "ordered fallback and budget failures, protocol and pickle boundaries",
+        "ordered DiagramTerm component evaluation and adversarial protocol changes",
+        "exact materialized dtype/bytes and fallback results; admitted contraction 1e-12 / 1e-14",
+    ),
+    "tests/test_factorized_public.py": (
+        "Workflow and YAML",
+        "factorized preparation via public GL/QMC, complete expansion/sweep/YAML rows, "
+        "worker serialization and scalar budget feedback",
+        "ordered complete values/errors/axis metadata and public custom builder witnesses",
+        "1e-12 relative / 1e-14 absolute complete results; exact metadata",
+    ),
+    "tests/test_propagator_cache_identity.py": (
+        "Propagator numerics",
+        "full native content identities, response/callback bypass, mutation and protocol safety",
+        "disk reuse/miss witnesses, exact array bytes and hostile custom accessors",
+        "exact native identities and explicit callback response values",
+    ),
+    "tests/test_execution_controls.py": (
+        "Workflow and YAML",
+        "L0/L1/YAML execution choices, upfront contracts, serial lifetime and error "
+        "cleanup, real dense admission, custom instance hooks, fixed comparison promise and loky parity",
+        "native DiagramTerm complete values/errors, deterministic counting callbacks, "
+        "IEEE float-bit signatures and configured-module nonexecution witnesses",
+        "exact cache/default/worker results; 1e-12 relative / 1e-14 absolute dense cases",
+    ),
+    "tests/test_propagator_lookup_cache.py": (
+        "Propagator numerics",
+        "explicit fixed-model batch lookup promise, exact typed keys, bounded LRU, "
+        "copies/layout/read-only outputs, invalidation, reentrancy and serialization",
+        "deterministic counting callbacks, stateful bypass witnesses, exact native byte/layout checks",
+        "exact outputs and retained raw-byte/4096-entry bounds; no RSS claim",
+    ),
+    "tests/test_dense_contraction_backend.py": (
+        "Integrators",
+        "explicit static dense contraction, coefficient phase, pins/repeated labels, "
+        "full matrices, dtype/range/budget/custom/error-policy fallbacks",
+        "independent ordered component fold, actual DiagramTerm batches, adversarial cancellation",
+        "1e-12 relative / 1e-14 absolute admitted finite probes; no universal rounding bound",
+    ),
+    "tests/test_resource_controls.py": (
+        "Workflow and YAML",
+        "pure configuration resource scopes and conditional/bypass statuses; connected dry-run target",
+        "callback nonexecution witnesses, grid cardinality and connected Gaussian zero coefficients",
+        "exact status, callback and diagram-count checks",
+    ),
+    "tests/test_resource_compare.py": (
+        "Workflow and YAML",
+        "strict resource variants, complete ordered result/stability gates, input protection, fresh serial measurement and failure receipts",
+        "adversarial metadata/error/cancellation/nonfinite/overflow probes; true GL/QMC subprocesses and stale-bytecode witness",
+        "exact repeat/QMC gates; explicit 1e-12 relative and 1e-14 absolute GL budget",
+    ),
+    "tests/test_qmc_coupling_chunks.py": (
+        "Integrators",
+        "explicit coupling-only QMC partitions, sample order and whole-batch "
+        "statistics/phase/support, callback protocol and L0/L1/L2/joblib forwarding",
+        "elementary constant/polynomial integrals; original full QMC output and "
+        "independent sample statistics; malformed and excluded callback witnesses",
+        "exact paired finite cases; explicit analytic and extreme-range budgets",
+    ),
+    "tests/test_ou_uniform_factors.py": (
+        "Propagator numerics",
+        "equal-rate OU factor compression, full real/complex tensors, support, "
+        "chunks, immutable metadata, output budgets and extreme component guards",
+        "original uncompressed arithmetic; independent common-time quadrature; "
+        "untimed transcendental operand-shape witnesses",
+        "exact bytes/errors/state; 1e-13 relative / zero absolute quadrature",
+    ),
+    "tests/test_scalar_coupling_reads.py": (
+        "Symbolic engine",
+        "assignment-local converted scalar read reuse, live bindings, ordered "
+        "phases/dtypes/errors, arithmetic/module/helper hooks and native dtype/layout guards",
+        "original ordered scalar interpreter and preceding public binding policy; "
+        "complete-query indexed-read witness",
+        "exact output dtype/bytes, error text, state and hook/read counts",
+    ),
+    "tests/test_quadratic_white_reference_parity.py": (
+        "Finite Gaussian observables",
+        "OU private scratch and fourth-order native ordered-prefix reuse; "
+        "bounded memory/protocol bypass, scalar order, range fallback and input state",
+        "source-pinned frozen reference implementation with exact bytes/error args; "
+        "independent Gauss-Hermite central cumulants and native matmul line witnesses",
+        "exact byte/error/state/count parity; 3e-12 relative / absolute GH",
+    ),
+    "tests/test_ou_white_cumulant.py": (
+        "Propagator numerics",
+        "static bare white cumulants with constant diagonal OU response, "
+        "scalar/batch support, extreme scales, guarded workflow absorption, "
+        "mixed/repeated vertices and immutable bounded snapshots",
+        "independent scipy common-time quadrature and 180-digit mpmath; "
+        "nonzero raw equal-time GL/QMC/nquad workflow controls",
+        "1e-13 ordinary integrals / 2e-12 extreme scales; explicit workflow tolerances",
+    ),
+    "tests/test_gaussian_quadratic_reuse.py": (
+        "Finite Gaussian observables",
+        "identical ordered word reuse, selected mixed/Taylor query snapshots, "
+        "multiplicities, exact numerical failures, bounded keys and immutable serialization",
+        "independent Gauss-Hermite moments with set-partition cumulants; "
+        "analytic scalar cases and test-only contraction counts",
+        "3e-12 relative / 3e-12 absolute GH; exact state, errors and operation counts",
+    ),
+    "tests/test_connected_target.py": (
+        "Symbolic engine",
+        "occurrence-connected targets, hyperedge ownership, early arity pruning, "
+        "label collisions, normalized formal cumulants, scalar coupling indices, "
+        "cache/YAML separation and structural-zero scans",
+        "independent moment partitions, formal vacuum normalization and analytic "
+        "nonlinear moment coefficients; frozen default-source probes",
+        "exact ordered structure; explicit absolute and relative numerical tolerances",
+    ),
+    "tests/test_gaussian_quadratic.py": (
+        "Finite Gaussian observables",
+        "prepared finite quadratic CGFs, rings/chains, covariance support, domains, "
+        "centering, noncommuting joint cumulants, quadrature conventions and spectral compression",
+        "public Wick pairings, independent Gauss-Hermite moments and high-precision "
+        "scalar formulas; explicit matrix identities and compression bounds",
+        "exact validation/state checks; 3e-13 matrix cumulants and source-specific bounds",
+    ),
+    "tests/test_coupling_native_reads.py": (
+        "Symbolic engine",
+        "component-label core witnesses, lazy assignment-local batched reads, "
+        "live inputs, hook fallback, literal and caller error order, weak provenance",
+        "original ordered interpreter with explicit partial contraction; handler mutation and GC probes",
+        "exact output dtype/bytes, read counts, error labels, serialization and lifetime",
+    ),
+    "tests/test_coupling_structure_reuse.py": (
+        "Symbolic engine",
+        "bounded ordered core sharing, per-call index bindings, conservative "
+        "sample-zero admission, scalar-first errors, custom dispatch and precise fallback",
+        "independent explicit partial contraction, scalar oracle, callback counts and source-pinned boundary probes",
+        "2e-15 relative / 2e-12 absolute; exact dtype, errors, cache and fallback checks",
+    ),
+    "tests/test_coupling_execution_plan.py": (
+        "Symbolic engine",
+        "ordered native coupling lowering, phases, mutable bindings/pins, dtypes, "
+        "nonfinite arithmetic, exception order, fallback and pickle",
+        "independent partial tensor contraction plus original ordered leaf semantics",
+        "2e-15 relative / 2e-13 absolute; exact dtype, errors and serialization",
+    ),
+    "tests/test_batch_reduction_reuse.py": (
+        "Integrators",
+        "invocation-local lazy C/R reductions, mutation and custom-array/index/"
+        "helper/projector fallback, unused errors, arithmetic order and public GL/QMC",
+        "explicit component contractions and independently integrated white-noise mean",
+        "2e-15 scalar arithmetic; 2e-13 GL / 3e-4 QMC; exact call and exception checks",
+    ),
+    "tests/test_gl_external_cuts.py": (
+        "Integrators",
+        "fixed-time cuts on swept externals, min/max causal bounds and "
+        "mixed internal/external response chains in eager/chunked GL and nquad",
+        "piecewise Brownian covariance integrals, Gaussian Wick formula, "
+        "exponential cumulant integral and response expansion",
+        "2e-12 exponential / 3e-13 polynomial; explicit absolute near-zero bound",
+    ),
+    "tests/test_gl_chunking.py": (
+        "Integrators",
+        "bounded tensor-node generation, polynomial weights, lazy large "
+        "theoretical grids and read-only 1D rule reuse",
+        "separable polynomial integral and midpoint-rule volume",
+        "2e-16; exact shape and cache checks",
+    ),
+    "tests/test_gl_chunked_integration.py": (
+        "Integrators",
+        "chunked static/dynamic GL, causal and kink domains, aliases, "
+        "dense matrix propagators, fixed vectors, phase scale, API and workers",
+        "analytic exponential and polynomial cumulants; exact linear "
+        "response Taylor coefficients; existing per-diagram paths",
+        "2e-12 independent GL references; explicit cancellation scale; "
+        "QMC unchanged",
+    ),
+    "tests/test_sweep_integrand_reuse.py": (
+        "Workflow and YAML",
+        "opt-in static sweep preparation, component and time routing, dynamic "
+        "fallback, mutable inputs, parallel parity and guards",
+        "analytic static kappa3 contraction and prescribed absorbed kernel; "
+        "fresh per-diagram path",
+        "1e-12 (GL) / 2e-3 (QMC); exact parity",
+    ),
+    "tests/test_coupling_scale_invariance.py": (
+        "Integrators",
+        "small indexed static/dynamic coefficients times large kernels, "
+        "cancellation and nonzero phase checks",
+        "ordinary multiplication and summation under reciprocal rescaling",
+        "2e-15; invalid phases raise",
+    ),
     "tests/test_fields.py": (
         "Symbolic engine",
         "Field / FieldOperator construction, unique UIDs, component indices",
-        "specification (exact structural assertions)", "exact"),
+        "specification (exact structural assertions)",
+        "exact",
+    ),
     "tests/test_propagators.py": (
         "Symbolic engine",
         "pairing rules: φφ→C, φψ→R, ψψ→0; Itô R(x,x)=0",
-        "MSR contraction rules", "exact"),
+        "MSR contraction rules",
+        "exact",
+    ),
     "tests/test_wick.py": (
         "Symbolic engine",
         "operator-level and spatial-level Wick contraction of small products",
         "hand-enumerated pairings; the two engines against each other",
-        "exact"),
+        "exact",
+    ),
     "tests/test_expressions.py": (
         "Symbolic engine",
         "expression tree: hashing, equality, rational arithmetic, LaTeX",
-        "specification", "exact"),
+        "specification",
+        "exact",
+    ),
     "tests/test_simplify.py": (
         "Symbolic engine",
         "simplification passes, diagonal / isotropic index collapse, "
         "collection by diagram",
-        "hand-simplified forms; idempotence", "exact"),
+        "hand-simplified forms; idempotence",
+        "exact",
+    ),
     "tests/test_perturbation.py": (
         "Symbolic engine",
         "compute_moment orders, DiagramTerm structure, coupling evaluation, "
         "response phase",
-        "hand-derived expansions", "exact"),
+        "hand-derived expansions",
+        "exact",
+    ),
     "tests/test_deductive_expansion.py": (
         "Multiplicities and canonical forms",
         "every pairing at order ≤ 2 classified by vanishing reason; "
         "topology multiplicities; canonical-form deduplication",
         "brute-force Wick reference (tests/brute_wick.py, no sft-wick imports)",
-        "exact"),
+        "exact",
+    ),
     "tests/test_diagrams.py": (
         "Multiplicities and canonical forms",
         "FeynmanDiagram canonical form and isomorphism deduplication",
-        "isomorphic relabellings hash-compare equal", "exact"),
+        "isomorphic relabellings hash-compare equal",
+        "exact",
+    ),
     "tests/test_eval_symbolic_batched.py": (
         "Symbolic engine",
         "batched symbolic evaluator of coupling sums",
-        "scalar evaluator on the same expressions", "exact / 1e-12"),
+        "scalar evaluator on the same expressions",
+        "exact / 1e-12",
+    ),
     "tests/test_latex_local_coupling.py": (
         "Drawing and LaTeX",
         "local couplings render without a spurious spacetime argument",
-        "regression (referee-reported rendering)", "exact"),
+        "regression (referee-reported rendering)",
+        "exact",
+    ),
     "tests/test_deductive_numerics.py": (
         "Propagator numerics",
         "C from ∫∫RκR: closed form vs dblquad, spline tables, spatial "
         "homogeneity modes, white noise, QMC vs nquad, parallel vs serial",
-        "closed-form OU C; domain-split dblquad at 1e-12; alternative "
-        "backends", "1e-8 (quadrature) / 1e-2 (spline, QMC)"),
+        "closed-form OU C; domain-split dblquad at 1e-12; alternative " "backends",
+        "1e-8 (quadrature) / 1e-2 (spline, QMC)",
+    ),
     "tests/test_c_propagator_gauss_legendre.py": (
         "Propagator numerics",
         "Gauss-Legendre C quadrature with the diagonal split, "
         "translation and rotation kernels, table builds, speed",
-        "dblquad", "1e-4"),
+        "dblquad",
+        "1e-4",
+    ),
     "tests/test_closed_form_dispatch_boundaries.py": (
         "Propagator numerics",
         "built-in closed form vs Gauss-Legendre vs dblquad at the "
         "dispatch boundary cells (ridge, t→t_min, t_max, γ=1/σ_t, r=0, r_max, "
         "per-component γ, t_min≠0, white noise); dispatcher choices",
         "each method against the others; analytic stationary limit",
-        "1e-10 (GL) / 1e-8 (dblquad)"),
+        "1e-10 (GL) / 1e-8 (dblquad)",
+    ),
     "tests/test_propagator_dispatch.py": (
         "Propagator numerics",
         "separable-kernel shared temporal table, time-symmetric build, "
         "auto node-count selection, progress reporting",
-        "per-r full build; dblquad", "1e-12 / 1e-6"),
+        "per-r full build; dblquad",
+        "1e-12 / 1e-6",
+    ),
     "tests/test_evaluate_interpolation_accuracy.py": (
         "Propagator numerics",
         "linear vs cubic C-table interpolation on steep tails",
-        "closed form", "recorded bounds"),
+        "closed form",
+        "recorded bounds",
+    ),
     "tests/test_dt_discretization.py": (
         "Propagator numerics",
         "the propagators.dt knob converges the spline table",
-        "finer grid", "convergence order"),
+        "finer grid",
+        "convergence order",
+    ),
     "tests/test_diagonal_A_time_dependent.py": (
         "Propagator numerics",
         "time-dependent γ(t) via the integral of its cubic spline; R at the "
         "default cache grid and O(h⁴) convergence of Γ",
         "constant-γ closed form; explicit R; analytic Γ of a sinusoidal rate",
-        "1e-6 / 1e-3 (default grid)"),
+        "1e-6 / 1e-3 (default grid)",
+    ),
     "tests/test_d_dim_spatial.py": (
         "Propagator numerics",
         "vector positions through the L1 evaluate path",
-        "scalar-separation equivalent", "1e-10"),
+        "scalar-separation equivalent",
+        "1e-10",
+    ),
     "tests/test_diag_C_offdiagonal.py": (
         "Propagator numerics",
         "off-diagonal C entries with diag_C=false",
-        "closed-form cross-correlation", "1e-8"),
+        "closed-form cross-correlation",
+        "1e-8",
+    ),
     "tests/test_offdiagonal_c_tables.py": (
         "Propagator numerics",
         "full N x N C tables by quadrature (no closed form): every entry "
@@ -145,7 +366,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "integrate_two_point_qmc, the legacy time table)",
         "Lyapunov equation of the Markov embedding (scipy only); the "
         "built-in closed form, checked against it; direct quadrature",
-        "1e-8 (embedding) / 1e-4 - 1e-3 (tables)"),
+        "1e-8 (embedding) / 1e-4 - 1e-3 (tables)",
+    ),
     "tests/test_min_lag_boundaries.py": (
         "Propagator numerics",
         "min-time/lag tables retain the ordered spatial arguments of an "
@@ -155,39 +377,49 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "with linear interpolation, and reject the previous cache schema",
         "rank-one Gaussian covariance; exact matrix white-noise covariance; "
         "callbacks restricted to the declared time interval",
-        "1e-12 (nodes) / 2e-3 (boundary, grid convergence)"),
+        "1e-12 (nodes) / 2e-3 (boundary, grid convergence)",
+    ),
     "tests/test_spectral.py": (
         "Spectral propagators",
         "disorder-averaged R*, C* from a spectral density; averaging; "
         "delta-density reduction to OU",
         "OU closed form at a delta density; Marchenko-Pastur convergence",
-        "1e-12 (delta) / recorded"),
+        "1e-12 (delta) / recorded",
+    ),
     "tests/test_gauss_legendre_integrator.py": (
         "Integrators",
         "tensor-product Gauss-Legendre time integration on the causal simplex",
-        "hand-derived quadrature; QMC", "1e-5"),
+        "hand-derived quadrature; QMC",
+        "1e-5",
+    ),
     "tests/test_evaluate_pipeline.py": (
         "Integrators",
         "spatial analysis, causal orderings, integrand assembly",
-        "specification", "exact"),
+        "specification",
+        "exact",
+    ),
     "tests/test_msr_numerics_regressions.py": (
         "Integrators",
         "causal lower bounds from external response legs, two-time "
         "observables, C-table diagonal ridge, reality projection, "
         "external_times through every backend",
-        "closed forms; all five backends against each other", "1e-6 - 1e-10"),
+        "closed forms; all five backends against each other",
+        "1e-6 - 1e-10",
+    ),
     "tests/test_dynamic_coupling.py": (
         "Integrators",
         "spacetime-dependent (callable) κ^(m) couplings, per-sample and "
         "vectorised contracts, propagator-indexed contraction",
         "static tensor at the same point; two contracts against each other",
-        "1e-12"),
+        "1e-12",
+    ),
     "tests/test_nonlocal_leg_order.py": (
         "Integrators",
         "leg order of a callable κ^(m): every coupling-sum term evaluated at "
         "its own legs, on each integration route and the order-2 FK channel",
-        "numpy hand contraction; the old leg-order-blind value shown to "
-        "differ", "1e-12"),
+        "numpy hand contraction; the old leg-order-blind value shown to " "differ",
+        "1e-12",
+    ),
     "tests/test_callable_vertex_copies.py": (
         "Integrators",
         "a callable non-local coupling at several sets of points (two copies "
@@ -197,7 +429,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "numpy hand contraction of the order-2 six-point function (sum over "
         "the 10 partitions into triples); demo 4's Campbell closed form; the "
         "old per-instance measure shown to differ",
-        "1e-12 / 1e-3 (QMC)"),
+        "1e-12 / 1e-3 (QMC)",
+    ),
     "tests/test_nquad_callable_coupling.py": (
         "Integrators",
         "callable (spacetime-dependent) couplings on adaptive quadrature, "
@@ -206,7 +439,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "make_scipy_integrand",
         "gauss_legendre on the same diagrams; demo 4's closed form and exact "
         "moment hierarchy; numpy hand contraction",
-        "1e-10 - 1e-12"),
+        "1e-10 - 1e-12",
+    ),
     "tests/test_local_callable_coupling.py": (
         "Workflow and YAML",
         "a callable local coupling at L1 and in YAML: the rank contract, the "
@@ -214,15 +448,20 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "exp(-lambda t) at orders 1-2 with t_min = 0.5 on every integrator",
         "exact Itô moment hierarchy of a Markov embedding with a "
         "deterministic state u = exp(-lambda t)",
-        "1e-12 (GL) / 1e-10 (nquad) / 1e-4 (QMC)"),
+        "1e-12 (GL) / 1e-10 (nquad) / 1e-4 (QMC)",
+    ),
     "tests/test_equal_time_nonlocal.py": (
         "Integrators",
         "equal_time non-local vertices (single time integral)",
-        "explicit δ-function reduction", "1e-8"),
+        "explicit δ-function reduction",
+        "1e-8",
+    ),
     "tests/test_R_contracted_vertex.py": (
         "Integrators",
         "already_R_contracted non-local vertices across L0/L1/L2",
-        "raw-κ³ evaluation of the same diagram", "1e-12"),
+        "raw-κ³ evaluation of the same diagram",
+        "1e-12",
+    ),
     "tests/test_demo2_kernels.py": (
         "Integrators",
         "demo2's hand-written R-contracted κ³ / κ⁴ kernels, the raw-vs-"
@@ -231,24 +470,30 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "the single-site cumulant ladder",
         "cusp-aware adaptive quadrature and randomised-Sobol QMC of the "
         "raw leg integrals; the cumulant generating function",
-        "2e-9 for resolved κ³ references; up to 2e-2 for κ⁴ QMC"),
+        "2e-9 for resolved κ³ references; up to 2e-2 for κ⁴ QMC",
+    ),
     "tests/test_demo2_budget_cache.py": (
         "Self-consistency",
         "refined demo2 channel caches recheck the requested grid and current "
         "accuracy target; incomplete or inaccurate rows cannot pass verification",
-        "controlled sweep/reference values and damaged cache records", "exact"),
+        "controlled sweep/reference values and damaged cache records",
+        "exact",
+    ),
     "tests/test_demo2_moment_reference.py": (
         "Integrators",
         "demo2 FFFK/FFK4 with exact C_eff, all component pairs and spatial separation; "
         "analytic κ³/κ⁴ short-time, permutation, resonant-rate and serialization limits",
         "independent polynomial Itô generator of replicated OU noise; "
         "Gaussian and single-site limits; constant-kernel factorization",
-        "2e-7 for FFFK, 2e-12 for covariance"),
+        "2e-7 for FFFK, 2e-12 for covariance",
+    ),
     "tests/test_coincident_external_labels.py": (
         "Integrators",
         "external operators sharing a spatial label are refused at L1 "
         "and L0 rather than silently mis-counted",
-        "the distinct-label spelling of the same observable", "exact"),
+        "the distinct-label spelling of the same observable",
+        "exact",
+    ),
     "tests/test_group_position_conflict.py": (
         "Integrators",
         "two points of ONE R-connected direction group at two positions "
@@ -256,15 +501,21 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "two-ψ vertex); the label-independence of the refusal, the "
         "separated φφ control on every integrator",
         "the two coincident-position configurations the arbitrary pick "
-        "was choosing between", "1e-12"),
+        "was choosing between",
+        "1e-12",
+    ),
     "tests/test_higher_cumulants.py": (
         "Integrators",
         "non-Gaussian driving at cumulant order m ≥ 4 (κ⁴, κ⁵)",
-        "brute-force Wick counting; MSR prefactors", "exact / 1e-10"),
+        "brute-force Wick counting; MSR prefactors",
+        "exact / 1e-10",
+    ),
     "tests/test_matrix_r_evaluation.py": (
         "Integrators",
         "matrix-valued R with callable couplings in the scalar loop",
-        "qmc_vectorized where legal; closed-form 1-D integrals", "1e-6"),
+        "qmc_vectorized where legal; closed-form 1-D integrals",
+        "1e-6",
+    ),
     "tests/test_r_cache_mismatch.py": (
         "Integrators",
         "R-propagator indices vs the cache's R type: two-index R with a "
@@ -272,7 +523,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "absorbed R raise at every entry point; matching pairs on every "
         "backend, N = 1, and L1 flag overrides",
         "numpy hand contraction of the coupling (R = Θ is 1 on the domain)",
-        "1e-12"),
+        "1e-12",
+    ),
     "tests/test_matrix_r_batched.py": (
         "Integrators",
         "matrix-valued R (DiagonalA with distinct rates, a non-normal dense "
@@ -284,7 +536,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "exact Itô moment hierarchy (Markov embedding; a constant random "
         "source for κ³), closed form Σ κ M M M, scipy expm + quad_vec hand "
         "contractions; the scalar loop on the same Sobol points; nquad",
-        "1e-10 (vs exact) / 1e-12 (same points, GL vs nquad)"),
+        "1e-10 (vs exact) / 1e-12 (same points, GL vs nquad)",
+    ),
     "tests/test_time_variable_recipe.py": (
         "Integrators",
         "the change of integration variable of the user guide: one system "
@@ -296,7 +549,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Einstein-de Sitter lensing toy in λ and in χ",
         "the same quantity posed in the other variable (closed-form map "
         "and kernels)",
-        "1e-10"),
+        "1e-10",
+    ),
     "tests/test_vectorized_r_time.py": (
         "Integrators",
         "vectorised response callables: the four built-in DiagonalA R "
@@ -309,7 +563,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "rates, t_min != 0; static, equal_time and already_R_contracted "
         "κ³ with a matrix R",
         "the scalar calls of the same R (np.vectorize, the old path)",
-        "0 (bitwise)"),
+        "0 (bitwise)",
+    ),
     "tests/test_matrix_r_index_and_zero_dim.py": (
         "Integrators",
         "matrix-valued R component indices when two R propagators share one "
@@ -319,7 +574,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "endpoint-lookup value shown to differ; diag_R=True at R = 1; "
         "closed form for the zero-dimensional diagrams; the four backends "
         "against each other",
-        "1e-12"),
+        "1e-12",
+    ),
     "tests/test_diag_fast_component_labels.py": (
         "Integrators",
         "observable component labels pinned through fixed_indices on a C "
@@ -328,7 +584,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "numpy hand contraction over the full C matrices; all five backends "
         "against each other; the label-blind value shown to differ; "
         "independent two-state OU covariance",
-        "1e-12 (backends) / 1e-3 (quadrature vs QMC) / 1e-4 (C table)"),
+        "1e-12 (backends) / 1e-3 (quadrature vs QMC) / 1e-4 (C table)",
+    ),
     "tests/test_hormander_moments_reference.py": (
         "Integrators",
         "the vector-field (Hörmander-form) moment reference used by demo 5 "
@@ -337,7 +594,9 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "dimensions, the Itô branch against ito_moments, the tag expansion, "
         "two-time moments",
         "closed forms; the linear moment equations of the Itô form "
-        "(solve_ivp); ito_moments.PolySDE", "1e-9 - 1e-13"),
+        "(solve_ivp); ito_moments.PolySDE",
+        "1e-9 - 1e-13",
+    ),
     "tests/test_multiplicative_noise_l1.py": (
         "Workflow and YAML",
         "multiplicative white noise at L1 (MultiplicativeImpulse): D = g gᵀ "
@@ -347,21 +606,25 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "the one-site and ito=False refusals",
         "exact moment hierarchy in Hörmander form (no noise-induced drift "
         "formed); finite differences of g",
-        "1e-9 (GL) / 2e-3 (qmc_scalar)"),
+        "1e-9 (GL) / 2e-3 (qmc_scalar)",
+    ),
     "tests/test_ito_moments_reference.py": (
         "Integrators",
         "the exact Itô moment-hierarchy reference used by demos 4 and 5 "
         "(examples/reference/ito_moments.py; no sft-wick code): OU "
         "variance, quadratic-drift correction, shot-noise cumulants, "
         "multiplicative noise, a non-normal linear system",
-        "closed forms; Campbell's theorem; Lyapunov equation", "1e-13"),
+        "closed forms; Campbell's theorem; Lyapunov equation",
+        "1e-13",
+    ),
     "tests/test_gl_white_noise_kinks.py": (
         "Integrators",
         "Gauss-Legendre splits the domain at kinks: unordered ends of a "
         "white-noise C, unordered parents of a multi-psi vertex; the "
         "orientations are the consistent total orders",
-        "linear extensions of the causal order; the exact Itô moment "
-        "hierarchy", "exact / 1e-11"),
+        "linear extensions of the causal order; the exact Itô moment " "hierarchy",
+        "exact / 1e-11",
+    ),
     "tests/test_kink_split_nquad_couplings.py": (
         "Integrators",
         "nquad splits the time domain at kinks as Gauss-Legendre does "
@@ -370,7 +633,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "or partner times (already_R_contracted), read through the MSR "
         "wrapper; equal_time vertices contribute none",
         "exact Itô moment hierarchy; the pairs by construction",
-        "exact / 1e-12"),
+        "exact / 1e-12",
+    ),
     "tests/test_kink_split_external_time.py": (
         "Integrators",
         "a kink between an integration time and an external point pinned "
@@ -382,7 +646,9 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "instead, and two swept ones pair too, unless the full causal "
         "closure (a chain through a fixed external included) orders them",
         "exact Itô moment hierarchy, transported over the lag between "
-        "the two external times", "exact / 1e-11"),
+        "the two external times",
+        "exact / 1e-11",
+    ),
     "tests/test_demo4_asymmetric_noise.py": (
         "Integrators",
         "demo 4: compound-Poisson noise asymmetric in points and in "
@@ -390,8 +656,9 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "tuple (raw on Gauss-Legendre split at declared kinks, "
         "R-contracted, unequal times); level B channels FK3, FF, FFK4 of "
         "<phi_a phi_b>",
-        "direct quadrature; Campbell closed form; exact Itô moment "
-        "hierarchy", "1e-12 (levels A and B) / 1e-3 (raw QMC)"),
+        "direct quadrature; Campbell closed form; exact Itô moment " "hierarchy",
+        "1e-12 (levels A and B) / 1e-3 (raw QMC)",
+    ),
     "tests/test_demo5_white_noise.py": (
         "Integrators",
         "demo 5: white noise (ConstantImpulse matrix) with coloured noise, "
@@ -399,9 +666,10 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "orders 0-4 and 1-, 2-, 3-point functions on every integrator; "
         "multiplicative noise at L0 with two-psi vertices, scalar and "
         "matrix R",
-        "exact Itô moment hierarchy (Markov embedding of the coloured "
-        "noise)", "1e-10 (GL, nquad) / 1e-12 (nquad, order 2) / "
-        "1e-3 - 1e-4 (QMC) / 1e-8 (order 4)"),
+        "exact Itô moment hierarchy (Markov embedding of the coloured " "noise)",
+        "1e-10 (GL, nquad) / 1e-12 (nquad, order 2) / "
+        "1e-3 - 1e-4 (QMC) / 1e-8 (order 4)",
+    ),
     "tests/test_demo6_static_vertices.py": (
         "Integrators",
         "demo 6: two copies of one non-local vertex (the order-2 six-point "
@@ -409,24 +677,32 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "F X3, F F X4), and an m = 2 vertex, whose order-1 contribution is "
         "the C of that noise",
         "closed form (sum over the ten splits; C of the same noise); exact "
-        "Itô moment hierarchy at several observation times", "1e-12 / 1e-10"),
+        "Itô moment hierarchy at several observation times",
+        "1e-12 / 1e-10",
+    ),
     "tests/test_demo6_cubic_quartic.py": (
         "Integrators",
         "demo 6: a quartic (psi phi phi phi) and a cubic local vertex in one "
         "system, orders 2-3 of <phi_a> and <phi_a phi_b>, channel by channel",
-        "exact Itô moment hierarchy with a cubic drift term", "1e-10 / 1e-8"),
+        "exact Itô moment hierarchy with a cubic drift term",
+        "1e-10 / 1e-8",
+    ),
     "tests/test_demo6_high_cumulants.py": (
         "Integrators",
         "demo 6: m = 4 and m = 5 non-local vertices on every route "
         "(R-contracted callable, raw callable, static, static equal_time), "
         "at equal and distinct external times, matrix R on nquad",
         "Campbell's theorem for compound-Poisson noise; the static closed "
-        "form; both demos' Itô moment hierarchies", "1e-12 / 1e-2 (raw QMC)"),
+        "form; both demos' Itô moment hierarchies",
+        "1e-12 / 1e-2 (raw QMC)",
+    ),
     "tests/test_demo4_order4_channel.py": (
         "Integrators",
         "demo 4 at order 4: the F^3 kappa^3 channel of <phi_a phi_b> (30 "
         "diagrams), white and exponential pulses",
-        "exact Itô moment hierarchy at tag F^3 mu^1", "1e-9 / 1e-6"),
+        "exact Itô moment hierarchy at tag F^3 mu^1",
+        "1e-9 / 1e-6",
+    ),
     "tests/test_demo7_space.py": (
         "Integrators",
         "demo 7: the two-time <phi_a(x,t) phi_b(y,t')> at orders 0-2 on every "
@@ -437,7 +713,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "the exact Ito moment hierarchy of the Markov embedding at the "
         "observation points, whose two-time propagation and integrated fields "
         "are themselves checked against quadrature",
-        "1e-12 - 1e-6 (GL, nquad) / 1e-4 - 1e-2 (QMC, coarse tables)"),
+        "1e-12 - 1e-6 (GL, nquad) / 1e-4 - 1e-2 (QMC, coarse tables)",
+    ),
     "tests/test_demo7_shot3d.py": (
         "Integrators",
         "demo 7: 3-D positions with a callable kappa3 (compound-Poisson shot "
@@ -445,7 +722,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "equal-time and R-contracted vertices, scalar and matrix R",
         "Gaussian overlap integrals against coordinate-by-coordinate "
         "quadrature; the exact Ito moment hierarchy at the three points",
-        "1e-10 (GL) / 3e-3 (QMC)"),
+        "1e-10 (GL) / 3e-3 (QMC)",
+    ),
     "tests/test_qmc_sobol_bits.py": (
         "Integrators",
         "the Sobol samplers pass bits=64: scipy's default 30-bit points "
@@ -454,7 +732,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "from inheriting the default",
         "the closed-form bias of exp(2u) on [0, 1] (scipy only); demo 7's "
         "two-time channel against its exact moment hierarchy",
-        "1e-2 (the formula) / 1e-11 (the channel)"),
+        "1e-2 (the formula) / 1e-11 (the channel)",
+    ),
     "tests/test_demo8_reference.py": (
         "Integrators",
         "demo 8's reference: the moment hierarchy with a time-dependent "
@@ -463,7 +742,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "ito_moments (expm_multiply) where the coefficients are constant; the "
         "two-time hierarchy of every embedding; dblquad; the hierarchy for a "
         "kernel that has one",
-        "1e-10 - 1e-11"),
+        "1e-10 - 1e-11",
+    ),
     "tests/test_demo8_time_dependent_rate.py": (
         "Integrators",
         "demo 8 (a): a callable DiagonalA rate, unequal and time-varying (so "
@@ -471,7 +751,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "3-point functions; the rate-cache spacing; the package's C table",
         "exact Itô moment hierarchy with a time-dependent generator "
         "(solve_ivp, rtol 1e-12)",
-        "1e-10 (GL) / 1e-7 (nquad) / 1e-4 (table)"),
+        "1e-10 (GL) / 1e-7 (nquad) / 1e-4 (table)",
+    ),
     "tests/test_demo8_oscillator.py": (
         "Integrators",
         "demo 8 (b): ExplicitR with a damped-oscillator response that changes "
@@ -479,7 +760,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "orders 0-2 and at unequal external times",
         "exact Itô moment hierarchy of the (x, v) embedding, conditioned at "
         "the earlier time for the two-time rows",
-        "1e-8 (GL) / 1e-7 (QMC) / 1e-4 (table)"),
+        "1e-8 (GL) / 1e-7 (QMC) / 1e-4 (table)",
+    ),
     "tests/test_demo8_kernels.py": (
         "Integrators",
         "demo 8 (c): Matérn-3/2 and damped-cosine CustomKernels inside "
@@ -488,7 +770,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "moment hierarchy of each kernel's 2-D linear-SDE embedding; "
         "hand-contracted diagrams with C in closed form (erf); "
         "time-translation invariance",
-        "1e-10 / 1e-3 (table)"),
+        "1e-10 / 1e-3 (table)",
+    ),
     "tests/test_demo8_white_noise_table.py": (
         "Integrators",
         "demo 8 (d): a white-noise amplitude varying in time "
@@ -496,19 +779,23 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "its step where white noise kinks C",
         "exact Itô moment hierarchy with a time-dependent diffusion; the "
         "quadrature C at the same points",
-        "1e-10 (exact C) / 2e-3 (table)"),
+        "1e-10 (exact C) / 2e-3 (table)",
+    ),
     "tests/test_iso_c_value.py": (
         "Integrators",
         "an index-free (iso_C=True) C propagator stands for c of "
         "C_ab = δ_ab c, not the trace N c: orders 0-2 at N = 2 on four "
         "backends; a non-isotropic C is refused",
-        "the iso_C=False expansion of the same system", "1e-10"),
+        "the iso_C=False expansion of the same system",
+        "1e-10",
+    ),
     "tests/test_system_t_min.py": (
         "Workflow and YAML",
         "System.t_min reaches the integrators through Expansion.evaluate "
         "and sweep; a cache built for another t_min is refused",
         "time-translation invariance (stationary noise, constant drift)",
-        "1e-10"),
+        "1e-10",
+    ),
     "tests/test_l1_structure_guards.py": (
         "Workflow and YAML",
         "callable-γ scalar/matrix R decided on the whole spline grid; the "
@@ -516,7 +803,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "refused; diag_R / diag_C refused when R or C has off-diagonal "
         "entries (dense R, mixing κ² or σ²), diagonal structures accepted",
         "scipy quad of the rate; Lyapunov equation of the Markov embedding",
-        "1e-5 (spline) / 1e-10"),
+        "1e-5 (spline) / 1e-10",
+    ),
     "tests/test_demo3_shot_noise.py": (
         "Propagator numerics",
         "demo 3 filtered-Poisson cumulants, the R-contracted kernel K_R, and "
@@ -524,19 +812,23 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Campbell's theorem vs Monte Carlo of the event process; m-dimensional "
         "quadrature of the raw leg integral; the package's own ClosedFormC; "
         "60-digit mpmath at the branch boundary",
-        "exact / 1e-10"),
+        "exact / 1e-10",
+    ),
     "tests/test_demo3_levels.py": (
         "Workflow and YAML",
         "demo 3 level A: the free-field m-point function through the package, "
         "and the R-contracted vertex against the raw one",
         "closed form (level A is a single diagram, hence exact); QMC on the "
         "raw-vertex path",
-        "exact / 2e-4"),
+        "exact / 2e-4",
+    ),
     "tests/test_workflow.py": (
         "Workflow and YAML",
         "System / Expansion / Propagators / SweepResult surface; end-to-end "
         "vs the raw API; two-time sweeps",
-        "raw L0 pipeline (validate_phase5); closed forms", "1e-6"),
+        "raw L0 pipeline (validate_phase5); closed forms",
+        "1e-6",
+    ),
     "tests/test_sweep_component_tuples.py": (
         "Workflow and YAML",
         "n-point sweeps: Expansion.sweep, the YAML sweep block and the CLI "
@@ -546,7 +838,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "the Campbell closed form K_R of examples/demo4; a numpy einsum for "
         "a static kappa^3 under component-dependent rates; "
         "Expansion.evaluate at the same point",
-        "exact (sweep vs evaluate) / 1e-12 / 5e-3 (QMC)"),
+        "exact (sweep vs evaluate) / 1e-12 / 5e-3 (QMC)",
+    ),
     "tests/test_yaml_spec_coverage.py": (
         "Workflow and YAML",
         "the L1 specs YAML could not express: custom temporal / spatial / "
@@ -555,31 +848,56 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "blocks; overrides into list entries",
         "the equivalent L1 System; scipy quadrature of the defining C "
         "integrals; demo 3's Campbell closed form",
-        "exact (YAML vs L1) / 1e-9 - 1e-6"),
+        "exact (YAML vs L1) / 1e-9 - 1e-6",
+    ),
     "tests/test_workflow_config.py": (
         "Workflow and YAML",
         "YAML → System lowering, run_workflow, overrides, dt, parallel "
         "layers, closed-form-only path, explicit R, callable modules and "
         "by-value hook transport to an existing worker pool",
         "L1 flow on the same physics; isolated hook unavailable to workers",
-        "1e-6 / 2e-2 (spline vs exact C); exact (hook transport)"),
+        "1e-6 / 2e-2 (spline vs exact C); exact (hook transport)",
+    ),
     "tests/test_selfconsistency.py": (
         "Self-consistency",
         "solve_self_consistency: convergence, divergence, oscillation, "
         "max_iter reporting, mixing, state containers",
-        "analytic fixed points; contrived failure modes", "tol as configured"),
+        "analytic fixed points; contrived failure modes",
+        "tol as configured",
+    ),
     "tests/test_drawing_style.py": (
         "Drawing and LaTeX",
         "matplotlib renderer, style abstractions, labels, layout",
-        "specification", "exact"),
+        "specification",
+        "exact",
+    ),
+    "tests/test_lazy_drawing_import.py": (
+        "Drawing and LaTeX",
+        "fresh-process deferred exports, import discovery and ordering, "
+        "reload, concurrent lookup, original pickle behavior, backend and "
+        "failed-import retry",
+        "public import contracts; pre-change renderer serialization",
+        "exact",
+    ),
     "tests/test_drawing_tikz.py": (
         "Drawing and LaTeX",
         "TikZ backend output structure and styles",
-        "specification", "exact"),
+        "specification",
+        "exact",
+    ),
+    "tests/test_repo_hygiene.py": (
+        "Workflow and YAML",
+        "tracked files hold no agent working files, development records, "
+        "local absolute paths or task IDs",
+        "git ls-files; positive and negative pattern controls",
+        "exact",
+    ),
     "tests/test_catalog_current.py": (
         "Workflow and YAML",
         "this catalogue matches the collected suite",
-        "tools/gen_test_catalog.py", "exact"),
+        "tools/gen_test_catalog.py",
+        "exact",
+    ),
     "tests/test_generated_docs_in_sync.py": (
         "Workflow and YAML",
         "every committed file that a script writes (demo 2's error budget, "
@@ -588,17 +906,34 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "quotes the current quadrature errors and residual statistics; "
         "its diagonal figure includes every listed nonzero channel",
         "the generator's own source, parsed; independent recomputation "
-        "from budget.npz", "exact / displayed precision"),
+        "from budget.npz",
+        "exact / displayed precision",
+    ),
 }
 
 
 def collect_counts() -> Counter:
     """``{test file: number of collected tests}`` from pytest."""
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", "--collect-only", "-q",
-         "-p", "no:cacheprovider", "tests/"],
-        cwd=ROOT, capture_output=True, text=True,
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "--collect-only",
+            "-q",
+            "-p",
+            "no:cacheprovider",
+            "tests/",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
     )
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"pytest collection failed (exit {proc.returncode}):\n"
+            f"{proc.stdout}\n{proc.stderr}"
+        )
     counts: Counter = Counter()
     for line in proc.stdout.splitlines():
         m = re.match(r"^(tests/test_[^:]+\.py)::", line)
@@ -610,11 +945,7 @@ def collect_counts() -> Counter:
 
 
 def test_files() -> list[str]:
-    return sorted(
-        str(p.relative_to(ROOT)) for p in (ROOT / "tests").glob("test_*.py")
-    )
-
-
+    return sorted(str(p.relative_to(ROOT)) for p in (ROOT / "tests").glob("test_*.py"))
 
 
 def _approx_audit_lines():
@@ -632,22 +963,25 @@ def _approx_audit_lines():
     import json
 
     path = ROOT / "docs" / "verification" / "approx_audit_summary.json"
-    if not path.exists():                                    # pragma: no cover
-        return ["   The approx-audit summary is missing; regenerate it with",
-                "   ``PYTHONPATH=tools pytest tests/ -p approx_audit``."]
+    if not path.exists():  # pragma: no cover
+        return [
+            "   The approx-audit summary is missing; regenerate it with",
+            "   ``PYTHONPATH=tools pytest tests/ -p approx_audit``.",
+        ]
     d = json.loads(path.read_text())
     b = d["buckets"]
     assert sum(b.values()) == d["total_sites"], (
         f"approx_audit_summary.json does not partition its own total: "
-        f"{sum(b.values())} != {d['total_sites']}")
+        f"{sum(b.values())} != {d['total_sites']}"
+    )
 
     lines = [
-        f"   Measured over the {d['total_sites']} runtime sites in this suite:",
+        f"   Classified by the plugin over {d['total_sites']} runtime sites:",
         f"   {b['rel_in_force']} have their ``rel`` in force,",
         f"   {b['explicit_abs']} pass an explicit ``abs=``",
         f"   ({d['explicit_abs_zero']} of them ``abs=0.0``),",
         f"   {b['compared_to_zero']} compare against zero on the default floor",
-        f"   (where the floor is the intent, not a defect), and",
+        "   (where the floor is the intent, not a defect), and",
         f"   **{b['weakened']} are weakened by the floor**.",
     ]
     if b["weakened"]:
@@ -656,29 +990,41 @@ def _approx_audit_lines():
             f"   {d['weakened_effective_rel_min']:.1e} and"
             f" {d['weakened_effective_rel_max']:.1e} relative, looser than the",
             "   row states, but a real check in every case.  They fall in "
-            + ", ".join(f"``{f.split('/')[-1]}`` ({n})"
-                        for f, n in d["weakened_per_file"].items()) + ".",
+            + ", ".join(
+                f"``{f.split('/')[-1]}`` ({n})"
+                for f, n in d["weakened_per_file"].items()
+            )
+            + ".",
             "   See `issue #5 <https://github.com/StatFieldTheory/sft-wick/"
             "issues/5>`_.",
         ]
     else:
         lines += [
-            "   No site is weakened: every ``rel`` written in this suite is the",
-            "   tolerance actually enforced, because each states its ``abs=``",
-            "   explicitly.  ``test_every_approx_rel_site_states_its_abs`` in",
-            "   ``tests/test_catalog_current.py`` keeps it that way.",
+            "   This inventory detected no implicit-floor weakening.",
+            "   ``test_every_approx_rel_site_states_its_abs`` in",
+            "   ``tests/test_catalog_current.py`` requires an explicit",
+            "   ``abs=`` wherever ``rel=`` is written; it does not establish",
+            "   which of two explicit tolerances dominates a comparison.",
         ]
-    lines.append(f"   Vacuous sites (assertions that cannot fail): "
-                 f"**{d['vacuous']}**.")
+    lines.append(
+        f"   Sites classified as vacuous by the plugin: " f"**{d['vacuous']}**."
+    )
+    lines += [
+        "   These are plugin classifications, not general tolerance calibration:",
+        "   its omitted-``rel`` record with an explicit ``abs`` does not fully",
+        "   represent pytest's absolute-only semantics, and casting complex",
+        "   expected values to float discards their imaginary magnitudes.",
+        "   The original assertions are delegated unchanged to pytest.",
+    ]
     return lines
+
 
 def render(counts: Counter) -> str:
     files = test_files()
     missing = [f for f in files if f not in FILE_META]
     if missing:
         raise SystemExit(
-            "tools/gen_test_catalog.py: add FILE_META entries for "
-            + ", ".join(missing)
+            "tools/gen_test_catalog.py: add FILE_META entries for " + ", ".join(missing)
         )
     by_subject: "OrderedDict[str, list]" = OrderedDict((s, []) for s in SUBJECTS)
     for f in files:
@@ -709,17 +1055,17 @@ def render(counts: Counter) -> str:
         "   the runtime magnitude of each compared value and cannot be read",
         "   off the source, so it is measured:",
         "   ``PYTHONPATH=tools pytest tests/ -p approx_audit`` records the",
-        "   enforced tolerance at every site (``tools/approx_audit.py``).",
+        "   comparison-site observations (``tools/approx_audit.py``).",
         "",
         *_approx_audit_lines(),
         "",
-        "   Two sites were *vacuous*: the enforced tolerance exceeded the",
-        "   quantity compared, so they could not fail.  Both are now fixed:",
+        "   Two sites could accept a zero result: the enforced tolerance",
+        "   exceeded the quantity compared. Both are now fixed:",
         "   a deep-domain ``Φ`` check in",
         "   ``test_closed_form_dispatch_boundaries.py`` and the",
         "   ``γ = 1/σ_t`` corner of the shot-noise dispatcher check in",
         "   ``test_demo3_shot_noise.py``.  **Neither was enforced in v0.4.0.**",
-        "   In both cases the code was correct and only the test was empty:",
+        "   In both cases the code was correct but the test did not exclude zero:",
         "   the behaviour each was meant to check is independently confirmed",
         "   (``Φ`` is T-independent to 2e-16 deep in the domain; the two",
         "   dispatcher branches are bit-identical at every corner).  So no",
@@ -761,8 +1107,11 @@ def render(counts: Counter) -> str:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--check", action="store_true",
-                    help="exit 1 if the committed catalogue is stale")
+    ap.add_argument(
+        "--check",
+        action="store_true",
+        help="exit 1 if the committed catalogue is stale",
+    )
     args = ap.parse_args(argv)
     text = render(collect_counts())
     if args.check:

@@ -401,7 +401,7 @@ The budget also used bare-lambda C for FFFK, omitting the second term in
 had additional inner quadrature error and did not declare partner-time
 coincidences to the outer integrator. FF's QMC and FFFF's coarse GL rule
 also lost accuracy at late times. These were pre-existing example-budget
-issues; the 0.6.1 C-table rewrite is bypassed by its closed-form C path.
+issues; the 0.6.1 C-table rewrite (min/lag coordinates) is bypassed by its closed-form C path.
 
 The repaired κ³/κ⁴ callables integrate the exponential pieces analytically,
 enforce leg causality, and declare their partner-time branches. FF now uses

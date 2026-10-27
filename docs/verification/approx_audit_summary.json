@@ -7,12 +7,12 @@
   ],
   "buckets": {
     "compared_to_zero": 2,
-    "explicit_abs": 153,
-    "rel_in_force": 52,
+    "explicit_abs": 405,
+    "rel_in_force": 68,
     "weakened": 0
   },
-  "explicit_abs_zero": 120,
-  "total_sites": 207,
+  "explicit_abs_zero": 323,
+  "total_sites": 475,
   "vacuous": 0,
   "weakened_effective_rel_max": null,
   "weakened_effective_rel_min": null,

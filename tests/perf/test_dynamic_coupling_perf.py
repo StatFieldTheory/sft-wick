@@ -54,9 +54,9 @@ def _make_dynamic_kappa3_system():
             np.exp(-abs(t[0] - t[1]) - abs(t[0] - t[2]))
             * np.exp(-abs(n[0] - n[1]) - abs(n[0] - n[2]))
         )
-        K = np.zeros((N, N, N), dtype=complex)
+        K = np.zeros((N, N, N), dtype=float)
         for a in range(N):
-            K[a, a, a] = (1j / 6.0) * envelope
+            K[a, a, a] = envelope  # bare cumulant; the L1 wrapper applies +i/6
         return K
 
     return sw.System(

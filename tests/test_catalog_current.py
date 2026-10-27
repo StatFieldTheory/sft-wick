@@ -31,6 +31,25 @@ def test_catalog_is_current():
     )
 
 
+def test_catalog_rejects_partial_collection(monkeypatch):
+    """Missing example imports must not produce a plausible partial catalogue."""
+    import subprocess
+    import pytest
+
+    tool = _load_tool()
+    failed = subprocess.CompletedProcess(
+        args=[sys.executable, "-m", "pytest"],
+        returncode=2,
+        stdout="tests/test_example.py::test_one\nERROR collecting tests/test_other.py\n",
+        stderr="ModuleNotFoundError: missing example dependency\n",
+    )
+    monkeypatch.setattr(tool.subprocess, "run", lambda *args, **kwargs: failed)
+    with pytest.raises(RuntimeError, match="pytest collection failed") as caught:
+        tool.collect_counts()
+    assert "missing example dependency" in str(caught.value)
+    assert "ERROR collecting" in str(caught.value)
+
+
 # --------------------------------------------------------------------------
 # The suite must not acquire new assertions weakened by approx's hidden floor.
 # --------------------------------------------------------------------------

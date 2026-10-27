@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **2318 tests** in 79 files (parametrised
+The suite has **4191 tests** in 106 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -20,28 +20,34 @@ this page is out of date.
    the runtime magnitude of each compared value and cannot be read
    off the source, so it is measured:
    ``PYTHONPATH=tools pytest tests/ -p approx_audit`` records the
-   enforced tolerance at every site (``tools/approx_audit.py``).
+   comparison-site observations (``tools/approx_audit.py``).
 
-   Measured over the 207 runtime sites in this suite:
-   52 have their ``rel`` in force,
-   153 pass an explicit ``abs=``
-   (120 of them ``abs=0.0``),
+   Classified by the plugin over 475 runtime sites:
+   68 have their ``rel`` in force,
+   405 pass an explicit ``abs=``
+   (323 of them ``abs=0.0``),
    2 compare against zero on the default floor
    (where the floor is the intent, not a defect), and
    **0 are weakened by the floor**.
-   No site is weakened: every ``rel`` written in this suite is the
-   tolerance actually enforced, because each states its ``abs=``
-   explicitly.  ``test_every_approx_rel_site_states_its_abs`` in
-   ``tests/test_catalog_current.py`` keeps it that way.
-   Vacuous sites (assertions that cannot fail): **0**.
+   This inventory detected no implicit-floor weakening.
+   ``test_every_approx_rel_site_states_its_abs`` in
+   ``tests/test_catalog_current.py`` requires an explicit
+   ``abs=`` wherever ``rel=`` is written; it does not establish
+   which of two explicit tolerances dominates a comparison.
+   Sites classified as vacuous by the plugin: **0**.
+   These are plugin classifications, not general tolerance calibration:
+   its omitted-``rel`` record with an explicit ``abs`` does not fully
+   represent pytest's absolute-only semantics, and casting complex
+   expected values to float discards their imaginary magnitudes.
+   The original assertions are delegated unchanged to pytest.
 
-   Two sites were *vacuous*: the enforced tolerance exceeded the
-   quantity compared, so they could not fail.  Both are now fixed:
+   Two sites could accept a zero result: the enforced tolerance
+   exceeded the quantity compared. Both are now fixed:
    a deep-domain ``Φ`` check in
    ``test_closed_form_dispatch_boundaries.py`` and the
    ``γ = 1/σ_t`` corner of the shot-noise dispatcher check in
    ``test_demo3_shot_noise.py``.  **Neither was enforced in v0.4.0.**
-   In both cases the code was correct and only the test was empty:
+   In both cases the code was correct but the test did not exclude zero:
    the behaviour each was meant to check is independently confirmed
    (``Φ`` is T-independent to 2e-16 deep in the domain; the two
    dispatcher branches are bit-identical at every corner).  So no
@@ -51,7 +57,7 @@ this page is out of date.
 Symbolic engine
 ---------------
 
-*137 tests in 7 files.*
+*482 tests in 12 files.*
 
 .. list-table::
    :header-rows: 1
@@ -62,6 +68,26 @@ Symbolic engine
      - Reference
      - Tolerance
      - Tests
+   * - ``test_connected_target.py``
+     - occurrence-connected targets, hyperedge ownership, early arity pruning, label collisions, normalized formal cumulants, scalar coupling indices, cache/YAML separation and structural-zero scans
+     - independent moment partitions, formal vacuum normalization and analytic nonlinear moment coefficients; frozen default-source probes
+     - exact ordered structure; explicit absolute and relative numerical tolerances
+     - 89
+   * - ``test_coupling_execution_plan.py``
+     - ordered native coupling lowering, phases, mutable bindings/pins, dtypes, nonfinite arithmetic, exception order, fallback and pickle
+     - independent partial tensor contraction plus original ordered leaf semantics
+     - 2e-15 relative / 2e-13 absolute; exact dtype, errors and serialization
+     - 38
+   * - ``test_coupling_native_reads.py``
+     - component-label core witnesses, lazy assignment-local batched reads, live inputs, hook fallback, literal and caller error order, weak provenance
+     - original ordered interpreter with explicit partial contraction; handler mutation and GC probes
+     - exact output dtype/bytes, read counts, error labels, serialization and lifetime
+     - 72
+   * - ``test_coupling_structure_reuse.py``
+     - bounded ordered core sharing, per-call index bindings, conservative sample-zero admission, scalar-first errors, custom dispatch and precise fallback
+     - independent explicit partial contraction, scalar oracle, callback counts and source-pinned boundary probes
+     - 2e-15 relative / 2e-12 absolute; exact dtype, errors, cache and fallback checks
+     - 71
    * - ``test_eval_symbolic_batched.py``
      - batched symbolic evaluator of coupling sums
      - scalar evaluator on the same expressions
@@ -87,6 +113,11 @@ Symbolic engine
      - MSR contraction rules
      - exact
      - 10
+   * - ``test_scalar_coupling_reads.py``
+     - assignment-local converted scalar read reuse, live bindings, ordered phases/dtypes/errors, arithmetic/module/helper hooks and native dtype/layout guards
+     - original ordered scalar interpreter and preceding public binding policy; complete-query indexed-read witness
+     - exact output dtype/bytes, error text, state and hook/read counts
+     - 75
    * - ``test_simplify.py``
      - simplification passes, diagonal / isotropic index collapse, collection by diagram
      - hand-simplified forms; idempotence
@@ -126,7 +157,7 @@ Multiplicities and canonical forms
 Propagator numerics
 -------------------
 
-*383 tests in 12 files.*
+*833 tests in 16 files.*
 
 .. list-table::
    :header-rows: 1
@@ -192,16 +223,36 @@ Propagator numerics
      - Lyapunov equation of the Markov embedding (scipy only); the built-in closed form, checked against it; direct quadrature
      - 1e-8 (embedding) / 1e-4 - 1e-3 (tables)
      - 43
+   * - ``test_ou_uniform_factors.py``
+     - equal-rate OU factor compression, full real/complex tensors, support, chunks, immutable metadata, output budgets and extreme component guards
+     - original uncompressed arithmetic; independent common-time quadrature; untimed transcendental operand-shape witnesses
+     - exact bytes/errors/state; 1e-13 relative / zero absolute quadrature
+     - 148
+   * - ``test_ou_white_cumulant.py``
+     - static bare white cumulants with constant diagonal OU response, scalar/batch support, extreme scales, guarded workflow absorption, mixed/repeated vertices and immutable bounded snapshots
+     - independent scipy common-time quadrature and 180-digit mpmath; nonzero raw equal-time GL/QMC/nquad workflow controls
+     - 1e-13 ordinary integrals / 2e-12 extreme scales; explicit workflow tolerances
+     - 111
+   * - ``test_propagator_cache_identity.py``
+     - full native content identities, response/callback bypass, mutation and protocol safety
+     - disk reuse/miss witnesses, exact array bytes and hostile custom accessors
+     - exact native identities and explicit callback response values
+     - 85
    * - ``test_propagator_dispatch.py``
      - separable-kernel shared temporal table, time-symmetric build, auto node-count selection, progress reporting
      - per-r full build; dblquad
      - 1e-12 / 1e-6
      - 11
+   * - ``test_propagator_lookup_cache.py``
+     - explicit fixed-model batch lookup promise, exact typed keys, bounded LRU, copies/layout/read-only outputs, invalidation, reentrancy and serialization
+     - deterministic counting callbacks, stateful bypass witnesses, exact native byte/layout checks
+     - exact outputs and retained raw-byte/4096-entry bounds; no RSS claim
+     - 106
 
 Integrators
 -----------
 
-*1194 tests in 41 files.*
+*1704 tests in 49 files.*
 
 .. list-table::
    :header-rows: 1
@@ -217,6 +268,11 @@ Integrators
      - raw-κ³ evaluation of the same diagram
      - 1e-12
      - 22
+   * - ``test_batch_reduction_reuse.py``
+     - invocation-local lazy C/R reductions, mutation and custom-array/index/helper/projector fallback, unused errors, arithmetic order and public GL/QMC
+     - explicit component contractions and independently integrated white-noise mean
+     - 2e-15 scalar arithmetic; 2e-13 GL / 3e-4 QMC; exact call and exception checks
+     - 31
    * - ``test_callable_vertex_copies.py``
      - a callable non-local coupling at several sets of points (two copies of one vertex at order 2), and the leg structure of equal_time / already_R_contracted copies, which the coupling sum routes term by term
      - numpy hand contraction of the order-2 six-point function (sum over the 10 partitions into triples); demo 4's Campbell closed form; the old per-instance measure shown to differ
@@ -227,6 +283,11 @@ Integrators
      - the distinct-label spelling of the same observable
      - exact
      - 14
+   * - ``test_coupling_scale_invariance.py``
+     - small indexed static/dynamic coefficients times large kernels, cancellation and nonzero phase checks
+     - ordinary multiplication and summation under reciprocal rescaling
+     - 2e-15; invalid phases raise
+     - 14
    * - ``test_demo2_kernels.py``
      - demo2's hand-written R-contracted κ³ / κ⁴ kernels, the raw-vs-R-contracted route on a NON-constant kernel, the already_R_contracted contract, pinned FK and order-0 values, the single-site cumulant ladder
      - cusp-aware adaptive quadrature and randomised-Sobol QMC of the raw leg integrals; the cumulant generating function
@@ -236,7 +297,7 @@ Integrators
      - demo2 FFFK/FFK4 with exact C_eff, all component pairs and spatial separation; analytic κ³/κ⁴ short-time, permutation, resonant-rate and serialization limits
      - independent polynomial Itô generator of replicated OU noise; Gaussian and single-site limits; constant-kernel factorization
      - 2e-7 for FFFK, 2e-12 for covariance
-     - 13
+     - 21
    * - ``test_demo4_asymmetric_noise.py``
      - demo 4: compound-Poisson noise asymmetric in points and in components; level A 3- and 4-point functions for every component tuple (raw on Gauss-Legendre split at declared kinks, R-contracted, unequal times); level B channels FK3, FF, FFK4 of <phi_a phi_b>
      - direct quadrature; Campbell closed form; exact Itô moment hierarchy
@@ -302,6 +363,11 @@ Integrators
      - exact Itô moment hierarchy with a time-dependent diffusion; the quadrature C at the same points
      - 1e-10 (exact C) / 2e-3 (table)
      - 11
+   * - ``test_dense_contraction_backend.py``
+     - explicit static dense contraction, coefficient phase, pins/repeated labels, full matrices, dtype/range/budget/custom/error-policy fallbacks
+     - independent ordered component fold, actual DiagramTerm batches, adversarial cancellation
+     - 1e-12 relative / 1e-14 absolute admitted finite probes; no universal rounding bound
+     - 60
    * - ``test_diag_fast_component_labels.py``
      - observable component labels pinned through fixed_indices on a C propagator in the iso_R + diag_C scalar fast path; the Kronecker delta between C legs when il != ir
      - numpy hand contraction over the full C matrices; all five backends against each other; the label-blind value shown to differ; independent two-state OU covariance
@@ -322,11 +388,31 @@ Integrators
      - specification
      - exact
      - 5
+   * - ``test_factorized_coupling.py``
+     - original static monomial snapshots, lazy true ndarray materialization, ordered fallback and budget failures, protocol and pickle boundaries
+     - ordered DiagramTerm component evaluation and adversarial protocol changes
+     - exact materialized dtype/bytes and fallback results; admitted contraction 1e-12 / 1e-14
+     - 113
    * - ``test_gauss_legendre_integrator.py``
      - tensor-product Gauss-Legendre time integration on the causal simplex
      - hand-derived quadrature; QMC
      - 1e-5
      - 9
+   * - ``test_gl_chunked_integration.py``
+     - chunked static/dynamic GL, causal and kink domains, aliases, dense matrix propagators, fixed vectors, phase scale, API and workers
+     - analytic exponential and polynomial cumulants; exact linear response Taylor coefficients; existing per-diagram paths
+     - 2e-12 independent GL references; explicit cancellation scale; QMC unchanged
+     - 69
+   * - ``test_gl_chunking.py``
+     - bounded tensor-node generation, polynomial weights, lazy large theoretical grids and read-only 1D rule reuse
+     - separable polynomial integral and midpoint-rule volume
+     - 2e-16; exact shape and cache checks
+     - 7
+   * - ``test_gl_external_cuts.py``
+     - fixed-time cuts on swept externals, min/max causal bounds and mixed internal/external response chains in eager/chunked GL and nquad
+     - piecewise Brownian covariance integrals, Gaussian Wick formula, exponential cumulant integral and response expansion
+     - 2e-12 exponential / 3e-13 polynomial; explicit absolute near-zero bound
+     - 42
    * - ``test_gl_white_noise_kinks.py``
      - Gauss-Legendre splits the domain at kinks: unordered ends of a white-noise C, unordered parents of a multi-psi vertex; the orientations are the consistent total orders
      - linear extensions of the causal order; the exact Itô moment hierarchy
@@ -397,6 +483,11 @@ Integrators
      - gauss_legendre on the same diagrams; demo 4's closed form and exact moment hierarchy; numpy hand contraction
      - 1e-10 - 1e-12
      - 38
+   * - ``test_qmc_coupling_chunks.py``
+     - explicit coupling-only QMC partitions, sample order and whole-batch statistics/phase/support, callback protocol and L0/L1/L2/joblib forwarding
+     - elementary constant/polynomial integrals; original full QMC output and independent sample statistics; malformed and excluded callback witnesses
+     - exact paired finite cases; explicit analytic and extreme-range budgets
+     - 166
    * - ``test_qmc_sobol_bits.py``
      - the Sobol samplers pass bits=64: scipy's default 30-bit points bias every QMC mean by -(f(1) - f(0))/2^31, the same for every seed and sample count, and an AST guard keeps a new call site from inheriting the default
      - the closed-form bias of exp(2u) on [0, 1] (scipy only); demo 7's two-time channel against its exact moment hierarchy
@@ -421,7 +512,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*342 tests in 11 files.*
+*535 tests in 17 files.*
 
 .. list-table::
    :header-rows: 1
@@ -436,12 +527,22 @@ Workflow and YAML
      - this catalogue matches the collected suite
      - tools/gen_test_catalog.py
      - exact
-     - 3
+     - 4
    * - ``test_demo3_levels.py``
      - demo 3 level A: the free-field m-point function through the package, and the R-contracted vertex against the raw one
      - closed form (level A is a single diagram, hence exact); QMC on the raw-vertex path
      - exact / 2e-4
      - 18
+   * - ``test_execution_controls.py``
+     - L0/L1/YAML execution choices, upfront contracts, serial lifetime and error cleanup, real dense admission, custom instance hooks, fixed comparison promise and loky parity
+     - native DiagramTerm complete values/errors, deterministic counting callbacks, IEEE float-bit signatures and configured-module nonexecution witnesses
+     - exact cache/default/worker results; 1e-12 relative / 1e-14 absolute dense cases
+     - 51
+   * - ``test_factorized_public.py``
+     - factorized preparation via public GL/QMC, complete expansion/sweep/YAML rows, worker serialization and scalar budget feedback
+     - ordered complete values/errors/axis metadata and public custom builder witnesses
+     - 1e-12 relative / 1e-14 absolute complete results; exact metadata
+     - 38
    * - ``test_generated_docs_in_sync.py``
      - every committed file that a script writes (demo 2's error budget, table 1 and its order-1 diagrams, demo 3's diagram README) still holds the text its generator would write; demo 2's interpretation quotes the current quadrature errors and residual statistics; its diagonal figure includes every listed nonzero channel
      - the generator's own source, parsed; independent recomputation from budget.npz
@@ -462,11 +563,31 @@ Workflow and YAML
      - exact moment hierarchy in Hörmander form (no noise-induced drift formed); finite differences of g
      - 1e-9 (GL) / 2e-3 (qmc_scalar)
      - 46
+   * - ``test_repo_hygiene.py``
+     - tracked files hold no agent working files, development records, local absolute paths or task IDs
+     - git ls-files; positive and negative pattern controls
+     - exact
+     - 18
+   * - ``test_resource_compare.py``
+     - strict resource variants, complete ordered result/stability gates, input protection, fresh serial measurement and failure receipts
+     - adversarial metadata/error/cancellation/nonfinite/overflow probes; true GL/QMC subprocesses and stale-bytecode witness
+     - exact repeat/QMC gates; explicit 1e-12 relative and 1e-14 absolute GL budget
+     - 44
+   * - ``test_resource_controls.py``
+     - pure configuration resource scopes and conditional/bypass statuses; connected dry-run target
+     - callback nonexecution witnesses, grid cardinality and connected Gaussian zero coefficients
+     - exact status, callback and diagram-count checks
+     - 6
    * - ``test_sweep_component_tuples.py``
      - n-point sweeps: Expansion.sweep, the YAML sweep block and the CLI over component tuples of the observable's length; demo 4 level A from two shipped configs; the refusals (tuple length, index range, a repeated tuple or grid value, colliding columns)
      - the Campbell closed form K_R of examples/demo4; a numpy einsum for a static kappa^3 under component-dependent rates; Expansion.evaluate at the same point
      - exact (sweep vs evaluate) / 1e-12 / 5e-3 (QMC)
      - 45
+   * - ``test_sweep_integrand_reuse.py``
+     - opt-in static sweep preparation, component and time routing, dynamic fallback, mutable inputs, parallel parity and guards
+     - analytic static kappa3 contraction and prescribed absorbed kernel; fresh per-diagram path
+     - 1e-12 (GL) / 2e-3 (QMC); exact parity
+     - 35
    * - ``test_system_t_min.py``
      - System.t_min reaches the integrators through Expansion.evaluate and sweep; a cache built for another t_min is refused
      - time-translation invariance (stationary noise, constant drift)
@@ -491,7 +612,7 @@ Workflow and YAML
 Drawing and LaTeX
 -----------------
 
-*62 tests in 3 files.*
+*78 tests in 4 files.*
 
 .. list-table::
    :header-rows: 1
@@ -517,6 +638,11 @@ Drawing and LaTeX
      - regression (referee-reported rendering)
      - exact
      - 1
+   * - ``test_lazy_drawing_import.py``
+     - fresh-process deferred exports, import discovery and ordering, reload, concurrent lookup, original pickle behavior, backend and failed-import retry
+     - public import contracts; pre-change renderer serialization
+     - exact
+     - 16
 
 Spectral propagators
 --------------------
@@ -562,4 +688,34 @@ Self-consistency
      - analytic fixed points; contrived failure modes
      - tol as configured
      - 42
+
+Finite Gaussian observables
+---------------------------
+
+*359 tests in 3 files.*
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 34 26 10 8
+
+   * - File
+     - What is checked
+     - Reference
+     - Tolerance
+     - Tests
+   * - ``test_gaussian_quadratic.py``
+     - prepared finite quadratic CGFs, rings/chains, covariance support, domains, centering, noncommuting joint cumulants, quadrature conventions and spectral compression
+     - public Wick pairings, independent Gauss-Hermite moments and high-precision scalar formulas; explicit matrix identities and compression bounds
+     - exact validation/state checks; 3e-13 matrix cumulants and source-specific bounds
+     - 90
+   * - ``test_gaussian_quadratic_reuse.py``
+     - identical ordered word reuse, selected mixed/Taylor query snapshots, multiplicities, exact numerical failures, bounded keys and immutable serialization
+     - independent Gauss-Hermite moments with set-partition cumulants; analytic scalar cases and test-only contraction counts
+     - 3e-12 relative / 3e-12 absolute GH; exact state, errors and operation counts
+     - 89
+   * - ``test_quadratic_white_reference_parity.py``
+     - OU private scratch and fourth-order native ordered-prefix reuse; bounded memory/protocol bypass, scalar order, range fallback and input state
+     - source-pinned frozen reference implementation with exact bytes/error args; independent Gauss-Hermite central cumulants and native matmul line witnesses
+     - exact byte/error/state/count parity; 3e-12 relative / absolute GH
+     - 180
 

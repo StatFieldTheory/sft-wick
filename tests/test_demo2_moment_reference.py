@@ -1,5 +1,6 @@
 """Demo2 analytic kernel and diagram channels against independent moments."""
 from itertools import permutations
+from dataclasses import replace
 from pathlib import Path
 import sys
 import subprocess
@@ -17,6 +18,46 @@ import k3_R_coupling as kernel
 import run_budget as budget
 import k4_R_contracted as kernel4
 import sft_wick as sw
+
+
+@pytest.mark.parametrize("selection", ["all", "list", "tuple", "generator"])
+@pytest.mark.parametrize("vertex_name", ["F", "G"])
+def test_verified_gaussian_rows_accept_all_and_iterable_types(
+        selection, vertex_name, tmp_path, monkeypatch):
+    """Default GL refinement keeps all labels and one-shot selections."""
+    assert Path(budget.__file__).resolve() == (
+        ROOT / "examples/paper_assets/demo2_kappa4/run_budget.py").resolve()
+    assert Path(sw.__file__).resolve().is_relative_to((ROOT / "src").resolve())
+    monkeypatch.setattr(budget, "CACHE", tmp_path)
+    monkeypatch.setattr(budget, "N_JOBS", 1)
+    system = replace(budget.make_system(budget.LAM), vertices=[
+        sw.LocalVertex(vertex_name, coupling=budget.F)])
+    props = budget.props_for(system, True)
+    choices = {"all": None, "list": [vertex_name],
+               "tuple": (vertex_name,), "generator": iter((vertex_name,))}
+    times = [0.1, 0.2]
+    frame = budget.verified_rows(
+        system, props, 4, choices[selection], "ffff", [0.0], times)
+    assert len(frame) == 6
+    assert set(frame.vertex_type) == {vertex_name}
+    assert set(frame.order) == {4}
+    assert set(zip(frame.a, frame.b)) == set(budget.PAIRS)
+    assert set(frame.t_final) == set(times)
+    # This is the real default starting rule, not a stubbed sweep or a
+    # lowered acceptance grid. The formal demo still runs all 18 times.
+    np.testing.assert_array_equal(frame.n_gauss, np.full(len(frame), 12))
+    assert np.isfinite(frame[["value", "reference", "absolute_error"]]).all().all()
+    reference = moments(times, 0.0, channels=("ffff",))["ffff"]
+    for ti, time in enumerate(times):
+        for pi, pair in enumerate(budget.PAIRS):
+            row = frame[(frame.t_final == time)
+                        & (frame.a == pair[0]) & (frame.b == pair[1])]
+            assert len(row) == 1
+            expected = reference[ti, pi]
+            np.testing.assert_allclose(row.reference.iloc[0], expected,
+                                       rtol=1e-13, atol=1e-20,
+                                       equal_nan=False)
+            assert abs(row.value.iloc[0] - expected) <= 1e-3 * abs(expected) + 1e-20
 
 
 def test_reference_covariance_and_gaussian_parity():

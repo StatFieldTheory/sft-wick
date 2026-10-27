@@ -117,15 +117,17 @@ print("\n[B] Building propagators with NO c_closed_form (dblquad + κ²)…")
 t0 = time.perf_counter()
 props_B = system_B.propagators(
     t_max=T_MAX, n_grid_t=N_GRID_T,
-    # No c_closed_form → wrapper calls scipy.integrate.dblquad on
-    # self.model.kappa2 for each (t1, t2) grid point.
-    # n_jobs=-1 fans the grid points out across all CPU cores via
-    # joblib (each new r value in lazy mode triggers one parallel
-    # build).
+    c_closed_form=None,
+    c_method="dblquad",
+    # Explicitly disable automatic closed forms for this independent path.
+    # Lazy C tables build serially on the first lookup of each new r.
+    # n_jobs applies to eager table preparation; lazy mode uses one worker.
     n_jobs=-1,
 )
+if "dblquad" not in props_B.c_source:
+    raise RuntimeError(f"Expected independent dblquad path, got {props_B.c_source}")
 print(f"    constructor: {time.perf_counter() - t0:.2f}s "
-      f"(lazy + n_jobs=-1; the parallel dblquad builds happen on "
+      f"(lazy tables; serial dblquad builds happen on "
       f"first evaluation of each new r)")
 
 

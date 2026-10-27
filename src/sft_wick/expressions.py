@@ -17,8 +17,7 @@ class Expr(ABC):
     """Base class for all symbolic expressions."""
 
     @abstractmethod
-    def to_latex(self) -> str:
-        ...
+    def to_latex(self) -> str: ...
 
     def __add__(self, other: Expr) -> Sum:
         return Sum(_flatten_sum([self, other]))
@@ -43,12 +42,10 @@ class Expr(ABC):
         return self + (-other)
 
     @abstractmethod
-    def __eq__(self, other: object) -> bool:
-        ...
+    def __eq__(self, other: object) -> bool: ...
 
     @abstractmethod
-    def __hash__(self) -> int:
-        ...
+    def __hash__(self) -> int: ...
 
     def __repr__(self) -> str:
         return self.to_latex()
@@ -57,6 +54,7 @@ class Expr(ABC):
 # ---------------------------------------------------------------------------
 # Scalar / numeric expressions
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class Rational(Expr):
@@ -116,7 +114,10 @@ class Rational(Expr):
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, Rational):
-            return self.numerator == other.numerator and self.denominator == other.denominator
+            return (
+                self.numerator == other.numerator
+                and self.denominator == other.denominator
+            )
         return NotImplemented
 
     def __hash__(self) -> int:
@@ -131,6 +132,7 @@ MINUS_ONE = Rational(-1, 1)
 # ---------------------------------------------------------------------------
 # Named symbols (coupling constants, etc.)
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class Symbol(Expr):
@@ -164,9 +166,11 @@ class Symbol(Expr):
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, Symbol):
-            return (self.name == other.name
-                    and self.indices == other.indices
-                    and self.spatial_args == other.spatial_args)
+            return (
+                self.name == other.name
+                and self.indices == other.indices
+                and self.spatial_args == other.spatial_args
+            )
         return NotImplemented
 
     def __hash__(self) -> int:
@@ -176,6 +180,7 @@ class Symbol(Expr):
 # ---------------------------------------------------------------------------
 # Propagators
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class Propagator(Expr):
@@ -196,27 +201,49 @@ class Propagator(Expr):
     def to_latex(self) -> str:
         s = self.kind
         if self.index_left is not None and self.index_right is not None:
-            s += "_{" + _latex_index(self.index_left) + _latex_index(self.index_right) + "}"
-        s += "(" + _latex_index(self.spatial_left) + ", " + _latex_index(self.spatial_right) + ")"
+            s += (
+                "_{"
+                + _latex_index(self.index_left)
+                + _latex_index(self.index_right)
+                + "}"
+            )
+        s += (
+            "("
+            + _latex_index(self.spatial_left)
+            + ", "
+            + _latex_index(self.spatial_right)
+            + ")"
+        )
         return s
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, Propagator):
-            return (self.kind == other.kind
-                    and self.index_left == other.index_left
-                    and self.index_right == other.index_right
-                    and self.spatial_left == other.spatial_left
-                    and self.spatial_right == other.spatial_right)
+            return (
+                self.kind == other.kind
+                and self.index_left == other.index_left
+                and self.index_right == other.index_right
+                and self.spatial_left == other.spatial_left
+                and self.spatial_right == other.spatial_right
+            )
         return NotImplemented
 
     def __hash__(self) -> int:
-        return hash((Propagator, self.kind, self.index_left, self.index_right,
-                      self.spatial_left, self.spatial_right))
+        return hash(
+            (
+                Propagator,
+                self.kind,
+                self.index_left,
+                self.index_right,
+                self.spatial_left,
+                self.spatial_right,
+            )
+        )
 
 
 # ---------------------------------------------------------------------------
 # Composite expressions
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, init=False)
 class Sum(Expr):
@@ -291,6 +318,7 @@ class Product(Expr):
 # Index/spatial wrappers
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class SumOverIndex(Expr):
     """Summation over a component index: sum_{i=1}^{N} body."""
@@ -304,9 +332,11 @@ class SumOverIndex(Expr):
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, SumOverIndex):
-            return (self.index_name == other.index_name
-                    and self.dimension == other.dimension
-                    and self.body == other.body)
+            return (
+                self.index_name == other.index_name
+                and self.dimension == other.dimension
+                and self.body == other.body
+            )
         return NotImplemented
 
     def __hash__(self) -> int:
@@ -321,7 +351,9 @@ class IntegralOver(Expr):
     body: Expr
 
     def to_latex(self) -> str:
-        return rf"\int \mathrm{{d}}{_latex_index(self.variable)}\, {self.body.to_latex()}"
+        return (
+            rf"\int \mathrm{{d}}{_latex_index(self.variable)}\, {self.body.to_latex()}"
+        )
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, IntegralOver):
@@ -335,6 +367,7 @@ class IntegralOver(Expr):
 # ---------------------------------------------------------------------------
 # Delta functions
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class KroneckerDelta(Expr):
@@ -378,6 +411,7 @@ class DiracDelta(Expr):
 # Imaginary unit
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class ImaginaryUnit(Expr):
     r"""The imaginary unit :math:`\mathrm{i}`.
@@ -405,6 +439,7 @@ I = ImaginaryUnit()
 # ---------------------------------------------------------------------------
 # Response phase utility
 # ---------------------------------------------------------------------------
+
 
 def _count_r_deep(expr: Expr) -> int:
     """Count R propagators recursively through the expression tree.
@@ -478,8 +513,7 @@ def apply_response_phase(expr: Expr) -> Expr:
             factors.insert(insert_pos, ImaginaryUnit())
 
         # Drop Rational(1): it is the multiplicative identity.
-        factors = [f for f in factors
-                   if not (isinstance(f, Rational) and f.is_one)]
+        factors = [f for f in factors if not (isinstance(f, Rational) and f.is_one)]
         if not factors:
             return ONE
 
@@ -537,3 +571,103 @@ def _flatten_product(factors: Sequence[Expr]) -> tuple[Expr, ...]:
         else:
             result.append(f)
     return tuple(result)
+
+
+# Capture numeric expression protocols at definition time. Optional backends
+# must not treat a later first observation of a customized class as native.
+def _freeze_native_numeric_protocol(cls):
+    from functools import cached_property
+    from types import FunctionType
+
+    namespace = dict(cls.__dict__)
+    namespace.pop("__slotnames__", None)
+    functions = []
+    for member in namespace.values():
+        if type(member) is FunctionType:
+            candidates = ((member, None, member),)
+        elif type(member) in (staticmethod, classmethod):
+            candidates = ((member, "__func__", member.__func__),)
+        elif type(member) is cached_property:
+            candidates = ((member, "func", member.func),)
+        elif type(member) is property:
+            candidates = tuple(
+                (member, name, getattr(member, name))
+                for name in ("fget", "fset", "fdel")
+            )
+        else:
+            candidates = ()
+        for descriptor, attribute, function in candidates:
+            if type(function) is FunctionType:
+                functions.append(
+                    (
+                        descriptor,
+                        attribute,
+                        function,
+                        function.__code__,
+                        function.__defaults__,
+                        dict(function.__kwdefaults__ or {}),
+                    )
+                )
+    return namespace, tuple(functions)
+
+
+_NATIVE_NUMERIC_EXPRESSION_CLASSES = (
+    Expr,
+    ABC,
+    Product,
+    Sum,
+    Symbol,
+    Rational,
+    ImaginaryUnit,
+    Propagator,
+)
+_NATIVE_NUMERIC_EXPRESSION_PROTOCOLS = tuple(
+    (cls, _freeze_native_numeric_protocol(cls))
+    for cls in _NATIVE_NUMERIC_EXPRESSION_CLASSES
+)
+_NATIVE_NUMERIC_EXPRESSION_BASES = tuple(
+    (cls, cls.__bases__) for cls in _NATIVE_NUMERIC_EXPRESSION_CLASSES
+)
+
+
+def _capture_native_numeric_abc_protocol():
+    import _abc
+    from abc import ABCMeta
+    from types import BuiltinFunctionType, FunctionType
+
+    dump = _abc.__dict__.get("_get_dump")
+    available = (
+        type(dump) is BuiltinFunctionType
+        and dump.__module__ == "_abc"
+        and dump.__name__ == "_get_dump"
+    )
+    registries = (
+        tuple(
+            (cls, frozenset(dump(cls)[0])) for cls in _NATIVE_NUMERIC_EXPRESSION_CLASSES
+        )
+        if available
+        else ()
+    )
+    methods = tuple(
+        member for member in ABCMeta.__dict__.values() if type(member) is FunctionType
+    )
+    globals_read = tuple(
+        (function.__globals__, name, function.__globals__[name])
+        for function in methods
+        for name in function.__code__.co_names
+        if name in function.__globals__
+    )
+    return (
+        _abc.__dict__,
+        dump,
+        available,
+        ABCMeta,
+        _freeze_native_numeric_protocol(ABCMeta),
+        ABCMeta.__bases__,
+        registries,
+        globals_read,
+    )
+
+
+_NATIVE_NUMERIC_ABC_PROTOCOL = _capture_native_numeric_abc_protocol()
+del _capture_native_numeric_abc_protocol

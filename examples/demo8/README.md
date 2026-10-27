@@ -70,7 +70,7 @@ rates on Gauss-Legendre and `qmc_vectorized`.
 
 Worst relative difference from the reference over the component tuples and
 orders of each block (`time8_results.json`). All 258 table and time-translation
-rows were remeasured on 2026-09-13 after 0.6.1; exact-C rows retain their
+rows were remeasured on 2026-09-13 after the min/lag C-table rewrite; exact-C rows retain their
 earlier measurements. This is recorded in the JSON provenance.
 
 ### (a) a rate varying in time, `t_min ∈ {−1.3, 0.7}`
@@ -225,7 +225,7 @@ relative departure from the exact C over `t ∈ [0.6, 2.1]`):
   out of the split.  The cost is one integration per unordered C pair: 1.33
   pieces per diagram here, against 1.00.  The `exact C` rows of this demo
   declared `has_diagonal_kink=True` all along and never lost the rate.
-- **The former white-noise table kink is resolved by 0.6.1.** The first
+- **The former white-noise table kink is resolved by the min/lag C table.** The first
   derivative jump now lies on the min/lag boundary. At 41 nodes, the
   near-diagonal pointwise errors above are below 5e-7 and the GL order-2
   `(0,1)` error is 2.4e-8. Coarse smooth-kernel errors need not improve

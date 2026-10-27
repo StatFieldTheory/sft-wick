@@ -45,32 +45,55 @@ def main(argv: list[str] | None = None) -> int:
     run_p = sub.add_parser("run", help="Execute a workflow YAML.")
     run_p.add_argument("config", type=Path, help="path to a YAML file")
     run_p.add_argument(
-        "--override", "-o", action="append", default=[],
+        "--override",
+        "-o",
+        action="append",
+        default=[],
         metavar="KEY=VALUE",
-        help="patch a field, e.g. --override sweep.seed=7.  May be "
-             "repeated.",
+        help="patch a field, e.g. --override sweep.seed=7.  May be " "repeated.",
     )
     run_p.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="parse and validate the config; print a summary and a cost "
-             "estimate; don't execute.",
+        "estimate; don't execute.",
     )
     run_p.add_argument(
-        "--quiet", "-q", action="store_true",
+        "--quiet",
+        "-q",
+        action="store_true",
         help="no progress bars or stage banners (also: SFT_WICK_PROGRESS=0).",
+    )
+
+    compare_p = sub.add_parser(
+        "compare-resources",
+        help="Compare explicit resource variants in fresh serial processes.",
+    )
+    compare_p.add_argument("config", type=Path)
+    compare_p.add_argument("--variants", type=Path, required=True)
+    compare_p.add_argument("--json", dest="report", type=Path, required=True)
+    compare_p.add_argument("--repeats", type=int, default=2)
+    compare_p.add_argument("--timeout", type=float, default=300.0)
+    compare_p.add_argument("--rtol", type=float, default=0.0)
+    compare_p.add_argument("--atol", type=float, default=0.0)
+    compare_p.add_argument(
+        "--force", action="store_true", help="replace an existing comparison report"
     )
 
     qs_p = sub.add_parser(
         "quickstart",
         help="write quickstart.yaml to the current directory and run it "
-             "(< 1 minute on a laptop).",
+        "(< 1 minute on a laptop).",
     )
     qs_p.add_argument(
-        "--dir", type=Path, default=Path("."),
+        "--dir",
+        type=Path,
+        default=Path("."),
         help="directory to write quickstart.yaml into (default: cwd).",
     )
     qs_p.add_argument(
-        "--force", action="store_true",
+        "--force",
+        action="store_true",
         help="overwrite an existing quickstart.yaml.",
     )
     qs_p.add_argument("--quiet", "-q", action="store_true")
@@ -81,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_run(args)
     if args.cmd == "quickstart":
         return _cmd_quickstart(args)
+    if args.cmd == "compare-resources":
+        return _cmd_compare_resources(args)
 
     parser.print_help()
     return 1
@@ -95,13 +120,49 @@ def _progress_setting(args) -> bool:
     return raw not in ("0", "false", "off", "no")
 
 
+def _cmd_compare_resources(args) -> int:
+    from .resource_compare import compare_resources
+
+    try:
+        report = compare_resources(
+            args.config,
+            args.variants,
+            args.report,
+            repeats=args.repeats,
+            timeout=args.timeout,
+            rtol=args.rtol,
+            atol=args.atol,
+            force=args.force,
+        )
+    except (ValueError, OSError) as exc:
+        print(f"[sft-wick] resource comparison: {exc}", file=sys.stderr)
+        return 1
+    print("case\tstable\tequivalent\tworkflow seconds\ttraced(load+workflow) MiB")
+    for name, case in report["cases"].items():
+        seconds, peak = (
+            case["median_workflow_seconds"],
+            case["median_traced_peak_bytes"],
+        )
+        print(
+            f"{name}\t{case['stable']}\t{case['equivalence_gate_passed']}\t"
+            f"{seconds if seconds is not None else '-'}\t"
+            f"{peak / 2**20 if peak is not None else '-'}"
+        )
+    print(f"[sft-wick] report: {args.report}; complete gates passed: {report['ok']}")
+    for failure in report["failures"]:
+        print(f"[sft-wick] {failure}", file=sys.stderr)
+    return 0 if report["ok"] else 1
+
+
 def _cmd_quickstart(args) -> int:
     from importlib import resources
 
     target = Path(args.dir) / "quickstart.yaml"
     if target.exists() and not args.force:
-        print(f"[sft-wick] {target} exists; re-run with --force to overwrite "
-              f"or run it directly:  sft-wick run {target}")
+        print(
+            f"[sft-wick] {target} exists; re-run with --force to overwrite "
+            f"or run it directly:  sft-wick run {target}"
+        )
     else:
         target.parent.mkdir(parents=True, exist_ok=True)
         src = resources.files("sft_wick.workflow").joinpath("quickstart.yaml")
@@ -119,8 +180,9 @@ def _cmd_run(args) -> int:
 
     t0 = time.perf_counter()
     cfg = load_workflow_config(args.config, overrides=overrides)
-    print(f"[sft-wick] loaded config: {args.config} "
-          f"({time.perf_counter() - t0:.2f}s)")
+    print(
+        f"[sft-wick] loaded config: {args.config} " f"({time.perf_counter() - t0:.2f}s)"
+    )
     if overrides:
         keys = ", ".join(f"{k}={v!r}" for k, v in overrides.items())
         print(f"[sft-wick] applied overrides: {keys}")
@@ -135,16 +197,20 @@ def _cmd_run(args) -> int:
         t0 = time.perf_counter()
         est = estimate_cost(cfg)
         print(est.summary())
-        print(f"[sft-wick] dry run — exiting before execution "
-              f"(estimate took {time.perf_counter() - t0:.1f}s)")
+        print(
+            f"[sft-wick] dry run — exiting before execution "
+            f"(estimate took {time.perf_counter() - t0:.1f}s)"
+        )
         return 0
 
     t0 = time.perf_counter()
     sweep, totals = run_workflow(cfg, progress=progress)
-    print(f"[sft-wick] workflow done in "
-          f"{time.perf_counter() - t0:.1f}s — "
-          f"{len(sweep.rows)} diagram-level rows, "
-          f"{len(totals)} aggregated rows.")
+    print(
+        f"[sft-wick] workflow done in "
+        f"{time.perf_counter() - t0:.1f}s — "
+        f"{len(sweep.rows)} diagram-level rows, "
+        f"{len(totals)} aggregated rows."
+    )
     return 0
 
 
@@ -158,9 +224,7 @@ def _parse_overrides(strs: list[str]) -> dict:
     out: dict = {}
     for s in strs:
         if "=" not in s:
-            raise SystemExit(
-                f"--override must be KEY=VALUE, got {s!r}."
-            )
+            raise SystemExit(f"--override must be KEY=VALUE, got {s!r}.")
         k, v_str = s.split("=", 1)
         out[k.strip()] = _coerce_scalar(v_str.strip())
     return out
@@ -222,35 +286,60 @@ def _maybe_warn_blas_oversubscription(cfg) -> None:
 
 def _print_summary(cfg) -> None:
     s = cfg.system
-    print(f"[sft-wick] system: field={s.field_name}(N={s.n_components}), "
-          f"{len(s.vertices)} local + {len(s.nonlocal_vertices)} non-local "
-          f"vertices, linear={s.linear.get('type', 'diagonal')}, "
-          f"kappa2={s.noise['kappa2'].get('type', '?')}")
+    print(
+        f"[sft-wick] system: field={s.field_name}(N={s.n_components}), "
+        f"{len(s.vertices)} local + {len(s.nonlocal_vertices)} non-local "
+        f"vertices, linear={s.linear.get('type', 'diagonal')}, "
+        f"kappa2={s.noise['kappa2'].get('type', '?')}"
+    )
     e = cfg.expand
-    print(f"[sft-wick] expand: observable={e.observable}, "
-          f"orders={list(e.orders)}")
+    print(
+        f"[sft-wick] expand: observable={e.observable}, "
+        f"orders={list(e.orders)}, target={getattr(e, 'target', 'moment')}"
+    )
     p = cfg.propagators
     if p.c_closed_form_module is not None:
         c_src = f"closed_form:user ({p.c_closed_form_module})"
     else:
         c_src = f"c_closed_form={p.c_closed_form!r}, c_method={p.c_method!r}"
-    print(f"[sft-wick] propagators: t_max={p.t_max}, n_grid_t={p.n_grid_t}, "
-          f"n_jobs={p.n_jobs}, {c_src}")
+    print(
+        f"[sft-wick] propagators: t_max={p.t_max}, n_grid_t={p.n_grid_t}, "
+        f"n_jobs={p.n_jobs}, {c_src}"
+    )
     sw = cfg.sweep
     method_detail = (
         f"n_gauss={sw.n_gauss}"
         if sw.method == "gauss_legendre"
         else f"n_samples={sw.n_samples}, seed={sw.seed}"
     )
-    print(f"[sft-wick] sweep: positions_grid={sw.positions_grid}, "
-          f"t_final_grid={sw.t_final_grid}, "
-          + (f"external_times_grid={sw.external_times_grid}, "
-             if sw.external_times_grid else "") +
-          f"component_tuples={sw.component_tuples}, "
-          f"integrate_over={sw.integrate_over!r}, "
-          f"method={sw.method!r}, {method_detail}")
+    if sw.method == "gauss_legendre" and sw.gl_chunk_size is not None:
+        method_detail += f", gl_chunk_size={sw.gl_chunk_size}"
+    if (
+        sw.method in {"qmc", "qmc_vectorized"}
+        and sw.qmc_coupling_chunk_size is not None
+    ):
+        method_detail += f", qmc_coupling_chunk_size={sw.qmc_coupling_chunk_size}"
+    print(
+        f"[sft-wick] sweep: positions_grid={sw.positions_grid}, "
+        f"t_final_grid={sw.t_final_grid}, "
+        + (
+            f"external_times_grid={sw.external_times_grid}, "
+            if sw.external_times_grid
+            else ""
+        )
+        + f"component_tuples={sw.component_tuples}, "
+        f"integrate_over={sw.integrate_over!r}, "
+        f"method={sw.method!r}, {method_detail}"
+    )
     for o in cfg.output:
         print(f"[sft-wick] output: type={o.type}, path={o.path}")
+    from .resources import resource_controls
+
+    for control in resource_controls(cfg):
+        print(
+            f"[sft-wick] resource {control['name']}: requested={control['requested']!r}, "
+            f"{control['status']} ({control['scope']}); {control['reason']}"
+        )
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ Detailed coverage of every feature in **sft-wick**, organised by topic.
    discretization
    time_variable
    parallelism
+   resources
 
 .. toctree::
    :maxdepth: 2
@@ -19,6 +20,9 @@ Detailed coverage of every feature in **sft-wick**, organised by topic.
    fields
    vertices_and_actions
    perturbative_expansion
+   connected_targets
+   gaussian_quadratic
+   ou_white_cumulant
    expressions
    simplification
    diagrams

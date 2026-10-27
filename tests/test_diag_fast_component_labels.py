@@ -413,7 +413,7 @@ def test_DC3_quadrature_backends_agree_with_qmc(setup, backend_values, pair):
 #: own sampling error at 2**10 samples (1.4e-4, 6.9e-5, 1.1e-4 relative),
 #: not by the 1e-9 bias that change removed.  The 30-bit values were
 #: 2.4163209589574818e-02, 1.5817788075977668e-02, 7.0654764616863335e-03.
-#: Re-recorded for the min/lag C table and bounded-grid repair (0.6.1).
+#: Re-recorded for the min/lag C table and bounded-grid repair.
 #: The old time-grid values were 2.4159751969924134e-02,
 #: 1.5816695846356810e-02, 7.0646686728619430e-03.  DC5 independently
 #: bounds the current table error by 1e-4 at this deliberately coarse grid.

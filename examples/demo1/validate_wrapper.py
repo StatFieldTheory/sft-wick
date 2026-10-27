@@ -1,4 +1,4 @@
-"""Acceptance test for the high-level workflow API.
+"""Numerical regression test for the high-level workflow API.
 
 Runs demo 1's 48-point sweep through the :class:`System` /
 :class:`Expansion` / :class:`Propagators` / :class:`SweepResult`
@@ -21,6 +21,16 @@ kernel.  The second refresh moved 16 of the 24 rows, by 5.6e-5 to 1.2e-1:
 order 4 at 2^13 samples has a seed-to-seed spread of tens of percent here,
 which is why demo 1's paper sweep uses ``gauss_legendre``
 (``examples/demo1/L2/INTEGRATION_ERROR.md``).
+
+On 2026-10-13 the 0.6.1 code (commit
+``5198fb9845334982d103059ac7b84f7afb2228ca``) reproduced 23/24 stored-value
+failures. Its full unrounded 48 totals and 1136 diagram rows were exactly
+equal to the 0.7.0 code under the unchanged settings. The 24 values
+below were refreshed from that independently loaded main baseline.
+They are a numerical regression snapshot for these QMC and spline
+settings, not exact continuum values or a comparison with Phase-5's
+fixed-time observable. Independent time-integrated OU order-0 checks
+measure finite discretization errors separately.
 
 Run::
 
@@ -89,7 +99,7 @@ def _C_demo1(n1, t1, n2, t2):
 # =========================================================================
 
 print("=" * 90)
-print("Workflow-API acceptance: reproduce validate_phase5.py output")
+print("Workflow-API regression: reproduce the stored numerical snapshot")
 print("=" * 90)
 
 t0 = time.perf_counter()
@@ -133,7 +143,7 @@ print(f"\n[3/3] expansion.sweep(...)      : "
 
 
 # =========================================================================
-# 4. Cross-check against validate_phase5.py's Method-A output.
+# 4. Compare the identical-settings stored numerical snapshot.
 # =========================================================================
 
 print("\n" + "-" * 90)
@@ -153,36 +163,37 @@ for _, row in totals.iterrows():
 
 print("-" * 90)
 
-# Expected totals for a=0, b=0 at each (r, t_f, order): this script's own
-# output at the settings above (see the module docstring for its history).
+# Expected totals for a=0, b=0 at each (r, t_f, order): unrounded output
+# from main 5198fb9845334982d103059ac7b84f7afb2228ca at the settings above.
+# This is a numerical regression snapshot, not an analytic reference.
 EXPECTED = {
-    (0, 0, 0.0, 1.0, 0):  3.274075e-03,
-    (0, 0, 0.0, 15.0, 0):  3.994859e-01,
-    (0, 0, 0.5, 1.0, 0):  1.985827e-03,
-    (0, 0, 0.5, 15.0, 0):  2.423005e-01,
-    (0, 0, 1.0, 1.0, 0):  1.204465e-03,
-    (0, 0, 1.0, 15.0, 0):  1.469627e-01,
-    (0, 0, 2.5, 1.0, 0):  2.687525e-04,
-    (0, 0, 2.5, 15.0, 0):  3.279180e-02,
-    (0, 0, 0.0, 1.0, 2):  7.042276e-06,
-    (0, 0, 0.0, 15.0, 2):  3.801785e-02,
-    (0, 0, 0.5, 1.0, 2):  4.301808e-06,
-    (0, 0, 0.5, 15.0, 2):  3.116579e-02,
-    (0, 0, 1.0, 1.0, 2):  2.961774e-06,
-    (0, 0, 1.0, 15.0, 2):  2.774741e-02,
-    (0, 0, 2.5, 1.0, 2):  1.677097e-06,
-    (0, 0, 2.5, 15.0, 2):  2.438662e-02,
-    (0, 0, 0.0, 1.0, 4):  3.468707e-08,
-    (0, 0, 0.0, 15.0, 4):  3.277192e-03,
-    (0, 0, 0.5, 1.0, 4):  1.903022e-08,
-    (0, 0, 0.5, 15.0, 4):  2.298346e-03,
-    (0, 0, 1.0, 1.0, 4):  1.205275e-08,
-    (0, 0, 1.0, 15.0, 4):  1.855777e-03,
-    (0, 0, 2.5, 1.0, 4):  5.934545e-09,
-    (0, 0, 2.5, 15.0, 4):  1.464293e-03,
+    (0, 0, 0.0, 1.0, 0): 0.0032715061398110685,
+    (0, 0, 0.0, 15.0, 0): 0.39935689358025317,
+    (0, 0, 0.5, 1.0, 0): 0.001984268777233538,
+    (0, 0, 0.5, 15.0, 0): 0.2422222001240189,
+    (0, 0, 1.0, 1.0, 0): 0.0012035198505026385,
+    (0, 0, 1.0, 15.0, 0): 0.1469151908382667,
+    (0, 0, 2.5, 1.0, 0): 0.00026854157698446803,
+    (0, 0, 2.5, 15.0, 0): 0.03278121005997958,
+    (0, 0, 0.0, 1.0, 2): 7.018868500417241e-06,
+    (0, 0, 0.0, 15.0, 2): 0.038002513820243805,
+    (0, 0, 0.5, 1.0, 2): 4.289909252294353e-06,
+    (0, 0, 0.5, 15.0, 2): 0.031158074918936098,
+    (0, 0, 1.0, 1.0, 2): 2.9554029427699385e-06,
+    (0, 0, 1.0, 15.0, 2): 0.027743315669267694,
+    (0, 0, 2.5, 1.0, 2): 1.6759013108806938e-06,
+    (0, 0, 2.5, 15.0, 2): 0.024385857336698315,
+    (0, 0, 0.0, 1.0, 4): 3.44894092697764e-08,
+    (0, 0, 0.0, 15.0, 4): 0.003274225009355242,
+    (0, 0, 0.5, 1.0, 4): 1.8927091915741514e-08,
+    (0, 0, 0.5, 15.0, 4): 0.0022965027215034396,
+    (0, 0, 1.0, 1.0, 4): 1.1990636603338727e-08,
+    (0, 0, 1.0, 15.0, 4): 0.0018544592357331903,
+    (0, 0, 2.5, 1.0, 4): 5.9073418134316464e-09,
+    (0, 0, 2.5, 15.0, 4): 0.0014634651017417953,
 }
 
-print("\nCross-check vs the stored table (a=0, b=0) rows:")
+print("\nCross-check vs stored numerical snapshot (a=0, b=0):")
 max_rel = 0.0
 for (a, b, r, t_f, ord_), expected in EXPECTED.items():
     mask = (
@@ -205,8 +216,8 @@ print(f"\n{'-' * 90}")
 print(f"max rel_err = {max_rel:.2e}, "
       f"mismatches = {mismatches} / {len(EXPECTED)}")
 if mismatches == 0:
-    print("PASS: the sweep reproduces the stored table.")
+    print("PASS: the sweep reproduces the stored numerical snapshot.")
     sys.exit(0)
 else:
-    print("FAIL: wrapper diverged from validate_phase5.py.")
+    print("FAIL: wrapper diverged from the stored numerical snapshot.")
     sys.exit(1)

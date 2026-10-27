@@ -710,6 +710,10 @@ def test_CF13_propagators_cache_path_round_trip(tmp_path: Path) -> None:
     cache_dir = tmp_path / "props_cache"
 
     cfg_yaml = yaml.safe_load(_DEMO1_YAML)
+    # This positive shared-cache test uses the native automatic closed form.
+    # Explicit user callbacks intentionally bypass persisted table reuse.
+    cfg_yaml["propagators"].pop("c_closed_form_module")
+    cfg_yaml["propagators"].pop("c_closed_form_attr")
     cfg_yaml["propagators"]["cache_path"] = str(cache_dir)
     (tmp_path / "c.yaml").write_text(yaml.safe_dump(cfg_yaml))
 
@@ -738,8 +742,8 @@ def test_CF13_propagators_cache_path_round_trip(tmp_path: Path) -> None:
     # is why this cell used to be vacuous: it stayed green straight through
     # the CubicSpline breakage that a27ba00 had to fix.
     #
-    # Scope, measured: this config uses `c_closed_form`, so only the LAZY
-    # spatial builder runs and the legacy `precompute_C_table` never does.
+    # Scope, measured: this config uses the automatic native closed form, so
+    # only the LAZY spatial builder runs; legacy `precompute_C_table` never does.
     # CF13 therefore catches a serialisation regression in the lazy path
     # (verified by reverting `_diag_line_interp` -- CF13 fails) but NOT one
     # confined to the legacy table's own diagonal container.  F23 covers all

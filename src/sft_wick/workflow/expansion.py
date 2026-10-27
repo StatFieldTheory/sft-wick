@@ -18,6 +18,7 @@ from typing import Any, Iterable, Mapping
 import numpy as np
 
 
+from sft_wick._dense_contraction import DEFAULT_CONTRACTION_MAX_BYTES
 from sft_wick.evaluate import _cache_has_spatial_table, integrate_moment
 from sft_wick.expressions import Expr, Product, Symbol, Sum, Rational
 
@@ -40,8 +41,9 @@ def _guard_external_times(expansion, propagators, ext_times, label):
     )
     if has_psi:
         times = list((ext_times or {}).values())
-        if not ext_times or (len(set(times)) <= 1
-                             and len(times) >= len(expansion.observable_repr)):
+        if not ext_times or (
+            len(set(times)) <= 1 and len(times) >= len(expansion.observable_repr)
+        ):
             warnings.warn(
                 f"{label}: the observable carries a response leg "
                 f"('{expansion.system.field.response_name}') but its external "
@@ -50,15 +52,15 @@ def _guard_external_times(expansion, propagators, ext_times, label):
                 f"vanishes at equal times.  Pass "
                 f"`external_times_grid={{'x': [t], 'y': [t_prime]}}` (sweep) "
                 f"or `external_times=` (evaluate) to separate them.",
-                UserWarning, stacklevel=3,
+                UserWarning,
+                stacklevel=3,
             )
 
     # 2. A time past the propagator table's horizon silently CLAMPS to the
     #    table edge, which is indistinguishable from a correct answer.
     #    ``Propagators`` exposes only build/cache/homogeneity/is_lazy, so read
     #    the horizon from the cache itself, which is the object that clamps.
-    t_range = getattr(getattr(propagators, "cache", None),
-                      "_c_table_range", None)
+    t_range = getattr(getattr(propagators, "cache", None), "_c_table_range", None)
     t_max = t_range[1] if t_range else None
     if t_max is not None and ext_times:
         over = {k: v for k, v in ext_times.items() if float(v) > float(t_max)}
@@ -89,8 +91,9 @@ def _guard_single_site(expansion, diagram_terms, positions) -> None:
     """
     from .specs import MultiplicativeImpulse
 
-    if not positions or not isinstance(expansion.system.noise.sigma2,
-                                       MultiplicativeImpulse):
+    if not positions or not isinstance(
+        expansion.system.noise.sigma2, MultiplicativeImpulse
+    ):
         return
     values = [np.asarray(v) for v in positions.values()]
     if all(np.array_equal(v, values[0]) for v in values[1:]):
@@ -101,8 +104,9 @@ def _guard_single_site(expansion, diagram_terms, positions) -> None:
         for group in spatial.direction_groups:
             pts = sorted(p for p in group if p in external and p in positions)
             for p in pts[1:]:
-                if not np.array_equal(np.asarray(positions[p]),
-                                      np.asarray(positions[pts[0]])):
+                if not np.array_equal(
+                    np.asarray(positions[p]), np.asarray(positions[pts[0]])
+                ):
                     raise ValueError(
                         f"Expansion.evaluate: the external points "
                         f"'{pts[0]}' and '{p}' are at different positions "
@@ -120,6 +124,16 @@ def _guard_single_site(expansion, diagram_terms, positions) -> None:
 
 
 @dataclass(frozen=True)
+class _PreparedSweepPoint:
+    """Static bindings for one component tuple, owned by one sweep call."""
+
+    tasks: tuple
+    coupling_values: dict
+    integrands: tuple
+    cross_counts: tuple
+
+
+@dataclass(frozen=True)
 class Expansion:
     """Result of :meth:`System.expand`.  Opaque to construct; use the
     accessors below.
@@ -131,6 +145,7 @@ class Expansion:
         observable_repr: hashable description of the observable.
         raw_result: the underlying :class:`PerturbativeResult`
             (advanced users).
+        target: ``'moment'`` or ``'connected'`` (see :meth:`System.expand`).
     """
 
     system: Any  # sft_wick.workflow.System (forward decl avoids cycle)
@@ -138,6 +153,8 @@ class Expansion:
     orders: tuple
     observable_repr: tuple
     raw_result: Any
+    # Default also applies when loading pre-target pickled expansions.
+    target: str = "moment"
 
     # --------------------------------------------------------------- #
     # Inspection
@@ -211,12 +228,13 @@ class Expansion:
         from sft_wick import DiagramRenderer
 
         renderer_keys = {
-            "figsize", "style", "external_label_fn",
-            "vertex_label_fn", "label_format",
+            "figsize",
+            "style",
+            "external_label_fn",
+            "vertex_label_fn",
+            "label_format",
         }
-        renderer_kwargs = {
-            k: kwargs.pop(k) for k in list(kwargs) if k in renderer_keys
-        }
+        renderer_kwargs = {k: kwargs.pop(k) for k in list(kwargs) if k in renderer_keys}
         fd = self.raw_result.diagrams_by_order[order][i].to_feynman_diagram()
         renderer = DiagramRenderer(**renderer_kwargs)
         ax = renderer.draw(fd, **kwargs)
@@ -237,12 +255,20 @@ class Expansion:
         vertex_types: Iterable[str] | None = None,
         integrate_over: Any = None,
         method: str = "qmc_vectorized",
-        n_samples: int = 2 ** 13,
+        n_samples: int = 2**13,
         seed: int | None = 42,
         n_jobs: int = 1,
         n_gauss: int = 8,
         external_times: dict[str, float] | None = None,
         _progress_tick: Any = None,
+        _prepared: _PreparedSweepPoint | None = None,
+        gl_chunk_size: int | None = None,
+        qmc_coupling_chunk_size: int | None = None,
+        propagator_cache_bytes: int | None = None,
+        propagator_cache_contract: str | None = None,
+        contraction_backend: str = "ordered",
+        contraction_max_bytes: int = DEFAULT_CONTRACTION_MAX_BYTES,
+        _lookup_cache: Any = None,
     ):
         """Integrate the expansion at a single ``(positions, t_final,
         component_pair)`` point.  Returns a :class:`Result`.
@@ -321,20 +347,41 @@ class Expansion:
                 Cost scales as ``n_gauss^d`` per consistent order of
                 kinked time pairs; bump to 12-20 for stiff integrands
                 at large ``t_final``.
+            gl_chunk_size: positive maximum GL nodes per batch, or ``None``
+                for the default eager grid. Reduces temporary batch memory;
+                preserves all quadrature nodes and causal/kink pieces. Used
+                only by ``method='gauss_legendre'``.
+            qmc_coupling_chunk_size: optional positive dynamic coupling batch
+                bound for vectorized QMC. Raw callbacks must be sample-separable
+                with stable dtype and trailing shape. ``None`` keeps the full
+                batch. R/C and final statistics remain whole; see
+                :doc:`/user_guide/workflow` for memory and callback limits.
         """
         from .result import Result
+        from sft_wick.evaluate import _execution_options
+
+        execution = _execution_options(
+            propagator_cache_bytes,
+            propagator_cache_contract,
+            contraction_backend,
+            contraction_max_bytes,
+        )
 
         orders_list = (
             sorted(set(int(o) for o in orders))
             if orders is not None
             else list(self.orders)
         )
-        vtype_filter = (
-            None if vertex_types is None else set(vertex_types)
+        vtype_filter = None if vertex_types is None else set(vertex_types)
+        coupling_values = (
+            self.system.build_coupling_values()
+            if _prepared is None
+            else _prepared.coupling_values
         )
-        coupling_values = self.system.build_coupling_values()
         component_pair = _component_tuple(
-            component_pair, self.observable_repr, self.system.n_components,
+            component_pair,
+            self.observable_repr,
+            self.system.n_components,
             "Expansion.evaluate",
         )
         fi = _component_indices(component_pair, self.observable_repr)
@@ -343,13 +390,11 @@ class Expansion:
         # then dispatch the whole batch to ``integrate_diagrams`` which handles
         # the sequential vs joblib loky path internally (n_jobs=1 stays serial,
         # bit-identical to the pre-refactor loop).
-        tasks: list[tuple[int, int, str, Any]] = []
-        for order in orders_list:
-            for i, dt in enumerate(self.dts_by_order[order]):
-                vtype = self._vertex_type_label(dt)
-                if vtype_filter is not None and vtype not in vtype_filter:
-                    continue
-                tasks.append((order, i, vtype, dt))
+        tasks = (
+            self._evaluation_tasks(orders_list, vtype_filter)
+            if _prepared is None
+            else _prepared.tasks
+        )
 
         diagram_terms = [task[3] for task in tasks]
 
@@ -381,7 +426,10 @@ class Expansion:
             )
 
         _guard_external_times(
-            self, propagators, external_times, "Expansion.evaluate",
+            self,
+            propagators,
+            external_times,
+            "Expansion.evaluate",
         )
         _guard_single_site(self, diagram_terms, positions)
 
@@ -390,7 +438,8 @@ class Expansion:
             coupling_values=coupling_values,
             lambda_f=t_final,
             t_min=t_min,
-            cache=propagators.cache,
+            cache=propagators.cache if _lookup_cache is None else _lookup_cache,
+            **execution,
             method=method,
             n_samples=n_samples,
             seed=seed,
@@ -401,21 +450,40 @@ class Expansion:
             n_gauss=n_gauss,
             external_times=external_times,
             progress_tick=_progress_tick,
+            _prepared_integrands=None if _prepared is None else _prepared.integrands,
+            gl_chunk_size=gl_chunk_size,
+            **(
+                {}
+                if qmc_coupling_chunk_size is None
+                else {"qmc_coupling_chunk_size": qmc_coupling_chunk_size}
+            ),
         )
 
         per_diagram = []
         per_order: dict[int, float] = defaultdict(float)
         per_vtype: dict[str, float] = defaultdict(float)
         total = 0.0
-        for (order, i, vtype, dt), (val, err) in zip(tasks, details):
-            per_diagram.append({
-                "order": order,
-                "diagram_idx": i,
-                "vertex_type": vtype,
-                "n_cross_C": count_cross_group_c(dt),
-                "value": val,
-                "error": err,
-            })
+        if self.target == "connected":
+            # Zero is a computed connected coefficient, including orders
+            # where the incidence bound ruled out every diagram.
+            per_order.update({order: 0.0 for order in orders_list})
+        for task_idx, ((order, i, vtype, dt), (val, err)) in enumerate(
+            zip(tasks, details)
+        ):
+            per_diagram.append(
+                {
+                    "order": order,
+                    "diagram_idx": i,
+                    "vertex_type": vtype,
+                    "n_cross_C": (
+                        count_cross_group_c(dt)
+                        if _prepared is None
+                        else _prepared.cross_counts[task_idx]
+                    ),
+                    "value": val,
+                    "error": err,
+                }
+            )
             per_order[order] += val
             per_vtype[vtype] += val
             total += val
@@ -445,12 +513,19 @@ class Expansion:
         vertex_types: Iterable[str] | None = None,
         integrate_over: Any = None,
         method: str = "qmc_vectorized",
-        n_samples: int = 2 ** 13,
+        n_samples: int = 2**13,
         seed: int | None = 42,
         n_jobs: int = 1,
         evaluate_n_jobs: int = 1,
         n_gauss: int = 8,
         progress: Any = None,
+        reuse_integrands: bool = False,
+        gl_chunk_size: int | None = None,
+        qmc_coupling_chunk_size: int | None = None,
+        propagator_cache_bytes: int | None = None,
+        propagator_cache_contract: str | None = None,
+        contraction_backend: str = "ordered",
+        contraction_max_bytes: int = DEFAULT_CONTRACTION_MAX_BYTES,
     ):
         """Cartesian-product sweep over positions, t_final, external
         times and component tuples.
@@ -512,15 +587,36 @@ class Expansion:
                 point × diagram; it advances per diagram on the serial
                 path and per grid point under ``n_jobs > 1``.  See
                 :mod:`sft_wick.progress`.  Never affects results.
+            reuse_integrands: opt in to preparing static coupling tensors
+                and spatial analysis once per component tuple for this sweep.
+                Dynamic couplings use the ordinary preparation path.  Bindings
+                are discarded on return; later sweeps observe updated tensors.
+                Trades memory for reduced preparation time, including under
+                either supported joblib parallelism mode.  Default ``False``.
+            gl_chunk_size: optional positive GL batch bound, with the same
+                semantics as in :meth:`evaluate`. Each worker has its own
+                batch arrays; the total memory depends on worker count.
+            qmc_coupling_chunk_size: optional dynamic coupling batch bound,
+                with the same contract as in :meth:`evaluate`. Each worker
+                has its own arrays; this does not bound total process memory.
 
         Returns:
             :class:`SweepResult` with a pandas-friendly tidy table.
         """
+        from sft_wick.evaluate import _execution_options
+
+        execution = _execution_options(
+            propagator_cache_bytes,
+            propagator_cache_contract,
+            contraction_backend,
+            contraction_max_bytes,
+        )
         from sft_wick.progress import progress as _progress_scope
 
         with _progress_scope(progress):
             return self._sweep(
                 propagators,
+                **execution,
                 positions_grid=positions_grid,
                 t_final_grid=t_final_grid,
                 external_times_grid=external_times_grid,
@@ -535,6 +631,9 @@ class Expansion:
                 n_jobs=n_jobs,
                 evaluate_n_jobs=evaluate_n_jobs,
                 n_gauss=n_gauss,
+                reuse_integrands=reuse_integrands,
+                gl_chunk_size=gl_chunk_size,
+                qmc_coupling_chunk_size=qmc_coupling_chunk_size,
             )
 
     def _sweep(
@@ -555,14 +654,90 @@ class Expansion:
         n_jobs,
         evaluate_n_jobs,
         n_gauss,
+        reuse_integrands,
+        gl_chunk_size,
+        qmc_coupling_chunk_size=None,
+        propagator_cache_bytes: int | None = None,
+        propagator_cache_contract: str | None = None,
+        contraction_backend: str = "ordered",
+        contraction_max_bytes: int = DEFAULT_CONTRACTION_MAX_BYTES,
+    ):
+        from sft_wick.evaluate import _execution_options, _propagator_scope
+
+        execution = _execution_options(
+            propagator_cache_bytes,
+            propagator_cache_contract,
+            contraction_backend,
+            contraction_max_bytes,
+        )
+        with _propagator_scope(
+            propagators.cache, propagator_cache_bytes, propagator_cache_contract
+        ) as lookup:
+            return self._sweep_dispatch(
+                propagators,
+                _lookup_cache=None if lookup is propagators.cache else lookup,
+                _execution=execution,
+                positions_grid=positions_grid,
+                t_final_grid=t_final_grid,
+                external_times_grid=external_times_grid,
+                component_pairs=component_pairs,
+                component_tuples=component_tuples,
+                orders=orders,
+                vertex_types=vertex_types,
+                integrate_over=integrate_over,
+                method=method,
+                n_samples=n_samples,
+                seed=seed,
+                n_jobs=n_jobs,
+                evaluate_n_jobs=evaluate_n_jobs,
+                n_gauss=n_gauss,
+                reuse_integrands=reuse_integrands,
+                gl_chunk_size=gl_chunk_size,
+                qmc_coupling_chunk_size=qmc_coupling_chunk_size,
+            )
+
+    def _sweep_dispatch(
+        self,
+        propagators,
+        *,
+        positions_grid,
+        t_final_grid,
+        external_times_grid,
+        component_pairs,
+        component_tuples,
+        orders,
+        vertex_types,
+        integrate_over,
+        method,
+        n_samples,
+        seed,
+        n_jobs,
+        evaluate_n_jobs,
+        n_gauss,
+        reuse_integrands,
+        gl_chunk_size,
+        qmc_coupling_chunk_size=None,
+        _lookup_cache=None,
+        _execution=None,
     ):
         from .result import SweepResult
+        from sft_wick.evaluate import (
+            _validate_gl_chunk_size,
+            _validate_qmc_coupling_chunk_size,
+        )
+
+        gl_chunk_size = _validate_gl_chunk_size(gl_chunk_size)
+        qmc_coupling_chunk_size = _validate_qmc_coupling_chunk_size(
+            qmc_coupling_chunk_size
+        )
 
         if int(n_jobs) != 1 and int(evaluate_n_jobs) != 1:
             raise ValueError(
                 "Specify exactly one of {n_jobs, evaluate_n_jobs} > 1; "
                 "nested joblib loky pools are not supported."
             )
+        if not isinstance(reuse_integrands, (bool, np.bool_)):
+            raise TypeError("reuse_integrands must be a boolean.")
 
         orders_list = (
             sorted(set(int(o) for o in orders))
@@ -577,8 +752,11 @@ class Expansion:
         # 4-point observable sweeps triples or quadruples.  Up to 0.4.x the
         # grid loop unpacked every entry as a pair.
         comp_tuples = _resolve_component_tuples(
-            component_pairs, component_tuples, self.observable_repr,
-            self.system.n_components, "Expansion.sweep",
+            component_pairs,
+            component_tuples,
+            self.observable_repr,
+            self.system.n_components,
+            "Expansion.sweep",
         )
         comp_cols = component_columns(len(self.observable_repr))
 
@@ -634,18 +812,21 @@ class Expansion:
         for pos_tuple in itertools.product(*pos_values):
             positions = dict(zip(pos_keys, pos_tuple))
             for t_f in t_final_grid:
-                for et_tuple in (itertools.product(*et_values)
-                                 if et_keys else [()]):
+                for et_tuple in (itertools.product(*et_values) if et_keys else [()]):
                     ext_times = dict(zip(et_keys, et_tuple)) or None
                     for comp in comp_tuples:
                         grid_tasks.append((positions, t_f, ext_times, comp))
 
         # Warn once per distinct external-times combination rather than once
         # per grid point, which would bury the message.
-        for _et in ({tuple(sorted((ext or {}).items()))
-                     for _p, _t, ext, _c in grid_tasks}):
+        for _et in {
+            tuple(sorted((ext or {}).items())) for _p, _t, ext, _c in grid_tasks
+        }:
             _guard_external_times(
-                self, propagators, dict(_et) or None, "Expansion.sweep",
+                self,
+                propagators,
+                dict(_et) or None,
+                "Expansion.sweep",
             )
 
         # A spatially structureless cache returns the same C at every
@@ -660,12 +841,17 @@ class Expansion:
         # point put its two externals at different places?) gets both halves
         # wrong: it says nothing about a sweep over a single position key, and
         # it fires on every ordinary single-separation ``evaluate(x != y)``.
-        _configs = {tuple(sorted(
-            (k, tuple(np.atleast_1d(v).ravel().tolist()))
-            for k, v in _p.items()
-        )) for _p, _t, _e, _c in grid_tasks}
+        _configs = {
+            tuple(
+                sorted(
+                    (k, tuple(np.atleast_1d(v).ravel().tolist())) for k, v in _p.items()
+                )
+            )
+            for _p, _t, _e, _c in grid_tasks
+        }
         if len(_configs) > 1 and not _cache_has_spatial_table(
-                getattr(propagators, "cache", None)):
+            getattr(propagators, "cache", None)
+        ):
             warnings.warn(
                 f"Expansion.sweep: the propagator cache has no spatial "
                 f"structure, so C is the same at every separation -- the "
@@ -674,20 +860,39 @@ class Expansion:
                 f"disorder-averaged (single-site) cache such as "
                 f"`spectral_cache`; it is a mistake if you expected a "
                 f"separation dependence.",
-                UserWarning, stacklevel=2,
+                UserWarning,
+                stacklevel=2,
             )
 
         # Diagrams per grid point, for the progress bar's total.
         vtype_filter = None if vertex_types is None else set(vertex_types)
-        n_diag = sum(
-            1 for o in orders_list for dt in self.dts_by_order[o]
-            if vtype_filter is None or self._vertex_type_label(dt) in vtype_filter
+        tasks = self._evaluation_tasks(orders_list, vtype_filter)
+        n_diag = len(tasks)
+        prepared = (
+            self._prepare_sweep(
+                tasks,
+                comp_tuples,
+                **(
+                    {}
+                    if (_execution or {}).get("contraction_backend") != "factorized"
+                    else {
+                        "contraction_backend": "factorized",
+                        "contraction_max_bytes": (_execution or {}).get(
+                            "contraction_max_bytes", DEFAULT_CONTRACTION_MAX_BYTES
+                        ),
+                    }
+                ),
+            )
+            if reuse_integrands
+            else {}
         )
 
         def _eval_grid_point(task, tick=None):
             positions, t_f, ext_times, comp = task
             res = self.evaluate(
                 propagators,
+                **(_execution or {}),
+                **({} if _lookup_cache is None else {"_lookup_cache": _lookup_cache}),
                 positions=positions,
                 t_final=t_f,
                 external_times=ext_times,
@@ -701,6 +906,13 @@ class Expansion:
                 n_jobs=evaluate_n_jobs,
                 n_gauss=n_gauss,
                 _progress_tick=tick,
+                _prepared=prepared.get(comp),
+                gl_chunk_size=gl_chunk_size,
+                **(
+                    {}
+                    if qmc_coupling_chunk_size is None
+                    else {"qmc_coupling_chunk_size": qmc_coupling_chunk_size}
+                ),
             )
             return positions, t_f, ext_times, comp, res
 
@@ -713,8 +925,8 @@ class Expansion:
                 results = [_eval_grid_point(t, tick) for t in grid_tasks]
             else:
                 from joblib import Parallel, delayed
-                gen = Parallel(n_jobs=n_jobs, backend="loky",
-                               return_as="generator")(
+
+                gen = Parallel(n_jobs=n_jobs, backend="loky", return_as="generator")(
                     delayed(_eval_grid_point)(t) for t in grid_tasks
                 )
                 results = []
@@ -736,18 +948,38 @@ class Expansion:
             }
             # One column per observable operator, named by position.
             comp_fields = dict(zip(comp_cols, comp))
-            for pd_row in res.per_diagram:
-                rows.append({
-                    **hashable_positions,
-                    "t_final": t_f,
-                    # ``t_<point>`` rather than the bare name, which is
-                    # already taken by that point's spatial position.
-                    **{f"t_{k}": (ext_times or {}).get(k) for k in et_keys},
-                    **comp_fields,
-                    **pd_row,
-                })
+            point_rows = list(res.per_diagram)
+            if self.target == "connected":
+                present_orders = {row["order"] for row in point_rows}
+                # Grid/order placeholders record exact zero coefficients;
+                # null diagram metadata means they are not physical diagrams.
+                point_rows.extend(
+                    {
+                        "order": order,
+                        "diagram_idx": None,
+                        "vertex_type": None,
+                        "n_cross_C": None,
+                        "value": 0.0,
+                        "error": 0.0,
+                    }
+                    for order in orders_list
+                    if order not in present_orders
+                )
+            for pd_row in point_rows:
+                rows.append(
+                    {
+                        **hashable_positions,
+                        "t_final": t_f,
+                        # ``t_<point>`` rather than the bare name, which is
+                        # already taken by that point's spatial position.
+                        **{f"t_{k}": (ext_times or {}).get(k) for k in et_keys},
+                        **comp_fields,
+                        **pd_row,
+                    }
+                )
         return SweepResult(
-            rows=rows, position_keys=tuple(pos_keys),
+            rows=rows,
+            position_keys=tuple(pos_keys),
             external_time_keys=tuple(f"t_{k}" for k in et_keys),
             component_keys=comp_cols,
         )
@@ -755,6 +987,54 @@ class Expansion:
     # --------------------------------------------------------------- #
     # Internal helpers
     # --------------------------------------------------------------- #
+
+    def _evaluation_tasks(self, orders, vtype_filter):
+        tasks = []
+        for order in orders:
+            for i, dt in enumerate(self.dts_by_order[order]):
+                vtype = self._vertex_type_label(dt)
+                if vtype_filter is None or vtype in vtype_filter:
+                    tasks.append((order, i, vtype, dt))
+        return tuple(tasks)
+
+    def _prepare_sweep(
+        self,
+        tasks,
+        component_tuples,
+        *,
+        contraction_backend="ordered",
+        contraction_max_bytes=DEFAULT_CONTRACTION_MAX_BYTES,
+    ):
+        """Bind static diagrams only; no callable results or global cache.
+
+        System specs contain mutable arrays despite their frozen wrappers.
+        Reading MSR couplings here on every sweep avoids stale cross-call hits.
+        Exact DiagramTerms retain ordered slots, aliases and absorbed R legs.
+        """
+        from sft_wick.evaluate import _build_execution_integrand
+
+        cv = self.system.build_coupling_values()
+        dynamic_names = {name for name, value in cv.items() if callable(value)}
+        is_static = [
+            not (_collect_symbol_names(dt.coupling_sum) & dynamic_names)
+            for _order, _i, _vtype, dt in tasks
+        ]
+        cross_counts = tuple(count_cross_group_c(dt) for _o, _i, _v, dt in tasks)
+        prepared = {}
+        for comp in component_tuples:
+            fi = _component_indices(comp, self.observable_repr)
+            integrands = tuple(
+                (
+                    _build_execution_integrand(
+                        dt, cv, fi, contraction_backend, contraction_max_bytes
+                    )
+                    if static
+                    else None
+                )
+                for (_o, _i, _v, dt), static in zip(tasks, is_static)
+            )
+            prepared[comp] = _PreparedSweepPoint(tasks, cv, integrands, cross_counts)
+        return prepared
 
     @staticmethod
     def _vertex_type_label(dt) -> str:
@@ -764,7 +1044,7 @@ class Expansion:
         ``{'F', 'K'}`` → ``"FK"``)."""
         names = _collect_symbol_names(dt.coupling_sum)
         if not names:
-            return ""   # order-0 trivial
+            return ""  # order-0 trivial
         return "".join(sorted(names))
 
 
@@ -832,8 +1112,14 @@ def _component_indices(component_pair, observable_repr):
 
 
 #: Per-diagram columns of a sweep row (the keys of ``Result.per_diagram``).
-_DIAGRAM_COLUMNS = ("order", "diagram_idx", "vertex_type", "n_cross_C",
-                    "value", "error")
+_DIAGRAM_COLUMNS = (
+    "order",
+    "diagram_idx",
+    "vertex_type",
+    "n_cross_C",
+    "value",
+    "error",
+)
 
 
 def component_columns(n_operators: int) -> tuple[str, ...]:
@@ -879,8 +1165,7 @@ def _component_tuple(component, observable, n_components, label):
     zeros = (0,) * n_ops
     if component is None:
         return zeros
-    if (isinstance(component, (str, bytes))
-            or not hasattr(component, "__len__")):
+    if isinstance(component, (str, bytes)) or not hasattr(component, "__len__"):
         raise ValueError(
             f"{label}: component tuple {component!r} is not a sequence of "
             f"component indices; write e.g. {zeros}."
@@ -896,11 +1181,9 @@ def _component_tuple(component, observable, n_components, label):
         )
     n = int(n_components)
     for c in entries:
-        if (isinstance(c, (bool, np.bool_))
-                or not isinstance(c, numbers.Integral)):
+        if isinstance(c, (bool, np.bool_)) or not isinstance(c, numbers.Integral):
             raise ValueError(
-                f"{label}: component index {c!r} in {entries} is not an "
-                f"integer."
+                f"{label}: component index {c!r} in {entries} is not an " f"integer."
             )
         if not 0 <= int(c) < n:
             raise ValueError(
@@ -910,8 +1193,9 @@ def _component_tuple(component, observable, n_components, label):
     return tuple(int(c) for c in entries)
 
 
-def _resolve_component_tuples(component_pairs, component_tuples, observable,
-                              n_components, label):
+def _resolve_component_tuples(
+    component_pairs, component_tuples, observable, n_components, label
+):
     """The component axis of a sweep, as a list of validated tuples.
 
     ``component_pairs`` is the older name of ``component_tuples``; ``None``
@@ -922,8 +1206,7 @@ def _resolve_component_tuples(component_pairs, component_tuples, observable,
             f"{label}: pass component_tuples or component_pairs, not both "
             f"(component_pairs is the older name of the same axis)."
         )
-    given = (component_tuples if component_tuples is not None
-             else component_pairs)
+    given = component_tuples if component_tuples is not None else component_pairs
     zeros = (0,) * len(observable)
     if given is None:
         return [zeros]
