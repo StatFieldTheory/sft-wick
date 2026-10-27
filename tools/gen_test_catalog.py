@@ -92,6 +92,19 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Fraction sum over component assignments with the ordered semantics; ordered fold",
         "documented bound 1.01 (m + A T) u S; 1e-12 relative to ordered",
     ),
+    "tests/test_contraction_admission_rules.py": (
+        "Integrators",
+        "admission rules of the einsum and factorized backends one at a time: smallest "
+        "nonzero magnitude of a mixed-sign array (negative, positive, subnormal, beside "
+        "zeros and -0.0) and the underflow declines it decides, sum headroom on both "
+        "sides of the overflow limit and an ordered sum that overflows under "
+        "over='raise', structural zeros (distinct fixed components, conflicting pins), "
+        "factor-sign proof for one-signed tensors in monomials of opposite sign",
+        "magnitudes sorted in Python; Fraction sum over component assignments; ordered "
+        "fold and its floating-point error",
+        "exact equality of ranges; documented bound 1.01 (m + A T) u S; identical value "
+        "or error where a backend declines",
+    ),
     "tests/test_contraction_error_bound.py": (
         "Integrators",
         "error-bound contract of the einsum and factorized backends on generic signed N = 3 "
@@ -103,7 +116,11 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "declined with the ordered errors, values behind an R-support pin admitted, "
         "R factors multiplied before a later support excludes them declined, "
         "sign check and factor-sign proof on both sides of the work limit, N = 17 sums "
-        "beyond it",
+        "beyond it, a summation index only a single-label or scalar R carries declined "
+        "(kernel level and a real scalar-R cache), rationals and prefactor counted one "
+        "at a time (cancelling scales declined with the ordered value or error, both "
+        "sides of the exponent limits 1020 and -1021), a factor pair i i with a float "
+        "coefficient raising the ordered TypeError",
         "Fraction sum over component assignments (dense and summed monomials), ordered fold",
         "documented bound 1.01 (m + A T) u S with S from the summed coefficient; 1e-12 "
         "relative where a decline keeps the ordered value; L1 diagrams 1e-12 of the largest",

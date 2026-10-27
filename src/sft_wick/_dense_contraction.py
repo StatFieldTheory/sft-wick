@@ -34,14 +34,20 @@ that excludes the assignment), (2) no product or partial sum of those
 entries can overflow in any evaluation order, (3) no product of nonzero
 inputs can fall below
 ``2**-1021`` in any evaluation order, so that every underflow error is
-smaller than ``u/2`` times the magnitudes it came from, (4) for
+smaller than ``u/2`` times the magnitudes it came from (for
+``"factorized"`` the prefactor and every rational factor of a monomial are
+inputs of their own in (2) and (3), because the ordered preparation
+multiplies them one at a time), (4) for
 ``"factorized"``, the monomials of a sum have no opposite signs at any
 assignment, so that ``sum_t |c_t(a)| = |c(a)|``, (5) every coefficient
 passes the phase rule of :func:`sft_wick.evaluate._real_or_raise`, (6)
 ``numpy.geterr()["under"]`` is ``"ignore"`` (``numpy.einsum`` reports no
 floating-point errors, so a stricter underflow policy would see different
 events), (7) the planned array workspace fits ``contraction_max_bytes`` and
-(8) the cost model predicts it to be cheaper than the ordered fold.  Under
+(8) the cost model predicts it to be cheaper than the ordered fold.  A
+contraction also declines when a summation label is carried by no operand
+of a group (:func:`plan_groups`): the ordered fold adds that group's
+product once per value of the label.  Under
 (1) and (2) neither evaluation order produces inf, NaN or a floating-point
 error, so an exception from the ordered fold (phase error, non-isotropic
 index-free C) is reproduced by declining.  The output never holds ``-0.0``.
@@ -783,9 +789,13 @@ def plan_groups(groups, layout, dims, samples):
     a diagonal C table, or from an R support the ordered fold checks only
     after it has multiplied this kernel) also keeps ``read``, the view the
     ordered fold multiplies, for the range checks.  Returns ``(Contraction,
-    classes)`` or ``None`` when the diagram vanishes structurally or a plan
-    fails.  The cost covers the kernel passes and the planned steps;
-    :func:`factorized_overhead` adds the per-monomial work.
+    classes)`` or ``None`` when the diagram vanishes structurally, a plan
+    fails, or a summed label class is carried by no operand of a group: the
+    ordered fold adds that group's product once per value of the label, and
+    an index-free factor (the trace of an R without a partner label) or the
+    scalar R product carries no label.  The cost covers the kernel passes
+    and the planned steps; :func:`factorized_overhead` adds the per-monomial
+    work.
     """
     if layout.zero:
         return None
@@ -815,6 +825,8 @@ def plan_groups(groups, layout, dims, samples):
         shapes.append(shape)
     kernel_shapes = tuple(shapes)
     kernel_labels = tuple(labels for _, labels, _ in kernels)
+    summed = {value for kind, value in classes.values() if kind == "sum"}
+    kernel_carried = set().union(*kernel_labels)
     planned = []
     elements = sum(math.prod(shape) for shape in kernel_shapes)
     cost = (
@@ -826,6 +838,8 @@ def plan_groups(groups, layout, dims, samples):
     workspace = 0
     for phase, operands in groups:
         resolved = tuple(apply_classes(a, labels, classes) for a, labels in operands)
+        if not summed <= kernel_carried.union(*(indices for _, indices in resolved)):
+            return None
         plan = plan_contraction(
             tuple(array.shape for array, _ in resolved) + kernel_shapes,
             tuple(indices for _, indices in resolved) + kernel_labels,
@@ -859,12 +873,17 @@ def _range_admits(headroom, ranges) -> bool:
     return upper <= _MAX_EXPONENT and lower >= _MIN_EXPONENT
 
 
-def finish(contraction, layout, coefficient_ranges, assignments):
+def finish(contraction, layout, coefficient_ranges, assignments, *, phase_is_factor=True):
     """Numeric admission and execution of a planned contraction.
 
     ``coefficient_ranges`` holds, per group, the :func:`finite_range` of each
-    coefficient operand (``None`` when one is not finite).  Returns the
-    sample vector or ``None``.
+    coefficient operand (``None`` when one is not finite).  With
+    ``phase_is_factor`` the group's phase counts as one more factor in the
+    range rules.  ``"factorized"`` passes ``False`` and appends the ranges
+    of the scalars its phase folds together (the prefactor and each
+    rational), because the ordered preparation multiplies those one at a
+    time and their product can be in range where a partial product is not.
+    Returns the sample vector or ``None``.
     """
     if not _supports_hold(layout.zero_checks):
         return None
@@ -901,9 +920,10 @@ def finish(contraction, layout, coefficient_ranges, assignments):
         factors = len(operands) + len(kernels) + 1
         if factors + assignments * terms > _MAX_ACCUMULATED:
             return None
-        magnitude = abs(phase)
-        scale = (magnitude, magnitude if magnitude else math.inf)
-        if not _range_admits(headroom, (*kernel_ranges, *ranges, scale)):
+        if phase_is_factor:
+            magnitude = abs(phase)
+            ranges = (*ranges, (magnitude, magnitude if magnitude else math.inf))
+        if not _range_admits(headroom, (*kernel_ranges, *ranges)):
             return None
     result = None
     for phase, operands, steps in contraction.groups:

@@ -303,17 +303,32 @@ A backend returns a value for a diagram call only when
 * no product or partial sum of those entries can overflow, in any
   evaluation order,
 * no product of nonzero inputs can fall below ``2**-1021``, in any
-  evaluation order (the sum of the binary exponents of the smallest nonzero
-  magnitudes of all factors is at least -1021),
+  evaluation order (summed over the factors, the binary exponent of the
+  smallest nonzero magnitude, counted as 0 for a factor whose magnitudes
+  are at least 1, is at least -1021); for ``factorized`` the rational
+  prefactor and every rational of a monomial count as factors of their own
+  in this rule and the previous one, because the ordered preparation
+  multiplies them one at a time, so rationals whose product is moderate do
+  not hide a partial product that overflows or underflows,
 * for ``factorized``, the monomials have no opposite signs at any
   assignment (checked once, when the integrand is prepared),
 * every coefficient passes the phase check of the ordered fold,
 * NumPy's underflow policy is ``"ignore"`` (the default; see
   ``numpy.seterr``),
+* the diagram has at most 51 summation indices, one product has at most 64
+  operands, ``m + A T`` is at most ``2**46`` (the range in which
+  ``1.01 (m + A T) u`` bounds the rounding), and for ``einsum`` at most 4096
+  coefficients have a nonzero imaginary part after the observable's phase
+  (each of them is checked with the ordered phase check),
 * the planned workspace fits ``contraction_max_bytes``, and
 * its estimated cost is below the ordered fold's.
 
-Otherwise that call runs on the ordered fold. A backend therefore never
+Otherwise that call runs on the ordered fold. For ``factorized`` the first
+call that declines also materializes the coefficient tensor (see the
+section on the lazy coefficient below), so that call and every later call
+of the integrand run on the ordered fold, and the materialization raises
+``ValueError`` before allocating when the payload it needs exceeds
+``contraction_max_bytes``. A backend therefore never
 returns inf or NaN where the ordered fold returns a finite value, and every
 error the ordered fold raises (an imaginary diagram value from a mis-specified
 action, an index-free C that is not a multiple of the identity) is raised with
@@ -329,10 +344,16 @@ one multiplied only by zero coefficients, makes the backend decline.
 Dynamic (callable) couplings, propagator batches that are not float64,
 component labels that are numeric literals or unresolved, and subclasses of
 the package classes always use the ordered fold. ``factorized`` also requires
-a coupling sum of products of static tensors, rationals and ``i`` whose
+a coupling sum of products of static tensors, rationals and ``i`` (at most
+24 factors per monomial, nested at most 32 deep) whose
 summation indices all appear in propagators, with every monomial real after
-the observable's phase. Replacing package methods at run time is unsupported
-and is not detected.
+the observable's phase. A ``factorized`` call declines when a summation
+index is carried by none of the arrays it contracts for some monomial: no
+coupling tensor of that monomial carries it, and the only propagator that
+does is an R without a partner index (read as its trace) or an R folded
+into the scalar R product. The ordered fold adds that monomial's product
+once for every value of the index. Replacing package methods at run time is
+unsupported and is not detected.
 
 Cost rule
 ~~~~~~~~~
@@ -429,7 +450,9 @@ It bounds the arrays a backend allocates for one diagram call: copies of the
 propagator batches with the sample axis last, every intermediate of the
 planned contraction, the rotated coefficient and its zero mask for
 ``einsum``, and the output. A call whose plan exceeds it runs on the ordered
-fold. It is not a limit on total memory or process RSS.
+fold; for ``factorized`` that first materializes the coefficient, which
+raises when the payload it needs exceeds the budget. It is not a limit on
+total memory or process RSS.
 
 Comparing complete results
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
