@@ -20,7 +20,10 @@ ordered fold multiplies before a later R support excludes the assignment
 must not overflow or meet an invalid operation either.  Beyond the work
 limit of the per-assignment sign check, a sum whose factor signs prove
 agreement is still prepared (N = 17, six indices), and the two checks are
-compared directly on both sides of that limit.
+compared directly on both sides of that limit.  A summation index that only
+an R without a partner index (or an R folded into the scalar R product)
+carries makes ``factorized`` decline, at the kernel level and on a real
+scalar-R cache.
 """
 
 from dataclasses import replace
@@ -1083,3 +1086,109 @@ def test_factorized_sum_beyond_the_sign_check_with_a_mixed_sign_factor_declines(
     values["G"] = _signed(rng, (n, n))
     with pytest.raises(ValueError, match="factorized coefficient materialization"):
         try_build_factorized(term, analyze_spatial(term), values, {}, LIMIT)
+
+
+def _single_label_response_case(kind, rng):
+    """``C(j, k) R C(k, a)`` with ``a = 2``, summed over ``i, j, k``.
+
+    The R carries ``i`` without a partner label (``R(i, None)``,
+    ``R(None, i)``: the ordered fold reads its trace), or is ``R(i, i)``
+    against a scalar R product with no R batch (``"scalar"``).  The coupling
+    ``(5/7) B(j, k)`` does not carry ``i``, so the ordered fold adds the same
+    product once for every value of ``i``.  ``"sum"`` adds the monomial
+    ``(2/3) B(j, k) w(i)``, which carries ``i``, and ``"covered"`` uses that
+    monomial alone.
+    """
+    left, right = {"trace_right": (None, "i"), "scalar": ("i", "i")}.get(kind, ("i", None))
+    first = Product((Rational(5, 7), Symbol("B", ("j", "k"))))
+    second = Product((Rational(2, 3), Symbol("B", ("j", "k")), Symbol("w", ("i",))))
+    coupling = {"sum": Sum((first, second)), "covered": second}.get(kind, first)
+    term = DiagramTerm(
+        (
+            Propagator("C", "j", "k", "x", "y"),
+            Propagator("R", left, right, "x", "z"),
+            Propagator("C", "k", "a", "y", "z"),
+        ),
+        coupling,
+        Rational(1),
+        (),
+        (("i", N), ("j", N), ("k", N)),
+        0,
+    )
+    values = {"B": _signed(rng, (N, N)), "w": rng.uniform(0.3, 1.7, N)}
+    cb = [(_signed(rng, (SAMPLES, N, N)), "j", "k"), (_signed(rng, (SAMPLES, N, N)), "k", "a")]
+    rb = []
+    if kind != "scalar":
+        rb = [(_signed(rng, (SAMPLES, N, N)), left, right, np.ones((N, N), dtype=bool))]
+    return term, values, {"a": 2}, cb, rb, _signed(rng, SAMPLES), _signed(rng, SAMPLES)
+
+
+@pytest.mark.parametrize("kind", ["trace_left", "trace_right", "scalar", "sum", "covered"])
+def test_factorized_sums_a_label_that_only_a_single_label_response_carries(
+    admit_all, kind
+):
+    """A summation label that no coupling tensor and no propagator batch the
+    contraction reads carries would be dropped from the sum (a result of
+    ``1/N`` times the exact one); the call declines instead.  A label that a
+    coupling tensor carries is contracted."""
+    rng = np.random.default_rng(9840 + len(kind))
+    term, values, fixed, cb, rb, rp, jac = _single_label_response_case(kind, rng)
+    candidate = try_build_factorized(term, analyze_spatial(term), values, fixed, LIMIT)
+    assert candidate is not None
+    fused = candidate._static_values(cb, rp, jac, r_batches=rb)
+    contracted = factorized_state(candidate)[1] is not None
+    ordered = _ordered(term.build_integrand(values, fixed), cb, rp, jac, rb)
+    table = exact.monomial_coefficients(term, values, fixed)
+    reference, scale = exact.exact_sum(table, term.propagator_indices, fixed, cb, rp, jac, rb)
+    terms = 2 if kind == "sum" else 1
+    # Two tensors, the rational, the prefactor, two C kernels, R, rp and jac.
+    for result in (fused, ordered):
+        exact.assert_within_bound(result, reference, scale, 9, N**3, terms)
+    if kind == "covered":
+        assert contracted, "a label the coupling carries is contracted"
+    else:
+        assert not contracted, "the call contracted without the label"
+        np.testing.assert_array_equal(fused, ordered)
+
+
+def test_factorized_single_label_response_against_a_scalar_response_cache():
+    """``R(i, None)`` against the scalar R of an equal-rate system, on the
+    public route: a propagator cache from ``System.propagators``,
+    Gauss-Legendre and the default cost rule.  The factorized value is the
+    ordered one, which sums over ``i``."""
+    n = 8
+    system = sw.System(
+        field=sw.FieldSpec("phi", n),
+        linear=sw.DiagonalA(gamma=[0.83] * n),
+        vertices=[sw.LocalVertex("F", coupling=np.zeros((n, n, n)))],
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.ExponentialTemporal(lam=0.37, sigma_t=0.6),
+                spatial=sw.ExponentialSpatial(sigma_x=1.3),
+            )
+        ),
+    )
+    props = system.propagators(t_max=1.6, diag_C=False, progress=False)
+    assert props.cache.model.iso_R
+    rng = np.random.default_rng(9850)
+    values = {"B": _signed(rng, n)}
+    term = DiagramTerm(
+        (Propagator("C", "j", "a", "u", "x"), Propagator("R", "i", None, "x", "u")),
+        Product((Rational(5, 7), Symbol("B", ("j",)))),
+        Rational(1),
+        ("u",),
+        (("i", n), ("j", n)),
+        0,
+    )
+    fixed = {"a": n - 2}
+    options = dict(method="gauss_legendre", n_gauss=24, positions={"x": 0.0})
+    ordered = ev.integrate_moment(term.build_integrand(values, fixed), 1.2, props.cache, **options)
+    fused = ev.integrate_moment(
+        term.build_integrand(values, fixed, contraction_backend="factorized"),
+        1.2,
+        props.cache,
+        contraction_backend="factorized",
+        **options,
+    )
+    assert abs(fused[0] - ordered[0]) <= 1e-12 * abs(ordered[0])
+

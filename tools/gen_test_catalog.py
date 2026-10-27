@@ -103,7 +103,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "declined with the ordered errors, values behind an R-support pin admitted, "
         "R factors multiplied before a later support excludes them declined, "
         "sign check and factor-sign proof on both sides of the work limit, N = 17 sums "
-        "beyond it",
+        "beyond it, a summation index only a single-label or scalar R carries declined "
+        "(kernel level and a real scalar-R cache)",
         "Fraction sum over component assignments (dense and summed monomials), ordered fold",
         "documented bound 1.01 (m + A T) u S with S from the summed coefficient; 1e-12 "
         "relative where a decline keeps the ordered value; L1 diagrams 1e-12 of the largest",

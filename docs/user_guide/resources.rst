@@ -331,8 +331,13 @@ component labels that are numeric literals or unresolved, and subclasses of
 the package classes always use the ordered fold. ``factorized`` also requires
 a coupling sum of products of static tensors, rationals and ``i`` whose
 summation indices all appear in propagators, with every monomial real after
-the observable's phase. Replacing package methods at run time is unsupported
-and is not detected.
+the observable's phase. A ``factorized`` call declines when a summation
+index is carried by none of the arrays it contracts for some monomial: no
+coupling tensor of that monomial carries it, and the only propagator that
+does is an R without a partner index (read as its trace) or an R folded
+into the scalar R product. The ordered fold adds that monomial's product
+once for every value of the index. Replacing package methods at run time is
+unsupported and is not detected.
 
 Cost rule
 ~~~~~~~~~
