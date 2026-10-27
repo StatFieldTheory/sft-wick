@@ -158,6 +158,17 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "nonlinear moment coefficients; frozen default-source probes",
         "exact ordered structure; explicit absolute and relative numerical tolerances",
     ),
+    "tests/test_quadratic_mixed_exactness.py": (
+        "Finite Gaussian observables",
+        "certified mixed cumulants and joint coefficients: structural, symmetry and "
+        "near zeros at N up to 500, cancellation swept across the admission "
+        "threshold, extreme and subnormal scales, int64 digit-width boundaries, "
+        "rounding-certificate validity and the exact work bound",
+        "independent Fraction contractions; block, rank-one and reversal-parity "
+        "closed forms; float64 and exact methods evaluated separately",
+        "exact zeros, correctly rounded or certified 1e-12 relative values; exact "
+        "rational equality for the exact evaluator",
+    ),
     "tests/test_gaussian_quadratic.py": (
         "Finite Gaussian observables",
         "prepared finite quadratic CGFs, rings/chains, covariance support, domains, "

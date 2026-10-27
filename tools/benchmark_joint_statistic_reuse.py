@@ -253,13 +253,27 @@ def _exception_admission(reference, candidate):
         )
         bank = _prepare(new, queries)
         for method, key in queries:
-            expected = _outcome(lambda: getattr(old, method)(key))
+            reference_outcome = _outcome(lambda: getattr(old, method)(key))
+            expected = reference_outcome
+            if name == "exact_work_bound":
+                # The frozen reference refused this padded case at its rational
+                # work limit; the certified exact contraction returns
+                # tr(A*A*B) = 3 exactly, so kappa(0, 0, 1) = 24 and the
+                # coefficient of J0**2 J1 is 12.
+                exact = 24.0 if method == "mixed_cumulant" else 12.0
+                expected = {"type": "float", "bits": _bits([exact])}
             actual = _outcome(lambda: getattr(new, method)(key))
             prepared = _outcome(lambda: getattr(bank, method)(key))
             if not expected == actual == prepared:
                 raise AssertionError("numeric exception admission differs")
             checks.append(
-                {"case": name, "method": method, "key": key, "outcome": expected}
+                {
+                    "case": name,
+                    "method": method,
+                    "key": key,
+                    "outcome": expected,
+                    "reference_outcome": reference_outcome,
+                }
             )
     return checks
 

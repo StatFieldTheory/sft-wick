@@ -109,26 +109,30 @@ def test_only_identical_ordered_words_skip_dense_contractions(slots, words):
 
 
 def test_reuse_keeps_all_permutation_scalar_and_bound_entries(monkeypatch):
+    from sft_wick import _mixed_contraction as contraction
+
     family = _family()
-    observed_terms, observed_bounds = [], []
-    old_sum, old_logs = module._exact_signed_sum, module._logsumexp
+    observed_terms, observed_classes = [], []
+    old_sum, old_classes = module._exact_signed_sum, contraction.word_classes
 
     def terms(values):
         values = tuple(values)
         observed_terms.append(values)
         return old_sum(values)
 
-    def bounds(values):
-        values = tuple(values)
-        observed_bounds.append(values)
-        return old_logs(values)
+    def classes(slots, **kwargs):
+        result = old_classes(slots, **kwargs)
+        observed_classes.append(result)
+        return result
 
     monkeypatch.setattr(module, "_exact_signed_sum", terms)
-    monkeypatch.setattr(module, "_logsumexp", bounds)
+    monkeypatch.setattr(contraction, "word_classes", classes)
     family.mixed_cumulant([0, 0, 1, 1])
     assert [len(values) for values in observed_terms] == [24 * 3, 24 * 3]
     assert all(type(value) is float for values in observed_terms for value in values)
-    assert len(observed_bounds[0]) == 24
+    # The rounding certificate weights its ring and chain classes by every
+    # one of the 24 slot permutations, repeated words included.
+    assert [sum(result.values()) for result in observed_classes] == [24, 24]
 
 
 def test_selected_bank_deduplicates_exact_keys_but_preserves_order(monkeypatch):
@@ -202,11 +206,17 @@ def test_cumulant_overflow_and_finite_coefficient_are_prepared_independently():
     assert selected._outcomes[0] == (OverflowError, str(original.value))
 
 
-def test_exact_work_bound_failure_is_immutable_record_and_rethrown():
+def test_exact_work_bound_failure_is_immutable_record_and_rethrown(monkeypatch):
+    from sft_wick import _mixed_contraction as contraction
+
     matrices = np.zeros((2, 64, 64))
     matrices[0, :3, :3] = np.diag([1e150, -1e150, 1.0])
     matrices[1, :3, :3] = np.diag([2e150, -2e150, 3.0])
     family = GaussianQuadraticFamily.from_factor(np.eye(64), matrices)
+    # tr(A*A*B) = 3 exactly; the exact contraction returns it below the
+    # work bound and the bound is lowered here to exercise the refusal.
+    assert family.mixed_cumulant([0, 0, 1]) == 24.0
+    monkeypatch.setattr(contraction, "EXACT_WORK_LIMIT", 1000)
     with pytest.raises(ArithmeticError) as original:
         family.mixed_cumulant([0, 0, 1])
     selected = family.prepare_statistics(indices=[(0, 0, 1)])

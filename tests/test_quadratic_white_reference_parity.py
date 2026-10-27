@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from fractions import Fraction
 import hashlib
 import inspect
 import itertools
@@ -260,14 +261,29 @@ def test_custom_matrix_protocol_retains_original_call_sequence(prefix_families):
 
 
 @pytest.mark.parametrize("scale", [1e-310, 1e155])
-def test_prefix_first_floating_failure_keeps_exact_budget_error(frozen, scale):
+def test_prefix_first_floating_failure_rounds_the_exact_value(frozen, scale):
     matrices = np.broadcast_to(np.eye(256) * scale, (3, 256, 256)).copy()
     reference = frozen["quadratic"].GaussianQuadraticFamily.from_factor(
         np.eye(256), matrices
     )
     candidate = quadratic.GaussianQuadraticFamily.from_factor(np.eye(256), matrices)
-    expected = _outcome(lambda: reference.mixed_cumulant((0, 0, 1, 2)))
-    assert expected[0] is ArithmeticError
+    # The frozen reference refused at its 1e6-operation rational limit.
+    assert _outcome(lambda: reference.mixed_cumulant((0, 0, 1, 2)))[0] is (
+        ArithmeticError
+    )
+    # Each of the 24 words is tr((s I)**4) = 256 s**4 for the prepared scale s.
+    prepared = float(candidate._matrices[0, 0, 0])
+    assert np.array_equal(
+        candidate._matrices, np.broadcast_to(np.eye(256) * prepared, (3, 256, 256))
+    )
+    exact = Fraction(2**3, 4) * 24 * 256 * Fraction(prepared) ** 4
+    try:
+        expected = ("float", struct.pack("!d", float(exact)))
+    except OverflowError:
+        expected = (
+            OverflowError,
+            ("mixed cumulant exceeds float64 range; rescale the observable",),
+        )
     assert _outcome(lambda: candidate.mixed_cumulant((0, 0, 1, 2))) == expected
 
 

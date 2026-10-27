@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **4192 tests** in 106 files (parametrised
+The suite has **4277 tests** in 107 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -692,7 +692,7 @@ Self-consistency
 Finite Gaussian observables
 ---------------------------
 
-*359 tests in 3 files.*
+*444 tests in 4 files.*
 
 .. list-table::
    :header-rows: 1
@@ -707,12 +707,17 @@ Finite Gaussian observables
      - prepared finite quadratic CGFs, rings/chains, covariance support, domains, centering, noncommuting joint cumulants, quadrature conventions and spectral compression
      - public Wick pairings, independent Gauss-Hermite moments and high-precision scalar formulas; explicit matrix identities and compression bounds
      - exact validation/state checks; 3e-13 matrix cumulants and source-specific bounds
-     - 90
+     - 91
    * - ``test_gaussian_quadratic_reuse.py``
      - identical ordered word reuse, selected mixed/Taylor query snapshots, multiplicities, exact numerical failures, bounded keys and immutable serialization
      - independent Gauss-Hermite moments with set-partition cumulants; analytic scalar cases and test-only contraction counts
      - 3e-12 relative / 3e-12 absolute GH; exact state, errors and operation counts
      - 89
+   * - ``test_quadratic_mixed_exactness.py``
+     - certified mixed cumulants and joint coefficients: structural, symmetry and near zeros at N up to 500, cancellation swept across the admission threshold, extreme and subnormal scales, int64 digit-width boundaries, rounding-certificate validity and the exact work bound
+     - independent Fraction contractions; block, rank-one and reversal-parity closed forms; float64 and exact methods evaluated separately
+     - exact zeros, correctly rounded or certified 1e-12 relative values; exact rational equality for the exact evaluator
+     - 84
    * - ``test_quadratic_white_reference_parity.py``
      - OU private scratch and fourth-order native ordered-prefix reuse; bounded memory/protocol bypass, scalar order, range fallback and input state
      - source-pinned frozen reference implementation with exact bytes/error args; independent Gauss-Hermite central cumulants and native matmul line witnesses
