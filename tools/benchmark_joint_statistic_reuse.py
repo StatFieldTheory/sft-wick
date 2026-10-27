@@ -26,13 +26,23 @@ import resource
 import statistics
 import struct
 import sys
+import tarfile
+import tempfile
 import time
 import tracemalloc
 
 import numpy as np
 
+#: SHA-256 of ``quadratic.py`` in the reference archive below; see
+#: ``tests/fixtures/README.md``.
 FROZEN_QUADRATIC_SHA256 = (
-    "45fba9523eef34e5ebb1e7f33d6900607163a25f30f9704f00a16115d8653f27"
+    "eee500133e818e60cdda1c0ea268a8cf6f61a69d2ea4b0b6e7423187eaf7ed89"
+)
+REFERENCE_ARCHIVE = (
+    Path(__file__).resolve().parents[1]
+    / "tests"
+    / "fixtures"
+    / "quadratic_white_reference_source.tar.gz"
 )
 
 
@@ -74,7 +84,7 @@ def _load_reference(source_root, expected_sha):
     if _sha(path) != expected_sha:
         raise ValueError("reference quadratic SHA256 differs from the declared pin")
     specification = importlib.util.spec_from_file_location(
-        "t003_joint_statistic_reference", path
+        "frozen_joint_statistic_reference", path
     )
     if specification is None or specification.loader is None:
         raise ValueError("reference quadratic module could not be loaded")
@@ -333,8 +343,13 @@ def _exception_admission(reference, candidate):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--reference-src", required=True, type=Path)
-    parser.add_argument("--expect-reference-sha256", required=True)
+    parser.add_argument(
+        "--reference-src",
+        type=Path,
+        help="Directory holding sft_wick/quadratic.py; defaults to the archive "
+        "in tests/fixtures, unpacked to a temporary directory.",
+    )
+    parser.add_argument("--expect-reference-sha256", default=FROZEN_QUADRATIC_SHA256)
     parser.add_argument(
         "--candidate-src",
         type=Path,
@@ -348,7 +363,9 @@ def main():
     if args.repetitions < 2 or args.repetitions % 2:
         raise ValueError("repetitions must be a positive even number of at least two")
     if args.expect_reference_sha256 != FROZEN_QUADRATIC_SHA256:
-        raise ValueError("this benchmark requires the final seventh-tranche reference")
+        raise ValueError(
+            "this benchmark requires the reference implementation in tests/fixtures"
+        )
     if not args.smoke and args.repetitions != 6:
         raise ValueError("formal mode requires six balanced repetitions")
     if args.output.exists():
@@ -359,6 +376,11 @@ def main():
     }
     if any(value != "1" for value in thread_environment.values()):
         raise ValueError("set all declared numerical thread limits to one")
+    if args.reference_src is None:
+        unpacked = Path(tempfile.mkdtemp(prefix="sft-wick-reference-"))
+        with tarfile.open(REFERENCE_ARCHIVE) as archive:
+            archive.extractall(unpacked, filter="data")
+        args.reference_src = unpacked / "src"
     reference_root = args.reference_src.resolve()
     candidate_root = args.candidate_src.resolve()
     source_before = {

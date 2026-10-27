@@ -35,8 +35,14 @@ LOCAL_PATH = re.compile(
     r"|[A-Za-z]:\\Users\\"
 )
 
-#: Development task identifiers such as T-003 or T003.
-TASK_ID = re.compile(r"\bT-?0\d\d\b")
+#: Development task identifiers such as T-003, T003, t003_name or a path
+#: segment /T001_x.  A letter, digit or ``+`` before the ID, or a base64
+#: character after it, rules a match out, so encoded notebook images do not
+#: match.
+TASK_ID = re.compile(r"(?<![A-Za-z0-9+])[Tt]-?0\d\d(?![A-Za-z0-9+/=])")
+
+#: Names of development phases, which say nothing about the code.
+PHASE_NAME = re.compile(r"(?i)\btranches?\b")
 
 #: Files that name the patterns above in order to exclude them.
 CONTENT_ALLOWLIST = {"tests/test_repo_hygiene.py"}
@@ -92,9 +98,9 @@ def test_RH3_no_development_task_ids_in_tracked_text():
         if text is None:
             continue
         for lineno, line in enumerate(text.splitlines(), 1):
-            if TASK_ID.search(line):
+            if TASK_ID.search(line) or PHASE_NAME.search(line):
                 hits.append(f"{name}:{lineno}")
-    assert hits == [], f"development task IDs in tracked files: {hits}"
+    assert hits == [], f"development task IDs or phase names in tracked files: {hits}"
 
 
 @pytest.mark.parametrize(
@@ -128,3 +134,22 @@ def test_RH4_path_rule_is_not_vacuous(name, forbidden):
 )
 def test_RH5_local_path_rule_is_not_vacuous(line, local):
     assert bool(LOCAL_PATH.search(line)) is local
+
+
+@pytest.mark.parametrize(
+    "line, flagged",
+    [
+        ("see T-003 for the plan", True),
+        ("docs/notes/T001_revalidation.md", True),
+        ('"t003_joint_statistic_reference", path', True),
+        ("requires the final seventh-tranche reference", True),
+        ("iVBORw0KGgoAAAANSUhEUgAt012Bc", False),
+        ("+t012/", False),
+        ("dt003 = 0.5", False),
+        ("T0123", False),
+        ("a few tenths of a percent", False),
+        ("release 0.7.0 and 0.6.1", False),
+    ],
+)
+def test_RH6_task_id_and_phase_rules_are_not_vacuous(line, flagged):
+    assert bool(TASK_ID.search(line) or PHASE_NAME.search(line)) is flagged
