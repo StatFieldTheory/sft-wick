@@ -1869,24 +1869,21 @@ ordered evaluator and disable lookup caching. See :doc:`resources` for the
 fixed-model promise, admitted dense and original-factor subsets, memory boundaries and complete
 result comparison. These options do not change sampling or quadrature nodes.
 
-``contraction_backend: factorized`` can avoid preparing the coefficient tensor
-for native static monomials or bounded native sums of monomials before vectorized
-QMC or GL. Top-level sums admit at most 32 monomial terms; each term must pass
-phase checks independently; fusion cannot be admitted by cancellation of
-non-real contributions between terms. Multi-term sums additionally require
-uniform nonzero signs in each monomial's selected array components and matching
-term signs after scalar phases; mixed or opposing signs retain the ordered
-path. Single monomials may still have mixed-sign factors. Native propagator
-batches still require finite-value and scale admission. These checks do not
-certify later contractions or integration; changed rounding needs complete-result
-validation. Its public coefficient
-array remains a genuine ndarray when read, and reading it disables fusion. Known
-native dense materialization or fallback can raise above
-``contraction_max_bytes``; this is array-payload admission, not a process memory
-limit. Rebuild with ``ordered`` or increase the budget if that materialization
-is intended. Previously evaluated diagram terms with a compiled coefficient
-plan may retain their original path; compare fresh workflow preparations.
-Scalar and custom/dynamic paths have the boundaries described in :doc:`resources`.
+``contraction_backend: einsum`` and ``contraction_backend: factorized``
+evaluate each static diagram's sum over component assignments in pairwise
+contractions instead of one assignment at a time; ``factorized`` contracts
+the original coupling tensors of each monomial and does not build the
+coefficient tensor. Their results lie within the error bound stated in
+:doc:`resources`, which the ordered fold also satisfies, and differ from the
+ordered results in the last bits. A diagram call runs on the ordered fold
+when a backend cannot keep that bound, would raise a different error, or is
+estimated to be slower; small diagrams therefore keep the ordered fold. On
+the admitted diagrams of a 330-diagram test set the static contraction ran
+1.4 to 85 times faster with ``einsum`` and 2.2 to 49 times faster with
+``factorized``. The end-to-end gain is smaller because most of an
+evaluation is spent outside the static contraction. :doc:`resources` lists
+the admission rules, the cost rule, the workspace budget and the measured
+speeds.
 
 Persisted propagator tables share only supported, unchanged native linear and
 noise identities. Complete array bytes are keyed; explicit response and user

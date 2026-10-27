@@ -190,38 +190,192 @@ comparisons are expected to retain exact complete results for the declared
 fixed model. Independent process RSS and tracing measurements remain necessary
 to assess the actual memory cost.
 
-Opt-in dense tensor contraction
--------------------------------
+Opt-in contraction backends
+---------------------------
 
-The default ``contraction_backend: ordered`` retains the existing component
-assignment fold. ``contraction_backend: einsum`` requests a dense contraction
-for admitted static integrands::
+For a static coupling, the integrand of one diagram at one sample is a sum
+over component assignments: the coupling coefficient of the assignment times
+its C and R propagator values, the scalar R product and the Jacobian. The
+default ``contraction_backend: ordered`` adds the assignments one at a time.
+Two opt-in backends compute the same sum in a different order.
+
+``einsum``
+    Contracts the prepared coefficient tensor with the propagator batches,
+    two operands at a time, along a path chosen to keep the operation count
+    small. A diagonal C table (``diag_C``), an R whose nonzero entries lie on
+    the diagonal and a fixed component index are first merged into the index
+    structure, so entries that are zero by construction are not multiplied.
+
+``factorized``
+    Keeps the original coupling tensors of each monomial of the coupling sum
+    (the ``F`` and ``κ`` factors) instead of the coefficient tensor over all
+    propagator indices, and contracts every monomial the same way. This
+    avoids building the coefficient tensor.
+
+Either backend is selected in the ``sweep`` block::
 
     sweep:
       contraction_backend: einsum
       contraction_max_bytes: 67108864
 
+or with ``contraction_backend=`` on :meth:`~sft_wick.workflow.Expansion.evaluate`,
+:meth:`~sft_wick.workflow.Expansion.sweep`, ``integrate_moment`` and
+``integrate_diagrams``. The choice changes only how each diagram's sum is
+evaluated; samples, nodes, propagator tables and diagrams are the same.
+
+Accuracy
+~~~~~~~~
+
+A different summation order rounds differently, so a backend result differs
+from the ordered one in its last bits. Both satisfy the same bound. At each
+sample let
+
+* ``S`` be the sum, over assignments and monomials, of the absolute value of
+  each product of factors,
+* ``A`` be the number of component assignments, ``T`` the number of monomials
+  (``T = 1`` for ``einsum``) and ``m`` the number of factors in one product,
+* ``P`` be the product over the factors of ``max(1, max|factor|)``, and
+  ``u = 2**-53``.
+
+Then
+
+.. math::
+
+   |\mathrm{result} - \mathrm{exact}| \le 1.01\,(m + A T)\,u\,S
+   + m A T \, 2^{-1074} P ,
+
+where "exact" is the sum computed in exact arithmetic from the same float64
+inputs. The second term covers gradual underflow; it matters only for inputs
+near ``1e-300``. The bound is relative to ``S``, not to the result: when the
+products cancel, every summation order, the ordered one included, can leave a
+large relative error in the result. ``tests/test_contraction_error_bound.py``
+checks the bound against an exact rational reference on generic signed
+diagrams.
+
+The largest errors observed on 330 diagrams captured from
+:meth:`~sft_wick.workflow.Expansion.evaluate` (``N`` = 2, 3 and 5, signed
+``F`` and static ``κ³``, distinct rates, orders 2 to 4, ``diag_C`` on and
+off), with every diagram forced through each backend and compared with an
+exact rational sum at three samples, are
+
+============  ===================================  ==========
+Backend       Largest error in units of ``u S``    Diagrams
+============  ===================================  ==========
+ordered       2.13                                 330
+einsum        1.80                                 330
+factorized    1.93                                 228
+============  ===================================  ==========
+
+The factorized reference multiplies out every monomial and was computed for
+the 228 diagrams with ``A T`` at most 20000.
+
+When a backend runs
+~~~~~~~~~~~~~~~~~~~
+
+A backend returns a value for a diagram call only when
+
+* every input array it reads is finite,
+* no product or partial sum can overflow, in any evaluation order,
+* every coefficient passes the phase check of the ordered fold,
+* NumPy's underflow policy is ``"ignore"`` (the default; see
+  ``numpy.seterr``),
+* the planned workspace fits ``contraction_max_bytes``, and
+* its estimated cost is below the ordered fold's.
+
+Otherwise that call runs on the ordered fold. A backend therefore never
+returns inf or NaN where the ordered fold returns a finite value, and every
+error the ordered fold raises (an imaginary diagram value from a mis-specified
+action, an index-free C that is not a multiple of the identity) is raised with
+the same type and message. A backend never returns ``-0.0``. A non-finite
+value that the ordered fold never reads, for example one multiplied only by
+zero coefficients, makes the backend decline.
+
+Dynamic (callable) couplings, propagator batches that are not float64,
+component labels that are numeric literals or unresolved, and subclasses of
+the package classes always use the ordered fold. ``factorized`` also requires
+a coupling sum of products of static tensors, rationals and ``i`` whose
+summation indices all appear in propagators, with every monomial real after
+the observable's phase. Replacing package methods at run time is unsupported
+and is not detected.
+
+Cost rule
+~~~~~~~~~
+
+The cost estimates are computed from array shapes, R supports and the zero
+pattern of the coefficient. They involve no timing, so the choice of backend,
+and hence the result, does not depend on machine load. The ordered estimate
+counts the Python work per assignment and one vector operation per factor of
+each contributing assignment. The backend estimate counts fixed costs, passes
+over the propagator batches and the operations of the planned pairwise
+contraction. The constants were fitted to timings of 275 diagram calls on
+Python 3.10 with NumPy 2.2 and Python 3.14 with NumPy 2.4, and shifted so
+that the ordered fold is underestimated and the backend overestimated; no
+admitted call in that set was slower than the ordered fold. Small diagrams,
+for which the ordered fold takes tens of microseconds, keep the ordered fold.
+So does a ``factorized`` sum with many monomials over a small coefficient,
+where contracting every monomial costs more than the ordered fold.
+
+Measured speed
+~~~~~~~~~~~~~~
+
+Timings below are from one Apple M-series machine with one BLAS thread. For
+one diagram call (the static contraction alone) on the 330 captured diagrams,
+with the cost rule in force:
+
+=========  =========================  =============================
+Samples    einsum: admitted, speed    factorized: admitted, speed
+=========  =========================  =============================
+1024       204 of 330, 5.8x to 97x    25 of 330, 2.7x to 74x
+4096       312 of 330, 1.4x to 75x    23 of 330, 3.3x to 49x
+65536      312 of 330, 1.8x to 85x    21 of 330, 2.2x to 33x
+=========  =========================  =============================
+
+The speed is the ordered time divided by the backend time, over the admitted
+diagrams.
+
+End to end, :meth:`~sft_wick.workflow.Expansion.evaluate` with
+``qmc_vectorized`` spends most of its time outside the static contraction,
+in coefficient preparation, propagator lookups and sampling, so the gain is
+smaller than per call:
+
+===  ======  ======  =======  ==========  =======  ==========
+N    Orders  diag_C  Samples  ordered s   einsum   factorized
+===  ======  ======  =======  ==========  =======  ==========
+2    2, 3    off     4096     0.09        1.0x     1.0x
+2    2, 3    off     65536    1.30        1.0x     1.0x
+2    2, 3    on      65536    1.03        1.0x     1.0x
+3    2, 3    off     4096     0.22        1.1x     1.3x
+3    2, 3    off     65536    2.19        1.1x     1.0x
+5    2, 3    off     4096     2.08        1.2x     8.0x
+5    2, 3    off     65536    10.1        1.9x     1.8x
+5    2, 3    on      65536    1.55        1.1x     1.0x
+2    4       on      4096     1.45        1.0x     1.0x
+3    4       on      4096     2.66        1.3x     1.0x
+2    4       off     4096     437         1.0x     1.0x
+2    4       off     65536    466         1.0x
+===  ======  ======  =======  ==========  =======  ==========
+
+Times are the best of two runs, except the last two rows (one run), where
+preparing the 4096-entry coefficient of each of 94 diagrams takes most of
+the time. ``factorized`` gains most where coefficient preparation dominates
+and its calls are admitted (``N = 5``, orders 2 and 3). When a call of either
+backend declines, the evaluation does what the ordered fold does; in these
+runs the time then stayed within 3 percent of the ordered time.
+
+Workspace budget
+~~~~~~~~~~~~~~~~
+
 ``contraction_max_bytes`` must be a positive integer and defaults to 64 MiB.
-It controls the admitted contraction workspace; it is not a total memory or
-process RSS limit. The ``einsum`` backend consumes the existing prepared
-coefficient tensor, so it retains that tensor's preparation cost.
+It bounds the arrays a backend allocates for one diagram call: copies of the
+propagator batches with the sample axis last, every intermediate of the
+planned contraction, the rotated coefficient and its zero mask for
+``einsum``, and the output. A call whose plan exceeds it runs on the ordered
+fold. It is not a limit on total memory or process RSS.
 
-Admission is deliberately narrow: native float64 real factors, a validated
-static coefficient phase and fully resolved ordinary component indices with
-full-matrix propagator batches. Dynamic couplings, sparse or nonfinite inputs,
-diagonal-C routing, unresolved/literal indices, custom numerical protocols,
-extreme factor scales, unsupported dtypes, strict floating-error settings and
-over-budget paths retain the ordered implementation. A requested backend can
-therefore legitimately fall back for some or all diagrams.
+Comparing complete results
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Changing contraction order changes floating-point rounding, even when every
-input is finite. The backend does not certify an error bound for arbitrary
-models or cancellations. Each user must choose and validate a numerical budget
-for the observable; a small total difference alone is insufficient because
-different diagram errors can cancel. The full resource comparison checks each
-ordered diagram value and error as well as the totals and axis metadata.
-
-For a dense workflow, the variants file can contain::
+A backend can be compared with the ordered fold on a complete workflow::
 
     dense_backend:
       contraction_backend: einsum
@@ -230,64 +384,38 @@ For a dense workflow, the variants file can contain::
       propagator_cache_bytes: 16777216
 
 The second variant also requires ``fixed_model`` in the original workflow.
-Declare a budget before running, for example::
+Declare a tolerance before running, for example::
 
     sft-wick compare-resources dense-config.yaml \
       --variants dense-variants.yaml --json dense-resource-report.json \
       --rtol 1e-12 --atol 1e-14
 
-These example tolerances are syntax, not a universal numerical guarantee.
-The standard workflow has no tolerance acceptance flag: the explicit
-comparison is the validation tool, while backend selection is the execution
-request. Source settings, diagrams and integration resolution remain fixed.
+The bound above holds per diagram and per sample; a tolerance for an
+observable whose diagrams cancel has to account for ``S``. The full resource
+comparison checks each diagram's value and error as well as the totals and
+axis metadata.
 
-Original coupling-factor fusion
--------------------------------
+The lazy coefficient of ``factorized``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``contraction_backend: factorized`` additionally requests preparation from the
-original static coupling factors::
+Preparation snapshots the native float64 or complex128 coupling arrays of
+the monomials and keeps the symbolic product and term order. The returned
+object preserves the public ``DiagramIntegrand`` interface. Reading
+``ig.coupling_array`` materializes the genuine coefficient ndarray, with the
+original dtype and the values the ordered preparation computes, then
+disables fusion so later array mutations are observed. Factor snapshots own
+their data; later mutations of the input tensors do not alter the prepared
+integrand. Pickling a still-lazy integrand preserves its snapshots without
+materializing the coefficient. Scalar QMC, zero-dimensional evaluation and
+``nquad`` materialize the coefficient instead of using fusion, and so does
+the first call that declines.
 
-    sweep:
-      contraction_backend: factorized
-      contraction_max_bytes: 67108864
-
-For admitted native monomials or bounded native sums of monomials, preparation
-snapshots its native float64 or complex128 arrays and retains the original
-symbolic product and term order. Terms reuse the private tensor snapshots.
-Vectorized QMC and GL can contract each term's factors directly with full-matrix
-propagator batches. This avoids preparing the dense coefficient over all
-propagator component indices. It uses the same integration nodes and propagator
-routing; changed accumulation order still requires complete-result tolerance
-validation. It does not establish a numerical error bound for an arbitrary
-model.
-
-This initial implementation admits at most 32 monomial terms in a top-level
-native sum. Admission requires ordinary resolved indices, no coupling-only
-index sums, a finite pure real or imaginary phase for each nonzero coupling
-factor, bounded scales and unchanged native numerical protocols. Every term
-must independently project to a finite real contribution under the diagram's
-phase. Imaginary contributions cannot be admitted by cancellation between
-terms. Propagator batches must also pass the native dtype, finite-value and
-scale checks; finite inputs alone do not establish a rounding bound.
-
-For a multi-term sum, every monomial's selected real or imaginary array
-components must additionally have uniform nonzero signs. After including each
-term's scalar phase, the monomial contributions must share the same sign.
-Mixed-sign slices or opposing term signs retain the original ordered path;
-fusion does not admit cross-monomial real cancellation. A single monomial may
-still use mixed-sign factors under the existing phase and range checks. These
-sign checks constrain the coefficient sum, not all later kernel contractions
-or numerical integration, and do not certify a complete-result error budget.
-
-Unsupported or larger sums, deltas, dynamic couplings, custom accessors,
-unsupported dtypes and kernel routing keep the original coefficient path when
-it fits the explicit budget. Runtime refusal of fusion also restores the
-original coefficient path. Sparse factors and per-component phase errors are
-not replaced by cancellation across components or terms.
-
-An existing compiled coefficient plan also retains its original path;
-requesting ``factorized`` on previously evaluated diagram terms may fall back.
-Fresh workflow preparation is the supported cost comparison.
+For this option, ``contraction_max_bytes`` also checks the conservative
+ndarray payload needed to materialize a known native coefficient. Public
+array access or a dense fallback **raises before allocation** if that payload
+exceeds the budget. Increase the budget or rebuild the integrand with
+``ordered`` to permit the materialization. Switching an already prepared lazy
+object to ordered dispatch does not remove its materialization policy.
 
 The low-level builder supports the same choice::
 
@@ -301,27 +429,6 @@ When using the low-level wrapper, also pass
 is ordered dispatch even for a prepared factorized object; that dispatch
 materializes the coefficient. ``Expansion.evaluate`` and ``Expansion.sweep``
 forward the selected backend through both preparation and integration.
-
-The returned object preserves the public ``DiagramIntegrand`` interface.
-Reading ``ig.coupling_array`` materializes the genuine original ndarray with
-its original dtype and ordered component values, then disables fusion so
-subsequent array mutations are observed. Dense restoration follows the original
-symbolic products and the existing builtin sum evaluation of coefficient terms;
-it does not substitute the fused batch accumulation. Factor snapshots own their data;
-later mutations of the input tensors do not alter the prepared integrand.
-Pickling a still-lazy integrand preserves its snapshots without materializing
-the dense coefficient. Scalar QMC, zero-dimensional evaluation and ``nquad``
-materialize the coefficient instead of using batch fusion.
-
-For this option, ``contraction_max_bytes`` also checks the conservative ndarray
-payload needed for known native coefficient materialization. Public array
-access or a dense fallback **raises before allocation** if that payload exceeds
-the budget. Increase the budget or rebuild the integrand with ``ordered`` to permit
-the original materialization. Switching an already prepared lazy object to
-ordered dispatch does not remove its materialization policy. Dynamic and custom
-protocols with unknown shapes are not bounded by this admission check. Python
-metadata, other integrands, model data, process RSS and private BLAS workspaces
-remain outside this cap.
 
 Shared propagator table identities
 ----------------------------------
