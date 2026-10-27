@@ -106,7 +106,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "beyond it, a summation index only a single-label or scalar R carries declined "
         "(kernel level and a real scalar-R cache), rationals and prefactor counted one "
         "at a time (cancelling scales declined with the ordered value or error, both "
-        "sides of the exponent limits 1020 and -1021)",
+        "sides of the exponent limits 1020 and -1021), a factor pair i i with a float "
+        "coefficient raising the ordered TypeError",
         "Fraction sum over component assignments (dense and summed monomials), ordered fold",
         "documented bound 1.01 (m + A T) u S with S from the summed coefficient; 1e-12 "
         "relative where a decline keeps the ordered value; L1 diagrams 1e-12 of the largest",

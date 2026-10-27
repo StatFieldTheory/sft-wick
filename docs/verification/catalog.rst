@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **4479 tests** in 110 files (parametrised
+The suite has **4481 tests** in 110 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -252,7 +252,7 @@ Propagator numerics
 Integrators
 -----------
 
-*1809 tests in 50 files.*
+*1811 tests in 50 files.*
 
 .. list-table::
    :header-rows: 1
@@ -284,10 +284,10 @@ Integrators
      - exact
      - 14
    * - ``test_contraction_error_bound.py``
-     - error-bound contract of the einsum and factorized backends on generic signed N = 3 diagrams, non-finite values behind zeros, overflow and underflow-risk declines, monomials of opposite sign declined, unsupported diagonal R entry, no -0.0, planner workspace of a four-tensor monomial, live-assignment count and coefficient zero pattern, cost-rule decline of a 64-monomial sum, admission on L1 diagrams, values a diagonal C table multiplies by zero (NaN, inf, overflow) declined with the ordered errors, values behind an R-support pin admitted, R factors multiplied before a later support excludes them declined, sign check and factor-sign proof on both sides of the work limit, N = 17 sums beyond it, a summation index only a single-label or scalar R carries declined (kernel level and a real scalar-R cache), rationals and prefactor counted one at a time (cancelling scales declined with the ordered value or error, both sides of the exponent limits 1020 and -1021)
+     - error-bound contract of the einsum and factorized backends on generic signed N = 3 diagrams, non-finite values behind zeros, overflow and underflow-risk declines, monomials of opposite sign declined, unsupported diagonal R entry, no -0.0, planner workspace of a four-tensor monomial, live-assignment count and coefficient zero pattern, cost-rule decline of a 64-monomial sum, admission on L1 diagrams, values a diagonal C table multiplies by zero (NaN, inf, overflow) declined with the ordered errors, values behind an R-support pin admitted, R factors multiplied before a later support excludes them declined, sign check and factor-sign proof on both sides of the work limit, N = 17 sums beyond it, a summation index only a single-label or scalar R carries declined (kernel level and a real scalar-R cache), rationals and prefactor counted one at a time (cancelling scales declined with the ordered value or error, both sides of the exponent limits 1020 and -1021), a factor pair i i with a float coefficient raising the ordered TypeError
      - Fraction sum over component assignments (dense and summed monomials), ordered fold
      - documented bound 1.01 (m + A T) u S with S from the summed coefficient; 1e-12 relative where a decline keeps the ordered value; L1 diagrams 1e-12 of the largest
-     - 94
+     - 96
    * - ``test_coupling_scale_invariance.py``
      - small indexed static/dynamic coefficients times large kernels, cancellation and nonzero phase checks
      - ordinary multiplication and summation under reciprocal rescaling

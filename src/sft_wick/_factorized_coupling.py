@@ -873,6 +873,17 @@ def _try_build_factorized(term, spatial, static_cv, fixed, max_bytes):
     groups, used = lowered
     if not used:
         return None
+    dtype = (
+        complex
+        if isinstance(prefactor, complex)
+        or any(_native_dtype(array, np.complex128) for array in static_cv.values())
+        else float
+    )
+    # The ordered preparation converts each monomial's value to this dtype;
+    # a factor ``i`` makes the value complex, which ``float`` rejects with
+    # TypeError, so such a coupling keeps the ordered preparation.
+    if dtype is float and any(factor[0] == "i" for factors in groups for factor in factors):
+        return None
     nbytes = sum(static_cv[name].nbytes for name in used)
     if nbytes + _SCAN_RESERVE > max_bytes:
         return None
@@ -901,12 +912,6 @@ def _try_build_factorized(term, spatial, static_cv, fixed, max_bytes):
     nonzero, mask = pattern
     if mask is not None:
         nbytes += mask.nbytes
-    dtype = (
-        complex
-        if isinstance(prefactor, complex)
-        or any(_native_dtype(array, np.complex128) for array in static_cv.values())
-        else float
-    )
     nbytes += np.dtype(dtype).itemsize  # still-live public 0-d placeholder
     if nbytes + _SCAN_RESERVE > max_bytes:
         return None

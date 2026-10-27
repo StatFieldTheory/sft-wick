@@ -40,7 +40,7 @@ import sft_wick.evaluate as ev
 from sft_wick._dense_contraction import live_assignments, try_static_contraction
 from sft_wick._factorized_coupling import factorized_state, try_build_factorized
 from sft_wick.evaluate import analyze_spatial
-from sft_wick.expressions import Product, Propagator, Rational, Sum, Symbol
+from sft_wick.expressions import ImaginaryUnit, Product, Propagator, Rational, Sum, Symbol
 from sft_wick.perturbation import DiagramTerm
 
 from . import _contraction_exact as exact
@@ -1320,3 +1320,51 @@ def test_factorized_scalar_ranges_at_the_exponent_limits(
         # The tensor, the rational, the prefactor, C, rp and jac.
         for result in (fused, ordered):
             exact.assert_within_bound(result, reference, scale, 6, n)
+
+
+@pytest.mark.parametrize("dtype", ["real", "complex"])
+def test_factorized_imaginary_pair_follows_the_ordered_coefficient_dtype(admit_all, dtype):
+    """``(1/2) i F(i, j) i G(k, l)`` with real tensors and a real prefactor.
+    With only real coupling values the ordered preparation evaluates the
+    complex monomial into a float coefficient and raises ``TypeError``; the
+    factorized request raises the same error.  An unused complex coupling
+    value makes the ordered coefficient complex, and the factorized call is
+    then contracted within the bound."""
+    rng = np.random.default_rng(9880)
+    term = DiagramTerm(
+        (Propagator("C", "i", "k", "x", "y"), Propagator("C", "j", "l", "x", "y")),
+        Product(
+            (
+                Rational(1, 2),
+                ImaginaryUnit(),
+                Symbol("F", ("i", "j")),
+                ImaginaryUnit(),
+                Symbol("G", ("k", "l")),
+            )
+        ),
+        Rational(1),
+        (),
+        tuple((label, N) for label in ("i", "j", "k", "l")),
+        0,
+    )
+    values = {"F": _signed(rng, (N, N)), "G": _signed(rng, (N, N))}
+    if dtype == "real":
+        with pytest.raises(TypeError) as ordered:
+            term.build_integrand(values, {})
+        with pytest.raises(TypeError) as requested:
+            term.build_integrand(values, {}, contraction_backend="factorized")
+        assert str(requested.value) == str(ordered.value)
+        return
+    values["H"] = np.zeros((), dtype=np.complex128)
+    candidate = try_build_factorized(term, analyze_spatial(term), values, {}, LIMIT)
+    assert candidate is not None
+    cb = [(_signed(rng, (SAMPLES, N, N)), "i", "k"), (_signed(rng, (SAMPLES, N, N)), "j", "l")]
+    rp, jac = _signed(rng, SAMPLES), _signed(rng, SAMPLES)
+    fused = candidate._static_values(cb, rp, jac, r_batches=[])
+    assert factorized_state(candidate)[1] is not None, "the factorized call declined"
+    ordered = _ordered(term.build_integrand(values, {}), cb, rp, jac, [])
+    table = exact.monomial_coefficients(term, values, {})
+    reference, scale = exact.exact_sum(table, term.propagator_indices, {}, cb, rp, jac, [])
+    # Two tensors, the rational, the prefactor, two C kernels, rp and jac.
+    for result in (fused, ordered):
+        exact.assert_within_bound(result, reference, scale, 8, N**4)
