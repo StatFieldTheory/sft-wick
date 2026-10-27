@@ -910,3 +910,94 @@ def test_YC10_every_sweep_key_is_accepted_and_read(tmp_path):
     assert load_workflow_config(path).sweep.component_tuples == [
         (0, 0), (0, 1), (1, 1)]
 
+
+# ---------------------------------------------------------------------------
+# YC11 -- every other block refuses a key it does not read
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("block,typo,where", [
+    pytest.param((), "swep", r"config \(top level\)", id="swep"),
+    pytest.param(("system",), "t_minn", "system", id="t_minn"),
+    pytest.param(("system",), "local_vertices", "system",
+                 id="local_vertices"),
+    pytest.param(("system", "field"), "n_component", "system.field",
+                 id="n_component"),
+    pytest.param(("expand",), "ordrs", "expand", id="ordrs"),
+    pytest.param(("expand",), "diag_c", "expand", id="diag_c"),
+    pytest.param(("propagators",), "n_grid_tt", "propagators",
+                 id="n_grid_tt"),
+    pytest.param(("propagators",), "c_methd", "propagators", id="c_methd"),
+    pytest.param(("output", 0), "fromat", r"output\[0\]", id="fromat"),
+])
+def test_YC11_misspelt_key_is_refused_in_every_block(tmp_path, block, typo,
+                                                     where):
+    """A misspelt key in these blocks used to load and its default was
+    used: ``t_minn`` integrated from 0, ``local_vertices`` dropped every
+    vertex, ``diag_c: false`` kept the diagonal simplification."""
+    cfg = _base_config()
+    cfg["output"] = [{"type": "table", "format": "csv", "path": "o.csv"}]
+    node = cfg
+    for key in block:
+        node = node[key]
+    node[typo] = 0.5
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    with pytest.raises(ValueError,
+                       match=rf"^{where}: unknown key\(s\) \['{typo}'\]"):
+        load_workflow_config(path)
+
+
+def test_YC11_allowed_keys_are_the_config_fields():
+    """expand, propagators and output entries map one-for-one onto their
+    config dataclasses.  The allowed sets are written out, so a field added
+    to a dataclass fails here until the parser reads it and its set holds
+    it."""
+    import dataclasses
+
+    from sft_wick.workflow import config as cf
+
+    for keys, cls in ((cf._EXPAND_KEYS, cf.ExpandConfig),
+                      (cf._PROPAGATORS_KEYS, cf.PropagatorsConfig),
+                      (cf._OUTPUT_KEYS, cf.OutputConfig)):
+        assert keys == {f.name for f in dataclasses.fields(cls)}, cls
+
+
+def test_YC11_the_reference_example_uses_only_accepted_keys():
+    """The annotated example in the user guide lists every key the parser
+    reads; it must parse, and each key must be one its block accepts."""
+    from sft_wick.workflow import config as cf
+
+    lines = (ROOT / "docs" / "user_guide" / "workflow.rst").read_text(
+        ).splitlines()
+    start = next(i for i, line in enumerate(lines)
+                 if line.startswith("Every key the parser recognises"))
+    start = next(i for i in range(start, len(lines))
+                 if lines[i].startswith(".. code-block:: yaml"))
+    body = []
+    for line in lines[start + 1:]:
+        if line and not line.startswith("   "):
+            break
+        body.append(line)
+    doc = yaml.safe_load(textwrap.dedent("\n".join(body)))
+    for block, allowed in (((), cf._TOP_LEVEL_KEYS),
+                           (("system",), cf._SYSTEM_KEYS),
+                           (("system", "field"), cf._FIELD_KEYS),
+                           (("expand",), cf._EXPAND_KEYS),
+                           (("propagators",), cf._PROPAGATORS_KEYS),
+                           (("sweep",), cf._SWEEP_KEYS)):
+        node = doc
+        for key in block:
+            node = node[key]
+        assert set(node) <= set(allowed), block
+    for entry in doc["output"]:
+        assert set(entry) <= cf._OUTPUT_KEYS
+
+
+def test_YC11_every_shipped_workflow_config_loads():
+    """No shipped config uses a key the parser does not read."""
+    paths = sorted(p for p in (ROOT / "examples").rglob("*.yaml")
+                   if "sweep" in (yaml.safe_load(p.read_text()) or {}))
+    paths.append(ROOT / "src" / "sft_wick" / "workflow" / "quickstart.yaml")
+    assert len(paths) >= 11
+    for path in paths:
+        load_workflow_config(path)

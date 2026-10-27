@@ -851,7 +851,9 @@ Annotated full example
 
 Every key the parser recognises, with its default value and a
 one-line note. Drop unused keys; only the marked **required**
-fields must be present.
+fields must be present.  A key the parser does not read raises a
+``ValueError`` that names it and lists the keys its block accepts, so
+a misspelt key cannot fall back to its default.
 
 .. code-block:: yaml
 
@@ -960,7 +962,7 @@ fields must be present.
      c_closed_form_module:    null   # ./c_closed_form.py
      c_closed_form_attr:      C_fn   # callable name in the module
      c_closed_form_only:      false  # skip spline cache entirely
-     c_closed_form_vectorized:false  # c_fn accepts (n,) arrays, returns (n, N, N)
+     c_closed_form_vectorized: false # c_fn accepts (n,) arrays, returns (n, N, N)
 
      # quadrature for the inner ∫ R κ² R when no closed form is given
      c_method:           auto         # 'auto' | 'dblquad' | 'gauss_legendre'
