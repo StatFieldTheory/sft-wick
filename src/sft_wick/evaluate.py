@@ -6290,7 +6290,7 @@ class DiagramIntegrand:
                 return _time_table_C_batch(cache, t_l, t_r)
             x_l = group_x[spatial.direction_map[sp_l]]  # type: ignore[index]
             x_r = group_x[spatial.direction_map[sp_r]]  # type: ignore[index]
-            return cache.C_at_batch(t_l, t_r, x_l, x_r)
+            return _C_at_fixed_positions(cache, t_l, t_r, x_l, x_r)
 
         c_batches = [
             (_lookup_C(sp_l, sp_r, _times(sp_l), _times(sp_r)), il, ir)
@@ -6969,7 +6969,7 @@ class DiagramIntegrand:
                 return _time_table_C_batch(cache, t_l, t_r)
             x_l = group_x[spatial.direction_map[sp_l]]  # type: ignore[index]
             x_r = group_x[spatial.direction_map[sp_r]]  # type: ignore[index]
-            return cache.C_at_batch(t_l, t_r, x_l, x_r)
+            return _C_at_fixed_positions(cache, t_l, t_r, x_l, x_r)
 
         # The C lookup does not depend on the component assignment, so it
         # is done once here; the per-assignment loops of
@@ -7391,19 +7391,7 @@ class DiagramIntegrand:
                     return _time_table_C_batch(cache, t_l, t_r)
                 x_l = group_x[spatial.direction_map[sp_l]]  # type: ignore[index]
                 x_r = group_x[spatial.direction_map[sp_r]]  # type: ignore[index]
-                if gl_chunk_size is not None:
-                    # These coordinates are fixed vectors, never one scalar per
-                    # sample; the two forms are ambiguous when len(x) == batch.
-                    def fixed_position(x):
-                        arr = np.asarray(x, dtype=float)
-                        return (
-                            np.broadcast_to(arr, (n_samples, len(arr)))
-                            if arr.ndim == 1
-                            else x
-                        )
-
-                    x_l, x_r = fixed_position(x_l), fixed_position(x_r)
-                return cache.C_at_batch(t_l, t_r, x_l, x_r)
+                return _C_at_fixed_positions(cache, t_l, t_r, x_l, x_r)
 
             c_batches = [
                 (_lookup_C(sp_l, sp_r, _times(sp_l), _times(sp_r)), il, ir)
@@ -7990,6 +7978,29 @@ def _time_table_C_batch(cache: Any, t_l: np.ndarray, t_r: np.ndarray) -> np.ndar
             f"(n, N, N), or a spatial table."
         )
     return full(t_l, t_r)
+
+
+def _C_at_fixed_positions(
+    cache: Any, t_l: np.ndarray, t_r: np.ndarray, x_l: Any, x_r: Any
+) -> np.ndarray:
+    """``cache.C_at_batch`` with one fixed position per side.
+
+    ``C_at_batch`` reads a 1-D array whose length equals the batch as one
+    scalar position per sample, so a fixed d-vector on a batch of d > 1
+    samples would be misread that way.  Such a vector is broadcast to
+    ``(n, d)`` first.  Every other position passes through unchanged:
+    ``C_at_batch`` already reads a vector of another length as fixed, and
+    with ``n = d = 1`` both readings give the same value.
+    """
+    n = len(np.atleast_1d(t_l))
+
+    def rows(x: Any) -> Any:
+        arr = np.asarray(x, dtype=float)
+        if arr.ndim == 1 and n > 1 and len(arr) == n:
+            return np.broadcast_to(arr, (n, n))
+        return x
+
+    return cache.C_at_batch(t_l, t_r, rows(x_l), rows(x_r))
 
 
 def integrate_moment(
@@ -8897,7 +8908,7 @@ def integrate_two_point_qmc(
             if spatial_aware:
                 x_l = group_x[sp.direction_map[sp_l]]
                 x_r = group_x[sp.direction_map[sp_r]]
-                return cache.C_at_batch(t_l, t_r, x_l, x_r)
+                return _C_at_fixed_positions(cache, t_l, t_r, x_l, x_r)
             factor = c_spatial_factors[ci]
             if factor is None:
                 raise ValueError(

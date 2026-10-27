@@ -218,3 +218,104 @@ def test_DD3_sweep_with_3d_positions_aggregates_via_pandas_groupby() -> None:
     # returns one row per (positions, t_final, a, b, order) cell.
     df = sweep.totals()
     assert len(df) == 2, f"expected 2 rows, got {len(df)}: {df!r}"
+
+
+def _batch_length_system():
+    return sw.System(
+        field=sw.FieldSpec("phi", n_components=2),
+        linear=sw.DiagonalA(gamma=[0.9, 1.3]),
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.ExponentialTemporal(lam=0.5, sigma_t=0.4),
+                spatial=sw.GaussianSpatial(sigma_x=1.0),
+            ),
+        ),
+        t_min=0.2,
+    )
+
+
+@pytest.mark.parametrize("closed_form_only", [False, True])
+@pytest.mark.parametrize(
+    ("dim", "method", "knobs"),
+    [
+        (2, "gauss_legendre", {"n_gauss": 2}),
+        (3, "gauss_legendre", {"n_gauss": 3}),
+        (2, "qmc_vectorized", {"n_samples": 2}),
+        (4, "qmc_vectorized", {"n_samples": 4}),
+    ],
+)
+def test_DD4_fixed_vector_position_on_a_batch_of_equal_length(
+    dim, method, knobs, closed_form_only
+) -> None:
+    """A batch of ``dim`` samples must not read a fixed ``dim``-vector
+    position as one scalar position per sample.
+
+    Integrating one external time gives a one-dimensional integral, so
+    ``n_gauss`` GL nodes or ``n_samples`` QMC points form the whole
+    batch.  ``C_at_batch`` reads a 1-D array of the batch's length as
+    per-sample scalars; before the fix the eager GL and vectorised QMC
+    paths handed it the fixed vector unchanged and returned a value
+    10-35 % off.  The reference is the same separation as scalars.
+    """
+    system = _batch_length_system()
+    expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0])
+    kw = dict(t_max=3.0, n_grid_t=60, progress=False)
+    if closed_form_only:
+        kw.update(c_closed_form_only=True)
+    props = system.propagators(**kw)
+    x = np.linspace(-0.2, 0.4, dim)
+    y = x + np.linspace(0.3, -0.8, dim)
+    common = dict(
+        t_final=2.0,
+        component_pair=(1, 1),
+        orders=[0],
+        method=method,
+        integrate_over={"x"},
+        **knobs,
+    )
+    vector = expansion.evaluate(props, positions={"x": x, "y": y}, **common)
+    scalar = expansion.evaluate(
+        props,
+        positions={"x": 0.37, "y": 0.37 + float(np.linalg.norm(y - x))},
+        **common,
+    )
+    assert vector.total == pytest.approx(scalar.total, rel=1e-12, abs=0.0)
+
+
+@pytest.mark.parametrize("dim", [2, 4])
+def test_DD5_two_point_qmc_fixed_vector_position_on_a_batch_of_equal_length(dim) -> None:
+    """``integrate_two_point_qmc`` with ``n_samples == dim`` must read a
+    fixed ``dim``-vector position as one point.  Before the fix it was
+    8 % (dim 2) and 44 % (dim 4) off at order 1."""
+    from sft_wick.evaluate import integrate_two_point_qmc
+
+    F = np.array([[0.0, 0.4], [0.25, 0.1]])
+    system = sw.System(
+        field=sw.FieldSpec("phi", n_components=2),
+        linear=sw.DiagonalA(gamma=[0.9, 1.3]),
+        vertices=[sw.LocalVertex("F", coupling=F)],
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.ExponentialTemporal(lam=0.5, sigma_t=0.4),
+                spatial=sw.GaussianSpatial(sigma_x=1.0),
+            ),
+        ),
+        t_min=0.2,
+    )
+    expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=[1], progress=False)
+    props = system.propagators(t_max=3.0, n_grid_t=60, progress=False)
+    coupling = system.build_coupling_values()
+    integrands = [
+        dt.build_integrand(coupling, {"a": 0, "b": 1}) for dt in expansion.diagrams(1)
+    ]
+    x = np.linspace(-0.2, 0.4, dim)
+    y = x + np.linspace(0.3, -0.8, dim)
+    common = dict(t_f=2.0, cache=props.cache, t_min=0.2, n_samples=dim, seed=1)
+    vector, _ = integrate_two_point_qmc(integrands, positions={"x": x, "y": y}, **common)
+    scalar, _ = integrate_two_point_qmc(
+        integrands,
+        positions={"x": 0.37, "y": 0.37 + float(np.linalg.norm(y - x))},
+        **common,
+    )
+    assert scalar != 0.0
+    assert vector == pytest.approx(scalar, rel=1e-12, abs=0.0)

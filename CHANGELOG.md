@@ -69,6 +69,21 @@ against a fixed external time").  On a Brownian C with `y` pinned at
 **GL and `nquad` values in this regime change**; other configurations are
 unchanged to 4.5e-16.
 
+### Fixed: a fixed vector position on a batch of equal length
+
+`C_at_batch` reads a 1-D position array whose length equals the batch as
+one scalar position per sample.  The eager Gauss-Legendre path, vectorised
+QMC, the zero-dimensional path and `integrate_two_point_qmc` passed a fixed
+d-vector position unchanged, so a batch of exactly d samples read it as d
+scalar positions.  On a 3-D pair with one integrated external time, GL at
+`n_gauss = 3` was 25 % off and QMC at `n_samples = 2` and `4` (2-D and 4-D
+pairs) 29 % and 35 % off; `integrate_two_point_qmc` at order 1 was 8 % and
+44 % off.  Every batch lookup now broadcasts such a vector to `(n, d)` first
+(`evaluate.py::_C_at_fixed_positions`); values change only when the batch
+length equals the position dimension.  Locked by
+`tests/test_d_dim_spatial.py::test_DD4_*` and `test_DD5_*`, which fail
+without the fix.
+
 ### Changed: the propagator disk cache covers built-in specs only
 
 `System.propagators(cache_path=...)` now keys tables on the complete content

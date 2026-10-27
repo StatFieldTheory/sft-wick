@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **4192 tests** in 106 files (parametrised
+The suite has **4202 tests** in 106 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -157,7 +157,7 @@ Multiplicities and canonical forms
 Propagator numerics
 -------------------
 
-*833 tests in 16 files.*
+*843 tests in 16 files.*
 
 .. list-table::
    :header-rows: 1
@@ -182,7 +182,7 @@ Propagator numerics
      - vector positions through the L1 evaluate path
      - scalar-separation equivalent
      - 1e-10
-     - 3
+     - 13
    * - ``test_deductive_numerics.py``
      - C from ∫∫RκR: closed form vs dblquad, spline tables, spatial homogeneity modes, white noise, QMC vs nquad, parallel vs serial
      - closed-form OU C; domain-split dblquad at 1e-12; alternative backends

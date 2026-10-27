@@ -33,6 +33,10 @@ comparison command.*
 - Fixed: Gauss-Legendre and ``nquad`` now split the domain at a C kink
   against a pinned external time when another external time is integrated;
   values in that regime change.
+- Fixed: a fixed vector position was read as one scalar position per sample
+  when the batch length equalled the position dimension (eager
+  Gauss-Legendre, vectorised QMC, ``integrate_two_point_qmc``); such values
+  were 8-44 % off.
 - The propagator disk cache (``cache_path``) covers built-in specs only;
   systems with user callables compute their tables on every call.
 - Fixed: batch contractions dropped coefficients below ``1e-20`` in
