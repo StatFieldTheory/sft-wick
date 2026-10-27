@@ -235,12 +235,17 @@ cumulant by the product of the multi-index factorials.
 Every returned mixed cumulant and joint coefficient is one of two things, with
 respect to the prepared matrices and endpoints: the float64 contraction, kept
 only when a rigorous bound on its rounding error is at most ``1e-12`` of its
-magnitude, or the correctly rounded exact value. The float64 contraction sums
-its signed traces and endpoint terms exactly; its matrix products are ordinary
-float64 products. The bound follows the componentwise error analysis of matrix
-products (Higham, *Accuracy and Stability of Numerical Algorithms*, chapter 3)
-and is formed from the elementwise absolute values of the matrices and
-endpoints, with an allowance for underflow and flush-to-zero. It does not rely
+magnitude, or the correctly rounded exact value. A float64 value is also kept
+only where version 0.7.0 kept it: the contraction raised no floating-point
+exception, and its magnitude is above ``1e-10`` times the Frobenius-norm bound
+that 0.7.0 used to detect cancellation. Every value that 0.7.0 returned is
+therefore returned with the same bits or as the correctly rounded exact value.
+The float64 contraction sums its signed traces and endpoint terms exactly; its
+matrix products are ordinary float64 products. The bound follows the
+componentwise error analysis of matrix products (Higham, *Accuracy and
+Stability of Numerical Algorithms*, chapter 3) and is formed from the
+elementwise absolute values of the matrices and endpoints, with an allowance
+for underflow and flush-to-zero. It does not rely
 on floating-point exception flags, which BLAS matrix products do not reliably
 report. The model assumes matrix products that form each entry as a sum of its
 products in some order, with or without fused multiply-add, as OpenBLAS, MKL,
@@ -280,11 +285,23 @@ without fused multiply-add. Each such product is compared with a checksum
 modulo ``2**64`` computed in NumPy's integer loops; a mismatch, which only a
 product outside the classical model would produce, issues a
 ``RuntimeWarning`` and the product is recomputed in NumPy's int64 loops.
-Traces and matrix-vector products of slices use NumPy's own loops. The exact
-rational result is rounded once. An underflow inside the float64 contraction
-also leads to the exact evaluation; when that evaluation is refused, the
-float64 value is still returned if the bound admits it, because the bound
-covers underflow. Times on one core of a full query (bound, float64
+Traces and matrix-vector products of slices use NumPy's own loops.
+
+The exact evaluation first uses only the leading bits of each array. Every
+matrix and endpoint keeps the bits within ``k`` binades of its largest entry,
+with ``k`` about 64 plus the binary logarithm of ``N`` times a product of
+absolute row and column sums over the magnitude of the float64 value. The
+dropped bits of an entry are smaller than one power of two, so the dropped
+part of the statistic is bounded by that power times ``N`` and the same sums.
+The statistic of the kept bits is evaluated exactly and returned when both
+ends of this bound round to the same float64; that float64 is then the
+correctly rounded exact value. Otherwise a second attempt keeps 64 more
+binades, and a third evaluates the full arrays. For dense matrices whose
+entries lie within a few binades of each other nothing is dropped and the
+first attempt is the full evaluation. An underflow inside the float64
+contraction also leads to the exact evaluation; when that evaluation is
+refused, the float64 value is still returned if the bound admits it, because
+the bound covers underflow. Times on one core of a full query (bound, float64
 contraction and exact evaluation) on dense indefinite matrices, with a
 distinct observable in every slot:
 
@@ -319,6 +336,43 @@ of the distinct matrices, up to two exact pair products and seven
 dimension-square scratch arrays; a fourth-order query at ``N = 1000`` peaked at
 about 165 MiB.
 
+Matrices with entries over many binades, such as couplings that decay with
+distance, need far fewer slices for their leading bits than for all of them.
+Times on one core of full queries on four random-sign symmetric matrices
+multiplied by ``exp(-|i - j| / l)``, none of them certified:
+
+.. list-table::
+   :header-rows: 1
+
+   * - ``N``
+     - ``l``
+     - smallest entry
+     - ``(0, 1, 2, 3)``
+     - ``(0, 0, 1, 1)``
+     - ``(0, 1, 2)``
+   * - 1200
+     - 3.07
+     - 1.5e-172
+     - 3.2 s
+     - 1.9 s
+     - 0.75 s
+   * - 1500
+     - 3.84
+     - 3.7e-172
+     - 5.5 s
+     - 3.4 s
+     - 1.3 s
+   * - 2000
+     - 20
+     - 1.1e-48
+     - 12 s
+     - 5.6 s
+     - 2.7 s
+
+The leading bits took five or six slices per matrix where the full arrays
+take 30 (``N = 1500``) and 10 or 11 (``N = 2000``). The float64 contraction
+alone takes 0.14 to 3.4 s for these queries.
+
 Before forming any product the exact evaluation estimates its work and its
 peak memory from the slice counts, following its evaluation order. It raises
 ``ArithmeticError`` above ``1e13`` weighted multiply-adds (BLAS multiply-adds
@@ -327,11 +381,18 @@ Dense matrices whose entries carry full 53-bit mantissas need three or four
 slices; for them the memory limit is reached at about ``N = 4500`` for
 fourth-order queries with four distinct observables, ``N = 5350`` at order
 three and ``N = 9450`` at order two. At those sizes the float64 contraction
-alone would still return a value, but not a certified one. The slice count
-grows with the range of binary exponents among the entries of a matrix, so
-matrices whose entries span hundreds of binades are refused at much smaller
-``N``. Joint coefficients divide before deciding final float64 range, so a
-coefficient can be finite even when its unscaled cumulant overflows.
+alone would still return a value, but not a certified one. Each attempt
+checks its own work and memory before forming a product, and the refusal
+applies to the first attempt that exceeds them. The slice count of a full
+evaluation grows with the range of binary exponents among the entries of an
+array, so arrays whose entries span hundreds of binades are refused at much
+smaller ``N`` when the full evaluation is needed. It is needed when the leading
+bits cannot decide the rounding: for an exact zero that the zero patterns do
+not prove, such as a zero forced by a symmetry, for a value within the bound
+of a point halfway between two float64 values, and when the float64
+contraction overflows and gives no magnitude. Joint coefficients divide before
+deciding final float64 range, so a coefficient can be finite even when its
+unscaled cumulant overflows.
 
 The guarantee concerns the prepared matrices and endpoints. Whitening,
 projection and the covariance eigendecomposition are float64 operations whose
