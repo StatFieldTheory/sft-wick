@@ -2,6 +2,8 @@
 
 ``exact_mixed_statistic`` returns the exact value, for the stored binary
 matrices and endpoints, of the statistic defined in ``_mixed_contraction``.
+``evaluate_query`` evaluates it from any subset of the upper slices of each
+array, which ``_mixed_rounding`` uses for its cut attempts.
 
 Digit slices
 ------------
@@ -104,7 +106,7 @@ def digit_width(latent: int) -> int:
 
 
 @dataclass(frozen=True, slots=True)
-class _Grid:
+class SliceGrid:
     """Power-of-two grid of one array: ``base`` and the occupied slice offsets."""
 
     base: int
@@ -113,6 +115,17 @@ class _Grid:
     @property
     def span(self) -> int:
         return self.offsets[-1] - self.offsets[0] + 1 if self.offsets else 0
+
+    def from_offset(self, lowest: int) -> SliceGrid:
+        """The same grid without the offsets below ``lowest``.
+
+        Slicing an array on it keeps each entry's bits at and above
+        ``2**(base + lowest * width)`` and drops the rest, which is smaller in
+        magnitude than that power of two and has the sign of the entry.
+        """
+        return SliceGrid(
+            self.base, tuple(offset for offset in self.offsets if offset >= lowest)
+        )
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -148,7 +161,7 @@ def _blocks(values: np.ndarray) -> Iterator[tuple[slice, np.ndarray]]:
         yield span, values[span]
 
 
-def _grid(values: np.ndarray, width: int) -> _Grid:
+def _grid(values: np.ndarray, width: int) -> SliceGrid:
     """Smallest bit exponent and the slice offsets that hold any nonzero bit."""
     lows, highs = [], []
     for _, block in _blocks(values):
@@ -162,7 +175,7 @@ def _grid(values: np.ndarray, width: int) -> _Grid:
         lows.append(exponent.astype(np.int64) - _PRECISION + trailing)
         highs.append(exponent.astype(np.int64) - 1)
     if not lows:
-        return _Grid(0, ())
+        return SliceGrid(0, ())
     base = min(int(low.min()) for low in lows)
     # Binary exponents span at most 1074 + 1024 positions.
     covered = np.zeros(2200 // width + 3, dtype=np.int64)
@@ -170,7 +183,7 @@ def _grid(values: np.ndarray, width: int) -> _Grid:
         covered += np.bincount((low - base) // width, minlength=covered.size)
         covered -= np.bincount((high - base) // width + 1, minlength=covered.size)
     occupied = np.flatnonzero(np.cumsum(covered) > 0)
-    return _Grid(base, tuple(int(offset) for offset in occupied))
+    return SliceGrid(base, tuple(int(offset) for offset in occupied))
 
 
 def _times_power_of_two(values: np.ndarray, exponent: int) -> np.ndarray:
@@ -184,7 +197,7 @@ def _times_power_of_two(values: np.ndarray, exponent: int) -> np.ndarray:
     return values * 2.0**exponent
 
 
-def _limbs(values: np.ndarray, grid: _Grid, width: int) -> _Limbs:
+def _limbs(values: np.ndarray, grid: SliceGrid, width: int) -> _Limbs:
     """Signed ``width``-bit int32 digits of each entry on the array's grid."""
     slices = {offset: np.zeros(values.shape, dtype=np.int32) for offset in grid.offsets}
     units = [(offset, grid.base + offset * width) for offset in grid.offsets[::-1]]
@@ -454,7 +467,7 @@ def _carry_digits(width: int) -> int:
     return -(-64 // width) + 1
 
 
-def _product_digits(left: _Grid, right: _Grid, width: int) -> int:
+def _product_digits(left: SliceGrid, right: SliceGrid, width: int) -> int:
     if not (left.offsets and right.offsets):
         return 0
     return left.span + right.span - 1 + _carry_digits(width)
@@ -464,8 +477,8 @@ def exact_cost(
     latent: int,
     rings: Mapping[Word, int],
     chains: Mapping[Word, int],
-    grids: Mapping[int, _Grid],
-    vector_grids: Mapping[int, _Grid],
+    grids: Mapping[int, SliceGrid],
+    vector_grids: Mapping[int, SliceGrid],
     width: int,
     symmetric: bool,
 ) -> ExactCost:
@@ -489,7 +502,7 @@ def exact_cost(
 def _ring_cost(
     latent: int,
     rings: Mapping[Word, int],
-    grids: Mapping[int, _Grid],
+    grids: Mapping[int, SliceGrid],
     width: int,
     symmetric: bool,
     held: float,
@@ -531,8 +544,8 @@ def _ring_cost(
 def _chain_cost(
     latent: int,
     chains: Mapping[Word, int],
-    grids: Mapping[int, _Grid],
-    vector_grids: Mapping[int, _Grid],
+    grids: Mapping[int, SliceGrid],
+    vector_grids: Mapping[int, SliceGrid],
     width: int,
     symmetric: bool,
 ) -> int:
@@ -552,7 +565,7 @@ def _chain_cost(
     return loops
 
 
-def _check_cost(cost: ExactCost, grids: list[_Grid]) -> None:
+def _check_cost(cost: ExactCost, grids: list[SliceGrid]) -> None:
     """Refuse before any product when the exact evaluation is too large."""
     widest = max((len(grid.offsets) for grid in grids), default=0)
     if (
@@ -570,14 +583,24 @@ def _check_cost(cost: ExactCost, grids: list[_Grid]) -> None:
         )
 
 
-def exact_mixed_statistic(
-    matrices: np.ndarray, endpoints: np.ndarray, slots: Word, divisor: int
-) -> Fraction:
-    """Exact rational mixed statistic of the stored binary matrices and endpoints.
+@dataclass(frozen=True, slots=True, eq=False)
+class ExactQuery:
+    """Arrays, word classes and full slice grids of one exact evaluation."""
 
-    Raises ``ArithmeticError`` before forming any product when the estimated
-    work or peak memory exceeds ``EXACT_WORK_LIMIT`` or ``EXACT_MEMORY_LIMIT``.
-    """
+    order: int
+    latent: int
+    dense: Mapping[int, np.ndarray]
+    ends: Mapping[int, np.ndarray]
+    width: int
+    symmetric: bool
+    rings: Mapping[Word, int]
+    chains: Mapping[Word, int]
+    grids: Mapping[int, SliceGrid]
+    vector_grids: Mapping[int, SliceGrid]
+
+
+def exact_query(matrices: np.ndarray, endpoints: np.ndarray, slots: Word) -> ExactQuery:
+    """Collect the distinct arrays of ``slots`` and their full slice grids."""
     order, latent = len(slots), int(matrices.shape[-1])
     distinct = sorted(set(slots))
     dense = {index: np.asarray(matrices[index], dtype=np.float64) for index in distinct}
@@ -586,23 +609,67 @@ def exact_mixed_statistic(
         np.all(np.isfinite(array)) for array in (*dense.values(), *ends.values())
     ):
         raise ValueError("mixed contraction requires finite prepared matrices")
-    if latent == 0:
-        return Fraction(0)
     width = digit_width(latent)
     symmetric = all(np.array_equal(array, array.T) for array in dense.values())
-    rings = word_classes(slots, cyclic=True, reversal=symmetric)
-    chains = word_classes(slots, cyclic=False, reversal=symmetric)
-    grids = {index: _grid(dense[index], width) for index in distinct}
-    vector_grids = {index: _grid(ends[index], width) for index in distinct}
-    cost = exact_cost(latent, rings, chains, grids, vector_grids, width, symmetric)
+    return ExactQuery(
+        order,
+        latent,
+        dense,
+        ends,
+        width,
+        symmetric,
+        word_classes(slots, cyclic=True, reversal=symmetric),
+        word_classes(slots, cyclic=False, reversal=symmetric),
+        {index: _grid(dense[index], width) for index in distinct},
+        {index: _grid(ends[index], width) for index in distinct},
+    )
+
+
+def evaluate_query(
+    query: ExactQuery,
+    grids: Mapping[int, SliceGrid],
+    vector_grids: Mapping[int, SliceGrid],
+    divisor: int,
+) -> Fraction:
+    """Exact statistic of the arrays restricted to the slices of ``grids``.
+
+    With the full grids of ``query`` this is the exact statistic. A grid that
+    keeps only the upper offsets of a full grid drops the bits of each entry
+    below its lowest kept offset, rounding the entry toward zero. Raises
+    ``ArithmeticError`` before forming any product when the estimated work or
+    peak memory exceeds ``EXACT_WORK_LIMIT`` or ``EXACT_MEMORY_LIMIT``.
+    """
+    if query.latent == 0:
+        return Fraction(0)
+    width, symmetric = query.width, query.symmetric
+    cost = exact_cost(
+        query.latent, query.rings, query.chains, grids, vector_grids, width, symmetric
+    )
     _check_cost(cost, [*grids.values(), *vector_grids.values()])
-    limbs = {index: _limbs(dense[index], grids[index], width) for index in distinct}
+    limbs = {
+        index: _limbs(array, grids[index], width)
+        for index, array in query.dense.items()
+    }
     vectors = {
-        index: _limbs(ends[index], vector_grids[index], width) for index in distinct
+        index: _limbs(vector, vector_grids[index], width)
+        for index, vector in query.ends.items()
     }
     contraction = _Contraction(limbs, vectors, width, symmetric)
-    ring = contraction.rings(rings)
-    chain = contraction.chains(chains)
+    ring = contraction.rings(query.rings)
+    chain = contraction.chains(query.chains)
+    order = query.order
     return (
         Fraction(2 ** (order - 1), order) * ring + Fraction(2) ** (order - 3) * chain
     ) / divisor
+
+
+def exact_mixed_statistic(
+    matrices: np.ndarray, endpoints: np.ndarray, slots: Word, divisor: int
+) -> Fraction:
+    """Exact rational mixed statistic of the stored binary matrices and endpoints.
+
+    Raises ``ArithmeticError`` before forming any product when the estimated
+    work or peak memory exceeds ``EXACT_WORK_LIMIT`` or ``EXACT_MEMORY_LIMIT``.
+    """
+    query = exact_query(matrices, endpoints, slots)
+    return evaluate_query(query, query.grids, query.vector_grids, divisor)

@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **4315 tests** in 108 files (parametrised
+The suite has **4376 tests** in 109 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -692,7 +692,7 @@ Self-consistency
 Finite Gaussian observables
 ---------------------------
 
-*482 tests in 5 files.*
+*543 tests in 6 files.*
 
 .. list-table::
    :header-rows: 1
@@ -719,13 +719,18 @@ Finite Gaussian observables
      - exact rational equality; certificate equality with the formula
      - 70
    * - ``test_quadratic_mixed_exactness.py``
-     - certified mixed cumulants and joint coefficients through the public dispatcher: structural zeros (also when magnitudes withhold the error bound), symmetry and near zeros at N up to 500, ring and endpoint-chain cancellation swept across the admission threshold, extreme and subnormal scales, endpoint underflow, dense queries at N = 1500 and the recorded work-bound refusal
+     - certified mixed cumulants and joint coefficients through the public dispatcher: structural zeros (also when magnitudes withhold the error bound), symmetry and near zeros at N up to 500, ring and endpoint-chain cancellation swept across the admission threshold, extreme and subnormal scales, endpoint underflow, dense queries at N = 1500, decaying couplings below the full exact cost and the recorded work-bound refusal
      - independent Fraction contractions; block, rank-one and reversal-parity closed forms; float64 and exact methods evaluated separately
      - exact zeros, correctly rounded or certified 1e-12 relative values
-     - 52
+     - 53
+   * - ``test_quadratic_mixed_rounding.py``
+     - correct rounding from arrays cut to their leading bits, bypassing the dispatcher: dropped part within its bound on graded, decaying and subnormal arrays, the cut at its slice boundary, the bound against a closed form, the fall-back at a rounding tie, wrong magnitude estimates and a work limit that refuses only the full evaluation
+     - independent Python-int contractions; constant-matrix closed form; an exact midpoint between two float64 values
+     - exact rational bounds; bitwise correctly rounded values
+     - 56
    * - ``test_quadratic_white_reference_parity.py``
-     - OU private scratch and fourth-order native ordered-prefix reuse; bounded memory/protocol bypass, scalar order, range fallback and input state
-     - source-pinned frozen reference implementation with exact bytes/error args; independent Gauss-Hermite central cumulants and native matmul line witnesses
+     - OU private scratch and fourth-order native ordered-prefix reuse; bounded memory/protocol bypass, scalar order, range fallback and input state; mixed cumulants keep the frozen bits or round correctly
+     - source-pinned frozen reference implementation with exact bytes/error args; independent Gauss-Hermite central cumulants, native matmul line witnesses and Python-int mixed contractions
      - exact byte/error/state/count parity; 3e-12 relative / absolute GH
-     - 180
+     - 184
 

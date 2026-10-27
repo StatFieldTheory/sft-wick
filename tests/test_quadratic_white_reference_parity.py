@@ -17,8 +17,11 @@ import warnings
 import numpy as np
 import pytest
 
+from sft_wick import _mixed_contraction as certificates
 from sft_wick import quadratic
 from sft_wick.white_cumulant import OUWhiteCumulant
+
+from .mixed_reference import assert_certified, float_statistic, integer_statistic
 
 
 @pytest.fixture(scope="module")
@@ -320,3 +323,79 @@ def test_admitted_prefix_matches_independent_gauss_hermite_cumulant(slots):
     assert candidate.mixed_cumulant(slots) == pytest.approx(
         expected, rel=3e-12, abs=3e-12
     )
+
+
+# ---------------------------------------------------------------------------
+# Mixed statistics: frozen bits, or the correctly rounded exact value
+# ---------------------------------------------------------------------------
+
+
+def _block_scaled_arrays(latent, seed):
+    """Observables large on one block with a small tail on the other's support."""
+    random = np.random.default_rng(seed)
+    half = latent // 2
+
+    def block(size):
+        raw = random.normal(size=(size, size))
+        return raw + raw.T
+
+    tail = 10.0 ** -random.uniform(11, 14)
+    matrices = np.zeros((3, latent, latent))
+    matrices[0, :half, :half] = block(half)
+    matrices[0, half:, half:] = tail * block(latent - half)
+    matrices[1, :half, :half] = -0.4 * tail * block(half)
+    matrices[1, half:, half:] = 1.7 * block(latent - half)
+    matrices[2] = 3e-13 * block(latent)
+    endpoints = random.normal(size=(3, latent)) * np.array([[0.0], [2e-7], [-1.3]])
+    return matrices, endpoints
+
+
+_FROZEN_BIT_SLOTS = [
+    (0, 1),
+    (0, 1, 1),
+    (0, 0, 1),
+    (0, 0, 1, 1),
+    (0, 1, 1, 1),
+    (2, 0, 1),
+]
+
+
+@pytest.mark.parametrize("latent", [6, 10, 20, 30])
+def test_mixed_values_keep_frozen_bits_or_round_correctly(frozen, latent):
+    # Every value the frozen 0.7.0 implementation returned is returned with
+    # the same bits or as the correctly rounded exact value; a value it
+    # refused is certified. The families contain queries whose float64 value
+    # the rounding certificate admits but 0.7.0 sent to its exact evaluation;
+    # those must keep 0.7.0's correctly rounded bits.
+    flagged = 0
+    for seed in range(8):
+        matrices, endpoints = _block_scaled_arrays(latent, 7300 + 10 * latent + seed)
+        reference = frozen["quadratic"].GaussianQuadraticFamily.from_factor(
+            np.eye(latent), matrices, endpoints
+        )
+        candidate = quadratic.GaussianQuadraticFamily.from_factor(
+            np.eye(latent), matrices, endpoints
+        )
+        prepared = candidate._matrices, candidate._endpoints
+        assert np.array_equal(reference._matrices, prepared[0])
+        assert np.array_equal(reference._endpoints, prepared[1])
+        for slots in _FROZEN_BIT_SLOTS:
+            expected = _outcome(lambda: reference.mixed_cumulant(slots))
+            value = candidate.mixed_cumulant(slots)
+            if expected == ("float", struct.pack("!d", value)):
+                if expected[0] == "float":
+                    approximate = float_statistic(*prepared, slots)
+                    certificate = certificates.rounding_certificate(*prepared, slots, 1)
+                    if (
+                        certificates.admits(certificate, approximate)
+                        and float(approximate) != value
+                    ):
+                        flagged += 1
+                continue
+            exact = integer_statistic(*prepared, slots)
+            if expected[0] == "float":
+                assert struct.pack("!d", value) == struct.pack("!d", float(exact))
+            else:
+                assert expected[0] is ArithmeticError
+                assert_certified(value, exact)
+    assert flagged

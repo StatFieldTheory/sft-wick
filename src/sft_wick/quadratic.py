@@ -17,8 +17,8 @@ from typing import Any, Iterator, Sequence, TypeAlias, cast
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
-from ._mixed_contraction import admits, rounding_certificate
-from ._mixed_exact import exact_mixed_statistic
+from ._mixed_contraction import RoundingCertificate, admits, rounding_certificate
+from ._mixed_rounding import correctly_rounded_statistic
 
 RealArray: TypeAlias = NDArray[np.float64]
 ComplexArray: TypeAlias = NDArray[np.complex128]
@@ -337,12 +337,81 @@ def _spectral_coefficient(
     return float(sign) * math.exp(float(log_magnitude))
 
 
+def _log_frobenius_norm(array: np.ndarray) -> float:
+    largest = float(np.max(np.abs(array), initial=0.0))
+    if largest == 0:
+        return -math.inf
+    with np.errstate(under="ignore"):
+        scaled = array / largest
+        return math.log(largest) + 0.5 * math.log(float(np.sum(scaled**2)))
+
+
+def _frobenius_cancellation(
+    matrices: np.ndarray,
+    endpoints: np.ndarray,
+    slots: tuple[int, ...],
+    divisor: int,
+    result: Fraction,
+) -> bool:
+    """True when ``|result|`` is at most 1e-10 of a Frobenius-norm bound.
+
+    This is the cancellation test that version 0.7.0 used to send a float64
+    value to its exact evaluation, evaluated in the same floating-point steps.
+    Values it flags are evaluated exactly even when the rounding certificate
+    admits them, so every value 0.7.0 returned is returned with the same bits
+    or as the correctly rounded exact value.
+    """
+    order = len(slots)
+    matrix_norms = {index: _log_frobenius_norm(matrices[index]) for index in set(slots)}
+    endpoint_norms = {
+        index: _log_frobenius_norm(endpoints[index]) for index in set(slots)
+    }
+    # |tr(A1...An)| <= product(||Ai||_F), and an endpoint chain is bounded by
+    # its endpoint norms times its intermediate matrix norms.
+    chain_bounds = [
+        endpoint_norms[word[0]]
+        + endpoint_norms[word[-1]]
+        + sum(matrix_norms[index] for index in word[1:-1])
+        for word in permutations(slots)
+    ]
+    ring_bound = (
+        math.lgamma(order + 1)
+        + (order - 1) * math.log(2.0)
+        - math.log(order)
+        + sum(matrix_norms[index] for index in slots)
+    )
+    chain_bound = _logsumexp(chain_bounds) + (order - 3) * math.log(2.0)
+    bound = _logsumexp([ring_bound, chain_bound]) - math.log(divisor)
+    log_result = (
+        -math.inf
+        if not result
+        else math.log(abs(result.numerator)) - math.log(result.denominator)
+    )
+    return bool(np.isfinite(bound) and log_result <= bound + math.log(1e-10))
+
+
+def _magnitude_estimate(
+    value: Fraction | None, certificate: RoundingCertificate
+) -> Fraction | None:
+    """Lower bound on the exact magnitude when certified, else ``|value|``."""
+    if not value:
+        return None
+    size = abs(value)
+    if certificate.error is not None and certificate.error < size:
+        return size - certificate.error
+    return size
+
+
 def _exact_mixed_coefficient(
-    matrices: np.ndarray, endpoints: np.ndarray, slots: tuple[int, ...], divisor: int
+    matrices: np.ndarray,
+    endpoints: np.ndarray,
+    slots: tuple[int, ...],
+    divisor: int,
+    magnitude: Fraction | None = None,
 ) -> float:
     """Correctly rounded exact mixed statistic of the prepared binary data."""
     return _finite_fraction(
-        exact_mixed_statistic(matrices, endpoints, slots, divisor),
+        correctly_rounded_statistic(matrices, endpoints, slots, divisor, magnitude),
         "mixed coefficient" if divisor > 1 else "mixed cumulant",
     )
 
@@ -1031,11 +1100,13 @@ class GaussianQuadraticFamily:
         """Exact ordered-slot symmetrization for one to four observable indices.
 
         The float64 contraction is returned only when its rounding error is
-        certified to be at most 1e-12 of its magnitude. Otherwise the exact
-        rational value of the prepared matrices and endpoints is rounded once
-        to float64, and a proved zero returns 0.0. ``ArithmeticError`` is
-        raised when that exact evaluation exceeds its work or memory bound and
-        the float64 value is not certified.
+        certified to be at most 1e-12 of its magnitude, it raised no
+        floating-point exception and the cancellation test of version 0.7.0
+        does not flag it. Otherwise the exact value of the prepared matrices
+        and endpoints is returned correctly rounded to float64, and a proved
+        zero returns 0.0. ``ArithmeticError`` is raised when the exact
+        evaluation that the rounding needs exceeds its work or memory bound
+        and the float64 value is not certified.
         """
         slots = tuple(_integer(index, "observable index") for index in indices)
         return self._mixed_statistic(slots, 1)
@@ -1065,42 +1136,51 @@ class GaussianQuadraticFamily:
         name = "mixed coefficient" if divisor > 1 else "mixed cumulant"
         # Bound, from the absolute matrices, the rounding error of the float64
         # contraction (see _mixed_contraction). A proved zero needs no signed
-        # contraction, and without a bound the contraction cannot be kept.
+        # contraction.
         certificate = rounding_certificate(
             self._matrices, self._endpoints, slots, divisor
         )
         if certificate.zero:
             return 0.0
         native = self._native_storage()
-        if native and certificate.error is None:
-            return _exact_mixed_coefficient(
-                self._matrices, self._endpoints, slots, divisor
-            )
+        raised = False
         try:
-            result = self._mixed_float_statistic(slots, divisor, native, "raise")
+            value = self._mixed_float_statistic(slots, divisor, native, "raise")
         except FloatingPointError:
+            # Overflow and invalid operations raise again; an underflow alone
+            # is inside the certificate's allowance.
+            raised = True
             try:
-                return _exact_mixed_coefficient(
-                    self._matrices, self._endpoints, slots, divisor
-                )
-            except ArithmeticError as error:
-                if not native or isinstance(error, OverflowError):
-                    raise
-                # Above the exact work bound, an underflow alone does not
-                # invalidate the float64 value: the certificate's allowance
-                # covers it. Overflow and invalid operations still raise.
-                try:
-                    result = self._mixed_float_statistic(
-                        slots, divisor, native, "ignore"
-                    )
-                except FloatingPointError:
-                    result = None
-                if result is None or not admits(certificate, result):
-                    raise
-                return _finite_fraction(result, name)
-        if native and admits(certificate, result):
-            return _finite_fraction(result, name)
-        return _exact_mixed_coefficient(self._matrices, self._endpoints, slots, divisor)
+                value = self._mixed_float_statistic(slots, divisor, native, "ignore")
+            except FloatingPointError:
+                value = None
+        admitted = native and value is not None and admits(certificate, value)
+        # Keep the float64 value only where 0.7.0 kept it as well (no
+        # floating-point exception, no Frobenius cancellation flag) and the
+        # certificate admits it; everything else is correctly rounded.
+        if (
+            admitted
+            and value is not None
+            and not raised
+            and not _frobenius_cancellation(
+                self._matrices, self._endpoints, slots, divisor, value
+            )
+        ):
+            return _finite_fraction(value, name)
+        try:
+            return _exact_mixed_coefficient(
+                self._matrices,
+                self._endpoints,
+                slots,
+                divisor,
+                _magnitude_estimate(value, certificate),
+            )
+        except ArithmeticError as error:
+            # Above the exact work bound a certified float64 value is still
+            # returned. Out-of-range exact values raise OverflowError.
+            if isinstance(error, OverflowError) or not admitted or value is None:
+                raise
+            return _finite_fraction(value, name)
 
     def _mixed_float_statistic(
         self, slots: tuple[int, ...], divisor: int, native: bool, underflow: str

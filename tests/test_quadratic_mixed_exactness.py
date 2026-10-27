@@ -32,6 +32,7 @@ from .mixed_reference import (
     make_family,
     float_statistic,
     fraction_statistic,
+    integer_statistic,
     symmetric,
 )
 
@@ -309,13 +310,14 @@ def test_endpoint_chain_cancellation_is_certified_or_correctly_rounded(
     from sft_wick import quadratic
 
     exact_calls = []
-    evaluate = quadratic.exact_mixed_statistic
+    rounding = quadratic.correctly_rounded_statistic
+    evaluate = exact_evaluation.exact_mixed_statistic
 
     def counted(*arguments):
         exact_calls.append(arguments[2])
-        return evaluate(*arguments)
+        return rounding(*arguments)
 
-    monkeypatch.setattr(quadratic, "exact_mixed_statistic", counted)
+    monkeypatch.setattr(quadratic, "correctly_rounded_statistic", counted)
     slots = (0,) * (order - 1) + (1,)
     outcomes = set()
     for latent in (3, 7, 12):
@@ -478,6 +480,66 @@ def test_dense_fourth_order_query_at_large_dimension_returns_a_value():
     )
     # (2**3 / 4) * ring + 2**1 * chain at order four.
     assert value == pytest.approx(2 * ring + 2 * chain, rel=1e-9, abs=0.0)
+
+
+# ---------------------------------------------------------------------------
+# Decaying couplings: entries over 160 decades
+# ---------------------------------------------------------------------------
+
+
+def _decaying_family(latent, seed):
+    """Random-sign matrices times exp(-|i - j| / length), entries down to 1e-160."""
+    random = np.random.default_rng(seed)
+    index = np.arange(latent)
+    decay = np.exp(-np.abs(index[:, None] - index[None, :]) * (370.0 / latent))
+    raw = random.normal(size=(4, latent, latent))
+    matrices = (raw + raw.swapaxes(-1, -2)) * decay
+    matrices *= np.array([1.0, -0.3, 2.5, 0.7])[:, None, None]
+    endpoints = random.normal(size=(4, latent)) * decay[0]
+    return make_family(matrices, endpoints)
+
+
+_DECAYING_SLOTS = [(0, 1), (0, 1, 2), (0, 0, 1, 1), (3, 1, 0, 2), (2, 0, 2, 1)]
+
+
+def test_decaying_couplings_round_correctly_below_the_full_exact_cost(monkeypatch):
+    # The slice count of a full exact evaluation follows the binary exponent
+    # range of the entries, here at least 20 slices per matrix. With admission
+    # switched off every query takes the exact route, and with the work limit
+    # at a quarter of its own full evaluation each query is still returned
+    # correctly rounded: only the leading bits of each matrix are evaluated
+    # and the rest is bounded. Before, every query was refused here.
+    latent = 40
+    family = _decaying_family(latent, seed=6500)
+    matrices, endpoints = family._matrices, family._endpoints
+    assert np.min(np.abs(matrices[matrices != 0])) < 1e-150
+    width = exact_evaluation.digit_width(latent)
+    monkeypatch.setattr(certificates, "MIXED_STATISTIC_RTOL", Fraction(0))
+    for slots in _DECAYING_SLOTS:
+        # The matrices are symmetric, so reversed words share a class.
+        rings = certificates.word_classes(slots, cyclic=True, reversal=True)
+        chains = certificates.word_classes(slots, cyclic=False, reversal=True)
+        grids = {
+            index: exact_evaluation._grid(matrices[index], width) for index in slots
+        }
+        vectors = {
+            index: exact_evaluation._grid(endpoints[index], width) for index in slots
+        }
+        assert min(len(grid.offsets) for grid in grids.values()) >= 20
+        full = exact_evaluation.exact_cost(
+            latent, rings, chains, grids, vectors, width, True
+        )
+        monkeypatch.setattr(exact_evaluation, "EXACT_WORK_LIMIT", full.work // 4)
+        with pytest.raises(ArithmeticError, match="exact contraction work bound"):
+            exact_evaluation.exact_mixed_statistic(matrices, endpoints, slots, 1)
+        exact = integer_statistic(matrices, endpoints, slots)
+        assert family.mixed_cumulant(slots) == float(exact)
+        powers = tuple(slots.count(index) for index in range(4))
+        divisor = math.prod(math.factorial(power) for power in powers)
+        assert family.joint_coefficient(powers) == float(exact / divisor)
+        selected = family.prepare_statistics(indices=[slots], coefficients=[powers])
+        assert selected.mixed_cumulant(slots) == float(exact)
+        assert selected.joint_coefficient(powers) == float(exact / divisor)
 
 
 # ---------------------------------------------------------------------------
