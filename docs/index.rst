@@ -17,6 +17,17 @@ two-point propagators, the correlation function
    = \sum_{n=0}^{N} \frac{(-1)^n}{n!}\,
      \langle \mathcal{O}\, S_{\mathrm{int}}^{\,n} \rangle_{S_0}
 
+.. admonition:: Source code, paper and citation
+
+   - **Source code and issue tracker:**
+     `github.com/StatFieldTheory/sft-wick <https://github.com/StatFieldTheory/sft-wick>`_
+   - **Paper:** Z. Zhang, *sft-wick: A formalism and package for
+     Feynman-diagram expansion and evaluation in stochastic field
+     theories*, `arXiv:2606.19480 <https://arxiv.org/abs/2606.19480>`_.
+     It gives the formalism, the algorithm and the validation in full.
+   - **Citing:** if you use sft-wick, please cite the paper.  The BibTeX
+     entry and the Zenodo software DOI are on :doc:`citing`.
+
 Key Features
 ------------
 
@@ -166,6 +177,7 @@ pairings, canonical forms, custom simplification), see
    verification/index
    verification/catalog
    api/index
+   citing
    contributing
    changelog
 

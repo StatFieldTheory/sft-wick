@@ -10,6 +10,10 @@
 **Feynman-diagram expansion and evaluation for stochastic field theories.**
 
 > 📖 **Documentation (API reference · user guide · theory background): <https://sft-wick.readthedocs.io>**
+>
+> 💻 **Source code and issue tracker: <https://github.com/StatFieldTheory/sft-wick>**
+>
+> 📄 **Paper: [arXiv:2606.19480](https://arxiv.org/abs/2606.19480).  If you use `sft-wick`, please cite it; the BibTeX entry is under [Citation](#citation).**
 
 `sft-wick` automates perturbative calculations for **stochastic (partial) differential equations** in the Martin–Siggia–Rose (MSR) response-field formalism. The input is a Langevin-type field equation: a deterministic drift plus noise that may be non-Gaussian and spatially correlated. From it the package builds the interaction action, applies **Wick's theorem** to expand arbitrary field moments order by order, and writes every term using two two-point propagators, the correlation function *C* = ⟨φφ⟩ and the response (Green's) function *R* = ⟨φψ⟩. Diagrams are enumerated symbolically, rendered as Feynman graphs, and evaluated numerically, from a YAML config to theory-vs-simulation curves. For **self-consistent** (DMFT-style) problems, where the propagators define a self-energy that in turn defines the propagators, `solve_self_consistency` supplies the fixed-point iteration and its diagnostics.
 
@@ -692,7 +696,8 @@ they cover.
 ## Documentation
 
 Full documentation (API reference, user guide, theory background) is hosted at
-<https://sft-wick.readthedocs.io>.
+<https://sft-wick.readthedocs.io>.  The source code and issue tracker are at
+<https://github.com/StatFieldTheory/sft-wick>.
 
 ## Citation
 
