@@ -1,6 +1,106 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 — 2026-10-27
+
+This minor release adds execution and memory controls for coupling
+evaluation and integration, three opt-in observables (connected targets,
+finite Gaussian quadratic observables and analytic OU white cumulants), a
+resource comparison command, vectorised response callables and a recipe for
+changing the integration variable.  Default settings keep the 0.6.1 rules,
+methods and resolutions; values move only where noted below.
+
+### Added: execution and memory controls
+
+New keywords on `Expansion.evaluate` / `Expansion.sweep`, mirrored under
+`sweep:` in YAML (`docs/user_guide/workflow.rst`, `docs/user_guide/resources.rst`):
+
+* `gl_chunk_size` (default `None`): evaluate Gauss-Legendre tensor nodes in
+  blocks of at most this many, over every causal and kink piece.
+* `qmc_coupling_chunk_size` (default `None`): build dynamic coupling tensors
+  on `qmc_vectorized` in row blocks.  The callable must be sample-separable.
+* `reuse_integrands` (default `False`): prepare static coupling tensors and
+  spatial analysis once per component tuple within one sweep.
+* `contraction_backend` (`"ordered"` default, `"einsum"`, `"factorized"`) and
+  `contraction_max_bytes` (default 64 MiB): how a coupling tensor is
+  contracted, and the workspace budget above which a contraction is refused
+  rather than allocated.
+* `propagator_cache_bytes` (default `None`, off) with
+  `propagator_cache_contract: fixed_model`: a byte-bounded cache of
+  propagator lookups, valid only while the model and its callbacks stay fixed.
+
+`sft-wick run` and `run --dry-run` report each requested control.
+`sft-wick compare-resources CONFIG --variants VARIANTS --json REPORT` times and
+memory-profiles resource variants of one workflow in fresh processes, checks
+that every variant returns the same rows within declared tolerances, and never
+modifies the configuration.
+
+### Added: opt-in observables
+
+* `System.expand(..., target="connected")` (also `compute_moment`,
+  `compute_moment_numerical`, YAML `expand.target`) keeps only the connected
+  contributions.  The default `target="moment"` is unchanged
+  (`docs/user_guide/connected_targets.rst`).
+* `GaussianQuadratic`, `GaussianQuadraticFamily`,
+  `GaussianQuadraticStatistics` and `GaussianSpectralTail` give the cumulants
+  and characteristic function of `Y = b + l·z + zᵀAz` for a finite Gaussian
+  `z` (`docs/user_guide/gaussian_quadratic.rst`).
+* `OUWhiteCumulant` evaluates the response contraction of a static
+  equal-time noise cumulant under a constant diagonal OU response in closed
+  form, removing one time integration per absorbed vertex
+  (`docs/user_guide/ou_white_cumulant.rst`).
+
+### Changed: faster coupling evaluation and integration
+
+Coupling expressions with repeated component assignments are compiled once per
+diagram into an ordered execution plan; repeated tensor reads, scalar reads
+and propagator lookups within a batch are reused; `import sft_wick` no longer
+imports Matplotlib until `drawing` or `DiagramRenderer` is used.  These paths
+keep the arithmetic order of 0.6.1 and are compared with it by the test
+suite at the byte level where the operation order is unchanged.
+
+### Fixed: Gauss-Legendre values with one integrated and one pinned external
+
+With `integrate_over` covering one external point and another pinned at a
+time inside the domain, Gauss-Legendre and `nquad` did not split the domain
+at the C kink against the pinned time, so GL converged only algebraically.
+The split is now made (`docs/user_guide/workflow.rst`, "Declared kinks
+against a fixed external time").  On a Brownian C with `y` pinned at
+`t_min + 0.45`, the GL error at 12 nodes falls from 2.0e-3 to round-off.
+**GL and `nquad` values in this regime change**; other configurations are
+unchanged to 4.5e-16.
+
+### Changed: the propagator disk cache covers built-in specs only
+
+`System.propagators(cache_path=...)` now keys tables on the complete content
+of built-in linear and noise specs.  A system with `CustomKernel`,
+`GeneralKappa2`, `CustomImpulse`, `ExplicitR`, a callable `gamma` or a user
+closed form computes its tables normally and writes no cache file, because a
+callable has no version identity.  Up to 0.6.1 such systems were cached
+under a `repr()` key.
+
+### Fixed: small coupling coefficients were dropped
+
+Indexed static and dynamic batch contractions skipped coefficients whose
+magnitude was below `1e-20`.  A reciprocal rescaling of a small coefficient
+and a large kernel therefore lost its contribution.  Only exact zeros are now
+skipped.
+
+### Fixed: serial and small-batch paths ignored the contraction options
+
+`Expansion.evaluate`, `reuse_integrands=False` and the serial shortcut for at
+most two diagrams built integrands without forwarding `contraction_backend`
+and `contraction_max_bytes`, so they used the dense path and skipped the
+budget refusal.  Every path now uses one integrand builder.
+
+### Changed: documentation and repository
+
+* The README and the documentation link the repository and the paper
+  (arXiv:2606.19480); `docs/citing.rst` gives the BibTeX entry and the Zenodo
+  DOIs, and the theory section points to the paper.
+* `tests/test_repo_hygiene.py` fails if a tracked file is an agent working
+  file or development record, or contains a local absolute path or a task ID.
+  `.gitignore` and the sdist excludes cover `.agents/`, `.agent-state/` and
+  `docs/research/`.
 
 ### Added: changing the integration variable (documentation)
 
@@ -1369,7 +1469,7 @@ Measured on a demo2-shaped system (N=2, one cubic vertex, `lam=0.05`,
 | `compute_moment` | `('x','x')` | `ValueError` |
 
 So the silently-wrong factor 2 that the 0.4.0 entry calls out was still
-reachable through the engine `CLAUDE.md` advertises as "same output", and it
+reachable through the engine the documentation advertised as "same output", and it
 continued past the guard to order 4 (7560 `DiagramTerm`s).  `docs/deductive_
 verification.md` check C1 cross-validates the two engines as "2 independent
 symbolic engines produce equal integrated totals", which this input class made

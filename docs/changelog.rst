@@ -10,6 +10,39 @@ Changelog
    differ, the Markdown file is correct.
 
 
+Version 0.7.0 (2026-10-27)
+--------------------------
+
+*Execution and memory controls, three opt-in observables, and a resource
+comparison command.*
+
+- New sweep options ``gl_chunk_size``, ``qmc_coupling_chunk_size``,
+  ``reuse_integrands``, ``contraction_backend``, ``contraction_max_bytes``
+  and ``propagator_cache_bytes``, in L1 and YAML. Defaults keep the 0.6.1
+  methods and resolutions. See :doc:`user_guide/resources`.
+- ``sft-wick compare-resources`` times and memory-profiles resource variants
+  of one workflow and checks that they return the same rows.
+- Connected targets (``target="connected"``), finite Gaussian quadratic
+  observables (``GaussianQuadratic`` and its family, statistics and spectral
+  tail) and analytic OU white cumulants (``OUWhiteCumulant``). See
+  :doc:`user_guide/connected_targets`, :doc:`user_guide/gaussian_quadratic`
+  and :doc:`user_guide/ou_white_cumulant`.
+- Vectorised response callables (``ExplicitR(vectorized=True)``, YAML
+  ``R_time_vectorized``) and a recipe for changing the integration variable
+  (:doc:`user_guide/time_variable`).
+- Fixed: Gauss-Legendre and ``nquad`` now split the domain at a C kink
+  against a pinned external time when another external time is integrated;
+  values in that regime change.
+- The propagator disk cache (``cache_path``) covers built-in specs only;
+  systems with user callables compute their tables on every call.
+- Fixed: batch contractions dropped coefficients below ``1e-20`` in
+  magnitude; serial and small-batch paths ignored the contraction options;
+  a non-bool ``equal_time`` or ``already_R_contracted`` was coerced.
+- ``import sft_wick`` no longer imports Matplotlib until drawing is used.
+- The documentation links the repository and the paper, and
+  :doc:`citing` gives the citation.
+
+
 Version 0.6.1 (2026-09-14)
 --------------------------
 
