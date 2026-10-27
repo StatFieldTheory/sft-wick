@@ -449,3 +449,36 @@ def test_dense_exact_cost_is_within_the_limits(latent, slots):
     )
     assert cost.work <= exact_evaluation.EXACT_WORK_LIMIT
     assert cost.memory <= exact_evaluation.EXACT_MEMORY_LIMIT
+
+
+def _four_slice_cost(latent, slots):
+    """Cost of a query whose matrices and endpoints all hold four slices."""
+    width = exact_evaluation.digit_width(latent)
+    grids = {index: exact_evaluation.SliceGrid(0, (0, 1, 2, 3)) for index in slots}
+    return exact_evaluation.exact_cost(
+        latent,
+        certificates.word_classes(slots, cyclic=True, reversal=True),
+        certificates.word_classes(slots, cyclic=False, reversal=True),
+        grids,
+        grids,
+        width,
+        True,
+    )
+
+
+@pytest.mark.parametrize(
+    "slots, onset, documented",
+    [((0, 1, 2, 3), 4442, 4500), ((0, 1, 2), 5295, 5350), ((0, 1), 9423, 9450)],
+)
+def test_memory_refusal_starts_at_the_documented_dimension(slots, onset, documented):
+    # Dense matrices with full 53-bit mantissas take three or four slices at
+    # these dimensions. With four, the onsets of the memory refusal given in
+    # the user guide hold to about one percent, and the work there stays
+    # below its limit, so the refusal comes from memory.
+    below, at = _four_slice_cost(onset - 1, slots), _four_slice_cost(onset, slots)
+    assert below.memory <= exact_evaluation.EXACT_MEMORY_LIMIT < at.memory
+    assert at.work < exact_evaluation.EXACT_WORK_LIMIT
+    assert abs(onset - documented) <= 0.015 * documented
+    with pytest.raises(ArithmeticError, match="exact contraction work bound"):
+        exact_evaluation._check_cost(at, [exact_evaluation.SliceGrid(0, (0, 1, 2, 3))])
+    exact_evaluation._check_cost(below, [exact_evaluation.SliceGrid(0, (0, 1, 2, 3))])

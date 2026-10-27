@@ -359,7 +359,10 @@ def _frobenius_cancellation(
     value to its exact evaluation, evaluated in the same floating-point steps.
     Values it flags are evaluated exactly even when the rounding certificate
     admits them, so every value 0.7.0 returned is returned with the same bits
-    or as the correctly rounded exact value.
+    or as the correctly rounded exact value, unless the certificate does not
+    admit it and the exact evaluation exceeds its work or memory bound, which
+    raises ``ArithmeticError``. A flagged value whose exact evaluation exceeds
+    that bound is returned when the certificate admits it; 0.7.0 raised there.
     """
     order = len(slots)
     matrix_norms = {index: _log_frobenius_norm(matrices[index]) for index in set(slots)}
@@ -1104,9 +1107,10 @@ class GaussianQuadraticFamily:
         floating-point exception and the cancellation test of version 0.7.0
         does not flag it. Otherwise the exact value of the prepared matrices
         and endpoints is returned correctly rounded to float64, and a proved
-        zero returns 0.0. ``ArithmeticError`` is raised when the exact
-        evaluation that the rounding needs exceeds its work or memory bound
-        and the float64 value is not certified.
+        zero returns 0.0. When the exact evaluation that the rounding needs
+        exceeds its work or memory bound, the float64 value is returned if its
+        error is certified, even when it raised an underflow or the 0.7.0 test
+        flags it, and ``ArithmeticError`` is raised otherwise.
         """
         slots = tuple(_integer(index, "observable index") for index in indices)
         return self._mixed_statistic(slots, 1)

@@ -186,9 +186,10 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "dispatcher: structural zeros (also when magnitudes withhold the error "
         "bound), symmetry and near zeros at N up to 500, ring and endpoint-chain "
         "cancellation swept across the admission threshold, extreme and subnormal "
-        "scales, endpoint underflow, a caller's raising NumPy error state, dense "
-        "queries at N = 1500, decaying couplings below the full exact cost and the "
-        "recorded work-bound refusal",
+        "scales, endpoint underflow, the 0.7.0 cancellation gate and the "
+        "refused-evaluation fallback, a "
+        "caller's raising NumPy error state, dense queries at N = 1500, decaying "
+        "couplings below the full exact cost and the recorded work-bound refusal",
         "independent Fraction contractions; block, rank-one and reversal-parity "
         "closed forms; float64 and exact methods evaluated separately",
         "exact zeros, correctly rounded or certified 1e-12 relative values",
@@ -199,7 +200,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "the dispatcher: a caller's raising NumPy error state, float64 digit-width "
         "boundaries, narrow digit slices, a corrupted BLAS slice product, the "
         "documented error formula term by term, certificate validity across the "
-        "admission threshold, dense work and memory estimates",
+        "admission threshold, dense work and memory estimates and the documented "
+        "memory-refusal onsets",
         "independent Fraction and Python-int contractions; rank-one closed forms; "
         "the docstring formula over all n! words",
         "exact rational equality; certificate equality with the formula",

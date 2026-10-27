@@ -529,6 +529,85 @@ def test_callers_underflow_trap_leaves_every_value_unchanged(monkeypatch, state)
     assert default[-1] == float(exact)
 
 
+def _flagged_block_family(latent, seed):
+    """Positive observables on disjoint blocks over a ``2**-200`` background.
+
+    The covariance, of order ``2**-190``, is far below ``1e-10`` of the
+    Frobenius-norm bound, so the cancellation test of version 0.7.0 flags it;
+    every term is positive, so the rounding bound admits the float64 value.
+    """
+    random = np.random.default_rng(seed)
+    first, second = int(0.4 * latent), int(0.55 * latent)
+
+    def observable(low, high, span, scale):
+        matrix = scale * 2.0**-200 * random.uniform(1, 2, size=(latent, latent))
+        block = np.exp2(-random.uniform(0, span, size=(latent, latent)))
+        block *= random.uniform(1, 3, size=(latent, latent))
+        matrix[low:high, low:high] = block[low:high, low:high]
+        return (matrix + matrix.T) / 2
+
+    return make_family(
+        np.array([observable(0, first, 160, 1.0), observable(second, latent, 140, 1.7)])
+    )
+
+
+def test_flagged_value_rounds_exactly_or_is_returned_certified_when_refused(
+    monkeypatch,
+):
+    slots, moved = (0, 1), 0
+    for seed in range(8):
+        family = _flagged_block_family(60, seed)
+        matrices, endpoints = family._matrices, family._endpoints
+        # Cov(Y0, Y1) = 2 tr(A0 A1) for an identity covariance and no linear term.
+        exact = 2 * sum(
+            (
+                Fraction(float(a)) * Fraction(float(b))
+                for a, b in zip(matrices[0].ravel(), matrices[1].T.ravel())
+            ),
+            Fraction(0),
+        )
+        approximate = float_statistic(matrices, endpoints, slots)
+        certificate = certificates.rounding_certificate(matrices, endpoints, slots, 1)
+        assert certificates.admits(certificate, approximate)
+        assert quadratic._frobenius_cancellation(
+            matrices, endpoints, slots, 1, approximate
+        )
+        moved += float(approximate) != float(exact)
+        # Flagged, so evaluated exactly, as version 0.7.0 did.
+        assert family.mixed_cumulant(slots) == float(exact)
+        # Above the exact work or memory bound, where 0.7.0 raised, the
+        # certified float64 value is returned.
+        with monkeypatch.context() as patch:
+            patch.setattr(exact_evaluation, "EXACT_MEMORY_LIMIT", 0)
+            value = family.mixed_cumulant(slots)
+        assert value == float(approximate)
+        assert_certified(value, exact)
+    # Some float64 values are not correctly rounded, so the flag decides bits.
+    assert moved
+
+
+def test_unadmitted_value_is_refused_above_the_exact_bound(monkeypatch):
+    # A dense fourth-order query that raised no floating-point exception and
+    # that the 0.7.0 test does not flag: 0.7.0 returned its float64 value. The
+    # bound does not admit it, so it is rounded exactly within the exact work
+    # and memory bound and refused above it.
+    matrices, endpoints = dense_family_arrays(32, 4, seed=5820)
+    family = make_family(matrices, endpoints)
+    slots = (0, 1, 2, 3)
+    with np.errstate(under="raise"):
+        approximate = float_statistic(matrices, endpoints, slots)
+    certificate = certificates.rounding_certificate(matrices, endpoints, slots, 1)
+    assert not certificates.admits(certificate, approximate)
+    assert not quadratic._frobenius_cancellation(
+        matrices, endpoints, slots, 1, approximate
+    )
+    exact = integer_statistic(matrices, endpoints, slots)
+    assert family.mixed_cumulant(slots) == float(exact)
+    monkeypatch.setattr(exact_evaluation, "EXACT_MEMORY_LIMIT", 0)
+    with pytest.raises(ArithmeticError, match="exact contraction work bound"):
+        family.mixed_cumulant(slots)
+
+
 # ---------------------------------------------------------------------------
 # Large dimensions
 # ---------------------------------------------------------------------------
