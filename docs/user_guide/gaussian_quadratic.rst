@@ -242,30 +242,51 @@ products (Higham, *Accuracy and Stability of Numerical Algorithms*, chapter 3)
 and is formed from the elementwise absolute values of the matrices and
 endpoints, with an allowance for underflow and flush-to-zero. It does not rely
 on floating-point exception flags, which BLAS matrix products do not reliably
-report. Its cost is one absolute contraction per class of words with equal
-absolute trace, a few percent of the float64 contraction, and the admission
-decision is made in exact rational arithmetic. The model assumes matrix products
-that form each entry as a sum of its products in some order, with or without
-fused multiply-add, as OpenBLAS, MKL, Accelerate and NumPy's own loops do.
+report. The model assumes matrix products that form each entry as a sum of its
+products in some order, with or without fused multiply-add, as OpenBLAS, MKL,
+Accelerate and NumPy's own loops do. The bound costs one absolute contraction
+per class of words with equal absolute value, and the admission decision is
+made in exact rational arithmetic. On one core the bound took 25 to 120
+microseconds per query at ``N = 4`` and ``N = 32``, which made admitted
+queries 5 to 16 percent slower there and 3 to 14 percent slower at ``N = 128``
+and ``N = 256``.
+
+The bound is about ``(n - 1) N u`` times the same statistic built from the
+absolute matrices and endpoints, for order ``n``, latent dimension ``N`` and
+``u = 2**-53``. A float64 value is therefore kept only when its magnitude is
+at least about ``1.1e-4 (n - 1) N`` times that absolute statistic. Dense
+indefinite matrices, and weakly correlated observables, fall below this from
+``N`` of a few tens at orders three and four and from ``N`` of a few hundred at
+order two; in a test family of dense positive semidefinite matrices,
+fourth-order queries fell below it from ``N = 64`` to ``128`` and third-order
+queries from ``N = 500``.
 
 A mixed cumulant whose absolute contractions all vanish, for example between
 observables built on disjoint blocks of the input, is a proved zero and returns
 ``0.0`` without a signed contraction. A vanishing absolute contraction is
 accepted only when every term is shown to be at least ``2**-1000``, or when the
-integer zero patterns of the matrices show that no term exists; a term that
-underflowed to zero is not taken for a zero.
+zero patterns of the matrices show that no term exists; a term that underflowed
+to zero is not taken for a zero. The pattern test does not depend on the
+magnitudes, so it also proves zeros whose entries are too large or too small
+for the error bound.
 
 Uncertified values are evaluated exactly. These include zeros forced by a
 symmetry, small overlaps between blocks and strongly cancelling contractions.
-Each prepared array is split into integer digit slices on a common
-power-of-two grid. The slice width is chosen so that every partial sum of a
-slice product fits in int64, so NumPy's integer loops (not BLAS) form the
-products exactly in any summation order; the exact rational result is rounded
-once. The bound is conservative for large dense families, which then take the
-exact path too: in a test family of dense positive semidefinite matrices,
-fourth-order queries with four distinct observables were uncertified from
-``N = 128`` and third-order queries from ``N = 500``. Exact evaluation times on
-one core for dense matrices:
+Each prepared array is split into integer digit slices of ``w`` bits on a
+common power-of-two grid, with ``w = (53 - ceil(log2 N)) // 2``. Every partial
+sum of a product of two slices is then an integer below ``2**53``, so a
+float64 matrix product (BLAS) forms it exactly in any summation order, with or
+without fused multiply-add. Each such product is compared with a checksum
+modulo ``2**64`` computed in NumPy's integer loops; a mismatch, which only a
+product outside the classical model would produce, issues a
+``RuntimeWarning`` and the product is recomputed in NumPy's int64 loops.
+Traces and matrix-vector products of slices use NumPy's own loops. The exact
+rational result is rounded once. An underflow inside the float64 contraction
+also leads to the exact evaluation; when that evaluation is refused, the
+float64 value is still returned if the bound admits it, because the bound
+covers underflow. Times on one core of a full query (bound, float64
+contraction and exact evaluation) on dense indefinite matrices, with a
+distinct observable in every slot:
 
 .. list-table::
    :header-rows: 1
@@ -275,25 +296,41 @@ one core for dense matrices:
      - order 3
      - order 4
    * - 256
-     - 0.01 s
-     - 0.06 s
-     - 0.1 to 0.2 s
+     - 0.005 s
+     - 0.014 s
+     - 0.05 s
    * - 500
-     - 0.03 s
-     - 0.4 s
-     - 0.7 to 1.4 s
+     - 0.024 s
+     - 0.07 s
+     - 0.29 s
    * - 1000
-     - 0.15 s
-     - 2.8 s
-     - 5.5 to 13 s
+     - 0.09 s
+     - 0.41 s
+     - 1.6 s
+   * - 2000
+     - 0.42 s
+     - 2.3 s
+     - 9.6 s
 
-The float64 contraction of the slowest fourth-order query at ``N = 1000``
-takes about 0.4 s. Before forming any product the exact evaluation estimates its
-integer work and memory from the slice counts, and it raises ``ArithmeticError``
-above 1e11 integer multiply-adds or 2 GiB of slices. The slice count of a
-matrix grows with the range of binary exponents among its entries, so refusals
-come from very large ``N`` or from matrices whose entries span hundreds of
-binades. Joint coefficients divide before deciding final float64 range, so a
+The float64 contraction alone takes a fifth to a quarter of these times. The
+bound holds the absolute values of the distinct matrices and, at order four,
+up to two absolute pair products. The exact evaluation holds the int32 slices
+of the distinct matrices, up to two exact pair products and seven
+dimension-square scratch arrays; a fourth-order query at ``N = 1000`` peaked at
+about 165 MiB.
+
+Before forming any product the exact evaluation estimates its work and its
+peak memory from the slice counts, following its evaluation order. It raises
+``ArithmeticError`` above ``1e13`` weighted multiply-adds (BLAS multiply-adds
+plus 64 for each multiply-add in NumPy's own loops) or 4 GiB at the peak.
+Dense matrices whose entries carry full 53-bit mantissas need three or four
+slices; for them the memory limit is reached at about ``N = 4500`` for
+fourth-order queries with four distinct observables, ``N = 5350`` at order
+three and ``N = 9450`` at order two. At those sizes the float64 contraction
+alone would still return a value, but not a certified one. The slice count
+grows with the range of binary exponents among the entries of a matrix, so
+matrices whose entries span hundreds of binades are refused at much smaller
+``N``. Joint coefficients divide before deciding final float64 range, so a
 coefficient can be finite even when its unscaled cumulant overflows.
 
 The guarantee concerns the prepared matrices and endpoints. Whitening,
@@ -322,7 +359,9 @@ retained within that query; it is released on return. Smaller queries,
 two-observable patterns, oversized prefixes and custom array/family protocols
 use the original route. This trades up to one additional dimension-square work
 matrix for fewer dense products; it does not promise lower peak memory or
-uniformly faster queries.
+uniformly faster queries. Independently of the prefix, the rounding bound of
+every native query holds the absolute values of its distinct matrices and, at
+order four, up to two absolute pair products.
 
 For a known set of queries used repeatedly, preparation is explicit:
 
