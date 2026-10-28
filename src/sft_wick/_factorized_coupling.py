@@ -57,7 +57,7 @@ from ._dense_contraction import (
 from .expressions import _NATIVE_NUMERIC_EXPRESSION_CLASSES
 
 # Definition-time class bindings, as the ordered numerical evaluators use.
-(_, _, Product, Sum, Symbol, Rational, ImaginaryUnit, Propagator) = (
+(Product, Sum, Symbol, Rational, ImaginaryUnit, Propagator) = (
     _NATIVE_NUMERIC_EXPRESSION_CLASSES
 )
 
