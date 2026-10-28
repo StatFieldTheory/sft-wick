@@ -1437,7 +1437,7 @@ Section reference: ``sweep``
    * - ``orders``
      - ``int``, ``list[int]`` or ``null``
      - ``null``
-     - Optional subset of ``expand.orders``; one integer is one order, so ``--override sweep.orders=2`` works.  An order the expansion does not hold raises before the propagators are built
+     - Optional subset of ``expand.orders``; one integer is one order, so ``--override sweep.orders=2`` works.  An order the expansion does not hold raises before the propagators are built.  An order at which the expansion holds no diagram (order 1 with only a cubic vertex) gives one row per grid point with value 0
    * - ``vertex_types``
      - ``str``, ``list[str]`` or ``null``
      - ``null``

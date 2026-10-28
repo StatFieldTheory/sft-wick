@@ -997,6 +997,15 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "covariance; the FK channel of a constant kappa^3 as a 1-D quad",
         "1e-12; 1e-9; bit equality between spellings",
     ),
+    "tests/test_empty_order_selection.py": (
+        "Workflow and YAML",
+        "an order at which the expansion holds no diagram (order 1 of a "
+        "cubic F) as zero rows of a moment-target sweep, alone, beside other "
+        "orders, with a channel selection, with reused integrands, in "
+        "evaluate's by_order, and through --override sweep.orders=N",
+        "closed-form covariance of test_observable_operator_inputs",
+        "1e-12; exact zeros",
+    ),
     "tests/test_sweep_selectors.py": (
         "Workflow and YAML",
         "the sweep's diagram selectors: a string vertex_types is one label "

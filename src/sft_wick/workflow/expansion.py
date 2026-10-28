@@ -293,7 +293,8 @@ class Expansion:
             orders: subset of the expansion's orders, as one integer or a
                 list of them; ``None`` uses all.  An order the expansion
                 does not hold, an empty list, and a boolean, string or
-                float raise.
+                float raise.  A selected order at which the expansion holds
+                no diagram is listed in ``by_order`` as 0.0.
             vertex_types: the vertex-composition labels to include, as one
                 string (``"FK"``) or any other iterable of strings (a
                 list, a set, a NumPy array); labels match
@@ -473,10 +474,8 @@ class Expansion:
         per_order: dict[int, float] = defaultdict(float)
         per_vtype: dict[str, float] = defaultdict(float)
         total = 0.0
-        if self.target == "connected":
-            # Zero is a computed connected coefficient, including orders
-            # where the incidence bound ruled out every diagram.
-            per_order.update({order: 0.0 for order in orders_list})
+        # Zero is a computed coefficient at an order no diagram reaches.
+        per_order.update({order: 0.0 for order in self._zero_orders(orders_list)})
         for task_idx, ((order, i, vtype, dt), (val, err)) in enumerate(
             zip(tasks, details)
         ):
@@ -573,7 +572,11 @@ class Expansion:
                 as in :meth:`evaluate`; only diagrams of these orders whose
                 :meth:`_vertex_type_label` lies in the label set are
                 integrated.  ``None`` ⇒ all orders and channels.  Both are
-                checked before any grid point is integrated.
+                checked before any grid point is integrated.  A selected
+                order at which the expansion holds no diagram gets one row
+                per grid point with ``value`` 0 and null diagram columns
+                (under the connected target, every selected order no
+                selected diagram reaches).
             n_jobs: parallelise over Cartesian-product grid points
                 (``positions × t_final × external times × component
                 tuples``).
@@ -756,6 +759,7 @@ class Expansion:
         orders_list, vtype_filter, tasks = self._selection(
             orders, vertex_types, "Expansion.sweep"
         )
+        zero_orders = self._zero_orders(orders_list)
 
         pos_keys = list(positions_grid.keys())
         pos_values = [positions_grid[k] for k in pos_keys]
@@ -959,22 +963,21 @@ class Expansion:
             # One column per observable operator, named by position.
             comp_fields = dict(zip(comp_cols, comp))
             point_rows = list(res.per_diagram)
-            if self.target == "connected":
-                present_orders = {row["order"] for row in point_rows}
-                # Grid/order placeholders record exact zero coefficients;
-                # null diagram metadata means they are not physical diagrams.
-                point_rows.extend(
-                    {
-                        "order": order,
-                        "diagram_idx": None,
-                        "vertex_type": None,
-                        "n_cross_C": None,
-                        "value": 0.0,
-                        "error": 0.0,
-                    }
-                    for order in orders_list
-                    if order not in present_orders
-                )
+            present_orders = {row["order"] for row in point_rows}
+            # Grid/order placeholders record exact zero coefficients; null
+            # diagram metadata means they are not physical diagrams.
+            point_rows.extend(
+                {
+                    "order": order,
+                    "diagram_idx": None,
+                    "vertex_type": None,
+                    "n_cross_C": None,
+                    "value": 0.0,
+                    "error": 0.0,
+                }
+                for order in zero_orders
+                if order not in present_orders
+            )
             for pd_row in point_rows:
                 rows.append(
                     {
@@ -1011,6 +1014,22 @@ class Expansion:
                 f"holds orders {list(self.orders)}."
             )
         return list(selected)
+
+    def _zero_orders(self, orders_list):
+        """The selected orders reported as a computed zero when no selected
+        diagram reaches them: every one under the connected target, and
+        under the moment target those at which the expansion holds no
+        diagram (an odd order of a theory with only cubic vertices).
+
+        ``evaluate`` lists them in ``by_order`` and ``sweep`` adds a zero
+        row for each, so a sweep that selects only such orders has rows.
+        A moment-target sweep of them used to return no row, and
+        :meth:`SweepResult.totals` then raised ``KeyError`` after the
+        propagators and the sweep had run.
+        """
+        if self.target == "connected":
+            return list(orders_list)
+        return [order for order in orders_list if not self.dts_by_order[order]]
 
     def _selection(self, orders, vertex_types, label):
         """``(orders_list, vtype_filter, tasks)`` for an ``orders`` /

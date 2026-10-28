@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **5376 tests** in 118 files (parametrised
+The suite has **5385 tests** in 119 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -537,7 +537,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*725 tests in 20 files.*
+*734 tests in 21 files.*
 
 .. list-table::
    :header-rows: 1
@@ -563,6 +563,11 @@ Workflow and YAML
      - closed form (level A is a single diagram, hence exact); QMC on the raw-vertex path
      - exact / 2e-4
      - 18
+   * - ``test_empty_order_selection.py``
+     - an order at which the expansion holds no diagram (order 1 of a cubic F) as zero rows of a moment-target sweep, alone, beside other orders, with a channel selection, with reused integrands, in evaluate's by_order, and through --override sweep.orders=N
+     - closed-form covariance of test_observable_operator_inputs
+     - 1e-12; exact zeros
+     - 9
    * - ``test_execution_controls.py``
      - L0/L1/YAML execution choices, upfront contracts, serial lifetime and error cleanup, real dense admission, subclass and instance-helper dispatch, fixed comparison promise and loky parity
      - native DiagramTerm complete values/errors, deterministic counting callbacks, IEEE float-bit signatures and configured-module nonexecution witnesses
