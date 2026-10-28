@@ -278,6 +278,12 @@ A label is the set of a diagram's vertex names, sorted and concatenated, so
 two ``G`` vertices are labelled ``G`` and one ``B`` with one ``G`` is
 ``BG``.
 
+Under the moment target ``vertex_types=`` refuses a label no diagram at the
+selected orders carries, and many vertex sets give no diagram (an odd
+number of fields, a vanishing response loop), so pass the labels of the
+power that ``Expansion.by_vertex_type(order)`` holds, as
+``examples/demo5/white_l1_multiplicative.py`` does.
+
 Expand with ``ito=True`` (the default): the numerical layer evaluates the
 Itô form, and under ``ito=False`` it refuses the equal-point R of a
 two-ψ vertex rather than return the Itô value (see
@@ -929,8 +935,9 @@ a misspelt key cannot fall back to its default.
    # expand: perturbative diagram enumeration
    # ============================================================
    expand:
-     observable: ["phi_a(x)", "phi_b(y)"]   # required
-     orders:     [0, 2]                     # required
+     observable: ["phi_a(x)", "phi_b(y)"]   # required: a list of operators
+     orders:     [0, 2]                     # required: a list, or one integer
+     target:            moment   # 'moment' | 'connected' (connected_targets.rst)
      response_phase:    true     # multiply by (-i)^n_response (MSR)
      ito:               true     # Itô prescription (R(x,x) = 0)
      collect_topology:  true     # spatial-level Wick contraction (faster, default)
@@ -983,15 +990,16 @@ a misspelt key cannot fall back to its default.
    # sweep: numerical evaluation grid
    # ============================================================
    sweep:
-     positions_grid:                    # required: each list is swept independently
-       x: [0.0]
-       y: [0.0, 0.5, 1.0, 2.5]
+     positions_grid:                    # required: one list per point of the observable,
+       x: [0.0]                         # each swept independently; quote a point name
+       y: [0.0, 0.5, 1.0, 2.5]          # YAML would read as a number or a boolean ('1', 'on')
      t_final_grid: [1.0, 5.0, 15.0]    # required
      component_tuples: [[0, 0], [1, 1]]
                                        # required: one component index per observable
                                        # operator, so [[0, 1, 1], ...] for a 3-point
-                                       # observable.  `component_pairs` is the older
-                                       # name of the same axis.
+                                       # observable.
+     # component_pairs: [[0, 0], [1, 1]]   # the older name of the same axis; give one
+                                           # or the other
 
      # Optional: pin external points at UNEQUAL times, swept as a further
      # Cartesian axis (same shape as positions_grid).  Needed for two-time
@@ -1002,9 +1010,16 @@ a misspelt key cannot fall back to its default.
        x: [4.0]
        y: [1.0, 2.0, 3.0]
 
-     orders:           null            # optional subset of expand.orders
-     vertex_types:     null            # optional subset of {"F","FK","K",…}
-     integrate_over:   null            # null | "all" | ["x"] | ...
+     orders:           null            # optional subset of expand.orders: one integer
+                                       # or a list
+     vertex_types:     null            # optional labels, one string (F) or a list
+                                       # ([F, FK]); a label joins the sorted names of
+                                       # a diagram's distinct vertices, so two F
+                                       # vertices give F.  A label no diagram carries
+                                       # raises and names the labels present.
+     integrate_over:   null            # null | all | one point name (x) | a list
+                                       # ([x, y]); a name the observable does not
+                                       # use raises when the file is loaded
 
      method:           qmc_vectorized  # 'qmc_vectorized' | 'qmc' | 'qmc_scalar'
                                        # | 'gauss_legendre' | 'nquad'
@@ -1015,6 +1030,14 @@ a misspelt key cannot fall back to its default.
      qmc_coupling_chunk_size: null     # opt-in dynamic coupling batches only
      reuse_integrands: false           # opt-in static preparation per component tuple
 
+     # Lookup reuse and contraction order (see "Explicit lookup reuse and
+     # contraction order" below, and resources.rst)
+     propagator_cache_bytes:    null      # byte budget for repeated propagator lookups;
+                                          # null or 0 disables the cache
+     propagator_cache_contract: null      # 'fixed_model', required by a positive budget
+     contraction_backend:       ordered   # 'ordered' | 'einsum' | 'factorized'
+     contraction_max_bytes:     67108864  # workspace budget of einsum / factorized (64 MiB)
+
      n_jobs:           1               # parallel over grid points
                                        # (mutually exclusive with expand.n_jobs > 1)
 
@@ -1024,7 +1047,7 @@ a misspelt key cannot fall back to its default.
    output:
      - {type: table, format: markdown, path: results.md}
      - {type: npz,   path: results.npz}
-     - {type: plot,  path: result.png, x: y, hue: order, facet_col: t_final}
+     - {type: plot,  path: result.png, x: y, y: value, hue: order, facet_col: t_final}
 
 Section reference: ``system``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1185,9 +1208,9 @@ Section reference: ``expand``
      - **required**
      - e.g. ``["phi_a(x)", "phi_b(y)"]``; component letters are MSR-fixed-indices, spatial args are the keys later swept by ``sweep.positions_grid``.  Operators that share a component letter carry one index, so a component tuple must give them the same value
    * - ``orders``
-     - ``list[int]``
+     - ``int`` or ``list[int]``
      - **required**
-     - e.g. ``[0, 2, 4]``
+     - e.g. ``[0, 2, 4]``; one integer is one order
    * - ``response_phase``
      - ``bool``
      - ``true``
@@ -1216,6 +1239,10 @@ Section reference: ``expand``
      - ``int``
      - ``1``
      - Parallelise over diagrams within each grid point (mutually exclusive with ``sweep.n_jobs > 1``)
+   * - ``target``
+     - ``str``
+     - ``"moment"``
+     - ``"moment"`` or ``"connected"``, which keeps the incidence-connected diagrams; see :doc:`connected_targets`
 
 .. _two-time-observables:
 
@@ -1391,7 +1418,7 @@ Section reference: ``sweep``
    * - ``positions_grid``
      - ``dict[str, list[float] | list[ndarray]]``
      - **required**
-     - One key per spatial argument in ``expand.observable``. Cartesian product
+     - One key per spatial argument in ``expand.observable``, each with a list; a point the observable does not name, and a point it names but the grid omits, are refused when the file is loaded.  Quote a name YAML would read as a number or a boolean (``'1'``, ``'on'``).  Cartesian product
    * - ``t_final_grid``
      - ``list[float]``
      - **required**
@@ -1408,17 +1435,17 @@ Section reference: ``sweep``
      - **required**
      - One component index per observable operator: ``[[0, 0], [1, 1]]`` for a 2-point observable, ``[[0, 1, 1]]`` for a 3-point one.  Each tuple is a further Cartesian axis and fills the result's component columns ``a``, ``b``, ``c``, ...  ``component_pairs`` is the older name of the same axis; give one or the other.  See :ref:`n-point-sweeps`
    * - ``orders``
-     - ``list[int]`` or ``null``
+     - ``int``, ``list[int]`` or ``null``
      - ``null``
-     - Optional subset of ``expand.orders``
+     - Optional subset of ``expand.orders``; one integer is one order, so ``--override sweep.orders=2`` works.  An order the expansion does not hold raises before the propagators are built
    * - ``vertex_types``
-     - ``list[str]`` or ``null``
+     - ``str``, ``list[str]`` or ``null``
      - ``null``
-     - Filter diagrams by vertex composition (e.g. ``["FK"]`` for demo2's cross-term).  A label is the set of a diagram's vertex names, sorted and concatenated; ``System`` refuses vertex names that give two sets one label (``F``, ``K`` and ``FK``) and two vertices with one name
+     - Filter diagrams by vertex composition (e.g. ``["FK"]`` for demo2's cross-term).  One string is one label, so ``vertex_types: FK`` and ``--override sweep.vertex_types=FK`` select the FK channel.  A label joins the sorted names of a diagram's distinct vertices (two F vertices give ``F``; order 0 gives ``""``).  A label no diagram at the selected orders carries raises before the propagators are built, and the message lists the labels present.  Under ``target: connected`` a label such a diagram could carry (the sorted names of at most that many vertices) is accepted and gives the zero coefficient the connected target reports.  ``System`` refuses vertex names that give two sets one label (``F``, ``K`` and ``FK``) and two vertices with one name
    * - ``integrate_over``
-     - ``null`` / ``"all"`` / ``list[str]``
+     - ``null`` / ``"all"`` / ``str`` / ``list[str]``
      - ``null``
-     - External-time integration: ``null`` = fixed at ``t_final``, ``"all"`` = integrate every external, list = explicit subset
+     - External-time integration: ``null`` = fixed at ``t_final``, ``"all"`` = integrate every external, list = explicit subset.  One string other than ``all`` is one point name, so ``integrate_over: x`` and ``--override sweep.integrate_over=x`` integrate the time of ``x``.  A name ``expand.observable`` does not use is refused when the file is loaded
    * - ``method``
      - ``str``
      - ``"qmc_vectorized"``

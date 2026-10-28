@@ -161,19 +161,13 @@ def _estimate(cfg, bench_seconds, build_system, load_c) -> CostEstimate:
         target=cfg.expand.target,
     )
     sw = cfg.sweep
-    orders = (
-        sorted(set(int(o) for o in sw.orders))
-        if sw.orders is not None
-        else list(expansion.orders)
-    )
-    vt = None if sw.vertex_types is None else set(sw.vertex_types)
-    diagrams_per_order = {
-        o: sum(
-            1
-            for dt in expansion.diagrams(o)
-            if vt is None or expansion._vertex_type_label(dt) in vt
-        )
-        for o in orders
+    # The selection the sweep will make, refused as the run would refuse it.
+    orders, vt, tasks = expansion._selection(sw.orders, sw.vertex_types, "sweep")
+    diagrams_per_order = {o: sum(1 for task in tasks if task[0] == o) for o in orders}
+    # The benchmark evaluates one order at a time, so it passes only the
+    # labels that order carries; a label of another order would be refused.
+    labels_at = {
+        o: sorted({task[2] for task in tasks if task[0] == o}) for o in orders
     }
     # The component axis, checked against the observable exactly as the
     # sweep will check it, so a dry run reports a wrong tuple length.
@@ -287,7 +281,7 @@ def _estimate(cfg, bench_seconds, build_system, load_c) -> CostEstimate:
             external_times=et,
             component_pair=comps[0],
             orders=[o],
-            vertex_types=sw.vertex_types,
+            vertex_types=None if vt is None else labels_at[o],
             integrate_over=sw.integrate_over,
             method=sw.method,
             n_samples=n,
