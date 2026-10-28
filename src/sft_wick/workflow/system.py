@@ -174,6 +174,10 @@ class System:
         """Refuse two vertices with one name, and vertex names for which
         two sets of vertices get one vertex-type label.
 
+        Both checks run when the system is built, whatever orders are later
+        expanded and whether or not a label is ever read; renaming one
+        vertex clears the second.
+
         Coupling values are keyed by name, so a second vertex of the same
         name used to replace the first one's coupling for both.  The label
         of a diagram is its sorted vertex names, concatenated

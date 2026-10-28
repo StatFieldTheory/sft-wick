@@ -2739,7 +2739,8 @@ def _sum_gl_block_totals(totals: Iterable[float]) -> float:
     the float range; the floating-point sum over all blocks is returned
     then.  An exception raised while a block is evaluated, an
     ``OverflowError`` from a user callable included, propagates as it
-    does from the eager grid.
+    does from the eager grid, except a ``StopIteration``, which the
+    generator over the blocks turns into ``RuntimeError`` (PEP 479).
     """
     finite_sum = 0.0
     special = None
@@ -2904,7 +2905,9 @@ class PropagatorCache:
                 :meth:`C_value`, :meth:`C_diagonal` and every
                 ``precompute_C_table_*`` builder.  Array and list
                 arguments reach it as copies, so it may write into them
-                (:meth:`_C_value_direct_on_copies`).
+                (:meth:`_C_value_direct_on_copies`).  The copies are
+                shallow: the entries of a nested list or an object array
+                are the caller's.
             c_method: Quadrature method used by :meth:`_C_value_direct`
                 (and therefore by every ``precompute_C_table_*`` builder).
 

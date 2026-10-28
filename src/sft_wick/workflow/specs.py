@@ -862,8 +862,9 @@ class MultiplicativeImpulse(Sigma2):
 
     To collect the terms of a given power of ``g1``, sum the channels of
     :meth:`Expansion.by_vertex_type` whose vertex powers add up to it (at
-    ``g1²``: ``H`` and ``L`` at order 1, and ``G``, ``BG`` and ``B`` at
-    order 2).  A label is the set of a diagram's vertex names, sorted and
+    ``g1²``: ``H`` at order 1 and ``G`` at order 2, and under
+    ``interpretation="stratonovich"`` also ``L`` at order 1 and ``BG`` and
+    ``B`` at order 2).  A label is the set of a diagram's vertex names, sorted and
     concatenated, so the order-2 label ``G`` is two ``G`` vertices and
     ``BG`` is one of each.  A vertex whose coupling is identically zero is
     not generated.

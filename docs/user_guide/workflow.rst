@@ -271,8 +271,9 @@ with ``vertex_names=`` and ``drift_names=`` if they collide with your own;
 a vertex whose coupling is identically zero is not generated.
 
 **Orders count vertices**, whatever power of ``g1`` a vertex carries: at
-:math:`g_1^2`, ``H`` sits at order 1 and the channels labelled ``G``,
-``BG`` and ``B`` at order 2 (and ``L`` at order 1 under Stratonovich).  Use
+:math:`g_1^2`, ``H`` sits at order 1 and ``G`` at order 2, and under
+``interpretation="stratonovich"`` also ``L`` at order 1 and the channels
+labelled ``BG`` and ``B`` at order 2.  Use
 ``Expansion.by_vertex_type`` / ``vertex_types=`` to collect a fixed power.
 A label is the set of a diagram's vertex names, sorted and concatenated, so
 two ``G`` vertices are labelled ``G`` and one ``B`` with one ``G`` is
@@ -1015,8 +1016,11 @@ a misspelt key cannot fall back to its default.
      vertex_types:     null            # optional labels, one string (F) or a list
                                        # ([F, FK]); a label joins the sorted names of
                                        # a diagram's distinct vertices, so two F
-                                       # vertices give F.  A label no diagram carries
-                                       # raises and names the labels present.
+                                       # vertices give F.  Under the moment target a
+                                       # label no diagram at the selected orders
+                                       # carries raises and names the labels
+                                       # present (see the table for target:
+                                       # connected).
      integrate_over:   null            # null | all | one point name (x) | a list
                                        # ([x, y]); a name the observable does not
                                        # use raises when the file is loaded
@@ -1445,7 +1449,7 @@ Section reference: ``sweep``
    * - ``integrate_over``
      - ``null`` / ``"all"`` / ``str`` / ``list[str]``
      - ``null``
-     - External-time integration: ``null`` = fixed at ``t_final``, ``"all"`` = integrate every external, list = explicit subset.  One string other than ``all`` is one point name, so ``integrate_over: x`` and ``--override sweep.integrate_over=x`` integrate the time of ``x``.  A name ``expand.observable`` does not use is refused when the file is loaded
+     - External-time integration: ``null`` = fixed at ``t_final``, ``"all"`` = integrate every external, list = explicit subset.  One string other than ``all`` is one point name, so ``integrate_over: x`` and ``--override sweep.integrate_over=x`` integrate the time of ``x``.  This reading is YAML's: at L1, write ``integrate_over=["x"]``, since ``Expansion.evaluate`` refuses a string other than ``"all"``.  A name ``expand.observable`` does not use is refused when the file is loaded
    * - ``method``
      - ``str``
      - ``"qmc_vectorized"``

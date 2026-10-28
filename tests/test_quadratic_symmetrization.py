@@ -554,7 +554,7 @@ def test_each_averaging_method_fails_where_the_other_is_used():
         assert family._matrices[0][0, 1] == exact
 
 
-# -- every input whose halves are exact keeps the earlier bits ------------
+# -- inputs whose halves are exact, declared and whitened, keep the earlier bits
 
 
 @pytest.fixture(scope="module")
