@@ -1926,10 +1926,10 @@ estimated to be slower; small diagrams therefore keep the ordered fold.
 ``factorized`` prepares a sum of monomials only when no two monomials have
 opposite signs at any component assignment, because monomials that cancel
 would break the bound. On a 330-diagram test set at 1024 to 65536 samples,
-``einsum`` ran on 204 to 308 of the diagrams and its static contraction was
-2.0 to 117 times faster; ``factorized`` ran on 2 to 4 of them, 2.1 to 98
+``einsum`` ran on 204 to 310 of the diagrams and its static contraction was
+2.2 to 103 times faster; ``factorized`` ran on 2 to 4 of them, 2.8 to 118
 times faster, the other coupling sums having monomials of opposite sign.
-The end-to-end gain is smaller (0.95 to 1.56 times the ordered speed in the
+The end-to-end gain is smaller (0.95 to 1.85 times the ordered speed in the
 measured runs) because most of an evaluation is spent outside the static
 contraction. :doc:`resources` lists the admission rules, the cost rule, the
 workspace budget and the measured speeds.

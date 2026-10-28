@@ -137,7 +137,8 @@ when an input it reads, or an entry the ordered fold multiplies and the
 backend leaves out (by a zero of a diagonal C table, or before an R support
 excludes the assignment), is not finite, a product could overflow or underflow,
 a coefficient fails the ordered phase check, NumPy's underflow policy is not
-``"ignore"``, the workspace exceeds ``contraction_max_bytes``, a size limit
+``"ignore"``, the arrays the call allocates would exceed
+``contraction_max_bytes`` at the largest total they reach at one time, a size limit
 listed in :doc:`/user_guide/resources` is exceeded, the cost rule estimates
 the backend to be slower, or, for ``factorized``, a summation index is carried
 only by an R that the ordered fold reads as its trace or folds into the scalar

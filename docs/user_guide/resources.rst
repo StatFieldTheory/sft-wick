@@ -320,7 +320,8 @@ A backend returns a value for a diagram call only when
   ``1.01 (m + A T) u`` bounds the rounding), and for ``einsum`` at most 4096
   coefficients have a nonzero imaginary part after the observable's phase
   (each of them is checked with the ordered phase check),
-* the planned workspace fits ``contraction_max_bytes``, and
+* the arrays the call allocates fit ``contraction_max_bytes`` (see the
+  workspace budget below), and
 * its estimated cost is below the ordered fold's.
 
 Otherwise that call runs on the ordered fold. For ``factorized`` the first
@@ -396,9 +397,9 @@ default 64 MiB budget:
 =========  ==========================  =============================
 Samples    einsum: admitted, speed     factorized: admitted, speed
 =========  ==========================  =============================
-1024       204 of 330, 7.8x to 108x    2 of 330, 11x to 79x
-4096       300 of 330, 2.0x to 117x    2 of 330, 11x to 63x
-65536      308 of 330, 2.5x to 107x    4 of 330, 2.1x to 98x
+1024       204 of 330, 7.0x to 93x     2 of 330, 9.6x to 118x
+4096       300 of 330, 2.3x to 103x    2 of 330, 10x to 89x
+65536      310 of 330, 2.2x to 94x     4 of 330, 2.8x to 85x
 =========  ==========================  =============================
 
 The speed is the ordered time divided by the backend time, over the admitted
@@ -424,7 +425,7 @@ N    Orders  diag_C  Samples  ordered s   einsum   factorized
 3    2, 3    on      4096     0.08        1.01     1.01
 3    2, 3    on      65536    1.17        1.01     1.01
 5    2, 3    off     4096     2.02        1.17     1.06
-5    2, 3    off     65536    9.95        1.56     1.10
+5    2, 3    off     65536    9.44        1.85     1.10
 5    2, 3    on      4096     0.10        0.98     1.01
 5    2, 3    on      65536    1.50        1.10     1.04
 2    4       on      4096     1.37        1.02     0.95
@@ -446,13 +447,36 @@ Workspace budget
 ~~~~~~~~~~~~~~~~
 
 ``contraction_max_bytes`` must be a positive integer and defaults to 64 MiB.
-It bounds the arrays a backend allocates for one diagram call: copies of the
-propagator batches with the sample axis last, every intermediate of the
-planned contraction, the rotated coefficient and its zero mask for
-``einsum``, and the output. A call whose plan exceeds it runs on the ordered
-fold; for ``factorized`` that first materializes the coefficient, which
-raises when the payload it needs exceeds the budget. It is not a limit on
-total memory or process RSS.
+A backend runs a diagram call only when the arrays the call allocates fit
+the budget at the largest total they reach at one time; otherwise the call
+runs on the ordered fold. The total is computed from array shapes and R
+supports before any array value is read. For ``einsum`` it counts the
+rotated coefficient, its 0/1 zero mask and the boolean comparison behind
+it, the flattened imaginary part and the index array of the phase check,
+and the arrays of the live-assignment count. For both backends it counts
+the copies of the propagator batches with the sample axis last, the
+index-free factors and the temporaries that compute them, the result of
+every planned contraction step, the output, the scratch block of the range
+scans and the buffers NumPy's iterator may allocate inside one call (up to
+``numpy.getbufsize()`` entries for each of three operands, 192 KiB at the
+default buffer size). A range scan reads an array in blocks of 65536
+entries, so its scratch block holds at most 512 KiB. For ``factorized`` the
+snapshots of the coupling tensors and their zero pattern belong to the
+prepared integrand, not to a call.
+
+The total leaves out Python objects. On the 298 backend calls of
+``tests/test_contraction_workspace_budget.py``, each run at the smallest
+budget that admits it, the peak traced by ``tracemalloc`` exceeded that
+budget by at most 7216 bytes on Python 3.10 with NumPy 2.2 and 2664 bytes
+on Python 3.14 with NumPy 2.4. The budget is not a limit on total memory or
+process RSS.
+
+When ``factorized`` prepares an integrand, the budget is compared with the
+owned copies of the coupling tensors and their zero pattern plus a fixed
+reserve of 256 KiB. That checks the payload the integrand keeps; it does not
+bound the temporaries of preparation. The first call that declines
+materializes the coefficient, which raises when the payload it needs
+exceeds the budget (see the section on the lazy coefficient below).
 
 Comparing complete results
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
