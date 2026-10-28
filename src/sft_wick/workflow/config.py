@@ -18,6 +18,7 @@ Or programmatically::
 
 from __future__ import annotations
 
+import collections.abc
 import importlib.util
 import math
 import os
@@ -183,7 +184,10 @@ def load_workflow_config(
     Args:
         path: path to a YAML file.
         overrides: optional ``{dotted.key: value}`` dict to patch
-            the loaded config (e.g. ``{"sweep.seed": 7}``).
+            the loaded config (e.g. ``{"sweep.seed": 7}``).  A field YAML
+            writes as a list (a grid, the observable, the component axis)
+            also takes a tuple or a NumPy array here, e.g.
+            ``{"sweep.t_final_grid": np.linspace(1.0, 5.0, 9)}``.
 
     Returns:
         A :class:`WorkflowConfig` ready to pass to :func:`run_workflow`.
@@ -347,14 +351,9 @@ def _check_position_labels(expand_cfg, sweep_cfg) -> None:
     accepts points the observable does not use, and still puts an omitted
     point at the default coordinate.
     """
-    from .system import _OBS_PATTERN
-
-    labels = set()
-    for spec in expand_cfg.observable:
-        m = _OBS_PATTERN.match(spec) if isinstance(spec, str) else None
-        if m is None:
-            return  # System.expand reports the malformed observable
-        labels.add(m.group("spatial"))
+    labels = _observable_points(expand_cfg)
+    if labels is None:
+        return  # System.expand reports the malformed observable
     unknown = sorted(str(k) for k in sweep_cfg.positions_grid if k not in labels)
     if unknown:
         raise ValueError(
@@ -371,10 +370,87 @@ def _check_position_labels(expand_cfg, sweep_cfg) -> None:
         )
 
 
+def _observable_points(expand_cfg) -> set | None:
+    """The point names of ``expand.observable`` (``x`` in ``phi_a(x)``), or
+    ``None`` when an operator does not parse."""
+    from .system import _OBS_PATTERN
+
+    labels = set()
+    for spec in expand_cfg.observable:
+        m = _OBS_PATTERN.match(spec) if isinstance(spec, str) else None
+        if m is None:
+            return None
+        labels.add(m.group("spatial"))
+    return labels
+
+
+def _check_integrate_over(expand_cfg, sweep_cfg) -> None:
+    """Every ``sweep.integrate_over`` name is a point of the observable.
+
+    The integrators refuse an unknown name too, but only once the
+    propagators are built.
+    """
+    names = sweep_cfg.integrate_over
+    labels = _observable_points(expand_cfg)
+    if names is None or names == "all" or labels is None:
+        return
+    unknown = sorted(set(names) - labels)
+    if unknown:
+        raise ValueError(
+            f"sweep.integrate_over: names {unknown}, which expand.observable "
+            f"does not use; its points are {sorted(labels)}.  Write all for "
+            f"every point."
+        )
+
+
+def _integrate_over_selection(raw: Any):
+    """``sweep.integrate_over``: ``None``, ``"all"``, or a list of point
+    names.  One other string is one point name, as one string is one
+    vertex-type label, so ``--override sweep.integrate_over=x`` works."""
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return "all" if raw == "all" else [str(raw)]
+    usage = (
+        f"sweep.integrate_over must be null, all, a point name or a list of "
+        f"point names, e.g. [x]; got {raw!r}."
+    )
+    if isinstance(raw, (bytes, bytearray, collections.abc.Mapping)):
+        raise TypeError(usage)
+    try:
+        names = list(raw)
+    except TypeError:  # a number, a boolean, a 0-d array
+        raise TypeError(usage) from None
+    for name in names:
+        if not isinstance(name, str):
+            raise TypeError(
+                f"sweep.integrate_over: the entry {name!r} in {raw!r} is not "
+                f"a point name; quote a name YAML would read as a number or "
+                f"a boolean, e.g. '1'."
+            )
+    return [str(name) for name in names]
+
+
+def _as_list(value: Any, usage: str) -> list:
+    """A field YAML writes as a list, as a list.
+
+    A Python override (``load_workflow_config(path, overrides=...)``) may
+    pass a tuple or a NumPy array, converted with ``list()``.  A string,
+    bytes, a mapping and a scalar raise ``ValueError(usage)``: ``list()``
+    would split the first two into characters and keep a mapping's keys.
+    """
+    if isinstance(value, (str, bytes, bytearray, collections.abc.Mapping)):
+        raise ValueError(usage)
+    try:
+        return list(value)
+    except TypeError:  # a number, a boolean, a 0-d array
+        raise ValueError(usage) from None
+
+
 def _parse_point_grid(raw: Any, where: str) -> dict:
     """``positions_grid`` / ``external_times_grid``: a mapping from point
     names (strings) to lists of values."""
-    if not isinstance(raw, dict):
+    if not isinstance(raw, collections.abc.Mapping):
         raise ValueError(
             f"{where} must be a mapping from point names to lists of values, "
             f"e.g. {{x: [0.0], y: [0.5]}}; got {raw!r}."
@@ -389,12 +465,11 @@ def _parse_point_grid(raw: Any, where: str) -> dict:
                 f"quote the name as expand.observable spells it, e.g. "
                 f"'1': [0.0]."
             )
-        if not isinstance(values, list):
-            raise ValueError(
-                f"{where}[{key!r}] must be a list of values, e.g. [0.0, 0.5]; "
-                f"got {values!r}."
-            )
-        out[key] = list(values)
+        out[key] = _as_list(
+            values,
+            f"{where}[{key!r}] must be a list of values, e.g. [0.0, 0.5]; "
+            f"got {values!r}.",
+        )
     return out
 
 
@@ -426,6 +501,7 @@ def _parse_workflow(data: dict, base_dir: Path) -> WorkflowConfig:
     )
     expand_cfg = _parse_expand(expand_d)
     _check_position_labels(expand_cfg, sweep_cfg)
+    _check_integrate_over(expand_cfg, sweep_cfg)
     props_cfg = _parse_propagators(props_d, base_dir)
     output_cfgs = [_parse_output(o, i) for i, o in enumerate(output_d)]
 
@@ -1054,14 +1130,22 @@ def _parse_expand(d: dict) -> ExpandConfig:
     obs = d.get("observable")
     if obs is None:
         raise ValueError("expand.observable is required")
-    if not isinstance(obs, list):
+    if isinstance(obs, collections.abc.Set):
         raise ValueError(
-            f"expand.observable must be a list of operators, e.g. "
-            f"['phi_a(x)', 'phi_b(y)']; got {obs!r}.  A string is not split "
-            f"into operators."
+            f"expand.observable: a set has no order, and the order of the "
+            f"operators fixes which component index belongs to which; give "
+            f"a list, e.g. ['phi_a(x)', 'phi_b(y)']; got {obs!r}."
         )
+    obs = _as_list(
+        obs,
+        f"expand.observable must be a list of operators, e.g. "
+        f"['phi_a(x)', 'phi_b(y)']; got {obs!r}.  A string is not split "
+        f"into operators.",
+    )
+    # A NumPy array of operators gives np.str_ entries.
+    obs = [str(o) if isinstance(o, str) else o for o in obs]
     # One integer is one order, as for sweep.orders.
-    orders = _order_selection(d.get("orders"), "expand.orders")
+    orders = _order_selection(d.get("orders"), "expand.orders", required=True)
     if orders is None:
         raise ValueError("expand.orders is required")
     from sft_wick._connected import validate_target
@@ -1172,14 +1256,18 @@ def _parse_component_axis(d: dict) -> list:
         )
     key = given[0]
     raw = d[key]
-    if not isinstance(raw, list) or not raw:
-        raise ValueError(
-            f"sweep.{key} must be a non-empty list of component tuples, "
-            f"e.g. [[0, 1]]; got {raw!r}."
-        )
+    usage = (
+        f"sweep.{key} must be a non-empty list of component tuples, "
+        f"e.g. [[0, 1]]; got {raw!r}."
+    )
+    entries = _as_list(raw, usage)
+    if not entries:
+        raise ValueError(usage)
     tuples = []
-    for entry in raw:
-        if not isinstance(entry, (list, tuple)):
+    for entry in entries:
+        if isinstance(entry, (str, bytes, bytearray)) or not isinstance(
+            entry, (collections.abc.Sequence, np.ndarray)
+        ):
             raise ValueError(
                 f"sweep.{key}: each entry is a list of component indices, "
                 f"one per observable operator, e.g. [0, 1]; got {entry!r}."
@@ -1210,12 +1298,11 @@ def _parse_sweep(d: dict) -> SweepConfig:
     if "t_final_grid" not in d:
         raise ValueError("sweep.t_final_grid is required")
     positions_grid = _parse_point_grid(d["positions_grid"], "sweep.positions_grid")
-    t_final_grid = d["t_final_grid"]
-    if not isinstance(t_final_grid, list):
-        raise ValueError(
-            f"sweep.t_final_grid must be a list of times, e.g. [1.0, 2.0]; "
-            f"got {t_final_grid!r}."
-        )
+    t_final_grid = _as_list(
+        d["t_final_grid"],
+        f"sweep.t_final_grid must be a list of times, e.g. [1.0, 2.0]; "
+        f"got {d['t_final_grid']!r}.",
+    )
     external_times_grid = d.get("external_times_grid")
     if external_times_grid is not None:
         external_times_grid = (
@@ -1234,12 +1321,12 @@ def _parse_sweep(d: dict) -> SweepConfig:
         contraction_backend=d.get("contraction_backend", "ordered"),
         contraction_max_bytes=d.get("contraction_max_bytes", DEFAULT_CONTRACTION_MAX_BYTES),
         positions_grid=positions_grid,
-        t_final_grid=list(t_final_grid),
+        t_final_grid=t_final_grid,
         external_times_grid=external_times_grid,
         component_pairs=cps,
         orders=None if orders is None else list(orders),
         vertex_types=None if vertex_types is None else sorted(vertex_types),
-        integrate_over=d.get("integrate_over"),
+        integrate_over=_integrate_over_selection(d.get("integrate_over")),
         method=str(d.get("method", "qmc_vectorized")),
         n_samples=int(d.get("n_samples", 2**13)),
         seed=None if seed is None else int(seed),

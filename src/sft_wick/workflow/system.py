@@ -388,7 +388,7 @@ class System:
     def expand(
         self,
         observable: Iterable,
-        orders: Iterable[int],
+        orders: int | Iterable[int],
         *,
         response_phase: bool = True,
         ito: bool = True,
@@ -408,7 +408,9 @@ class System:
             observable: iterable of either ``FieldOperator`` objects
                 or strings like ``"phi_a(x)"``.  Strings are parsed
                 as ``field_compIndex(spatialArg)``.
-            orders: iterable of perturbative orders to compute.
+            orders: the perturbative orders to compute, as one integer or
+                a list of them.  A boolean, a string, a float, a non-integer
+                entry and an empty list raise.
             response_phase, ito, collect_topology, iso_R, diag_R, diag_C, iso_C: forwarded to :func:`~sft_wick.perturbation.compute_moment`.  When ``iso_R`` is ``None`` the value is inferred from ``self.linear``.
             cache_path: directory (or file) for on-disk caching.
                 ``None`` disables caching (prints a one-shot
@@ -431,15 +433,26 @@ class System:
                 matrix σ²).  Callable kernels are probed at a few time
                 and position pairs, and one that cannot be evaluated
                 there is not refused.  Also raised when two external
-                operators share a spatial label at an interacting order.
+                operators share a spatial label at an interacting order,
+                and for an empty ``orders``.
+            TypeError: when ``orders`` is missing, or is or holds
+                something other than an integer.
         """
         from sft_wick.perturbation import compute_moment
         from sft_wick.progress import progress as _progress_scope
 
         from .cache import load_or_compute
-        from .expansion import Expansion
+        from .expansion import Expansion, _order_selection
 
-        orders_list = sorted(set(int(o) for o in orders))
+        # The rules of Expansion.evaluate: one integer is one order, and a
+        # string, a float or a boolean raises ("02" used to give (0, 2)).
+        selected = _order_selection(orders, "System.expand: orders", required=True)
+        if selected is None:
+            raise TypeError(
+                "System.expand: orders is required: an integer order or a "
+                "list of them, e.g. 2 or [0, 2]."
+            )
+        orders_list = list(selected)
         iso_R_val = self.iso_R if iso_R is None else iso_R
 
         # diag_R / diag_C collapse R and C onto their diagonals; a dense R

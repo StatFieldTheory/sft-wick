@@ -293,12 +293,16 @@ class Expansion:
                 does not hold, an empty list, and a boolean, string or
                 float raise.
             vertex_types: the vertex-composition labels to include, as one
-                string (``"FK"``) or a list, tuple or set of strings
-                (``{"F", "FK"}``); labels match :meth:`by_vertex_type`
-                keys.  ``None`` ⇒ all.  A label no diagram at the
-                selected orders carries raises ``ValueError`` naming the
-                labels present, so a misspelt label cannot drop its
-                channel.  Useful for computing a single channel, or for
+                string (``"FK"``) or any other iterable of strings (a
+                list, a set, a NumPy array); labels match
+                :meth:`by_vertex_type` keys.  ``None`` ⇒ all.  A label no
+                diagram at the selected orders carries raises
+                ``ValueError`` naming the labels present, so a misspelt
+                label cannot drop its channel.  Under the connected target
+                a label such a diagram could carry (sorted names of at most
+                that many of the system's vertices) is accepted instead,
+                and its coefficient is the computed zero.  Useful for
+                computing a single channel, or for
                 skipping channels that require a bespoke
                 integrator (e.g. non-local K whose coupling is
                 spacetime-dependent; see demo2).
@@ -1016,10 +1020,18 @@ class Expansion:
     def _evaluation_tasks(self, orders, vtype_filter, label="Expansion.evaluate"):
         """``(order, i, label, diagram)`` for each selected diagram.
 
-        A requested vertex type that no diagram at these orders carries
-        raises ``ValueError``: it used to select nothing, so ``evaluate``
-        returned 0 and a sweep failed in ``totals()``, or, among other
-        labels, it dropped its channel without a message.
+        Under the moment target, a requested vertex type that no diagram at
+        these orders carries raises ``ValueError``.  It used to select
+        nothing, so ``evaluate`` returned 0 for it and a sweep that selected
+        nothing else failed in ``totals()``; next to other labels a
+        misspelt one dropped its channel without a message.
+
+        The connected target reports an order with no selected diagram as
+        a computed zero (``evaluate`` fills it in, ``sweep`` adds a zero
+        row), so there a label is accepted when a diagram at one of these
+        orders could carry it: the sorted names of at most that many
+        distinct vertices of the system.  A misspelt label, a vertex the
+        system lacks, or more names than the order allows still raise.
         """
         tasks = []
         present = set()
@@ -1030,15 +1042,36 @@ class Expansion:
                 if vtype_filter is None or vtype in vtype_filter:
                     tasks.append((order, i, vtype, dt))
         absent = sorted(set(vtype_filter or ()) - present)
+        possible = None
+        if absent and self.target == "connected":
+            possible = self._possible_labels(orders)
+            absent = [lbl for lbl in absent if lbl not in possible]
         if absent:
+            hint = (
+                ""
+                if possible is None
+                else f"  Under the connected target a label a diagram at "
+                f"these orders could carry gives a zero coefficient; those "
+                f"labels are {sorted(possible)}."
+            )
             raise ValueError(
                 f"{label}: no diagram at order(s) {list(orders)} has the "
                 f"vertex type(s) {absent}; the vertex types present are "
                 f"{sorted(present)}.  A label joins the sorted names of a "
                 f"diagram's distinct vertices: two F vertices give 'F', an F "
-                f"and a K give 'FK', and an order-0 diagram gives ''."
+                f"and a K give 'FK', and an order-0 diagram gives ''.{hint}"
             )
         return tuple(tasks)
+
+    def _possible_labels(self, orders) -> set:
+        """Every label a diagram at one of ``orders`` could carry: ``''`` at
+        order 0, else the sorted, joined names of at most ``max(orders)``
+        distinct vertices (each vertex is one order)."""
+        names = sorted(self.system.build_coupling_values())
+        out = {""} if 0 in orders else set()
+        for k in range(1, min(max(orders, default=0), len(names)) + 1):
+            out.update("".join(c) for c in itertools.combinations(names, k))
+        return out
 
     def _prepare_sweep(
         self,
@@ -1289,14 +1322,17 @@ def _is_integer(value) -> bool:
     )
 
 
-def _order_selection(orders, label):
+def _order_selection(orders, label, required=False):
     """``orders`` as a sorted tuple of distinct ints; ``None`` stays ``None``.
 
     One integer is one order (``--override sweep.orders=2`` gives one).  A
-    boolean, a string, a float or another scalar raises ``TypeError``, and
-    so does a list entry that is not an integer: iterating ``"2"`` used to
-    give the order 2, and ``int(2.5)`` gave 2.  An empty selection raises
-    ``ValueError``.  ``label`` names the argument, e.g. ``"sweep.orders"``.
+    boolean, a string, bytes, a float or another scalar raises
+    ``TypeError``, and so does a list entry that is not an integer:
+    iterating ``"2"`` used to give the order 2, ``b"2"`` the order 50, and
+    ``int(2.5)`` gave 2.  An empty selection raises ``ValueError``.
+    ``label`` names the argument, e.g. ``"sweep.orders"``; ``required``
+    marks one with no "every order" to fall back on (``System.expand``,
+    ``expand.orders``), which changes the advice in that message.
     """
     if orders is None:
         return None
@@ -1320,10 +1356,12 @@ def _order_selection(orders, label):
                 f"{label}: the order {o!r} in {orders!r} is not an integer."
             )
     if not entries:
-        raise ValueError(
-            f"{label} is empty, so it selects no order; pass None for every "
-            f"order of the expansion."
+        advice = (
+            "give at least one order, e.g. 2 or [0, 2]"
+            if required
+            else "pass None for every order of the expansion"
         )
+        raise ValueError(f"{label} is empty, so it selects no order; {advice}.")
     return tuple(sorted({int(o) for o in entries}))
 
 
@@ -1331,21 +1369,28 @@ def _vertex_type_selection(vertex_types, label):
     """``vertex_types`` as a frozenset of labels; ``None`` stays ``None``.
 
     A single string is one label: ``set("FK")`` used to select ``{"F",
-    "K"}``, so ``vertex_types="FK"`` returned the F channel.  A list, tuple
-    or set of strings is a set of labels.  Anything else raises
-    ``TypeError``, and an empty selection raises ``ValueError``.  ``label``
-    names the argument, e.g. ``"sweep.vertex_types"``.
+    "K"}``, so ``vertex_types="FK"`` returned the F channel.  Any other
+    iterable of strings (a list, tuple or set, a NumPy array such as
+    ``df["vertex_type"].unique()``, a pandas ``Index``, a generator) is a
+    set of labels.  Bytes, a mapping, a scalar and an entry that is not a
+    string raise ``TypeError``, and an empty selection raises
+    ``ValueError``.  ``label`` names the argument, e.g.
+    ``"sweep.vertex_types"``.
     """
     if vertex_types is None:
         return None
     if isinstance(vertex_types, str):
-        return frozenset((vertex_types,))
-    if not isinstance(vertex_types, (list, tuple, collections.abc.Set)):
-        raise TypeError(
-            f"{label} must be a vertex-type label such as 'FK' or a list of "
-            f"labels such as ['F', 'FK']; got {vertex_types!r}."
-        )
-    entries = list(vertex_types)
+        return frozenset((str(vertex_types),))
+    usage = (
+        f"{label} must be a vertex-type label such as 'FK' or a list of "
+        f"labels such as ['F', 'FK']; got {vertex_types!r}."
+    )
+    if isinstance(vertex_types, (bytes, bytearray, collections.abc.Mapping)):
+        raise TypeError(usage)
+    try:
+        entries = list(vertex_types)
+    except TypeError:  # a scalar, or a 0-d array
+        raise TypeError(usage) from None
     for v in entries:
         if not isinstance(v, str):
             raise TypeError(
@@ -1357,7 +1402,7 @@ def _vertex_type_selection(vertex_types, label):
             f"{label} is empty, so it selects no diagram; pass None for "
             f"every diagram."
         )
-    return frozenset(entries)
+    return frozenset(str(v) for v in entries)
 
 
 def _axis_key(value):

@@ -14,6 +14,14 @@ sweep ended in ``KeyError: 'x'`` after every integral had run.  An integer
 propagators were built, a string ``"2"`` was read as the order 2, and an
 order 2.5 was truncated to 2.
 
+The same rules reach the other entry points: a Python override may give a
+grid, the observable or the component axis as a tuple or a NumPy array
+(SS9); ``System.expand`` reads ``orders`` as ``Expansion.evaluate`` does
+(SS10); under the connected target a label a diagram could carry selects
+the computed zero rather than raise (SS11); ``vertex_types`` takes any
+iterable of strings (SS12); and ``sweep.integrate_over`` is checked against
+the observable when the file is loaded, one string being one point (SS13).
+
 The model: a local cubic ``F`` and a non-local ``κ³`` vertex ``K`` with a
 constant tensor, both with entries of both signs, two components with
 distinct rates, ``t_min = 0.3`` and two distinct points.  For a constant
@@ -511,3 +519,292 @@ def test_SS8_block_of_the_wrong_shape_is_refused(tmp_path, path, value,
     cfg = _set(_config(), path, value)
     with pytest.raises(ValueError, match=match):
         load_workflow_config(_write(tmp_path, cfg))
+
+
+# ---------------------------------------------------------------------------
+# SS9 -- a Python override may give a list-shaped field as a sequence
+# ---------------------------------------------------------------------------
+
+def _fk_config(**sweep) -> dict:
+    return _config(orders=2, vertex_types="FK", **sweep)
+
+
+def _totals(path, overrides=None):
+    cfg = load_workflow_config(path, overrides=overrides)
+    return run_workflow(cfg, progress=False)[1]
+
+
+@pytest.fixture(scope="module")
+def fk_dir(tmp_path_factory):
+    return tmp_path_factory.mktemp("fk")
+
+
+_COLUMNS = ["x", "y", "t_final", "a", "b", "order", "value"]
+
+
+@pytest.mark.parametrize("overrides", [
+    {"sweep.t_final_grid": np.array([T_FINAL])},
+    {"sweep.t_final_grid": (T_FINAL,)},
+    {"sweep.positions_grid.y": (Y,)},
+    {"sweep.positions_grid.y": np.linspace(Y, Y, 1)},
+    {"sweep.positions_grid": {"x": np.array([X]), "y": (Y,)}},
+    {"expand.observable": ("phi_a(x)", "phi_b(y)")},
+    {"expand.observable": np.array(["phi_a(x)", "phi_b(y)"])},
+    {"sweep.component_tuples": np.array(PAIRS)},
+    {"sweep.component_tuples": tuple(tuple(p) for p in PAIRS)},
+    {"sweep.orders": np.arange(2, 3)},
+    {"sweep.vertex_types": np.array(["FK"])},
+], ids=repr)
+def test_SS9_python_override_sequence_matches_the_list_run(fk_dir, overrides):
+    """``load_workflow_config(path, overrides=...)`` passes Python values to
+    the parser without YAML; a tuple or a NumPy grid used to run (``list()``
+    of it) and must give the value of the list spelling."""
+    path = _write(fk_dir, _fk_config())
+    ref = _totals(path)[_COLUMNS]
+    got = _totals(path, overrides)[_COLUMNS]
+    assert got.shape == ref.shape
+    np.testing.assert_array_equal(got[["a", "b", "order"]].to_numpy(),
+                                  ref[["a", "b", "order"]].to_numpy())
+    np.testing.assert_allclose(got["value"].to_numpy(),
+                               ref["value"].to_numpy(), rtol=1e-14, atol=0)
+    _assert_fk(got)
+
+
+def test_SS9_python_override_of_external_times_takes_an_array(fk_dir):
+    path = _write(fk_dir, _fk_config(external_times_grid={"y": [1.2]}))
+    ref = _totals(path)
+    got = _totals(path, {"sweep.external_times_grid.y": np.array([1.2])})
+    assert list(got["t_y"]) == list(ref["t_y"]) == [1.2] * len(PAIRS)
+    np.testing.assert_allclose(got["value"].to_numpy(),
+                               ref["value"].to_numpy(), rtol=1e-14, atol=0)
+
+
+@pytest.mark.parametrize("overrides,match", [
+    ({"sweep.t_final_grid": np.array(T_FINAL)},
+     r"^sweep\.t_final_grid must be a list"),
+    ({"sweep.t_final_grid": {"t": T_FINAL}},
+     r"^sweep\.t_final_grid must be a list"),
+    ({"sweep.t_final_grid": "1.7"}, r"^sweep\.t_final_grid must be a list"),
+    ({"sweep.positions_grid.y": b"0.55"},
+     r"^sweep\.positions_grid\['y'\] must be a list"),
+    ({"expand.observable": {"phi_a(x)", "phi_b(y)"}},
+     r"^expand\.observable: .*set"),
+    ({"sweep.component_tuples": "01"},
+     r"^sweep\.component_tuples must be a non-empty list"),
+    ({"sweep.component_tuples": np.zeros((0, 2), dtype=int)},
+     r"^sweep\.component_tuples must be a non-empty list"),
+], ids=repr)
+def test_SS9_override_of_another_shape_is_refused(fk_dir, overrides, match):
+    """A string, bytes, a mapping, a scalar (a 0-d array too) and an
+    unordered set are still refused: ``list()`` would split the first two
+    into characters, keep a mapping's keys, and give a set's operators in
+    hash order."""
+    with pytest.raises(ValueError, match=match):
+        load_workflow_config(_write(fk_dir, _fk_config()), overrides=overrides)
+
+
+# ---------------------------------------------------------------------------
+# SS10 -- System.expand reads orders as Expansion.evaluate does
+# ---------------------------------------------------------------------------
+
+def test_SS10_system_expand_takes_an_int(system, expansion, props):
+    """``System.expand(obs, orders=2)`` used to raise ``'int' object is not
+    iterable`` while ``Expansion.evaluate(orders=2)`` ran."""
+    e2 = system.expand(("phi_a(x)", "phi_b(y)"), orders=2, progress=False)
+    assert e2.orders == (2,)
+    assert len(e2.diagrams(2)) == len(expansion.diagrams(2))
+    for a, b in PAIRS:
+        assert _evaluate(e2, props, (a, b), vertex_types="FK").total == (
+            pytest.approx(_fk_reference(a, b), rel=1e-9, abs=0.0))
+    assert system.expand(("phi_a(x)", "phi_b(y)"), orders=np.int64(0),
+                         progress=False).orders == (0,)
+
+
+@pytest.mark.parametrize("value", [
+    "2", "02", [2.5], [True, 2], True, np.bool_(True), 2.0, [None], {2: 1},
+    None,
+], ids=repr)
+def test_SS10_system_expand_refuses_other_orders(system, value):
+    """``"2"`` gave the orders (2,), ``"02"`` (0, 2), ``[2.5]`` (2,) and
+    ``[True, 2]`` (1, 2).  (``b"2"`` gave the order 50, which this test
+    leaves out: before the fix it expands for minutes rather than fail.)"""
+    with pytest.raises(TypeError, match=r"^System\.expand: orders"):
+        system.expand(("phi_a(x)", "phi_b(y)"), orders=value, progress=False)
+
+
+def test_SS10_empty_orders_are_refused_with_the_right_advice(system, tmp_path):
+    """``expand.orders`` and ``System.expand`` have no "every order" to
+    fall back on, so the message must not suggest ``None``."""
+    with pytest.raises(ValueError, match=r"^System\.expand: orders is empty"
+                                         r"(?!.*None)"):
+        system.expand(("phi_a(x)", "phi_b(y)"), orders=[], progress=False)
+    cfg = _config()
+    cfg["expand"]["orders"] = []
+    with pytest.raises(ValueError, match=r"^expand\.orders is empty(?!.*None)"):
+        load_workflow_config(_write(tmp_path, cfg))
+
+
+# ---------------------------------------------------------------------------
+# SS11 -- connected target: a label a diagram could carry is a zero
+# ---------------------------------------------------------------------------
+
+POS4 = {"x": 0.1, "y": 0.55, "z": -0.3, "w": 0.9}
+COMP4 = (0, 1, 1, 0)
+
+
+@pytest.fixture(scope="module")
+def connected4(system):
+    """The connected 4-point function: the incidence bound leaves no
+    diagram at order 1 and no K-only diagram at order 2."""
+    exp = system.expand(("phi_a(x)", "phi_b(y)", "phi_c(z)", "phi_d(w)"),
+                        orders=[1, 2], target="connected", progress=False)
+    assert exp.diagrams(1) == []
+    assert sorted(exp.by_vertex_type(2)) == ["F", "FK"]
+    return exp
+
+
+def _evaluate4(exp, props, **kw):
+    return exp.evaluate(props, positions=POS4, t_final=T_FINAL,
+                        component_pair=COMP4, **GL, **kw)
+
+
+def _sweep4(exp, props, **kw):
+    return exp.sweep(props, positions_grid={k: [v] for k, v in POS4.items()},
+                     t_final_grid=[T_FINAL], component_tuples=[COMP4],
+                     **GL, **kw).totals()
+
+
+@pytest.mark.parametrize("orders,labels", [
+    ([1], ["F"]),
+    ([1], "K"),
+    ([1, 2], ["K"]),
+    ([2], "K"),
+], ids=repr)
+def test_SS11_connected_label_without_a_diagram_is_a_zero(
+        connected4, props, orders, labels):
+    """The connected target reports an order no diagram reaches as a
+    computed zero; selecting a channel there gave that zero up to 0.7.0
+    and must not raise."""
+    res = _evaluate4(connected4, props, orders=orders, vertex_types=labels)
+    assert res.by_order == {o: 0.0 for o in orders}
+    assert res.per_diagram == [] and res.total == 0.0
+    totals = _sweep4(connected4, props, orders=orders, vertex_types=labels)
+    assert sorted(totals["order"]) == orders
+    assert (totals["value"] == 0.0).all()
+
+
+@pytest.mark.parametrize("orders,labels,absent", [
+    ([1, 2], ["KF"], ["KF"]),
+    ([1, 2], "FF", ["FF"]),
+    ([1], "FK", ["FK"]),
+    ([1, 2], ["F", "G"], ["G"]),
+    ([1, 2], "", [""]),
+], ids=repr)
+def test_SS11_connected_label_no_diagram_could_carry_is_refused(
+        connected4, props, no_integration, orders, labels, absent):
+    """A misspelt label, a vertex the system lacks, two names at order 1
+    and the order-0 label at an interacting order are still refused."""
+    match = (rf"vertex type\(s\) {absent!r}"
+             .replace("[", r"\[").replace("]", r"\]"))
+    with pytest.raises(ValueError, match=match):
+        _evaluate4(connected4, props, orders=orders, vertex_types=labels)
+    with pytest.raises(ValueError, match=match):
+        _sweep4(connected4, props, orders=orders, vertex_types=labels)
+
+
+def test_SS11_moment_target_still_refuses_a_label_without_a_diagram(
+        expansion, props, no_integration):
+    """The moment target has no zero rows, so the K channel the order-2
+    expansion lacks is refused there."""
+    assert "K" not in expansion.by_vertex_type(2)
+    with pytest.raises(ValueError, match=r"vertex type\(s\) \['K'\]"):
+        _evaluate(expansion, props, vertex_types="K")
+
+
+# ---------------------------------------------------------------------------
+# SS12 -- vertex_types may be any iterable of strings
+# ---------------------------------------------------------------------------
+
+def _gen():
+    yield "FK"
+
+
+@pytest.mark.parametrize("make", [
+    lambda: np.array(["FK"]),
+    lambda: __import__("pandas").Index(["FK"]),
+    _gen,
+    lambda: iter(["FK"]),
+    lambda: {"FK": None}.keys(),
+    lambda: np.str_("FK"),
+    lambda: ("FK",),
+], ids=["ndarray", "Index", "generator", "iterator", "dict_keys", "np.str_",
+        "tuple"])
+def test_SS12_any_iterable_of_labels_selects_them(expansion, props, make):
+    """``df['vertex_type'].unique()`` is a NumPy array; it used to select
+    the FK channel and must still."""
+    ref = _evaluate(expansion, props, vertex_types=["FK"])
+    assert _evaluate(expansion, props,
+                     vertex_types=make()).per_diagram == ref.per_diagram
+    _assert_fk(_sweep(expansion, props, vertex_types=make()).totals())
+
+
+@pytest.mark.parametrize("value", [
+    np.array("FK"), bytearray(b"FK"), [b"FK"], np.array([1, 2]),
+], ids=repr)
+def test_SS12_iterables_of_other_entries_are_refused(expansion, props, value):
+    with pytest.raises(TypeError, match="vertex_types"):
+        _evaluate(expansion, props, vertex_types=value)
+
+
+# ---------------------------------------------------------------------------
+# SS13 -- sweep.integrate_over is checked when the file is loaded
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("value,exc,match", [
+    ("z", ValueError, r"\['z'\].*points are \['x', 'y'\]"),
+    ("xy", ValueError, r"\['xy'\].*points are \['x', 'y'\]"),
+    (["x", "z"], ValueError, r"\['z'\].*points are \['x', 'y'\]"),
+    (["all"], ValueError, r"\['all'\].*points are \['x', 'y'\]"),
+    (True, TypeError, r"all"),
+    (3, TypeError, r"all"),
+    ({"x": 1}, TypeError, r"all"),
+    ([1], TypeError, r"the entry 1"),
+    ([["x"]], TypeError, r"the entry \['x'\]"),
+], ids=repr)
+def test_SS13_yaml_integrate_over_is_checked_at_load(fk_dir, value, exc,
+                                                     match):
+    """``integrate_over: x`` loaded and then failed in ``evaluate`` after
+    the propagators were built; a name the observable does not use loaded
+    too."""
+    with pytest.raises(exc, match=r"^sweep\.integrate_over.*" + match):
+        load_workflow_config(_write(fk_dir, _fk_config(integrate_over=value)))
+
+
+def test_SS13_one_point_name_is_that_point(fk_dir, expansion, props):
+    """One string other than ``all`` is one point name, as one string is
+    one vertex-type label, so ``--override sweep.integrate_over=x`` runs."""
+    ref = _sweep(expansion, props, orders=2, vertex_types="FK",
+                 integrate_over={"x"}).totals()
+    fixed = _sweep(expansion, props, orders=2, vertex_types="FK").totals()
+    assert np.all(np.abs(ref["value"].to_numpy()
+                         - fixed["value"].to_numpy()) > 1e-3)
+    configs = [
+        load_workflow_config(_write(fk_dir, _fk_config(integrate_over="x"))),
+        load_workflow_config(_write(fk_dir, _fk_config()),
+                             overrides=_parse_overrides(
+                                 ["sweep.integrate_over=x"])),
+        load_workflow_config(_write(fk_dir, _fk_config(integrate_over=["x"]))),
+        load_workflow_config(_write(fk_dir, _fk_config()),
+                             overrides={"sweep.integrate_over": ("x",)}),
+    ]
+    for cfg in configs:
+        assert cfg.sweep.integrate_over == ["x"]
+        got = run_workflow(cfg, progress=False)[1]
+        np.testing.assert_allclose(got["value"].to_numpy(),
+                                   ref["value"].to_numpy(), rtol=1e-13, atol=0)
+
+
+@pytest.mark.parametrize("value", [None, "all", []], ids=repr)
+def test_SS13_null_all_and_empty_load_as_given(fk_dir, value):
+    cfg = load_workflow_config(_write(fk_dir, _fk_config(integrate_over=value)))
+    assert cfg.sweep.integrate_over == value

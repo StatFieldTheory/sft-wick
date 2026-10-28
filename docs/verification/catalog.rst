@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **4834 tests** in 113 files (parametrised
+The suite has **4899 tests** in 113 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -527,7 +527,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*625 tests in 18 files.*
+*690 tests in 18 files.*
 
 .. list-table::
    :header-rows: 1
@@ -604,10 +604,10 @@ Workflow and YAML
      - 1e-12 (GL) / 2e-3 (QMC); exact parity
      - 35
    * - ``test_sweep_selectors.py``
-     - the sweep's diagram selectors: a string vertex_types is one label and an integer orders one order, at L1, in YAML, through the CLI override and in the dry-run estimate; absent labels and orders, empty selections and other types refused before any integral; every observable point required in positions_grid; YAML blocks of the wrong shape refused with their names
+     - the sweep's diagram selectors: a string vertex_types is one label and an integer orders one order, at L1, in System.expand, in YAML, through the CLI override and in the dry-run estimate; vertex_types as any iterable of strings; absent labels and orders, empty selections and other types refused before any integral, except a label the connected target holds as a zero; every observable point required in positions_grid; integrate_over checked at load; tuple and NumPy overrides of list fields; YAML blocks of the wrong shape refused with their names
      - the FK channel of a constant kappa^3 as a 1-D scipy quad integral
      - 1e-9
-     - 70
+     - 135
    * - ``test_system_t_min.py``
      - System.t_min reaches the integrators through Expansion.evaluate and sweep; a cache built for another t_min is refused
      - time-translation invariance (stationary noise, constant drift)

@@ -274,6 +274,11 @@ a vertex whose coupling is identically zero is not generated.
 :math:`g_1^2`, ``H`` sits at order 1 and ``GG``, ``GB``, ``BB`` at order 2
 (and ``L`` at order 1 under Stratonovich).  Use
 ``Expansion.by_vertex_type`` / ``vertex_types=`` to collect a fixed power.
+Under the moment target ``vertex_types=`` refuses a label no diagram at the
+selected orders carries, and many vertex sets give no diagram (an odd
+number of fields, a vanishing response loop), so pass the labels of the
+power that ``Expansion.by_vertex_type(order)`` holds, as
+``examples/demo5/white_l1_multiplicative.py`` does.
 
 Expand with ``ito=True`` (the default): the numerical layer evaluates the
 Itô form, and under ``ito=False`` it refuses the equal-point R of a
@@ -1008,7 +1013,9 @@ a misspelt key cannot fall back to its default.
                                        # a diagram's distinct vertices, so two F
                                        # vertices give F.  A label no diagram carries
                                        # raises and names the labels present.
-     integrate_over:   null            # null | "all" | ["x"] | ...
+     integrate_over:   null            # null | all | one point name (x) | a list
+                                       # ([x, y]); a name the observable does not
+                                       # use raises when the file is loaded
 
      method:           qmc_vectorized  # 'qmc_vectorized' | 'qmc' | 'qmc_scalar'
                                        # | 'gauss_legendre' | 'nquad'
@@ -1430,11 +1437,11 @@ Section reference: ``sweep``
    * - ``vertex_types``
      - ``str``, ``list[str]`` or ``null``
      - ``null``
-     - Filter diagrams by vertex composition (e.g. ``["FK"]`` for demo2's cross-term).  One string is one label, so ``vertex_types: FK`` and ``--override sweep.vertex_types=FK`` select the FK channel.  A label joins the sorted names of a diagram's distinct vertices (two F vertices give ``F``; order 0 gives ``""``).  A label no diagram at the selected orders carries raises before the propagators are built, and the message lists the labels present
+     - Filter diagrams by vertex composition (e.g. ``["FK"]`` for demo2's cross-term).  One string is one label, so ``vertex_types: FK`` and ``--override sweep.vertex_types=FK`` select the FK channel.  A label joins the sorted names of a diagram's distinct vertices (two F vertices give ``F``; order 0 gives ``""``).  A label no diagram at the selected orders carries raises before the propagators are built, and the message lists the labels present.  Under ``target: connected`` a label such a diagram could carry (the sorted names of at most that many vertices) is accepted and gives the zero coefficient the connected target reports
    * - ``integrate_over``
-     - ``null`` / ``"all"`` / ``list[str]``
+     - ``null`` / ``"all"`` / ``str`` / ``list[str]``
      - ``null``
-     - External-time integration: ``null`` = fixed at ``t_final``, ``"all"`` = integrate every external, list = explicit subset
+     - External-time integration: ``null`` = fixed at ``t_final``, ``"all"`` = integrate every external, list = explicit subset.  One string other than ``all`` is one point name, so ``integrate_over: x`` and ``--override sweep.integrate_over=x`` integrate the time of ``x``.  A name ``expand.observable`` does not use is refused when the file is loaded
    * - ``method``
      - ``str``
      - ``"qmc_vectorized"``
