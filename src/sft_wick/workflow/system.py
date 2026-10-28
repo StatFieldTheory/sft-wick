@@ -15,6 +15,7 @@ import numpy as np
 from sft_wick.action import Action
 from sft_wick.evaluate import PropagatorModel
 from sft_wick.fields import Field, FieldOperator, reset_uid_counter
+from sft_wick.indices import is_generated_name, observable_labels
 from sft_wick.perturbation import check_distinct_external_labels
 from sft_wick.vertices import Vertex
 
@@ -477,6 +478,12 @@ class System:
         # Keep the preexisting moment cache key exactly unchanged.
         if target != "moment":
             spec_key["target"] = target
+        # An observable label spelled like a generated name (``y_0``,
+        # ``i_1``) used to merge with a vertex point or index, so a cache
+        # entry written before the generators skipped such labels holds a
+        # wrong expansion.  Only these observables get a new key.
+        if any(is_generated_name(lab) for lab in observable_labels(obs_ops)):
+            spec_key["labels_reserved"] = True
 
         def _compute():
             reset_uid_counter()

@@ -39,17 +39,18 @@ refused.
 
 The implementation first checks an exact necessary edge-count condition. It
 then filters spatial representatives when each coordinate label has one
-incidence owner. A coordinate label shared by an external occurrence and a
-generated internal leg uses exact per-routing occurrence filtering. Equal-time
+incidence owner. A coordinate label shared by an external occurrence and an
+internal leg uses exact per-routing occurrence filtering. Equal-time
 and absorbed-response aliases retain the original vertex incidence; filtering
 takes place before those lowering operations. Signed coefficients,
 multiplicities, ordered tensor slots and MSR phases are preserved.
 
-The collision fallback checks graph selection and routing. It does not repair
-the existing raw coordinate namespace: an external label such as ``y_0`` can
-also be allocated internally and collide in downstream integration maps. Use
-unambiguous external labels when evaluating physical values; collision graph
-tests do not establish end-to-end numerical correctness for that spelling.
+:func:`~sft_wick.perturbation.compute_moment` and
+:func:`~sft_wick.perturbation.compute_moment_numerical` name the vertex points
+and indices around the observable's labels (see
+:class:`~sft_wick.indices.IndexContext`), so an external label such as ``y_0``
+is never also an internal one and the shared-label filtering is reached only
+by callers that build their own vertex instances.
 
 Normalization and interpretation
 --------------------------------

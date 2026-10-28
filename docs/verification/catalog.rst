@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **4764 tests** in 112 files (parametrised
+The suite has **4875 tests** in 113 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -252,7 +252,7 @@ Propagator numerics
 Integrators
 -----------
 
-*2011 tests in 52 files.*
+*2122 tests in 53 files.*
 
 .. list-table::
    :header-rows: 1
@@ -498,6 +498,11 @@ Integrators
      - gauss_legendre on the same diagrams; demo 4's closed form and exact moment hierarchy; numpy hand contraction
      - 1e-10 - 1e-12
      - 38
+   * - ``test_observable_label_collision.py``
+     - observable labels spelled like generated names (points y_0, y_1, ...; indices i_0, i_1, ...) give the values of ordinary labels at orders 0 to 4, at L0 (both engines, symbolic and operator-level expressions), L1 and YAML; generator and cache-key unit checks
+     - the ordinary-label spelling of the same observable; the exact Itô moment hierarchy (examples/reference/ito_moments.py)
+     - 1e-12; 1e-6 against the hierarchy
+     - 111
    * - ``test_qmc_coupling_chunks.py``
      - explicit coupling-only QMC partitions, sample order and whole-batch statistics/phase/support, callback protocol and L0/L1/L2/joblib forwarding
      - elementary constant/polynomial integrals; original full QMC output and independent sample statistics; malformed and excluded callback witnesses

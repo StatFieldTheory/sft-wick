@@ -176,5 +176,10 @@ the counters to ensure no collisions between copies:
 - **Component indices:** ``i_0``, ``i_1``, ``i_2``, ...
 - **Spatial variables:** ``y_0``, ``y_1``, ``y_2``, ...
 
+The counters skip every spatial and component label of the observable, so an
+observable may name a point ``y_0`` or a component ``i_1``; the vertex copies
+then use the next free names.  The renaming of the summed indices after a
+diagonal constraint skips them in the same way.
+
 :func:`~sft_wick.perturbation.compute_moment` handles this.  Only the
 low-level API requires touching ``VertexInstance`` directly.

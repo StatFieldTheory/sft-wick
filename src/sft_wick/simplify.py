@@ -18,6 +18,7 @@ from itertools import permutations
 from .expressions import (
     ZERO,
     ONE,
+    DiracDelta,
     Expr,
     IntegralOver,
     KroneckerDelta,
@@ -28,6 +29,7 @@ from .expressions import (
     SumOverIndex,
     Symbol,
 )
+from .indices import fresh_names
 
 
 def simplify(expr: Expr) -> Expr:
@@ -1026,7 +1028,12 @@ def _diag_product(
 
 
 def _canonical_expr_indices(expr: Expr) -> Expr:
-    """Rename SumOverIndex variables to i_0, i_1, ... in DFS first-appearance order."""
+    """Rename SumOverIndex variables to i_0, i_1, ... in DFS first-appearance order.
+
+    The new names skip every other label in ``expr`` (an observable index
+    or point spelled ``i_0``, say), which would otherwise be captured by
+    the renamed sum.
+    """
     seen: list[str] = []
     seen_set: set[str] = set()
 
@@ -1046,10 +1053,48 @@ def _canonical_expr_indices(expr: Expr) -> Expr:
                 _collect(child)
 
     _collect(expr)
-    rename = {old: f"i_{j}" for j, old in enumerate(seen) if old != f"i_{j}"}
+    targets = fresh_names("i", len(seen), expr_labels(expr) - seen_set)
+    rename = {old: new for old, new in zip(seen, targets) if old != new}
     if not rename:
         return expr
     return _apply_index_sub(expr, rename)
+
+
+def expr_labels(expr: Expr) -> set[str]:
+    """Every component-index name and spatial label in ``expr``, bound or
+    free: propagator and symbol indices and points, Kronecker and Dirac
+    delta arguments, summed indices and integrated points."""
+    out: set[str] = set()
+
+    def _walk(e: Expr) -> None:
+        if isinstance(e, Propagator):
+            out.update(
+                n
+                for n in (e.index_left, e.index_right, e.spatial_left, e.spatial_right)
+                if n is not None
+            )
+        elif isinstance(e, Symbol):
+            out.update(e.indices)
+            out.update(e.spatial_args)
+        elif isinstance(e, KroneckerDelta):
+            out.update((e.index1, e.index2))
+        elif isinstance(e, DiracDelta):
+            out.update((e.arg1, e.arg2))
+        elif isinstance(e, SumOverIndex):
+            out.add(e.index_name)
+            _walk(e.body)
+        elif isinstance(e, IntegralOver):
+            out.add(e.variable)
+            _walk(e.body)
+        elif isinstance(e, Product):
+            for child in e.factors:
+                _walk(child)
+        elif isinstance(e, Sum):
+            for child in e.terms:
+                _walk(child)
+
+    _walk(expr)
+    return out
 
 
 def _apply_index_sub(expr: Expr, sub: dict[str, str]) -> Expr:
