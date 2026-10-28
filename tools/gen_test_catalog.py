@@ -165,10 +165,11 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Finite Gaussian observables",
         "OU private scratch and fourth-order native ordered-prefix reuse; "
         "bounded memory/protocol bypass, scalar order, range fallback and input state; "
-        "mixed cumulants keep the frozen bits or round correctly",
+        "mixed cumulants keep the frozen bits or round correctly; the 0.7.0 "
+        "cancellation threshold at 1e-10 of the Frobenius bound, from both sides",
         "source-pinned frozen reference implementation with exact bytes/error args; "
         "independent Gauss-Hermite central cumulants, native matmul line witnesses "
-        "and Python-int mixed contractions",
+        "and Python-int and Fraction mixed contractions",
         "exact byte/error/state/count parity; 3e-12 relative / absolute GH",
     ),
     "tests/test_ou_white_cumulant.py": (
