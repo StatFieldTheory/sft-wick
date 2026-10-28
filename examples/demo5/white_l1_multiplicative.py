@@ -160,9 +160,15 @@ def package_by_tag(system, props, exps, comps, method, kw, max_weight,
     out: dict = defaultdict(float)
     for order in range(max_weight + 1):
         exp = exps[order]
+        # Many vertex multisets give no diagram (an odd number of fields, a
+        # vanishing response loop); Expansion.evaluate refuses a label no
+        # diagram carries, so ask only for the labels this order holds.
+        wanted = labels(w, order, max_weight) & set(exp.by_vertex_type(order))
+        if not wanted:
+            continue
         res = exp.evaluate(
             props, positions=POS, t_final=t_final, component_pair=comps,
-            orders=[order], vertex_types=labels(w, order, max_weight),
+            orders=[order], vertex_types=wanted,
             method=method, external_times=external_times, **kw)
         for row in res.per_diagram:
             tag = tag_of(exp.diagrams(order)[row["diagram_idx"]], w)

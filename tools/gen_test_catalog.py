@@ -931,6 +931,17 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Expansion.evaluate at the same point",
         "exact (sweep vs evaluate) / 1e-12 / 5e-3 (QMC)",
     ),
+    "tests/test_sweep_selectors.py": (
+        "Workflow and YAML",
+        "the sweep's diagram selectors: a string vertex_types is one label "
+        "and an integer orders one order, at L1, in YAML, through the CLI "
+        "override and in the dry-run estimate; absent labels and orders, "
+        "empty selections and other types refused before any integral; "
+        "every observable point required in positions_grid; YAML blocks of "
+        "the wrong shape refused with their names",
+        "the FK channel of a constant kappa^3 as a 1-D scipy quad integral",
+        "1e-9",
+    ),
     "tests/test_yaml_spec_coverage.py": (
         "Workflow and YAML",
         "the L1 specs YAML could not express: custom temporal / spatial / "

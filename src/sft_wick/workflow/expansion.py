@@ -7,6 +7,7 @@ LaTeX, integrate point-by-point or as a sweep.
 
 from __future__ import annotations
 
+import collections.abc
 import itertools
 import numbers
 import string
@@ -252,8 +253,8 @@ class Expansion:
         positions: dict[str, Any],
         t_final: float,
         component_pair: tuple | None = None,
-        orders: Iterable[int] | None = None,
-        vertex_types: Iterable[str] | None = None,
+        orders: int | Iterable[int] | None = None,
+        vertex_types: str | Iterable[str] | None = None,
         integrate_over: Any = None,
         method: str = "qmc_vectorized",
         n_samples: int = 2**13,
@@ -287,12 +288,17 @@ class Expansion:
                 observable.  ``None`` (default) is ``(0, ..., 0)``.  A
                 tuple of the wrong length, or with an index outside
                 ``0..N-1``, raises ``ValueError``.
-            orders: subset of the expansion's orders; ``None`` uses
-                all.
-            vertex_types: subset of the vertex-composition labels
-                (e.g. ``{"F"}``, ``{"FK"}``) to include; labels
-                match :meth:`by_vertex_type` keys.  ``None`` ⇒ all.
-                Useful for computing a single channel, or for
+            orders: subset of the expansion's orders, as one integer or a
+                list of them; ``None`` uses all.  An order the expansion
+                does not hold, an empty list, and a boolean, string or
+                float raise.
+            vertex_types: the vertex-composition labels to include, as one
+                string (``"FK"``) or a list, tuple or set of strings
+                (``{"F", "FK"}``); labels match :meth:`by_vertex_type`
+                keys.  ``None`` ⇒ all.  A label no diagram at the
+                selected orders carries raises ``ValueError`` naming the
+                labels present, so a misspelt label cannot drop its
+                channel.  Useful for computing a single channel, or for
                 skipping channels that require a bespoke
                 integrator (e.g. non-local K whose coupling is
                 spacetime-dependent; see demo2).
@@ -370,12 +376,17 @@ class Expansion:
             contraction_max_bytes,
         )
 
-        orders_list = (
-            sorted(set(int(o) for o in orders))
-            if orders is not None
-            else list(self.orders)
-        )
-        vtype_filter = None if vertex_types is None else set(vertex_types)
+        # Collect tasks (diagram_term + metadata) up-front, in stable order,
+        # then dispatch the whole batch to ``integrate_diagrams`` which handles
+        # the sequential vs joblib loky path internally (n_jobs=1 stays serial,
+        # bit-identical to the pre-refactor loop).
+        if _prepared is None:
+            orders_list, _vtype_filter, tasks = self._selection(
+                orders, vertex_types, "Expansion.evaluate"
+            )
+        else:
+            orders_list = self._orders_list(orders, "Expansion.evaluate")
+            tasks = _prepared.tasks
         coupling_values = (
             self.system.build_coupling_values()
             if _prepared is None
@@ -388,16 +399,6 @@ class Expansion:
             "Expansion.evaluate",
         )
         fi = _component_indices(component_pair, self.observable_repr)
-
-        # Collect tasks (diagram_term + metadata) up-front, in stable order,
-        # then dispatch the whole batch to ``integrate_diagrams`` which handles
-        # the sequential vs joblib loky path internally (n_jobs=1 stays serial,
-        # bit-identical to the pre-refactor loop).
-        tasks = (
-            self._evaluation_tasks(orders_list, vtype_filter)
-            if _prepared is None
-            else _prepared.tasks
-        )
 
         diagram_terms = [task[3] for task in tasks]
 
@@ -512,8 +513,8 @@ class Expansion:
         external_times_grid: dict[str, list] | None = None,
         component_pairs: Iterable[tuple] | None = None,
         component_tuples: Iterable[tuple] | None = None,
-        orders: Iterable[int] | None = None,
-        vertex_types: Iterable[str] | None = None,
+        orders: int | Iterable[int] | None = None,
+        vertex_types: str | Iterable[str] | None = None,
         integrate_over: Any = None,
         method: str = "qmc_vectorized",
         n_samples: int = 2**13,
@@ -561,10 +562,11 @@ class Expansion:
                 ``(0, ..., 0)``.  A tuple of the wrong length, an index
                 outside ``0..N-1`` or a repeated tuple raises
                 ``ValueError``.
-            vertex_types: optional filter with the same semantics as in
-                :meth:`evaluate`; only diagrams whose
-                :meth:`_vertex_type_label` lies in this set are
-                integrated.  ``None`` ⇒ all channels.
+            orders, vertex_types: optional filters with the same semantics
+                as in :meth:`evaluate`; only diagrams of these orders whose
+                :meth:`_vertex_type_label` lies in the label set are
+                integrated.  ``None`` ⇒ all orders and channels.  Both are
+                checked before any grid point is integrated.
             n_jobs: parallelise over Cartesian-product grid points
                 (``positions × t_final × external times × component
                 tuples``).
@@ -743,10 +745,9 @@ class Expansion:
         if not isinstance(reuse_integrands, (bool, np.bool_)):
             raise TypeError("reuse_integrands must be a boolean.")
 
-        orders_list = (
-            sorted(set(int(o) for o in orders))
-            if orders is not None
-            else list(self.orders)
+        # The diagrams each grid point integrates, checked before the grid.
+        orders_list, vtype_filter, tasks = self._selection(
+            orders, vertex_types, "Expansion.sweep"
         )
 
         pos_keys = list(positions_grid.keys())
@@ -869,8 +870,6 @@ class Expansion:
             )
 
         # Diagrams per grid point, for the progress bar's total.
-        vtype_filter = None if vertex_types is None else set(vertex_types)
-        tasks = self._evaluation_tasks(orders_list, vtype_filter)
         n_diag = len(tasks)
         prepared = (
             self._prepare_sweep(
@@ -902,7 +901,7 @@ class Expansion:
                 external_times=ext_times,
                 component_pair=comp,
                 orders=orders_list,
-                vertex_types=vertex_types,
+                vertex_types=vtype_filter,
                 integrate_over=integrate_over,
                 method=method,
                 n_samples=n_samples,
@@ -992,13 +991,53 @@ class Expansion:
     # Internal helpers
     # --------------------------------------------------------------- #
 
-    def _evaluation_tasks(self, orders, vtype_filter):
+    def _orders_list(self, orders, label):
+        """The selected orders as a sorted list; every one must be an order
+        of this expansion (it used to end in ``KeyError``)."""
+        selected = _order_selection(orders, f"{label}: orders")
+        if selected is None:
+            return list(self.orders)
+        absent = [o for o in selected if o not in self.dts_by_order]
+        if absent:
+            raise ValueError(
+                f"{label}: order(s) {absent} are not in the expansion; it "
+                f"holds orders {list(self.orders)}."
+            )
+        return list(selected)
+
+    def _selection(self, orders, vertex_types, label):
+        """``(orders_list, vtype_filter, tasks)`` for an ``orders`` /
+        ``vertex_types`` selection, checked before anything is integrated."""
+        orders_list = self._orders_list(orders, label)
+        vtype_filter = _vertex_type_selection(vertex_types, f"{label}: vertex_types")
+        tasks = self._evaluation_tasks(orders_list, vtype_filter, label)
+        return orders_list, vtype_filter, tasks
+
+    def _evaluation_tasks(self, orders, vtype_filter, label="Expansion.evaluate"):
+        """``(order, i, label, diagram)`` for each selected diagram.
+
+        A requested vertex type that no diagram at these orders carries
+        raises ``ValueError``: it used to select nothing, so ``evaluate``
+        returned 0 and a sweep failed in ``totals()``, or, among other
+        labels, it dropped its channel without a message.
+        """
         tasks = []
+        present = set()
         for order in orders:
             for i, dt in enumerate(self.dts_by_order[order]):
                 vtype = self._vertex_type_label(dt)
+                present.add(vtype)
                 if vtype_filter is None or vtype in vtype_filter:
                     tasks.append((order, i, vtype, dt))
+        absent = sorted(set(vtype_filter or ()) - present)
+        if absent:
+            raise ValueError(
+                f"{label}: no diagram at order(s) {list(orders)} has the "
+                f"vertex type(s) {absent}; the vertex types present are "
+                f"{sorted(present)}.  A label joins the sorted names of a "
+                f"diagram's distinct vertices: two F vertices give 'F', an F "
+                f"and a K give 'FK', and an order-0 diagram gives ''."
+            )
         return tuple(tasks)
 
     def _prepare_sweep(
@@ -1241,6 +1280,84 @@ def _resolve_component_tuples(
             )
         out.append(t)
     return out
+
+
+def _is_integer(value) -> bool:
+    """An integer that is not a boolean (``bool`` is an ``Integral``)."""
+    return isinstance(value, numbers.Integral) and not isinstance(
+        value, (bool, np.bool_)
+    )
+
+
+def _order_selection(orders, label):
+    """``orders`` as a sorted tuple of distinct ints; ``None`` stays ``None``.
+
+    One integer is one order (``--override sweep.orders=2`` gives one).  A
+    boolean, a string, a float or another scalar raises ``TypeError``, and
+    so does a list entry that is not an integer: iterating ``"2"`` used to
+    give the order 2, and ``int(2.5)`` gave 2.  An empty selection raises
+    ``ValueError``.  ``label`` names the argument, e.g. ``"sweep.orders"``.
+    """
+    if orders is None:
+        return None
+    if _is_integer(orders):
+        return (int(orders),)
+    usage = (
+        f"{label} must be an integer order or a list of them, e.g. 2 or "
+        f"[0, 2]; got {orders!r}."
+    )
+    if isinstance(
+        orders, (str, bytes, collections.abc.Mapping, numbers.Number, np.bool_)
+    ):
+        raise TypeError(usage)
+    try:
+        entries = list(orders)
+    except TypeError:
+        raise TypeError(usage) from None
+    for o in entries:
+        if not _is_integer(o):
+            raise TypeError(
+                f"{label}: the order {o!r} in {orders!r} is not an integer."
+            )
+    if not entries:
+        raise ValueError(
+            f"{label} is empty, so it selects no order; pass None for every "
+            f"order of the expansion."
+        )
+    return tuple(sorted({int(o) for o in entries}))
+
+
+def _vertex_type_selection(vertex_types, label):
+    """``vertex_types`` as a frozenset of labels; ``None`` stays ``None``.
+
+    A single string is one label: ``set("FK")`` used to select ``{"F",
+    "K"}``, so ``vertex_types="FK"`` returned the F channel.  A list, tuple
+    or set of strings is a set of labels.  Anything else raises
+    ``TypeError``, and an empty selection raises ``ValueError``.  ``label``
+    names the argument, e.g. ``"sweep.vertex_types"``.
+    """
+    if vertex_types is None:
+        return None
+    if isinstance(vertex_types, str):
+        return frozenset((vertex_types,))
+    if not isinstance(vertex_types, (list, tuple, collections.abc.Set)):
+        raise TypeError(
+            f"{label} must be a vertex-type label such as 'FK' or a list of "
+            f"labels such as ['F', 'FK']; got {vertex_types!r}."
+        )
+    entries = list(vertex_types)
+    for v in entries:
+        if not isinstance(v, str):
+            raise TypeError(
+                f"{label}: the entry {v!r} in {vertex_types!r} is not a "
+                f"vertex-type label (a string such as 'FK')."
+            )
+    if not entries:
+        raise ValueError(
+            f"{label} is empty, so it selects no diagram; pass None for "
+            f"every diagram."
+        )
+    return frozenset(entries)
 
 
 def _axis_key(value):
