@@ -251,6 +251,24 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "exact midpoint between two float64 values",
         "exact rational bounds; bitwise correctly rounded values",
     ),
+    "tests/test_quadratic_symmetrization.py": (
+        "Finite Gaussian observables",
+        "symmetric part of declared quadratic matrices: exactly symmetric "
+        "matrices with odd subnormal and lowest-binade entries kept, exact "
+        "power-of-two whitening, mean shifts, declared-observable cumulants, "
+        "nonsymmetric pairs rounded once, refusal of a symmetric part with an "
+        "unrepresentable entry below 2**-1022 at every constructor, a "
+        "whitened matrix rounded without refusal, a raising NumPy error state, "
+        "both averaging methods at the 2**-900 switch, earlier bits on inputs "
+        "whose halves are exact in C order, Fortran order and transposed "
+        "views on both sides of N = 181/182, and the peak temporary memory "
+        "of a triangular declaration",
+        "independent Fraction arithmetic on the declared arrays and the joint "
+        "CGF of Gaussian quadratic forms; source-pinned frozen preparation; "
+        "tracemalloc peak of the earlier expression",
+        "exact bytes; correctly rounded or certified 1e-12 relative cumulants; "
+        "peak at most half a matrix above the earlier expression",
+    ),
     "tests/test_gaussian_quadratic.py": (
         "Finite Gaussian observables",
         "prepared finite quadratic CGFs, rings/chains, covariance support, domains, "

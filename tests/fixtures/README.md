@@ -13,6 +13,10 @@ SHA-256 of the two members:
 `tests/test_quadratic_white_reference_parity.py` loads both modules from the
 archive, checks each against its SHA-256 pin before executing it, and
 compares the current implementation with it for byte-level numerical parity.
+`tests/test_quadratic_symmetrization.py` loads `quadratic.py` the same way and
+compares the prepared matrices, endpoints and constants, and the single-law
+spectra and cumulants, on inputs whose halves are exact in float64, given in C
+order, in Fortran order and as transposed views.
 The archive sits with the tests so that a clean checkout or a source
 distribution can run them. Do not regenerate it when the implementation
 changes: it is the fixed reference.
