@@ -125,6 +125,20 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "documented bound 1.01 (m + A T) u S with S from the summed coefficient; 1e-12 "
         "relative where a decline keeps the ordered value; L1 diagrams 1e-12 of the largest",
     ),
+    "tests/test_contraction_workspace_budget.py": (
+        "Integrators",
+        "contraction_max_bytes bounds every array of an einsum or factorized call: each "
+        "call run at the smallest budget that admits it (found by bisection) on diagrams "
+        "captured from Expansion.evaluate (N = 2, 3, 5; orders 2 and 4; diag_C off and on; "
+        "pinned components) at 16, 256 and 8192 samples, kernel layouts (full, diagonal, "
+        "partial-support, index-free, pinned delta, R trace, five and six indices; real and "
+        "complex coefficients, C-ordered, Fortran-ordered and strided) and factorized "
+        "monomials and sums with full and partial R supports; some calls at "
+        "numpy.setbufsize(32) and 2**20; range scan in blocks against the whole array",
+        "tracemalloc peak of the call; numpy whole-array maximum and smallest nonzero magnitude",
+        "peak <= budget + 16 KiB + 512 bytes per einsum operand for Python objects (measured "
+        "excess at most 21040 bytes, 32 operands); exact equality of ranges",
+    ),
     "tests/test_resource_controls.py": (
         "Workflow and YAML",
         "pure configuration resource scopes and conditional/bypass statuses; connected dry-run target",

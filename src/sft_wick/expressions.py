@@ -573,47 +573,11 @@ def _flatten_product(factors: Sequence[Expr]) -> tuple[Expr, ...]:
     return tuple(result)
 
 
-# Capture numeric expression protocols at definition time. Optional backends
-# must not treat a later first observation of a customized class as native.
-def _freeze_native_numeric_protocol(cls):
-    from functools import cached_property
-    from types import FunctionType
-
-    namespace = dict(cls.__dict__)
-    namespace.pop("__slotnames__", None)
-    functions = []
-    for member in namespace.values():
-        if type(member) is FunctionType:
-            candidates = ((member, None, member),)
-        elif type(member) in (staticmethod, classmethod):
-            candidates = ((member, "__func__", member.__func__),)
-        elif type(member) is cached_property:
-            candidates = ((member, "func", member.func),)
-        elif type(member) is property:
-            candidates = tuple(
-                (member, name, getattr(member, name))
-                for name in ("fget", "fset", "fdel")
-            )
-        else:
-            candidates = ()
-        for descriptor, attribute, function in candidates:
-            if type(function) is FunctionType:
-                functions.append(
-                    (
-                        descriptor,
-                        attribute,
-                        function,
-                        function.__code__,
-                        function.__defaults__,
-                        dict(function.__kwdefaults__ or {}),
-                    )
-                )
-    return namespace, tuple(functions)
-
-
+# Definition-time bindings of the expression classes the factorized backend
+# lowers.  That backend is imported lazily, so it reads them from here: a
+# module attribute deleted or replaced after this module ran does not change
+# which classes it accepts.
 _NATIVE_NUMERIC_EXPRESSION_CLASSES = (
-    Expr,
-    ABC,
     Product,
     Sum,
     Symbol,
@@ -621,53 +585,3 @@ _NATIVE_NUMERIC_EXPRESSION_CLASSES = (
     ImaginaryUnit,
     Propagator,
 )
-_NATIVE_NUMERIC_EXPRESSION_PROTOCOLS = tuple(
-    (cls, _freeze_native_numeric_protocol(cls))
-    for cls in _NATIVE_NUMERIC_EXPRESSION_CLASSES
-)
-_NATIVE_NUMERIC_EXPRESSION_BASES = tuple(
-    (cls, cls.__bases__) for cls in _NATIVE_NUMERIC_EXPRESSION_CLASSES
-)
-
-
-def _capture_native_numeric_abc_protocol():
-    import _abc
-    from abc import ABCMeta
-    from types import BuiltinFunctionType, FunctionType
-
-    dump = _abc.__dict__.get("_get_dump")
-    available = (
-        type(dump) is BuiltinFunctionType
-        and dump.__module__ == "_abc"
-        and dump.__name__ == "_get_dump"
-    )
-    registries = (
-        tuple(
-            (cls, frozenset(dump(cls)[0])) for cls in _NATIVE_NUMERIC_EXPRESSION_CLASSES
-        )
-        if available
-        else ()
-    )
-    methods = tuple(
-        member for member in ABCMeta.__dict__.values() if type(member) is FunctionType
-    )
-    globals_read = tuple(
-        (function.__globals__, name, function.__globals__[name])
-        for function in methods
-        for name in function.__code__.co_names
-        if name in function.__globals__
-    )
-    return (
-        _abc.__dict__,
-        dump,
-        available,
-        ABCMeta,
-        _freeze_native_numeric_protocol(ABCMeta),
-        ABCMeta.__bases__,
-        registries,
-        globals_read,
-    )
-
-
-_NATIVE_NUMERIC_ABC_PROTOCOL = _capture_native_numeric_abc_protocol()
-del _capture_native_numeric_abc_protocol
