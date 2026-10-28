@@ -716,7 +716,7 @@ def planned_path(shapes, labels):
 
     The loop space of a step spans every label of its two operands; NumPy's
     iterator buffers at most that many entries per operand
-    (:func:`iterator_buffers`).  Returns ``(None, 0)`` when planning fails.
+    (:func:`einsum_buffers`).  Returns ``(None, 0)`` when planning fails.
     """
     plan = plan_contraction(shapes, labels)
     if plan is None:
@@ -838,7 +838,7 @@ def count_bytes(dims, mask_shape, restricted):
     if plan is None:
         return None
     copies = sum(view.size for view, _ in restricted) + 1
-    return 8 * (copies + plan[2]) + iterator_buffers(loop)
+    return 8 * (copies + plan[2]) + einsum_buffers(loop)
 
 
 def live_assignments(dims, coefficient_mask, supports, *, restricted=None):
@@ -914,18 +914,39 @@ def _supports_hold(zero_checks) -> bool:
     return True
 
 
-def iterator_buffers(elements: int) -> int:
-    """Bytes NumPy may allocate inside one call that iterates ``elements``
-    float64 entries.
+#: Entries per operand of the iterator buffers of ``numpy.einsum``.  It hands
+#: its iterator a buffer size of 0, which selects NumPy's compiled default
+#: of 8192 entries; ``numpy.setbufsize`` does not change it.
+_EINSUM_BUFSIZE = 8192
 
-    NumPy's iterator can buffer each operand of a ufunc, a reduction or a
-    pairwise ``einsum`` (two inputs and the output) in up to
-    ``numpy.getbufsize()`` entries.  Measured with NumPy 2.2: two buffers
-    for a reduction over a multidimensional view and for an ``einsum`` step
-    that forms an outer product over shared sample axes, one for a
-    multiplication of a strided view; NumPy 2.4 used at most two.
+
+def iterator_buffers(elements: int) -> int:
+    """Bytes NumPy may allocate inside one ufunc or reduction call that
+    iterates ``elements`` float64 entries.
+
+    NumPy's iterator can buffer each operand (two inputs and the output) in
+    up to ``numpy.getbufsize()`` entries.  Measured with NumPy 2.2 at the
+    default buffer size: two buffers (131072 bytes) for a multiplication of
+    a strided three-dimensional view and for a maximum over one; with NumPy
+    2.4 the same calls allocated less than 64 KiB.  :func:`einsum_buffers`
+    counts ``numpy.einsum``, which does not follow ``numpy.getbufsize()``.
     """
     return 24 * min(np.getbufsize(), elements)
+
+
+def einsum_buffers(elements: int) -> int:
+    """Bytes NumPy may allocate inside one ``numpy.einsum`` call whose loop
+    space has ``elements`` points.
+
+    Up to ``_EINSUM_BUFSIZE`` entries for each of two inputs and the output,
+    whatever ``numpy.getbufsize()`` holds.  Measured with NumPy 2.2: three
+    buffers of 8192 entries (196608 bytes) in a step that contracts a
+    six-dimensional coefficient with merged labels against a kernel and two
+    in a strided outer product, at ``numpy.setbufsize(32)``, 8192 and
+    ``2**20`` alike; with NumPy 2.4 the outer product allocated about 64 KiB
+    and the other step no buffer.
+    """
+    return 24 * min(_EINSUM_BUFSIZE, elements)
 
 
 def layout_bytes(layout) -> int:
@@ -1058,7 +1079,7 @@ def plan_groups(groups, layout, dims, samples):
             return None
         steps, flops, step_elements = plan
         cost += len(steps) * _BACKEND_STEP + flops * _BACKEND_FLOP
-        intermediates = max(intermediates, 8 * step_elements + iterator_buffers(loop))
+        intermediates = max(intermediates, 8 * step_elements + einsum_buffers(loop))
         planned.append((phase, resolved, steps))
     if len(groups) > 1:
         # The accumulated result and the previous group's result.
@@ -1067,9 +1088,13 @@ def plan_groups(groups, layout, dims, samples):
     for kind, array in layout.deferred:
         cost += array.size * (5 if kind == "isotropic" else 1) * _BACKEND_ELEMENT
         # _isotropic_C holds at most three arrays of the batch's size at once,
-        # its output among them; the trace's output is counted below.
-        held = 24 * array.size if kind == "isotropic" else 0
-        deferred_peak = max(deferred_peak, held + iterator_buffers(array.size))
+        # its output among them, and runs ufuncs and reductions; the trace is
+        # one einsum, its output counted below.
+        if kind == "isotropic":
+            held = 24 * array.size + iterator_buffers(array.size)
+        else:
+            held = einsum_buffers(array.size)
+        deferred_peak = max(deferred_peak, held)
     deferred_values = 8 * samples * len(layout.deferred)
     # finish() first computes the index-free factors, then copies and scans
     # the kernels one at a time, then runs the planned steps.
