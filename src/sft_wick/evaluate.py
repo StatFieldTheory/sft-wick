@@ -2087,9 +2087,11 @@ def _probe_diagonal_cusp(model: "PropagatorModel", positions: tuple) -> bool:
         vals = []
         for lam0 in (t_min + 0.7, t_min + 2.3):
             for h in (1e-3, 2.5e-4):
-                k0 = np.asarray(_kappa2_at(model, n1, lam0, n2, lam0), dtype=float)
-                kp = np.asarray(_kappa2_at(model, n1, lam0, n2, lam0 + h), dtype=float)
-                km = np.asarray(_kappa2_at(model, n1, lam0, n2, lam0 - h), dtype=float)
+                # ``np.array`` copies: a κ² that fills and returns one
+                # buffer would otherwise make the three values one array.
+                k0 = np.array(_kappa2_at(model, n1, lam0, n2, lam0), dtype=float)
+                kp = np.array(_kappa2_at(model, n1, lam0, n2, lam0 + h), dtype=float)
+                km = np.array(_kappa2_at(model, n1, lam0, n2, lam0 - h), dtype=float)
                 scale = max(float(np.max(np.abs(k0))), 1e-300)
                 vals.append(float(np.max(np.abs(kp + km - 2.0 * k0))) / h / scale)
     except Exception:
@@ -2168,12 +2170,13 @@ def _probe_c_transpose(
     try:
         for f1, f2 in _TRANSPOSE_PROBE_TIMES:
             s1, s2 = t0 + f1 * span, t0 + f2 * span
-            k12 = _kappa2_at(model, x1, s1, x2, s2)
+            # Copies of the first value, as in :func:`_probe_diagonal_cusp`.
+            k12 = np.array(_kappa2_at(model, x1, s1, x2, s2), dtype=float)
             k21 = np.asarray(_kappa2_at(model, ya, s2, yb, s1), dtype=float).T
             if not _same(k12, k21):
                 return False
             if model.sigma2 is not None:
-                w12 = _sigma2_at(model, x1, s1, x2)
+                w12 = np.array(_sigma2_at(model, x1, s1, x2), dtype=float)
                 w21 = np.asarray(_sigma2_at(model, ya, s1, yb), dtype=float).T
                 if not _same(w12, w21):
                     return False
@@ -4996,8 +4999,11 @@ class DynamicCouplingPromise:
                 # wrong contract silently, and some such callables
                 # broadcast and return a plausible wrong shape rather
                 # than raising.  Run it
-                # as a batch of one and unwrap.
-                stacked = np.asarray(fn(n_list[:, None], t_list[:, None]))
+                # as a batch of one and unwrap.  ``np.array`` copies, here
+                # and below: the tensors of every symbol stay alive until
+                # the contraction, so a callable that fills and returns one
+                # buffer would give every symbol the last one's values.
+                stacked = np.array(fn(n_list[:, None], t_list[:, None]))
                 if stacked.shape[0] != 1:
                     raise ValueError(
                         f"vectorized callable {name!r} returned shape "
@@ -5006,7 +5012,7 @@ class DynamicCouplingPromise:
                     )
                 sample_cv[name] = stacked[0]
             else:
-                sample_cv[name] = np.asarray(fn(n_list, t_list))
+                sample_cv[name] = np.array(fn(n_list, t_list))
         return self.diagram_term.evaluate_coupling(
             sample_cv,
             self.fixed_indices,
@@ -5139,7 +5145,9 @@ class DynamicCouplingPromise:
         for name, fn in self.dynamic_values.items():
             n_arr, t_2d = per_symbol_legs[name]
             if getattr(fn, "vectorized", False):
-                stacked = np.asarray(fn(n_arr, t_2d))
+                # A copy, as in :meth:`evaluate_at`: every stack stays alive
+                # until the contraction.
+                stacked = np.array(fn(n_arr, t_2d))
                 if stacked.shape[0] != n_samples:
                     raise ValueError(
                         f"vectorized callable {name!r} returned shape "

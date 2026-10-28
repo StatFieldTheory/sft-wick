@@ -470,10 +470,14 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "gauss_legendre and dblquad, at L0, at L1 order 0 and in the "
         "transposition probe; a vectorised closed-form C that fills and "
         "returns one buffer, at order 2 under diag_C true and false on "
-        "qmc_vectorized and gauss_legendre",
+        "qmc_vectorized and gauss_legendre; an L0 coupling callable that "
+        "returns one buffer, vectorised and per sample, on three integrators; "
+        "a kappa2 that returns one buffer, in the cusp and transposition "
+        "probes",
         "erf inner and scipy quad outer time integral of the Gaussian "
         "temporal kernel plus a quad white-noise term; the same kernel "
-        "without writes; the same hook with a fresh array and per sample",
+        "without writes; the same hook, coupling or kernel with a fresh "
+        "array, and per sample",
         "1e-12; 5e-4 through the 10 x 10 table; bit equality",
     ),
     "tests/test_d_dim_spatial.py": (
