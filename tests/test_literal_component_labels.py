@@ -363,3 +363,31 @@ def test_LK8_out_of_range_literal_is_refused(engine):
         assert _terms(engine, [phi(label, "x"), phi("b", "y")], 0, diag_C=True)
     scalar = Field("phi", "physical", n_components=1)
     assert _terms(engine, [scalar("x"), scalar("y")], 0)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_LK9_a_pin_does_not_admit_an_out_of_range_literal(caches, engine):
+    """The range check runs where the diagrams are built, before any
+    ``fixed_indices`` exist, so ``'0'`` and ``'3'`` are refused even when
+    the evaluation would pin them (the pin used to win and return the exact
+    value).  The message and the field guide say so; the letter spelling
+    of the same observable takes the pins and gives the exact covariance,
+    and an in-range literal still yields to its pin."""
+    with pytest.raises(ValueError, match="even when fixed_indices pins it"):
+        _terms(engine, [phi("0", "x"), phi("3", "y")], 0, diag_C=True)
+    letters = [phi("a", "x"), phi("b", "y")]
+    dts = _terms(engine, letters, 0, diag_C=True)
+    pinned = [phi("1", "x"), phi("2", "y")]
+    dts_pinned = _terms(engine, pinned, 0, diag_C=True)
+    for a, b in itertools.product(range(2), repeat=2):
+        want = C_exact(a, b, TIMES["x"], TIMES["y"])
+        got = _value(dts, caches[True], {"a": a, "b": b}, "gauss_legendre",
+                     ops=letters)
+        assert _close(got.real, want), (a, b)
+        got = _value(dts_pinned, caches[True], {"1": a, "2": b},
+                     "gauss_legendre", ops=pinned)
+        assert _close(got.real, want), (a, b)
+    guide = Path(__file__).resolve().parents[1] / "docs" / "user_guide"
+    text = " ".join((guide / "fields.rst").read_text().split())
+    assert "whether or not the evaluation would pin it" in text
+    assert "unless ``fixed_indices`` pins the label" in text

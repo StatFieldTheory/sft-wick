@@ -644,7 +644,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "coupling symbols, propagator legs and the Kronecker deltas of "
         "diag_C, diag_R, iso_C and iso_R, at L0 (both engines, every "
         "integrator, scalar and batched interpreters, compiled plans); "
-        "literals outside 1..n_components refused",
+        "literals outside 1..n_components refused, pinned or not, and an "
+        "in-range literal yields to its pin",
         "exact Ornstein-Uhlenbeck covariance and response; Isserlis' "
         "theorem; the exact Itô moment hierarchy "
         "(examples/reference/ito_moments.py)",

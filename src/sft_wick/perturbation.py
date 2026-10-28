@@ -1747,12 +1747,18 @@ def check_literal_component_labels(observable) -> None:
     ``IndexError``, or gives 0 where only a Kronecker delta reads it
     (``iso_C``, ``iso_R``).
 
+    The check runs when the diagrams are built, before any
+    ``fixed_indices`` exist, so it refuses an out-of-range literal even
+    when the evaluation would pin it.  A pin of an in-range literal takes
+    precedence over its literal reading in every resolver; a letter label
+    is the spelling whose component is chosen at evaluation time.
+
     Args:
         observable: the external operators.
 
     Raises:
         ValueError: if a component label parses as an integer outside
-            ``1..n_components`` of its operator's field.
+            ``1..n_components`` of its operator's field, pinned or not.
     """
     for op in observable:
         label = getattr(op, "component_index", None)
@@ -1766,9 +1772,10 @@ def check_literal_component_labels(observable) -> None:
             f"observable operator {op!r}: the component label {label!r} is "
             f"a numeric literal, and literal labels count from 1 ('1' is "
             f"component 0), so it names no component of a field with "
-            f"n_components={n}.  Write a literal from 1 to {n}, or a letter "
-            f"label such as 'a' and pin it through fixed_indices, whose "
-            f"values count from 0."
+            f"n_components={n}.  A numeric label must lie in 1..{n} even "
+            f"when fixed_indices pins it.  Write a literal from 1 to {n}, or "
+            f"a letter label such as 'a' and pin it through fixed_indices, "
+            f"whose values count from 0."
         )
 
 
@@ -1806,7 +1813,8 @@ def compute_moment(
         observable: List of field operators defining the observable
             :math:`\mathcal{O}`.  A component label that is a numeric
             literal counts from 1 (``phi('1', 'x')`` is component 0); one
-            outside ``1..n_components`` raises ``ValueError``
+            outside ``1..n_components`` raises ``ValueError`` even when a
+            later ``fixed_indices`` would pin it
             (:func:`check_literal_component_labels`).
         action: The interaction action :math:`S_{\mathrm{int}}`.
         order: Maximum perturbative order *N* to compute.

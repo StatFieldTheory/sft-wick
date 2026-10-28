@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **5476 tests** in 120 files (parametrised
+The suite has **5478 tests** in 120 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -257,7 +257,7 @@ Propagator numerics
 Integrators
 -----------
 
-*2256 tests in 54 files.*
+*2258 tests in 54 files.*
 
 .. list-table::
    :header-rows: 1
@@ -474,10 +474,10 @@ Integrators
      - exact / 1e-12
      - 8
    * - ``test_literal_component_labels.py``
-     - numeric literal component labels ('1' is component 0) read alike by coupling symbols, propagator legs and the Kronecker deltas of diag_C, diag_R, iso_C and iso_R, at L0 (both engines, every integrator, scalar and batched interpreters, compiled plans); literals outside 1..n_components refused
+     - numeric literal component labels ('1' is component 0) read alike by coupling symbols, propagator legs and the Kronecker deltas of diag_C, diag_R, iso_C and iso_R, at L0 (both engines, every integrator, scalar and batched interpreters, compiled plans); literals outside 1..n_components refused, pinned or not, and an in-range literal yields to its pin
      - exact Ornstein-Uhlenbeck covariance and response; Isserlis' theorem; the exact Itô moment hierarchy (examples/reference/ito_moments.py)
      - 1e-13; 1e-9 against the hierarchy
-     - 61
+     - 63
    * - ``test_matrix_r_batched.py``
      - matrix-valued R (DiagonalA with distinct rates, a non-normal dense ExplicitR) on gauss_legendre, qmc_vectorized, integrate_two_point_qmc and the method='qmc' dispatch: static, callable, equal_time and already_R_contracted vertices, integrate_over, unequal external times; absorbed-R leg indices pinned to their partners'
      - exact Itô moment hierarchy (Markov embedding; a constant random source for κ³), closed form Σ κ M M M, scipy expm + quad_vec hand contractions; the scalar loop on the same Sobol points; nquad
