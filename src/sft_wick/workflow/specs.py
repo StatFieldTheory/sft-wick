@@ -43,13 +43,23 @@ class FieldSpec:
 
     Args:
         name: Physical field name (e.g. ``"phi"``).  Used only for
-            symbolic rendering and as a convention.
+            symbolic rendering and as a convention.  It may not be
+            ``"psi"``, the response field's name.
         n_components: Number of field components N.  Use ``1`` for a
             scalar theory.
     """
 
     name: str = "phi"
     n_components: int = 1
+
+    def __post_init__(self) -> None:
+        if self.name == self.response_name:
+            raise ValueError(
+                f"FieldSpec: the physical field may not be named "
+                f"{self.response_name!r}, the name of the response field; "
+                f"the two fields would share one name, and an observable "
+                f"could not say which of them it means."
+            )
 
     @property
     def response_name(self) -> str:
@@ -852,8 +862,9 @@ class MultiplicativeImpulse(Sigma2):
 
     To collect the terms of a given power of ``g1``, sum the channels of
     :meth:`Expansion.by_vertex_type` whose vertex powers add up to it (at
-    ``g1²``: ``H`` and ``L`` at order 1, and ``G``, ``BG`` and ``B`` at
-    order 2).  A label is the set of a diagram's vertex names, sorted and
+    ``g1²``: ``H`` at order 1 and ``G`` at order 2, and under
+    ``interpretation="stratonovich"`` also ``L`` at order 1 and ``BG`` and
+    ``B`` at order 2).  A label is the set of a diagram's vertex names, sorted and
     concatenated, so the order-2 label ``G`` is two ``G`` vertices and
     ``BG`` is one of each.  A vertex whose coupling is identically zero is
     not generated.

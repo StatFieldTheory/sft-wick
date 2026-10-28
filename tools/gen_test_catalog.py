@@ -470,10 +470,14 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "gauss_legendre and dblquad, at L0, at L1 order 0 and in the "
         "transposition probe; a vectorised closed-form C that fills and "
         "returns one buffer, at order 2 under diag_C true and false on "
-        "qmc_vectorized and gauss_legendre",
+        "qmc_vectorized and gauss_legendre; an L0 coupling callable that "
+        "returns one buffer, vectorised and per sample, on three integrators; "
+        "a kappa2 that returns one buffer, in the cusp and transposition "
+        "probes",
         "erf inner and scipy quad outer time integral of the Gaussian "
         "temporal kernel plus a quad white-noise term; the same kernel "
-        "without writes; the same hook with a fresh array and per sample",
+        "without writes; the same hook, coupling or kernel with a fresh "
+        "array, and per sample",
         "1e-12; 5e-4 through the 10 x 10 table; bit equality",
     ),
     "tests/test_d_dim_spatial.py": (
@@ -1012,7 +1016,9 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "FieldOperator observables in System.expand (order 0 at distinct "
         "times, the FK channel at order 2, the same expansion as the string "
         "spelling, one index per shared letter); literal labels and foreign "
-        "fields refused; set, frozenset and dict_keys observables refused",
+        "fields refused; set and frozenset observables refused, a dict's "
+        "keys view accepted in its insertion order; a physical field named "
+        "psi refused",
         "closed-form inner and scipy quad outer integral of the exponential "
         "covariance; the FK channel of a constant kappa^3 as a 1-D quad",
         "1e-12; 1e-9; bit equality between spellings",
@@ -1031,8 +1037,9 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "the sweep's diagram selectors: a string vertex_types is one label "
         "and an integer orders one order, at L1, in System.expand, in YAML, "
         "through the CLI override and in the dry-run estimate; vertex_types "
-        "as any iterable of strings; absent labels and orders, empty "
-        "selections and other types refused before any integral, except a "
+        "as any iterable of strings; absent labels and orders, negative "
+        "orders, empty selections and other types refused before any "
+        "integral, except a "
         "label the connected target holds as a zero; every observable "
         "point required in positions_grid; integrate_over checked at load; "
         "tuple and NumPy overrides of list fields; YAML blocks of the wrong "

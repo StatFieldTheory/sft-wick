@@ -15,6 +15,19 @@ buffer was returned as is, so the integrators, which keep one lookup per C
 factor alive, saw the last factor in place of every earlier one: +78 %
 under ``diag_C`` and +27 % without it at order 2.
 
+KC5: the same for an L0 coupling callable.  The evaluator keeps the tensors
+of every vertex copy until it contracts them, so a callable returning one
+buffer gave both κ³ copies of a six-point function the last one's values
+(-0.004268 against -0.003554, +20 %) on ``gauss_legendre`` and
+``qmc_vectorized`` for a vectorised callable, and on the per-sample ``qmc``
+loop for either contract.  L1 wraps every callable in its MSR factor, which
+allocates, so L1 was not affected.
+
+KC6: a κ² returning one buffer gave the cusp probe three equal values (no
+cusp found, so ``dblquad`` integrated a ``|Δt|`` cusp without the split:
+7.9e-8 relative instead of 1.9e-16, 38 times slower), and the transposition
+probe compared the buffer with its own transpose.
+
 References share no code with the package: for κ², the inner time
 integral of the Gaussian temporal kernel in closed form (``erf``) and the
 outer one by scipy ``quad``, plus a 1-D ``quad`` for the σ² term; for the
@@ -303,3 +316,139 @@ def test_KC4_a_reused_buffer_gives_the_fresh_value(method, kw, diag_C, pair):
             component_pair=pair, orders=[2], method=method, **kw).total
     assert totals["fresh"] != 0.0
     assert totals["reuse"] == totals["fresh"] == totals["per_sample"]
+
+
+# ---------------------------------------------------------------------------
+# KC5: an L0 coupling callable that fills and returns one buffer
+# ---------------------------------------------------------------------------
+
+_K0 = np.array([[[0.31, -0.57], [0.12, 0.44]], [[-0.26, 0.08], [0.73, -0.19]]])
+_SIX = ("u", "v", "w", "x", "y", "z")
+
+
+def _kappa3(n, t):
+    """A κ³ with no index symmetry and a weight that differs per leg, so the
+    two vertex copies of the six-point function get different tensors."""
+    n = np.asarray(n, dtype=float)
+    t = np.asarray(t, dtype=float)
+    w = np.exp(-0.3 * t[0] - 0.5 * t[1] - 0.7 * t[2]) * (1 + 0.2 * n[0] - 0.1 * n[2])
+    return (1j / 6) * w[..., None, None, None] * _K0
+
+
+class _FreshCoupling:
+    def __init__(self, vectorized):
+        self.vectorized = vectorized
+
+    def __call__(self, n, t):
+        return _kappa3(n, t)
+
+
+class _ReusedCoupling(_FreshCoupling):
+    def __init__(self, vectorized):
+        super().__init__(vectorized)
+        self.buffer = None
+
+    def __call__(self, n, t):
+        values = _kappa3(n, t)
+        if self.buffer is None or self.buffer.shape != values.shape:
+            self.buffer = np.empty_like(values)
+        self.buffer[...] = values
+        return self.buffer
+
+
+@pytest.fixture(scope="module")
+def six_point():
+    system = sw.System(
+        field=sw.FieldSpec("phi", n_components=2),
+        linear=sw.DiagonalA(gamma=[0.8, 1.3]),
+        noise=sw.GaussianNoise(kappa2=sw.SeparableTranslation(
+            temporal=sw.ExponentialTemporal(lam=0.4, sigma_t=0.7),
+            spatial=sw.GaussianSpatial(sigma_x=1.3))),
+        nonlocal_vertices=[sw.NonLocalVertex(
+            "K", order=3, coupling=_FreshCoupling(True), coupling_vectorized=True)],
+        t_min=0.3,
+    )
+    exp_ = system.expand([f"phi_{c}({p})" for c, p in zip("abcdef", _SIX)],
+                         orders=[2], progress=False)
+    props = system.propagators(t_max=2.0, n_grid_t=12, c_closed_form_only=True,
+                               progress=False)
+    return exp_, props
+
+
+@pytest.mark.parametrize("method", ["gauss_legendre", "qmc_vectorized", "qmc"])
+@pytest.mark.parametrize("vectorized", [True, False], ids=["vectorized", "per_sample"])
+def test_KC5_a_reused_coupling_buffer_gives_the_fresh_value(six_point, method,
+                                                           vectorized):
+    """Two copies of one κ³ vertex: the evaluator keeps each copy's tensors
+    while it contracts, so a callable returning one buffer made both copies
+    read the last one (-0.004268 against -0.003554 on the batched paths, and
+    on the per-sample loop for either contract)."""
+    from sft_wick.evaluate import integrate_diagrams
+
+    exp_, props = six_point
+    totals = {}
+    for name, cls in (("fresh", _FreshCoupling), ("reuse", _ReusedCoupling)):
+        totals[name], _ = integrate_diagrams(
+            exp_.dts_by_order[2], {"K": cls(vectorized)}, 1.7, props.cache,
+            t_min=0.3, method=method, n_gauss=3, n_samples=256, seed=1,
+            fixed_indices=dict(zip("abcdef", (0, 1, 1, 0, 1, 0))),
+            positions=dict(zip(_SIX, (0.1, -0.4, 0.7, 0.25, -0.15, 0.55))),
+            external_times=dict(zip(_SIX, (1.7, 1.2, 1.5, 0.9, 1.6, 1.3))))
+    assert totals["fresh"] != 0.0
+    assert totals["reuse"] == totals["fresh"]
+
+
+# ---------------------------------------------------------------------------
+# KC6: a κ² that fills and returns one buffer, in the two probes
+# ---------------------------------------------------------------------------
+
+_G_ADV = np.array([[0.9, -0.41], [-0.41, 1.3]])
+
+
+def _advected(x1, l1, x2, l2):
+    """A frozen-flow kernel: no symmetry under ``l1 <-> l2`` at ``x1 != x2``,
+    and smooth at ``l1 = l2``."""
+    dx = float(np.sum(np.asarray(x1, float) - np.asarray(x2, float)))
+    dt = l1 - l2
+    return _G_ADV * exp(-((dx - 1.7 * dt) ** 2) / 0.72 - dt * dt / 1.28)
+
+
+def _cusped(x1, l1, x2, l2):
+    d = np.asarray(x1, float) - np.asarray(x2, float)
+    return np.diag([0.9, 1.3]) * exp(-0.7 * float(np.sum(d * d)) - abs(l1 - l2) / 0.45)
+
+
+class _ReusedKappa:
+    def __init__(self, fn):
+        self.fn = fn
+        self.buffer = np.empty((2, 2))
+
+    def __call__(self, x1, l1, x2, l2):
+        self.buffer[...] = self.fn(x1, l1, x2, l2)
+        return self.buffer
+
+
+def _kappa_model(fn):
+    system = sw.System(field=sw.FieldSpec("phi", n_components=2),
+                       linear=sw.DiagonalA(gamma=[0.73, 1.61]),
+                       noise=sw.GaussianNoise(kappa2=sw.GeneralKappa2(fn=fn)),
+                       t_min=0.37)
+    return system.build_propagator_model(diag_C=False)
+
+
+@pytest.mark.parametrize("kernel, cusp", [(_cusped, True), (_advected, False)],
+                         ids=["cusped", "smooth"])
+def test_KC6_a_reused_kappa_buffer_gets_the_fresh_probe_verdicts(kernel, cusp):
+    """The cusp probe compared three aliased values and saw no cusp (so
+    dblquad lost the split: 7.9e-8 relative, 38x slower), and the
+    transposition probe compared the buffer with its own transpose."""
+    from sft_wick.evaluate import _probe_c_transpose, _probe_diagonal_cusp
+
+    x1, x2 = np.array([0.4]), np.array([-0.5])
+    fresh, reused = _kappa_model(kernel), _kappa_model(_ReusedKappa(kernel))
+    assert _probe_diagonal_cusp(fresh, (x1, x2)) is cusp
+    assert _probe_diagonal_cusp(reused, (x1, x2)) is cusp
+    for swap in (False, True):
+        want = _probe_c_transpose(fresh, x1, x2, 2.2, swap=swap)
+        assert _probe_c_transpose(reused, x1, x2, 2.2, swap=swap) is want
+    assert _probe_c_transpose(fresh, x1, x2, 2.2, swap=False) is (kernel is _cusped)

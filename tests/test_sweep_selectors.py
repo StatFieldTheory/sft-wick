@@ -644,6 +644,33 @@ def test_SS10_empty_orders_are_refused_with_the_right_advice(system, tmp_path):
         load_workflow_config(_write(tmp_path, cfg))
 
 
+
+@pytest.mark.parametrize("value", [-1, [0, -2], np.int64(-3)], ids=repr)
+def test_SS10_negative_orders_are_refused(system, expansion, props, tmp_path,
+                                          value):
+    """A negative order gave an empty order: ``System.expand`` returned it
+    with no diagram, and a YAML run built the propagators before ending in
+    ``KeyError: 'x'``."""
+    with pytest.raises(ValueError, match=r"^System\.expand: .*negative"):
+        system.expand(("phi_a(x)", "phi_b(y)"), orders=value, progress=False)
+    with pytest.raises(ValueError, match="negative"):
+        _evaluate(expansion, props, (0, 1), orders=value)
+    plain = value.tolist() if isinstance(value, np.integer) else value
+    for block in ("expand", "sweep"):
+        cfg = _config()
+        cfg[block]["orders"] = plain
+        with pytest.raises(ValueError, match=rf"^{block}\.orders: .*negative"):
+            load_workflow_config(_write(tmp_path, cfg))
+
+
+def test_SS10_empty_sweep_orders_in_yaml_get_yaml_advice(tmp_path):
+    """YAML writes ``null`` or leaves the key out; it has no ``None``."""
+    cfg = _config()
+    cfg["sweep"]["orders"] = []
+    with pytest.raises(ValueError, match=r"^sweep\.orders is empty.*omit the "
+                                         r"key or write null(?!.*None)"):
+        load_workflow_config(_write(tmp_path, cfg))
+
 # ---------------------------------------------------------------------------
 # SS11 -- connected target: a label a diagram could carry is a zero
 # ---------------------------------------------------------------------------

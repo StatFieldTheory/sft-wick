@@ -11,8 +11,13 @@ real observable of a finite real Gaussian input:
 The symmetric part of :math:`A` defines the same observable. Preparation uses an
 exactly symmetric :math:`A` unchanged, subnormal entries included, and replaces
 any other :math:`A` by its symmetric part with each entry rounded once to
-float64. Each rounded entry is then within ``2**-53`` times the largest
-magnitude in :math:`A` of the exact one. That bound cannot hold when every
+float64. :math:`A` is converted to float64 first, so an integer entry beyond
+``2**53`` or a wider float is rounded at that conversion too, and the
+statements below are about the converted matrix. Each rounded entry is then within ``2**-53`` times the largest
+magnitude in :math:`A` of the exact one. The bound is relative to that largest
+entry: a mixed cumulant that another observable reaches only through a
+subnormal pair of :math:`A`, beside entries of normal size, can lose all its
+digits. That bound cannot hold when every
 entry of :math:`A` is below ``2**-1022`` in magnitude, and preparation then
 raises ``ValueError`` if an entry of the symmetric part is not a float64
 value: rounding it can change it by up to its whole value, to zero included.

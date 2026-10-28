@@ -226,9 +226,10 @@ def _symmetric_part(
                 f"symmetric part of {name} has an entry below 2**-1022 that "
                 f"float64 cannot hold, and every entry of {name} is below "
                 f"2**-1022 in magnitude, so rounding it can change the entry "
-                f"by up to its whole value.  Declare the matrix exactly "
-                f"symmetric, or multiply it by a power of two that brings its "
-                f"largest entry to 2**-1022 or above (an exact scaling) and "
+                f"by up to its whole value.  An exactly symmetric matrix is "
+                f"never refused.  Otherwise multiply the matrix you pass (for "
+                f"from_weighted_grid, quadratic_kernel) by a power of two "
+                f"that brings the largest entry to 2**-1022 or above, and "
                 f"rescale the results"
             )
         result[scaled] = average

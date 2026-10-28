@@ -9,6 +9,9 @@ although the docstring advertised the form (OO1).  The component tuple of
 follows ``PYTHONHASHSEED``, is refused as the YAML loader refuses it; on the
 model below the set ``{"phi_a(x)", "phi_b(y)"}`` gave -0.0621 or -0.1454
 at ``component_pair=(0, 1)`` depending on the seed, with no error (OO2).
+A dict's keys view iterates in insertion order and is accepted.  A
+physical field named ``psi`` shared its name with the response field, so a
+``phi`` and a ``psi`` operator of one label shared a cache key (OO3).
 
 The model is generic: two components with distinct rates, a local cubic
 ``F`` and a constant non-local ``κ³`` vertex ``K`` with entries of both
@@ -198,8 +201,7 @@ def test_OO1_operators_the_string_form_cannot_spell_are_refused(system, make,
 @pytest.mark.parametrize("make", [
     lambda: {"phi_a(x)", "phi_b(y)"},
     lambda: frozenset({"phi_a(x)", "phi_b(y)"}),
-    lambda: {"phi_a(x)": 0, "phi_b(y)": 1}.keys(),
-], ids=["set", "frozenset", "dict_keys"])
+], ids=["set", "frozenset"])
 def test_OO2_a_set_observable_is_refused(system, make):
     with pytest.raises(ValueError, match="set, which has no order"):
         system.expand(make(), orders=[0, 2], progress=False)
@@ -213,16 +215,34 @@ def test_OO2_a_set_of_field_operators_is_refused(system):
 
 
 def test_OO2_ordered_spellings_are_accepted(system, props):
-    """A list, a tuple and a dict's values keep their order; the swapped
-    list is the other observable, so (0, 1) moves to its mirror."""
+    """A list, a tuple, a dict's values and a dict's keys keep their order
+    (a dict iterates in insertion order, so its keys view is a set with an
+    order); the swapped list is the other observable, so (0, 1) moves to
+    its mirror."""
     values = {"first": "phi_a(x)", "second": "phi_b(y)"}.values()
+    keys = {"phi_a(x)": 0, "phi_b(y)": 1}.keys()
     totals = [
         _evaluate(system.expand(obs, orders=[0, 2], progress=False), props,
                   (0, 1), external_times=TIMES).total
-        for obs in (["phi_a(x)", "phi_b(y)"], ("phi_a(x)", "phi_b(y)"), values)
+        for obs in (["phi_a(x)", "phi_b(y)"], ("phi_a(x)", "phi_b(y)"), values,
+                    keys)
     ]
-    assert totals[0] == totals[1] == totals[2]
+    assert totals[0] == totals[1] == totals[2] == totals[3]
     swapped = _evaluate(
         system.expand(["phi_b(y)", "phi_a(x)"], orders=[0, 2], progress=False),
         props, (0, 1), external_times=TIMES).total
     assert swapped != pytest.approx(totals[0], rel=0.1, abs=0.0)
+
+
+# ---------------------------------------------------------------------------
+# OO3: the physical field may not take the response field's name
+# ---------------------------------------------------------------------------
+
+def test_OO3_a_physical_field_named_psi_is_refused():
+    """``FieldSpec("psi")`` gave the physical and the response field one
+    name, so ``phi`` and ``psi`` operators of the same label shared a cache
+    key, and a cached ``C`` diagram was returned for the response
+    observable, whose diagram is ``R``."""
+    with pytest.raises(ValueError, match="response field"):
+        sp.FieldSpec("psi", n_components=2)
+    assert sp.FieldSpec("chi", n_components=2).response_name == "psi"

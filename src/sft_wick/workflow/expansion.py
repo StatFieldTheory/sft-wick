@@ -1441,15 +1441,30 @@ def _order_selection(orders, label, required=False):
     boolean, a string, bytes, a float or another scalar raises
     ``TypeError``, and so does a list entry that is not an integer:
     iterating ``"2"`` used to give the order 2, ``b"2"`` the order 50, and
-    ``int(2.5)`` gave 2.  An empty selection raises ``ValueError``.
-    ``label`` names the argument, e.g. ``"sweep.orders"``; ``required``
-    marks one with no "every order" to fall back on (``System.expand``,
-    ``expand.orders``), which changes the advice in that message.
+    ``int(2.5)`` gave 2.  An empty selection and a negative order raise
+    ``ValueError``.  ``label`` names the argument, e.g. ``"sweep.orders"``;
+    ``required`` marks one with no "every order" to fall back on
+    (``System.expand``, ``expand.orders``), which changes the advice in that
+    message.
     """
     if orders is None:
         return None
     if _is_integer(orders):
-        return (int(orders),)
+        entries = [orders]
+    else:
+        entries = _order_entries(orders, label, required)
+    negative = sorted({int(o) for o in entries if int(o) < 0})
+    if negative:
+        raise ValueError(
+            f"{label}: the orders {negative} in {orders!r} are negative; an "
+            f"order counts interaction vertices and starts at 0."
+        )
+    return tuple(sorted({int(o) for o in entries}))
+
+
+def _order_entries(orders, label, required):
+    """The entries of a non-integer ``orders``, each an integer; see
+    :func:`_order_selection`."""
     usage = (
         f"{label} must be an integer order or a list of them, e.g. 2 or "
         f"[0, 2]; got {orders!r}."
@@ -1468,13 +1483,14 @@ def _order_selection(orders, label, required=False):
                 f"{label}: the order {o!r} in {orders!r} is not an integer."
             )
     if not entries:
-        advice = (
-            "give at least one order, e.g. 2 or [0, 2]"
-            if required
-            else "pass None for every order of the expansion"
-        )
+        if required:
+            advice = "give at least one order, e.g. 2 or [0, 2]"
+        elif label.startswith("sweep."):
+            advice = "omit the key or write null for every order of the expansion"
+        else:
+            advice = "pass None for every order of the expansion"
         raise ValueError(f"{label} is empty, so it selects no order; {advice}.")
-    return tuple(sorted({int(o) for o in entries}))
+    return entries
 
 
 def _vertex_type_selection(vertex_types, label):
