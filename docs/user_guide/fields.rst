@@ -71,13 +71,17 @@ is given at evaluation time through ``fixed_indices`` (values count from
 and literals count from 1: ``phi('1', 'x')`` is component 0 and
 ``phi('2', 'x')`` component 1.  Coupling tensors, propagators and the
 Kronecker deltas inserted by ``diag_C``, ``diag_R``, ``iso_C`` and
-``iso_R`` all read a literal this way.
+``iso_R`` all read a literal this way, unless ``fixed_indices`` pins the
+label, in which case the pin is used.
 :func:`~sft_wick.perturbation.compute_moment` and
 :func:`~sft_wick.perturbation.compute_moment_numerical` raise
 ``ValueError`` for a literal outside ``1..n_components``, ``'0'``
-included.  An L1 observable string takes a component label that starts
-with a letter (``'phi_1(x)'`` does not parse); there the component tuple
-of ``Expansion.evaluate`` chooses the components.
+included, whether or not the evaluation would pin it: they run before
+any pin is given.  To choose a component at evaluation time, use a letter
+label.  An L1 observable string takes a component label that starts with
+a letter (``'phi_1(x)'`` does not parse), and ``System.expand`` refuses a
+``FieldOperator`` whose label is a numeric literal; at L1 the component
+tuple of ``Expansion.evaluate`` chooses the components.
 
 
 UID System and Test Reproducibility

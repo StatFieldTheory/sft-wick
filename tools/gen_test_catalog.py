@@ -57,7 +57,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     "tests/test_factorized_public.py": (
         "Workflow and YAML",
         "factorized preparation via public GL/QMC, complete expansion/sweep/YAML rows, "
-        "worker serialization and scalar budget feedback",
+        "worker serialization and scalar budget feedback; the materialization "
+        "raise below 256 KiB stated in the workflow guide and the API page",
         "ordered complete values/errors/axis metadata and public custom builder witnesses",
         "1e-12 relative / 1e-14 absolute complete results; exact metadata",
     ),
@@ -257,17 +258,22 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "matrices with odd subnormal and lowest-binade entries kept, exact "
         "power-of-two whitening, mean shifts, declared-observable cumulants, "
         "nonsymmetric pairs rounded once, refusal of a symmetric part with an "
-        "unrepresentable entry below 2**-1022 at every constructor, a "
-        "whitened matrix rounded without refusal, a raising NumPy error state, "
-        "both averaging methods at the 2**-900 switch, earlier bits on inputs "
-        "whose halves are exact in C order, Fortran order and transposed "
-        "views on both sides of N = 181/182, and the peak temporary memory "
-        "of a triangular declaration",
+        "unrepresentable entry below 2**-1022 at every constructor when every "
+        "entry is below 2**-1022 (both sides of that threshold), correct "
+        "rounding beside a normal-range entry, W A W of wide Gaussian kernels "
+        "on Gauss-Legendre, Simpson and trapezoid grids and K D K / S K S "
+        "products prepared, a whitened matrix rounded without refusal, a "
+        "raising NumPy error state, both averaging methods at the 2**-900 "
+        "switch, earlier bits on inputs whose halves are exact in C order, "
+        "Fortran order and transposed views on both sides of N = 181/182, "
+        "and the peak temporary memory of a triangular declaration",
         "independent Fraction arithmetic on the declared arrays and the joint "
-        "CGF of Gaussian quadratic forms; source-pinned frozen preparation; "
-        "tracemalloc peak of the earlier expression",
+        "CGF of Gaussian quadratic forms; NumPy traces of the matrix formed "
+        "symmetrically; source-pinned frozen preparation; tracemalloc peak "
+        "of the earlier expression",
         "exact bytes; correctly rounded or certified 1e-12 relative cumulants; "
-        "peak at most half a matrix above the earlier expression",
+        "1e-12 / 1e-11 against the traces; peak at most half a matrix above "
+        "the earlier expression",
     ),
     "tests/test_gaussian_quadratic.py": (
         "Finite Gaussian observables",
@@ -457,6 +463,19 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "constant-γ closed form; explicit R; analytic Γ of a sinusoidal rate",
         "1e-6 / 1e-3 (default grid)",
     ),
+    "tests/test_kernel_argument_copies.py": (
+        "Propagator numerics",
+        "GeneralKappa2 and CustomImpulse callables that write into their "
+        "position arguments, at 3-D, 1-vector and scalar positions, on "
+        "gauss_legendre and dblquad, at L0, at L1 order 0 and in the "
+        "transposition probe; a vectorised closed-form C that fills and "
+        "returns one buffer, at order 2 under diag_C true and false on "
+        "qmc_vectorized and gauss_legendre",
+        "erf inner and scipy quad outer time integral of the Gaussian "
+        "temporal kernel plus a quad white-noise term; the same kernel "
+        "without writes; the same hook with a fresh array and per sample",
+        "1e-12; 5e-4 through the 10 x 10 table; bit equality",
+    ),
     "tests/test_d_dim_spatial.py": (
         "Propagator numerics",
         "vector positions through the L1 evaluate path; C hooks that "
@@ -625,7 +644,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "coupling symbols, propagator legs and the Kronecker deltas of "
         "diag_C, diag_R, iso_C and iso_R, at L0 (both engines, every "
         "integrator, scalar and batched interpreters, compiled plans); "
-        "literals outside 1..n_components refused",
+        "literals outside 1..n_components refused, pinned or not, and an "
+        "in-range literal yields to its pin",
         "exact Ornstein-Uhlenbeck covariance and response; Isserlis' "
         "theorem; the exact Itô moment hierarchy "
         "(examples/reference/ito_moments.py)",
@@ -986,6 +1006,25 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "a brute-force enumeration of the subsets of 1585 name sets; the "
         "distinct-letter spelling and the positions without the stray key",
         "exact; 1e-12",
+    ),
+    "tests/test_observable_operator_inputs.py": (
+        "Workflow and YAML",
+        "FieldOperator observables in System.expand (order 0 at distinct "
+        "times, the FK channel at order 2, the same expansion as the string "
+        "spelling, one index per shared letter); literal labels and foreign "
+        "fields refused; set, frozenset and dict_keys observables refused",
+        "closed-form inner and scipy quad outer integral of the exponential "
+        "covariance; the FK channel of a constant kappa^3 as a 1-D quad",
+        "1e-12; 1e-9; bit equality between spellings",
+    ),
+    "tests/test_empty_order_selection.py": (
+        "Workflow and YAML",
+        "an order at which the expansion holds no diagram (order 1 of a "
+        "cubic F) as zero rows of a moment-target sweep, alone, beside other "
+        "orders, with a channel selection, with reused integrands, in "
+        "evaluate's by_order, and through --override sweep.orders=N",
+        "closed-form covariance of test_observable_operator_inputs",
+        "1e-12; exact zeros",
     ),
     "tests/test_sweep_selectors.py": (
         "Workflow and YAML",

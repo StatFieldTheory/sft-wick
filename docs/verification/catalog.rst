@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **5363 tests** in 117 files (parametrised
+The suite has **5478 tests** in 120 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -157,7 +157,7 @@ Multiplicities and canonical forms
 Propagator numerics
 -------------------
 
-*871 tests in 16 files.*
+*911 tests in 17 files.*
 
 .. list-table::
    :header-rows: 1
@@ -213,6 +213,11 @@ Propagator numerics
      - closed form
      - recorded bounds
      - 4
+   * - ``test_kernel_argument_copies.py``
+     - GeneralKappa2 and CustomImpulse callables that write into their position arguments, at 3-D, 1-vector and scalar positions, on gauss_legendre and dblquad, at L0, at L1 order 0 and in the transposition probe; a vectorised closed-form C that fills and returns one buffer, at order 2 under diag_C true and false on qmc_vectorized and gauss_legendre
+     - erf inner and scipy quad outer time integral of the Gaussian temporal kernel plus a quad white-noise term; the same kernel without writes; the same hook with a fresh array and per sample
+     - 1e-12; 5e-4 through the 10 x 10 table; bit equality
+     - 40
    * - ``test_min_lag_boundaries.py``
      - min-time/lag tables retain the ordered spatial arguments of an explicit earlier-first covariance, call physical kernels only inside the requested horizon, converge at both temporal corners and the upper boundary, preserve positivity under steep decay with linear interpolation, and reject the previous cache schema
      - rank-one Gaussian covariance; exact matrix white-noise covariance; callbacks restricted to the declared time interval
@@ -252,7 +257,7 @@ Propagator numerics
 Integrators
 -----------
 
-*2256 tests in 54 files.*
+*2258 tests in 54 files.*
 
 .. list-table::
    :header-rows: 1
@@ -469,10 +474,10 @@ Integrators
      - exact / 1e-12
      - 8
    * - ``test_literal_component_labels.py``
-     - numeric literal component labels ('1' is component 0) read alike by coupling symbols, propagator legs and the Kronecker deltas of diag_C, diag_R, iso_C and iso_R, at L0 (both engines, every integrator, scalar and batched interpreters, compiled plans); literals outside 1..n_components refused
+     - numeric literal component labels ('1' is component 0) read alike by coupling symbols, propagator legs and the Kronecker deltas of diag_C, diag_R, iso_C and iso_R, at L0 (both engines, every integrator, scalar and batched interpreters, compiled plans); literals outside 1..n_components refused, pinned or not, and an in-range literal yields to its pin
      - exact Ornstein-Uhlenbeck covariance and response; Isserlis' theorem; the exact Itô moment hierarchy (examples/reference/ito_moments.py)
      - 1e-13; 1e-9 against the hierarchy
-     - 61
+     - 63
    * - ``test_matrix_r_batched.py``
      - matrix-valued R (DiagonalA with distinct rates, a non-normal dense ExplicitR) on gauss_legendre, qmc_vectorized, integrate_two_point_qmc and the method='qmc' dispatch: static, callable, equal_time and already_R_contracted vertices, integrate_over, unequal external times; absorbed-R leg indices pinned to their partners'
      - exact Itô moment hierarchy (Markov embedding; a constant random source for κ³), closed form Σ κ M M M, scipy expm + quad_vec hand contractions; the scalar loop on the same Sobol points; nquad
@@ -537,7 +542,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*712 tests in 19 files.*
+*735 tests in 21 files.*
 
 .. list-table::
    :header-rows: 1
@@ -563,16 +568,21 @@ Workflow and YAML
      - closed form (level A is a single diagram, hence exact); QMC on the raw-vertex path
      - exact / 2e-4
      - 18
+   * - ``test_empty_order_selection.py``
+     - an order at which the expansion holds no diagram (order 1 of a cubic F) as zero rows of a moment-target sweep, alone, beside other orders, with a channel selection, with reused integrands, in evaluate's by_order, and through --override sweep.orders=N
+     - closed-form covariance of test_observable_operator_inputs
+     - 1e-12; exact zeros
+     - 9
    * - ``test_execution_controls.py``
      - L0/L1/YAML execution choices, upfront contracts, serial lifetime and error cleanup, real dense admission, subclass and instance-helper dispatch, fixed comparison promise and loky parity
      - native DiagramTerm complete values/errors, deterministic counting callbacks, IEEE float-bit signatures and configured-module nonexecution witnesses
      - exact cache/default/worker results; 1e-12 relative / 1e-14 absolute dense cases
      - 39
    * - ``test_factorized_public.py``
-     - factorized preparation via public GL/QMC, complete expansion/sweep/YAML rows, worker serialization and scalar budget feedback
+     - factorized preparation via public GL/QMC, complete expansion/sweep/YAML rows, worker serialization and scalar budget feedback; the materialization raise below 256 KiB stated in the workflow guide and the API page
      - ordered complete values/errors/axis metadata and public custom builder witnesses
      - 1e-12 relative / 1e-14 absolute complete results; exact metadata
-     - 38
+     - 39
    * - ``test_generated_docs_in_sync.py``
      - every committed file that a script writes (demo 2's error budget, table 1 and its order-1 diagrams, demo 3's diagram README) still holds the text its generator would write; demo 2's interpretation quotes the current quadrature errors and residual statistics; its diagonal figure includes every listed nonzero channel
      - the generator's own source, parsed; independent recomputation from budget.npz
@@ -593,6 +603,11 @@ Workflow and YAML
      - exact moment hierarchy in Hörmander form (no noise-induced drift formed); finite differences of g
      - 1e-9 (GL) / 2e-3 (qmc_scalar)
      - 46
+   * - ``test_observable_operator_inputs.py``
+     - FieldOperator observables in System.expand (order 0 at distinct times, the FK channel at order 2, the same expansion as the string spelling, one index per shared letter); literal labels and foreign fields refused; set, frozenset and dict_keys observables refused
+     - closed-form inner and scipy quad outer integral of the exponential covariance; the FK channel of a constant kappa^3 as a 1-D quad
+     - 1e-12; 1e-9; bit equality between spellings
+     - 13
    * - ``test_repo_hygiene.py``
      - tracked files hold no agent working files, development records, local absolute paths or task IDs
      - git ls-files; positive and negative pattern controls
@@ -727,7 +742,7 @@ Self-consistency
 Finite Gaussian observables
 ---------------------------
 
-*763 tests in 7 files.*
+*813 tests in 7 files.*
 
 .. list-table::
    :header-rows: 1
@@ -764,10 +779,10 @@ Finite Gaussian observables
      - exact rational bounds; bitwise correctly rounded values
      - 56
    * - ``test_quadratic_symmetrization.py``
-     - symmetric part of declared quadratic matrices: exactly symmetric matrices with odd subnormal and lowest-binade entries kept, exact power-of-two whitening, mean shifts, declared-observable cumulants, nonsymmetric pairs rounded once, refusal of a symmetric part with an unrepresentable entry below 2**-1022 at every constructor, a whitened matrix rounded without refusal, a raising NumPy error state, both averaging methods at the 2**-900 switch, earlier bits on inputs whose halves are exact in C order, Fortran order and transposed views on both sides of N = 181/182, and the peak temporary memory of a triangular declaration
-     - independent Fraction arithmetic on the declared arrays and the joint CGF of Gaussian quadratic forms; source-pinned frozen preparation; tracemalloc peak of the earlier expression
-     - exact bytes; correctly rounded or certified 1e-12 relative cumulants; peak at most half a matrix above the earlier expression
-     - 169
+     - symmetric part of declared quadratic matrices: exactly symmetric matrices with odd subnormal and lowest-binade entries kept, exact power-of-two whitening, mean shifts, declared-observable cumulants, nonsymmetric pairs rounded once, refusal of a symmetric part with an unrepresentable entry below 2**-1022 at every constructor when every entry is below 2**-1022 (both sides of that threshold), correct rounding beside a normal-range entry, W A W of wide Gaussian kernels on Gauss-Legendre, Simpson and trapezoid grids and K D K / S K S products prepared, a whitened matrix rounded without refusal, a raising NumPy error state, both averaging methods at the 2**-900 switch, earlier bits on inputs whose halves are exact in C order, Fortran order and transposed views on both sides of N = 181/182, and the peak temporary memory of a triangular declaration
+     - independent Fraction arithmetic on the declared arrays and the joint CGF of Gaussian quadratic forms; NumPy traces of the matrix formed symmetrically; source-pinned frozen preparation; tracemalloc peak of the earlier expression
+     - exact bytes; correctly rounded or certified 1e-12 relative cumulants; 1e-12 / 1e-11 against the traces; peak at most half a matrix above the earlier expression
+     - 219
    * - ``test_quadratic_white_reference_parity.py``
      - OU private scratch and fourth-order native ordered-prefix reuse; bounded memory/protocol bypass, scalar order, range fallback and input state; mixed cumulants keep the frozen bits or round correctly; the 0.7.0 cancellation threshold at 1e-10 of the Frobenius bound, from both sides
      - source-pinned frozen reference implementation with exact bytes/error args; independent Gauss-Hermite central cumulants, native matmul line witnesses and Python-int and Fraction mixed contractions

@@ -7,7 +7,12 @@ package: ``Fraction`` arithmetic on the declared arrays, the joint cumulant
 generating function of Gaussian quadratic forms, and a frozen copy of the
 earlier preparation for inputs whose halves are exact in float64, in C order,
 Fortran order and as transposed views. A declared matrix whose symmetric part
-has an entry below the normal range that float64 cannot hold is refused.
+has an entry below the normal range that float64 cannot hold is refused when
+every entry of the matrix is below 2**-1022, and rounded once otherwise: W A W
+for a Gaussian kernel over some 38 correlation lengths on a Gauss-Legendre,
+Simpson or trapezoid grid, and user products such as K D K, are prepared and
+checked against cumulants computed with NumPy from the matrix formed
+symmetrically.
 """
 
 from __future__ import annotations
@@ -287,17 +292,163 @@ CONSTRUCTORS = {
 }
 
 
+#: The argument each constructor names in its refusal.
+REFUSAL_NAMES = {
+    "single_factor": "quadratic",
+    "single_covariance": "quadratic",
+    "single_white_noise": "quadratic_kernel",
+    "single_weighted_grid": "W A W formed from quadratic_kernel and weights",
+    "family_factor": r"quadratic\[1\]",
+    "family_covariance": r"quadratic\[0\]",
+}
+
+
+def _subnormal_pair(first, second):
+    """The pair at (0, 1) and (1, 0) of an otherwise zero 3 x 3 matrix."""
+    matrix = np.zeros((3, 3))
+    matrix[0, 1], matrix[1, 0] = first, second
+    return matrix
+
+
 @pytest.mark.parametrize("constructor", sorted(CONSTRUCTORS))
-@pytest.mark.parametrize("pair", UNREPRESENTABLE_PAIRS)
+@pytest.mark.parametrize(
+    "pair", [p for p in UNREPRESENTABLE_PAIRS if max(map(abs, p)) < MIN_NORMAL]
+)
 def test_unrepresentable_subnormal_symmetric_part_is_refused(pair, constructor):
-    matrix = _with_pair(*pair)
+    # Every entry is below 2**-1022, so rounding can change the entry by up
+    # to its whole value relative to the largest one.
+    matrix = _subnormal_pair(*pair)
     exact = _exact_symmetric_part(matrix)[0, 1]
     assert abs(exact) < MIN_NORMAL and Fraction(float(exact)) != exact
-    with pytest.raises(ValueError, match="symmetric part of quadratic"):
+    match = f"symmetric part of {REFUSAL_NAMES[constructor]} has"
+    with pytest.raises(ValueError, match=match):
         CONSTRUCTORS[constructor](matrix)
     # The transposed declaration is the same observable and is refused too.
-    with pytest.raises(ValueError, match="symmetric part of quadratic"):
+    with pytest.raises(ValueError, match=match):
         CONSTRUCTORS[constructor](matrix.T.copy())
+
+
+@pytest.mark.parametrize("constructor", sorted(CONSTRUCTORS))
+@pytest.mark.parametrize("pair", UNREPRESENTABLE_PAIRS)
+def test_unrepresentable_entry_beside_a_normal_one_is_rounded(pair, constructor):
+    """With an entry of at least 2**-1022 in the matrix the rounding, at
+    most 2**-1075, is at most 2**-53 times that entry, the bound of the
+    normal range; the entry is rounded once, correctly."""
+    matrix = _with_pair(*pair)
+    CONSTRUCTORS[constructor](matrix)
+    CONSTRUCTORS[constructor](matrix.T.copy())
+    # Compared by value: the whitening F.T A F adds +0.0 to a -0.0 entry.
+    family = GaussianQuadraticFamily.from_factor(np.eye(3), matrix[None])
+    assert np.array_equal(family._matrices[0],
+                          _rounded(_exact_symmetric_part(matrix)))
+
+
+@pytest.mark.parametrize("largest, refused", [
+    (MIN_NORMAL, False),
+    (MIN_NORMAL - U, True),  # largest subnormal
+    (-MIN_NORMAL, False),
+    (-(MIN_NORMAL - U), True),
+], ids=["2**-1022", "below", "-2**-1022", "-below"])
+def test_refusal_threshold_is_the_largest_entry(largest, refused):
+    """Both sides of the threshold, on the diagonal (an exact entry) and
+    off it, with an odd pair whose average 0.5 U float64 cannot hold."""
+    for where in ((2, 2), (0, 2)):
+        matrix = _subnormal_pair(U, 0.0)
+        matrix[where] = largest
+        if refused:
+            with pytest.raises(ValueError, match="every entry of quadratic"):
+                GaussianQuadratic.from_factor(np.eye(3), matrix)
+            continue
+        family = GaussianQuadraticFamily.from_factor(np.eye(3), matrix[None])
+        assert np.array_equal(family._matrices[0],
+                              _rounded(_exact_symmetric_part(matrix)))
+
+
+def _grid(rule, n, lo, hi):
+    if rule == "gauss_legendre":
+        nodes, weights = np.polynomial.legendre.leggauss(n)
+        half = 0.5 * (hi - lo)
+        return lo + (nodes + 1) * half, weights * half
+    x = np.linspace(lo, hi, n)
+    h = x[1] - x[0]
+    if rule == "simpson":
+        w = np.full(n, 2.0)
+        w[1::2] = 4.0
+        w[0] = w[-1] = 1.0
+        return x, w * h / 3
+    w = np.full(n, h)
+    w[0] = w[-1] = h / 2
+    return x, w
+
+
+def _cumulants_reference(covariance, matrix, orders=(1, 2, 3)):
+    """``κ_n = 2**(n-1) (n-1)! tr((C B)^n)`` of ``z.T B z``, ``z ~ N(0, C)``."""
+    product = covariance @ matrix
+    power = np.eye(len(matrix))
+    out = []
+    for n in orders:
+        power = power @ product
+        out.append(2.0 ** (n - 1) * float(np.prod(range(1, n))) * np.trace(power))
+    return out
+
+
+def _law_cumulants(law, orders=(1, 2, 3)):
+    return [law.mean if n == 1 else law.cumulant(n) for n in orders]
+
+
+# A Gaussian kernel over about 38 or more correlation lengths has subnormal
+# entries; W A W rounds them differently in its two triangles.
+KERNEL_GRIDS = [
+    ("gauss_legendre", 120, 0.7, 45.3, 1.1),
+    ("simpson", 301, 0.5, 60.5, 1.5),
+    ("trapezoid", 400, 0.25, 80.25, 2.0),
+]
+
+
+@pytest.mark.parametrize("rule, n, lo, hi, ell", KERNEL_GRIDS,
+                         ids=[g[0] for g in KERNEL_GRIDS])
+def test_weighted_grid_of_a_wide_gaussian_kernel_is_prepared(rule, n, lo, hi,
+                                                             ell):
+    x, w = _grid(rule, n, lo, hi)
+    d = x[:, None] - x[None, :]
+    kernel = np.exp(-d**2 / (2 * ell**2)) * np.cos(0.37 * d)
+    assert np.array_equal(kernel, kernel.T)
+    covariance = 1.3 * np.exp(-np.abs(d) / 2.3) + 0.05 * np.eye(n)
+    product = w[:, None] * kernel * w[None, :]
+    assert np.any((product != 0) & (np.abs(product) < MIN_NORMAL))
+    law = GaussianQuadratic.from_weighted_grid(covariance, kernel, w)
+    # The same observable with its matrix formed symmetrically.
+    symmetric = (w[:, None] * w[None, :]) * kernel
+    assert np.array_equal(symmetric, symmetric.T)
+    np.testing.assert_allclose(_law_cumulants(law),
+                               _cumulants_reference(covariance, symmetric),
+                               rtol=1e-12)
+
+
+def test_matrix_products_with_subnormal_entries_are_prepared():
+    """User-formed products: K D K (a matmul whose triangles differ), S K S
+    elementwise, and a family holding K and S K S."""
+    n = 300
+    x = np.linspace(0.0, 60.0, n)
+    d = x[:, None] - x[None, :]
+    kernel = np.exp(-d**2 / 2)
+    covariance = np.exp(-np.abs(d) / 3.0) + 0.1 * np.eye(n)
+    diagonal = np.linspace(0.5, 1.5, n)
+    kdk = kernel @ np.diag(diagonal) @ kernel
+    scale = np.linspace(0.8, 1.2, n)
+    sks = scale[:, None] * kernel * scale[None, :]
+    assert not np.array_equal(kdk, kdk.T)
+    for matrix in (kdk, sks):
+        assert np.any((matrix != 0) & (np.abs(matrix) < MIN_NORMAL))
+        law = GaussianQuadratic(covariance, matrix)
+        # Reference: the float64 average, whose subnormal entries differ
+        # from the prepared ones by at most 2**-1074.
+        reference = _cumulants_reference(covariance, (matrix + matrix.T) / 2)
+        np.testing.assert_allclose(_law_cumulants(law), reference, rtol=1e-11)
+    family = GaussianQuadraticFamily(covariance, np.array([kernel, sks]))
+    covariance_ref = 2 * np.trace(covariance @ kernel @ covariance @ sks)
+    np.testing.assert_allclose(family.mixed_cumulant((0, 1)), covariance_ref,
+                               rtol=1e-11)
 
 
 @pytest.mark.parametrize("units", [1, 2, 3, 4, 5])

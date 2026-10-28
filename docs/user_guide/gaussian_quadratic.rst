@@ -11,9 +11,13 @@ real observable of a finite real Gaussian input:
 The symmetric part of :math:`A` defines the same observable. Preparation uses an
 exactly symmetric :math:`A` unchanged, subnormal entries included, and replaces
 any other :math:`A` by its symmetric part with each entry rounded once to
-float64. It raises ``ValueError`` when an entry of that symmetric part is below
-``2**-1022`` in magnitude and is not a float64 value: rounding such an entry can
-change it by up to its whole value, to zero included. Negative quadratic
+float64. Each rounded entry is then within ``2**-53`` times the largest
+magnitude in :math:`A` of the exact one. That bound cannot hold when every
+entry of :math:`A` is below ``2**-1022`` in magnitude, and preparation then
+raises ``ValueError`` if an entry of the symmetric part is not a float64
+value: rounding it can change it by up to its whole value, to zero included.
+Multiplying :math:`A` by a power of two is exact and clears the refusal once
+its largest entry reaches ``2**-1022``. Negative quadratic
 eigenvalues are allowed; the observable need not be positive. The covariance
 must be positive semidefinite. Physical Gaussian input is required: a formal
 joint MSR physical/response propagator block is not an ordinary sampling
@@ -426,10 +430,11 @@ projection, the covariance eigendecomposition and the symmetrization of a
 quadratic matrix that is not exactly symmetric are float64 operations whose
 errors it does not cover. That symmetrization rounds each entry of
 :math:`(A+A^{\mathsf T})/2` once. At or above ``2**-1022`` in magnitude the
-error is at most ``2**-53`` of the entry. Below ``2**-1022`` a declared entry
-that float64 cannot hold is refused, and an entry of the whitened matrix is
-rounded by at most ``2**-1075``, to zero included. An exactly symmetric matrix
-is not rounded.
+error is at most ``2**-53`` of the entry, and below it at most ``2**-1075``,
+to zero included. A declared entry below ``2**-1022`` that float64 cannot hold
+is refused only when no entry of its matrix reaches ``2**-1022``; an entry of
+the whitened matrix is never refused. An exactly symmetric matrix is not
+rounded.
 
 Reuse of selected queries
 ~~~~~~~~~~~~~~~~~~~~~~~~~

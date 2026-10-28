@@ -151,7 +151,9 @@ which raises ``ValueError`` before allocating when its payload exceeds
 ``contraction_max_bytes``. ``factorized`` prepares a monomial,
 or a sum of monomials that have no opposite signs at any component
 assignment, from owned snapshots of the original coupling tensors; other
-sums use the ordered preparation. Errors, inf and NaN behave as on the
+sums use the ordered preparation, after the same payload check, which
+raises ``ValueError`` when the payload exceeds ``contraction_max_bytes``
+(every budget below 256 KiB). Errors, inf and NaN behave as on the
 ordered fold. Replacing package methods at run time is unsupported. See
 :doc:`../user_guide/resources` for the bound, the admission and cost rules,
 the measured speeds and executable YAML examples.

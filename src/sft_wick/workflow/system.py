@@ -5,6 +5,7 @@ problem.  Lowers high-level specification objects to raw
 
 from __future__ import annotations
 
+import collections.abc
 import re
 from dataclasses import dataclass, field, replace
 from functools import cached_property
@@ -15,7 +16,11 @@ import numpy as np
 from sft_wick.action import Action
 from sft_wick.evaluate import PropagatorModel
 from sft_wick.fields import Field, FieldOperator, reset_uid_counter
-from sft_wick.indices import is_generated_name, observable_labels
+from sft_wick.indices import (
+    is_generated_name,
+    literal_component,
+    observable_labels,
+)
 from sft_wick.perturbation import check_distinct_external_labels
 from sft_wick.vertices import Vertex
 
@@ -447,9 +452,14 @@ class System:
         :class:`Expansion` object.
 
         Args:
-            observable: iterable of either ``FieldOperator`` objects
-                or strings like ``"phi_a(x)"``.  Strings are parsed
-                as ``field_compIndex(spatialArg)``.
+            observable: a list or tuple of either ``FieldOperator``
+                objects or strings like ``"phi_a(x)"``.  Strings are parsed
+                as ``field_compIndex(spatialArg)``.  Operators come from
+                :meth:`build_fields` and carry letter component labels, as
+                the strings do; the component tuple of
+                :meth:`Expansion.evaluate` gives their components in this
+                order.  A set (``dict_keys`` included) raises, since its
+                order follows ``PYTHONHASHSEED``.
             orders: the perturbative orders to compute, as one integer or
                 a list of them.  A boolean, a string, a float, a non-integer
                 entry and an empty list raise.
@@ -476,7 +486,9 @@ class System:
                 and position pairs, and one that cannot be evaluated
                 there is not refused.  Also raised when two external
                 operators share a spatial label at an interacting order,
-                and for an empty ``orders``.
+                for an empty ``orders``, for a set observable, and for a
+                ``FieldOperator`` of another field or with a numeric
+                literal component label.
             TypeError: when ``orders`` is missing, or is or holds
                 something other than an integer.
         """
@@ -754,11 +766,26 @@ def _parse_observable(observable, system: System, _max_order: int = 1):
 
     - ``("phi_a(x)", "phi_b(y)")``: string form; each string is
       ``name_component(spatial)``.
-    - an iterable of ``FieldOperator`` objects (advanced).
+    - an iterable of ``FieldOperator`` objects (advanced), built from the
+      fields of :meth:`System.build_fields`, with component labels that are
+      not numeric literals.
+
+    A set is refused: its iteration order follows the string hashes, so
+    ``PYTHONHASHSEED`` would decide which operator each entry of the
+    component tuple of :meth:`Expansion.evaluate` belongs to.
 
     Returns ``(obs_ops, obs_repr)`` where ``obs_repr`` is a hashable
-    tuple describing the observable for caching.
+    tuple describing the observable for caching.  Its entries are
+    ``(field_name, component_label, spatial_label)`` for both forms, so the
+    two spellings of one observable share a cache entry.
     """
+    if isinstance(observable, collections.abc.Set):
+        raise ValueError(
+            f"System.expand: observable is a set, which has no order, and "
+            f"the order of the operators fixes which entry of the component "
+            f"tuple belongs to which operator; give a list or a tuple, e.g. "
+            f"['phi_a(x)', 'phi_b(y)']; got {observable!r}."
+        )
     ops = list(observable)
     if all(isinstance(o, str) for o in ops):
         phi, _psi = system.build_fields()
@@ -804,15 +831,12 @@ def _parse_observable(observable, system: System, _max_order: int = 1):
         return tuple(out), tuple(repr_list)
 
     if all(isinstance(o, FieldOperator) for o in ops):
+        for o in ops:
+            _check_observable_operator(o, system)
         check_distinct_external_labels(ops, _max_order)
-        repr_list = tuple(
-            (
-                o.field.name,
-                tuple(o.component_indices) if o.component_indices else None,
-                o.spatial_arg,
-            )
-            for o in ops
-        )
+        # The string branch's repr: the component label itself, which
+        # ``Expansion`` pins to the component tuple by name.
+        repr_list = tuple((o.field.name, o.component_index, o.spatial_arg) for o in ops)
         return tuple(ops), repr_list
 
     raise TypeError(
@@ -820,6 +844,47 @@ def _parse_observable(observable, system: System, _max_order: int = 1):
         "strings or an iterable of FieldOperator objects; got mixed/"
         "unknown types."
     )
+
+
+def _check_observable_operator(op: FieldOperator, system: System) -> None:
+    """Refuse a ``FieldOperator`` observable that the string form could not
+    spell: a field other than the system's ``phi`` or ``psi``, a missing
+    component label on a multi-component field, or a label that is not a
+    string or is a numeric literal.
+
+    At L1 the component tuple of :meth:`Expansion.evaluate` chooses the
+    components, through the label's name.  A literal label such as ``'1'``
+    would also name a component (:func:`~sft_wick.indices.literal_component`),
+    so the string form refuses it and so does this one.
+    """
+    phi, psi = system.build_fields()
+    if op.field not in (phi, psi):
+        raise ValueError(
+            f"Observable operator {op!r} belongs to {op.field!r}, which is "
+            f"neither field of this system ({phi!r}, {psi!r}); build the "
+            f"operators from System.build_fields()."
+        )
+    label = op.component_index
+    if label is None:
+        if system.n_components != 1:
+            raise ValueError(
+                f"Observable operator {op!r} has no component label but the "
+                f"system has n_components={system.n_components}."
+            )
+        return
+    if not isinstance(label, str):
+        raise ValueError(
+            f"Observable operator {op!r}: the component label {label!r} is "
+            f"not a string; use a letter label such as 'a'."
+        )
+    if literal_component(label) is not None:
+        raise ValueError(
+            f"Observable operator {op!r}: the component label {label!r} is a "
+            f"numeric literal, which would fix the component.  At L1 the "
+            f"component tuple of Expansion.evaluate chooses the components; "
+            f"use a letter label such as 'a', as in the string form "
+            f"'{op.field.name}_a({op.spatial_arg})'."
+        )
 
 
 def _system_spec_key(system: System) -> Any:
