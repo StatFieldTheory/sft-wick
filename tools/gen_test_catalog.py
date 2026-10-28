@@ -987,6 +987,16 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "distinct-letter spelling and the positions without the stray key",
         "exact; 1e-12",
     ),
+    "tests/test_observable_operator_inputs.py": (
+        "Workflow and YAML",
+        "FieldOperator observables in System.expand (order 0 at distinct "
+        "times, the FK channel at order 2, the same expansion as the string "
+        "spelling, one index per shared letter); literal labels and foreign "
+        "fields refused; set, frozenset and dict_keys observables refused",
+        "closed-form inner and scipy quad outer integral of the exponential "
+        "covariance; the FK channel of a constant kappa^3 as a 1-D quad",
+        "1e-12; 1e-9; bit equality between spellings",
+    ),
     "tests/test_sweep_selectors.py": (
         "Workflow and YAML",
         "the sweep's diagram selectors: a string vertex_types is one label "
