@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **4771 tests** in 112 files (parametrised
+The suite has **4865 tests** in 112 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -157,7 +157,7 @@ Multiplicities and canonical forms
 Propagator numerics
 -------------------
 
-*843 tests in 16 files.*
+*871 tests in 16 files.*
 
 .. list-table::
    :header-rows: 1
@@ -179,10 +179,10 @@ Propagator numerics
      - 1e-10 (GL) / 1e-8 (dblquad)
      - 21
    * - ``test_d_dim_spatial.py``
-     - vector positions through the L1 evaluate path
-     - scalar-separation equivalent
-     - 1e-10
-     - 13
+     - vector positions through the L1 evaluate path; C hooks that write into their position and time arguments
+     - scalar-separation equivalent; exact time integrals of a linear C; the same hook without writes
+     - 1e-10; 2e-15 to 1e-9 exact; bit equality
+     - 41
    * - ``test_deductive_numerics.py``
      - C from ∫∫RκR: closed form vs dblquad, spline tables, spatial homogeneity modes, white noise, QMC vs nquad, parallel vs serial
      - closed-form OU C; domain-split dblquad at 1e-12; alternative backends
@@ -252,7 +252,7 @@ Propagator numerics
 Integrators
 -----------
 
-*2018 tests in 52 files.*
+*2084 tests in 52 files.*
 
 .. list-table::
    :header-rows: 1
@@ -414,10 +414,10 @@ Integrators
      - 1e-5
      - 9
    * - ``test_gl_chunked_integration.py``
-     - chunked static/dynamic GL, causal and kink domains, aliases, dense matrix propagators, fixed vectors, phase scale, API and workers
-     - analytic exponential and polynomial cumulants; exact linear response Taylor coefficients; existing per-diagram paths
-     - 2e-12 independent GL references; explicit cancellation scale; QMC unchanged
-     - 79
+     - chunked static/dynamic GL, causal and kink domains, aliases, dense matrix propagators, fixed vectors, phase scale, API and workers, non-finite and raising blocks
+     - analytic exponential and polynomial cumulants; exact linear response Taylor coefficients; existing per-diagram paths; IEEE sum of the eager grid
+     - 2e-12 independent GL references; explicit cancellation scale; QMC unchanged; exact non-finite totals and propagated errors
+     - 145
    * - ``test_gl_chunking.py``
      - bounded tensor-node generation, polynomial weights, lazy large theoretical grids and read-only 1D rule reuse
      - separable polynomial integral and midpoint-rule volume
