@@ -5,7 +5,9 @@ counts from 1: ``phi('1', 'x')`` is component 0.  Coupling symbols and
 propagator legs have always read it so.  The Kronecker delta that
 ``diag_C`` / ``diag_R`` / ``iso_C`` / ``iso_R`` insert between two external
 labels read it from 0, so ``<phi_1(x) phi_b(y)>`` under ``diag_C`` came out
-as ``C_00`` at ``b = 1`` and as 0 at ``b = 0``, the two values swapped.
+as ``C_00`` at ``b = 1`` and as 0 at ``b = 0``, the two values swapped.  A
+literal outside ``1..n_components`` (``'0'``, which indexing wrapped to the
+last component) is now refused where the observable enters.
 
 References share no code with the package: the exact covariance and
 response of a two-component Ornstein-Uhlenbeck process with diagonal drift
@@ -337,3 +339,27 @@ def test_LK7_literal_component_counts_from_one():
     assert [literal_component(s) for s in spellings] == [0, 1, 0, 0, 2]
     assert literal_component("0") == -1
     assert literal_component("a") is None and literal_component("i_0") is None
+
+
+# --------------------------------------------------------------------------
+# Out-of-range literals are refused where the observable enters
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_LK8_out_of_range_literal_is_refused(engine):
+    """'0' was read as component -1, the last one: <phi_0(x) phi_0(y)>
+    returned C_11.  A literal above n_components met a delta alone under
+    iso_C and returned 0, or raised IndexError elsewhere.  Both ends of
+    1..n_components are accepted."""
+    for label in ("0", "3", "-1", "00"):
+        for ops in (
+            [phi(label, "x"), phi("b", "y")],
+            [phi("b", "x"), psi(label, "y")],
+        ):
+            with pytest.raises(ValueError, match="literal labels count from 1"):
+                _terms(engine, ops, 0, diag_C=True)
+    for label in ("1", "2", "02"):
+        assert _terms(engine, [phi(label, "x"), phi("b", "y")], 0, diag_C=True)
+    scalar = Field("phi", "physical", n_components=1)
+    assert _terms(engine, [scalar("x"), scalar("y")], 0)

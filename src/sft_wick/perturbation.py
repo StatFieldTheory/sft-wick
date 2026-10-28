@@ -1735,6 +1735,43 @@ def check_distinct_external_labels(observable, order: int = 1) -> None:
     )
 
 
+def check_literal_component_labels(observable) -> None:
+    """Refuse an observable component label that is a numeric literal
+    naming no component of its field.
+
+    A literal label counts from 1 (:func:`~sft_wick.indices.literal_component`):
+    ``phi('1', 'x')`` is component 0 and ``phi('N', 'x')`` component
+    ``N - 1``.  Without this check an out-of-range literal reaches the
+    arrays: ``phi('0', 'x')`` reads component ``-1``, which NumPy indexing
+    wraps to the last component, and a label above ``N`` raises
+    ``IndexError``, or gives 0 where only a Kronecker delta reads it
+    (``iso_C``, ``iso_R``).
+
+    Args:
+        observable: the external operators.
+
+    Raises:
+        ValueError: if a component label parses as an integer outside
+            ``1..n_components`` of its operator's field.
+    """
+    for op in observable:
+        label = getattr(op, "component_index", None)
+        if label is None:
+            continue
+        component = literal_component(label)
+        n = op.field.n_components
+        if component is None or 0 <= component < n:
+            continue
+        raise ValueError(
+            f"observable operator {op!r}: the component label {label!r} is "
+            f"a numeric literal, and literal labels count from 1 ('1' is "
+            f"component 0), so it names no component of a field with "
+            f"n_components={n}.  Write a literal from 1 to {n}, or a letter "
+            f"label such as 'a' and pin it through fixed_indices, whose "
+            f"values count from 0."
+        )
+
+
 def compute_moment(
     observable: list[FieldOperator],
     action: Action,
@@ -1767,7 +1804,10 @@ def compute_moment(
 
     Args:
         observable: List of field operators defining the observable
-            :math:`\mathcal{O}`.
+            :math:`\mathcal{O}`.  A component label that is a numeric
+            literal counts from 1 (``phi('1', 'x')`` is component 0); one
+            outside ``1..n_components`` raises ``ValueError``
+            (:func:`check_literal_component_labels`).
         action: The interaction action :math:`S_{\mathrm{int}}`.
         order: Maximum perturbative order *N* to compute.
         ito: If ``True``, apply the Itô prescription
@@ -1836,6 +1876,7 @@ def compute_moment(
     """
     validate_target(target, observable)
     check_distinct_external_labels(observable, order)
+    check_literal_component_labels(observable)
     reserved_labels = observable_labels(observable)
     # E_psi: response legs carried by the observable itself.  Fixes the
     # phase needed to rotate a diagram value onto the real axis.
@@ -3041,7 +3082,9 @@ def compute_moment_numerical(
     sft-wick[parallel]``).
 
     Args:
-        observable: Field operators defining the observable.
+        observable: Field operators defining the observable.  A numeric
+            literal component label counts from 1, as in
+            :func:`compute_moment`.
         action: The interaction action.
         order: Maximum perturbative order.
         coupling_values: ``{name: numpy_array}`` mapping coupling names
@@ -3074,10 +3117,13 @@ def compute_moment_numerical(
             label-keyed :func:`sft_wick.wick.wick_contract_spatial` as
             :func:`compute_moment`, so it inherits the same collapse and
             must refuse the same spelling; see
-            :func:`check_distinct_external_labels`.
+            :func:`check_distinct_external_labels`.  Also if a numeric
+            literal component label lies outside ``1..n_components``
+            (:func:`check_literal_component_labels`).
     """
     validate_target(target, observable)
     check_distinct_external_labels(observable, order)
+    check_literal_component_labels(observable)
     reserved_labels = observable_labels(observable)
     # E_psi: response legs carried by the observable itself.  Fixes the
     # phase needed to rotate a diagram value onto the real axis.
