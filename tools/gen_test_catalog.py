@@ -57,7 +57,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     "tests/test_factorized_public.py": (
         "Workflow and YAML",
         "factorized preparation via public GL/QMC, complete expansion/sweep/YAML rows, "
-        "worker serialization and scalar budget feedback",
+        "worker serialization and scalar budget feedback; the materialization "
+        "raise below 256 KiB stated in the workflow guide and the API page",
         "ordered complete values/errors/axis metadata and public custom builder witnesses",
         "1e-12 relative / 1e-14 absolute complete results; exact metadata",
     ),

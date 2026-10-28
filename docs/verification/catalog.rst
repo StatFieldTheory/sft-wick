@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **5475 tests** in 120 files (parametrised
+The suite has **5476 tests** in 120 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -542,7 +542,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*734 tests in 21 files.*
+*735 tests in 21 files.*
 
 .. list-table::
    :header-rows: 1
@@ -579,10 +579,10 @@ Workflow and YAML
      - exact cache/default/worker results; 1e-12 relative / 1e-14 absolute dense cases
      - 39
    * - ``test_factorized_public.py``
-     - factorized preparation via public GL/QMC, complete expansion/sweep/YAML rows, worker serialization and scalar budget feedback
+     - factorized preparation via public GL/QMC, complete expansion/sweep/YAML rows, worker serialization and scalar budget feedback; the materialization raise below 256 KiB stated in the workflow guide and the API page
      - ordered complete values/errors/axis metadata and public custom builder witnesses
      - 1e-12 relative / 1e-14 absolute complete results; exact metadata
-     - 38
+     - 39
    * - ``test_generated_docs_in_sync.py``
      - every committed file that a script writes (demo 2's error budget, table 1 and its order-1 diagrams, demo 3's diagram README) still holds the text its generator would write; demo 2's interpretation quotes the current quadrature errors and residual statistics; its diagonal figure includes every listed nonzero channel
      - the generator's own source, parsed; independent recomputation from budget.npz

@@ -1955,7 +1955,12 @@ when a backend cannot keep that bound, would raise a different error, or is
 estimated to be slower; small diagrams therefore keep the ordered fold.
 ``factorized`` prepares a sum of monomials only when no two monomials have
 opposite signs at any component assignment, because monomials that cancel
-would break the bound. On a 330-diagram test set at 1024 to 65536 samples,
+would break the bound. A sum it does not prepare, and the first call of a
+prepared one that declines, first materialize the coefficient tensor. That
+raises ``ValueError`` before allocating when the payload it needs exceeds
+``contraction_max_bytes``. The payload is 32 bytes per coefficient entry
+plus a 256 KiB reserve, so a budget below 256 KiB always raises there, where
+``ordered`` and ``einsum`` return a value; see :doc:`resources`. On a 330-diagram test set at 1024 to 65536 samples,
 ``einsum`` ran on 204 to 310 of the diagrams and its static contraction was
 2.2 to 103 times faster; ``factorized`` ran on 2 to 4 of them, 2.8 to 118
 times faster, the other coupling sums having monomials of opposite sign.

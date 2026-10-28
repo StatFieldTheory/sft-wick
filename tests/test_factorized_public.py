@@ -434,3 +434,56 @@ def test_public_factorized_dispatch_real_sweep_worker_respects_budget(
         )
     assert error.value.__cause__ is not None
     assert type(error.value.__cause__).__module__.startswith("joblib.")
+
+
+def test_factorized_budget_raise_is_stated_where_the_fallback_is():
+    """A sum ``factorized`` does not prepare, and a declined call,
+    materialize the coefficient first, which raises where ``ordered`` and
+    ``einsum`` return a value.  ``resources.rst`` stated it; the workflow
+    guide said only that a declined call runs on the ordered fold, and the
+    API page that other sums use the ordered preparation.  Model: two
+    components with distinct rates, F and K3 with entries of both signs,
+    t_min = 0.3, distinct points, order 2."""
+    from pathlib import Path
+
+    import sft_wick as sw
+
+    f = np.array([[[-0.829, -0.526], [0.603, 0.164]],
+                  [[-0.812, -0.134], [-0.042, -0.681]]])
+    k3 = np.array([[[0.31, -0.57], [0.12, 0.44]], [[-0.26, 0.08], [0.73, -0.19]]])
+    system = sw.System(
+        field=sw.FieldSpec("phi", 2),
+        linear=sw.DiagonalA(gamma=[0.7, 1.4]),
+        vertices=[sw.LocalVertex("F", coupling=f)],
+        nonlocal_vertices=[sw.NonLocalVertex("K", order=3, coupling=k3)],
+        noise=sw.GaussianNoise(kappa2=sw.SeparableTranslation(
+            temporal=sw.ExponentialTemporal(lam=0.6, sigma_t=0.4),
+            spatial=sw.ExponentialSpatial(sigma_x=0.8))),
+        t_min=0.3,
+    )
+    props = system.propagators(t_max=2.0, progress=False)
+    expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=2,
+                              progress=False)
+    kw = dict(positions={"x": 0.1, "y": 0.65}, t_final=1.8,
+              component_pair=(0, 1), method="gauss_legendre", n_gauss=4)
+    for budget in (4096, 512):
+        ordered = expansion.evaluate(props, contraction_backend="ordered",
+                                     contraction_max_bytes=budget, **kw).total
+        einsum = expansion.evaluate(props, contraction_backend="einsum",
+                                    contraction_max_bytes=budget, **kw).total
+        assert ordered != 0.0
+        np.testing.assert_allclose(einsum, ordered, rtol=1e-12)
+        with pytest.raises(ValueError, match="coefficient materialization"):
+            expansion.evaluate(props, contraction_backend="factorized",
+                               contraction_max_bytes=budget, **kw)
+
+    root = Path(__file__).resolve().parents[1] / "docs"
+    guide = (root / "user_guide" / "workflow.rst").read_text()
+    section = guide.split("Explicit lookup reuse and contraction order")[1]
+    section = " ".join(section.split("Persisted propagator tables")[0].split())
+    assert "first materialize the coefficient tensor" in section
+    assert ("a budget below 256 KiB always raises there, where ``ordered`` and "
+            "``einsum`` return a value") in section
+    api = " ".join((root / "api" / "workflow.rst").read_text().split())
+    assert ("other sums use the ordered preparation, after the same payload "
+            "check, which raises ``ValueError``") in api
