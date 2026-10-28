@@ -13,9 +13,9 @@ from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
 from contextlib import contextmanager
 from functools import cached_property, lru_cache
-from math import fsum
+from math import fsum, isfinite
 from types import MethodType, SimpleNamespace
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 import hashlib
 import itertools
@@ -2697,6 +2697,41 @@ def _gl_tensor_blocks(nodes, weights, n_dimensions, chunk_size):
             u[:, axis] = nodes[indices]
             w_columns[:, axis] = weights[indices]
         yield u, np.prod(w_columns, axis=1)
+
+
+def _sum_gl_block_totals(totals: Iterable[float]) -> float:
+    """Add GL block totals, agreeing with the eager grid's ``np.sum``.
+
+    Finite totals go to ``math.fsum``, which rounds their sum once.
+    Non-finite totals are combined by floating-point addition, which gives
+    what the eager sum over the nodes gives: NaN when one is NaN or both
+    infinities occur, otherwise the one infinity.  fsum would raise
+    ``ValueError`` for ``inf`` and ``-inf`` together.  The weights sum to
+    one, so the exact sum of the finite totals cannot exceed the largest
+    node value in magnitude and fsum can overflow only within rounding of
+    the float range; the floating-point sum is returned then.  Every block
+    is evaluated in each case.
+    """
+    finite_sum = 0.0
+    special = None
+
+    def finite_totals():
+        nonlocal finite_sum, special
+        for total in totals:
+            if isfinite(total):
+                finite_sum += total
+                yield total
+            else:
+                special = total if special is None else special + total
+
+    stream = finite_totals()
+    try:
+        exact = fsum(stream)
+    except OverflowError:
+        for _ in stream:
+            pass
+        exact = finite_sum
+    return exact if special is None else special
 
 
 def _rotation_cos(x1, x2) -> float:
@@ -7464,7 +7499,7 @@ class DiagramIntegrand:
             u, w = next(blocks)
             estimate = evaluate_nodes(u, w)
         else:
-            estimate = fsum(evaluate_nodes(u, w) for u, w in blocks)
+            estimate = _sum_gl_block_totals(evaluate_nodes(u, w) for u, w in blocks)
         if reality is not None:
             reality.validate()
         return (estimate, 0.0)

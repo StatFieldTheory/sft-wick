@@ -476,6 +476,149 @@ def test_small_coupling_large_response_remains_finite_in_complete_GL_path(
     assert got.total == pytest.approx(ref, rel=3e-14, abs=0.0)
 
 
+@dataclass(frozen=True)
+class BandC:
+    """C(t1, t2) fixed by the band of ``s1 = t1 - T_MIN`` on ``[0, 1]``.
+
+    ``low`` holds for ``s1 < 0.25`` and ``high`` for ``s1 > 0.75``; between
+    them C is ``mid``, or a finite function of both times of either sign.
+    The first argument's time is the slow axis of the IJ-ordered grid, so
+    with four nodes per axis the low band is grid row 0 and the high band
+    row 3, and a block of fewer than ten nodes never holds both.
+    """
+
+    low: float
+    mid: float | None
+    high: float
+    has_diagonal_kink = False
+
+    def __call__(self, x1, t1, x2, t2):
+        s1 = np.asarray(t1, dtype=float) - T_MIN
+        s2 = np.asarray(t2, dtype=float) - T_MIN
+        if self.mid is None:
+            middle = 0.4 - 1.3 * s1 * s2
+        else:
+            middle = np.full_like(s1, self.mid)
+        upper = np.where(s1 > 0.75, self.high, middle)
+        return np.where(s1 < 0.25, self.low, upper)[..., None, None]
+
+
+def _band_total(band, chunk):
+    # A smooth temporal kernel: no diagonal cusp, so the square of the two
+    # external times is one GL piece rather than two triangles.
+    system = sw.System(
+        field=sw.FieldSpec("phi", n_components=1),
+        linear=sw.DiagonalA(gamma=[0.8]),
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.GaussianTemporal(lam=0.5, sigma_t=0.4),
+                spatial=sw.ExponentialSpatial(sigma_x=1.0),
+            )
+        ),
+        t_min=T_MIN,
+    )
+    exp = system.expand(("phi(x)", "phi(y)"), orders=[0])
+    props = system.propagators(
+        t_max=2.0,
+        c_closed_form=band,
+        c_closed_form_only=True,
+        c_closed_form_vectorized=True,
+        progress=False,
+    )
+    return exp.evaluate(
+        props,
+        positions={"x": 0.1, "y": -0.4},
+        t_final=T_MIN + 1,
+        orders=[0],
+        integrate_over="all",
+        method="gauss_legendre",
+        n_gauss=4,
+        gl_chunk_size=chunk,
+    ).total
+
+
+INF, NAN = float("inf"), float("nan")
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+@pytest.mark.parametrize(
+    "low,mid,high,expected",
+    [
+        (INF, None, -0.6, INF),
+        (0.5, None, -INF, -INF),
+        (INF, None, -INF, NAN),
+        (-INF, None, INF, NAN),
+        (NAN, None, 0.9, NAN),
+        (INF, NAN, -INF, NAN),
+        (INF, None, INF, INF),
+    ],
+    ids=["inf", "-inf", "inf,-inf", "-inf,inf", "nan", "inf,nan,-inf", "inf,inf"],
+)
+@pytest.mark.parametrize("chunk", [None, 1, 4, 5, 8, 15, 16])
+def test_blocked_total_matches_eager_grid_when_block_totals_are_not_finite(
+    low, mid, high, expected, chunk
+):
+    """IEEE addition of the 16 node values gives ``expected``: NaN when
+    either NaN or both infinities occur, the one infinity otherwise.  The
+    blocked total used to go through ``math.fsum``, which raises
+    ``ValueError`` for ``inf`` and ``-inf`` in different blocks.  Sixteen
+    nodes is the eager grid, fifteen the largest blocked bound."""
+    got = _band_total(BandC(low, mid, high), chunk)
+    if np.isnan(expected):
+        assert np.isnan(got)
+    else:
+        assert got == expected
+
+
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
+def test_band_hook_puts_the_two_infinities_in_different_blocks(monkeypatch):
+    """The parametrised test above exercises the mixed-sign sum only if the
+    low and high bands are whole blocks; record the block totals to check."""
+    import sft_wick.evaluate as ev
+
+    seen = []
+    summed = ev._sum_gl_block_totals
+
+    def record(totals):
+        return summed(seen.append(total) or total for total in totals)
+
+    monkeypatch.setattr(ev, "_sum_gl_block_totals", record)
+    assert np.isnan(_band_total(BandC(INF, None, -INF), 4))
+    assert seen[0] == INF and seen[-1] == -INF
+    assert len(seen) == 4 and np.all(np.isfinite(seen[1:-1]))
+
+
+def test_block_total_sum_is_fsum_when_finite_and_ieee_addition_otherwise():
+    from sft_wick.evaluate import _sum_gl_block_totals
+
+    # Finite totals keep the single rounding of math.fsum.
+    assert _sum_gl_block_totals(iter([1e16, 1.0, -1e16, 0.5])) == 1.5
+    assert _sum_gl_block_totals(iter([])) == 0.0
+    # Non-finite totals combine by IEEE addition whatever their order.
+    for totals, expected in [
+        ([2.0, INF, -3.0], INF),
+        ([-INF, 2.0, -INF], -INF),
+        ([-INF, 2.0, INF], NAN),
+        ([1.0, NAN, 4.0], NAN),
+        ([INF, NAN, -INF], NAN),
+    ]:
+        got = _sum_gl_block_totals(iter(totals))
+        assert (np.isnan(got) and np.isnan(expected)) or got == expected
+    # Finite totals that overflow fsum give the floating-point sum, and
+    # every later block is still evaluated.
+    big = 0.75 * float(np.finfo(float).max)
+    evaluated = []
+
+    def blocks(values):
+        for value in values:
+            evaluated.append(value)
+            yield value
+
+    assert _sum_gl_block_totals(blocks([big, big, 1.0, 2.0])) == INF
+    assert evaluated == [big, big, 1.0, 2.0]
+    assert _sum_gl_block_totals(iter([-big, 3.0, -big])) == -INF
+
+
 @pytest.mark.parametrize("n_jobs,evaluate_n_jobs", [(2, 1), (1, 2)])
 @pytest.mark.parametrize("reuse", [False, True])
 def test_parallel_and_reused_sweeps_with_dense_R_C_match_independent_hierarchy(
