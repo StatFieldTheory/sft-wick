@@ -176,10 +176,13 @@ the counters to ensure no collisions between copies:
 - **Component indices:** ``i_0``, ``i_1``, ``i_2``, ...
 - **Spatial variables:** ``y_0``, ``y_1``, ``y_2``, ...
 
-The counters skip every spatial and component label of the observable, so an
+:func:`~sft_wick.perturbation.compute_moment` and
+:func:`~sft_wick.perturbation.compute_moment_numerical` pass every spatial and
+component label of the observable to the context as
+``IndexContext(reserved=...)``, and the counters skip those names, so an
 observable may name a point ``y_0`` or a component ``i_1``; the vertex copies
 then use the next free names.  The renaming of the summed indices after a
-diagonal constraint skips them in the same way.
-
-:func:`~sft_wick.perturbation.compute_moment` handles this.  Only the
-low-level API requires touching ``VertexInstance`` directly.
+diagonal constraint skips them in the same way.  A bare ``IndexContext()``
+reserves nothing: a caller that instantiates ``VertexInstance`` copies itself
+(the low-level API) must pass the observable's labels as ``reserved`` too, or
+a vertex point can take the name of an external one.

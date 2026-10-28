@@ -242,7 +242,7 @@ def test_LC5_l0_value_independent_of_label_spelling(
     """Spatial labels y_k and component labels i_k (and each spelled in
     the other's namespace) give the (a, b), (x, y) values at orders 0-2.
     Earlier versions lost the order-2 diagrams to the spatial collisions,
-    and the component collisions returned values from 0.034 to 0.074 in
+    and the component collisions returned values from 0.039 to 0.074 in
     place of 0.0254."""
     fl = L0_FLAGS[flags]
     want = _l0_by_order(system, props, ("a", "b"), ("x", "y"), engine, fl)
