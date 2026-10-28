@@ -38,16 +38,19 @@ from . import perturbation as _pt
 from ._coupling_plan import _CouplingPlan
 from ._dense_contraction import (
     QUARTER_TURNS,
+    count_bytes,
     errors_allow_backend,
     factorized_overhead,
     finish,
     finite_range,
     fixed_labels_ok,
     kernel_layout,
+    layout_bytes,
     live_assignments,
     minimum_backend_cost,
     ordered_cost,
     plan_groups,
+    restricted_supports,
     _native_dtype,
     _ordinary_label,
 )
@@ -326,12 +329,19 @@ def _contract(snapshot, fixed, cb, rp, jac, rb, e_psi, max_bytes):
     if planned is None:
         return None
     contraction, _ = planned
-    if contraction.workspace > max_bytes:
-        return None
     cost = contraction.cost + overhead
     if not _dense.backend_is_cheaper(cost, upper):
         return None
-    live, count_cost = live_assignments(dims, snapshot.mask, layout.supports)
+    restricted = restricted_supports(layout.supports)
+    mask_shape = None if snapshot.mask is None else snapshot.mask.shape
+    counting = count_bytes(dims, mask_shape, restricted)
+    if counting is None:
+        return None
+    # The snapshot owns the factor copies and the mask; a call allocates the
+    # live-count arrays, then the arrays of finish().
+    if max(layout_bytes(layout) + counting, contraction.workspace) > max_bytes:
+        return None
+    live, count_cost = live_assignments(dims, snapshot.mask, (), restricted=restricted)
     if live is None:
         return None
     estimate = ordered_cost(

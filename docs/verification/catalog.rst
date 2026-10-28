@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **4554 tests** in 111 files (parametrised
+The suite has **4673 tests** in 112 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -252,7 +252,7 @@ Propagator numerics
 Integrators
 -----------
 
-*1833 tests in 51 files.*
+*1952 tests in 52 files.*
 
 .. list-table::
    :header-rows: 1
@@ -293,6 +293,11 @@ Integrators
      - Fraction sum over component assignments (dense and summed monomials), ordered fold
      - documented bound 1.01 (m + A T) u S with S from the summed coefficient; 1e-12 relative where a decline keeps the ordered value; L1 diagrams 1e-12 of the largest
      - 97
+   * - ``test_contraction_workspace_budget.py``
+     - contraction_max_bytes bounds every array of an einsum or factorized call: each call run at the smallest budget that admits it (found by bisection) on diagrams captured from Expansion.evaluate (N = 2, 3, 5; orders 2 and 4; diag_C off and on; pinned components) at 16, 256 and 8192 samples, kernel layouts (full, diagonal, partial-support, index-free, pinned delta, R trace, five indices; real and complex coefficients) and factorized sums; range scan in blocks against the whole array
+     - tracemalloc peak of the call; numpy whole-array maximum and smallest nonzero magnitude
+     - peak <= budget + 16 KiB for Python objects (measured excess at most 7216 bytes); exact equality of ranges
+     - 119
    * - ``test_coupling_scale_invariance.py``
      - small indexed static/dynamic coefficients times large kernels, cancellation and nonzero phase checks
      - ordinary multiplication and summation under reciprocal rescaling
