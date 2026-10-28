@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **5385 tests** in 119 files (parametrised
+The suite has **5425 tests** in 120 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -157,7 +157,7 @@ Multiplicities and canonical forms
 Propagator numerics
 -------------------
 
-*871 tests in 16 files.*
+*911 tests in 17 files.*
 
 .. list-table::
    :header-rows: 1
@@ -213,6 +213,11 @@ Propagator numerics
      - closed form
      - recorded bounds
      - 4
+   * - ``test_kernel_argument_copies.py``
+     - GeneralKappa2 and CustomImpulse callables that write into their position arguments, at 3-D, 1-vector and scalar positions, on gauss_legendre and dblquad, at L0, at L1 order 0 and in the transposition probe; a vectorised closed-form C that fills and returns one buffer, at order 2 under diag_C true and false on qmc_vectorized and gauss_legendre
+     - erf inner and scipy quad outer time integral of the Gaussian temporal kernel plus a quad white-noise term; the same kernel without writes; the same hook with a fresh array and per sample
+     - 1e-12; 5e-4 through the 10 x 10 table; bit equality
+     - 40
    * - ``test_min_lag_boundaries.py``
      - min-time/lag tables retain the ordered spatial arguments of an explicit earlier-first covariance, call physical kernels only inside the requested horizon, converge at both temporal corners and the upper boundary, preserve positivity under steep decay with linear interpolation, and reject the previous cache schema
      - rank-one Gaussian covariance; exact matrix white-noise covariance; callbacks restricted to the declared time interval

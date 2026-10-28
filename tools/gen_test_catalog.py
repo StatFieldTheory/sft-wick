@@ -457,6 +457,19 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "constant-γ closed form; explicit R; analytic Γ of a sinusoidal rate",
         "1e-6 / 1e-3 (default grid)",
     ),
+    "tests/test_kernel_argument_copies.py": (
+        "Propagator numerics",
+        "GeneralKappa2 and CustomImpulse callables that write into their "
+        "position arguments, at 3-D, 1-vector and scalar positions, on "
+        "gauss_legendre and dblquad, at L0, at L1 order 0 and in the "
+        "transposition probe; a vectorised closed-form C that fills and "
+        "returns one buffer, at order 2 under diag_C true and false on "
+        "qmc_vectorized and gauss_legendre",
+        "erf inner and scipy quad outer time integral of the Gaussian "
+        "temporal kernel plus a quad white-noise term; the same kernel "
+        "without writes; the same hook with a fresh array and per sample",
+        "1e-12; 5e-4 through the 10 x 10 table; bit equality",
+    ),
     "tests/test_d_dim_spatial.py": (
         "Propagator numerics",
         "vector positions through the L1 evaluate path; C hooks that "

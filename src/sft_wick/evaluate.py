@@ -1963,7 +1963,7 @@ def _C_value_direct_gl(
 
     # ---- helper: evaluate κ² at a single time pair --------------- #
     def _kappa(lam1: float, lam2: float) -> np.ndarray:
-        return np.asarray(model.kappa2(n1, lam1, n2, lam2), dtype=float)
+        return np.asarray(_kappa2_at(model, n1, lam1, n2, lam2), dtype=float)
 
     # ---- helper: contract one (R(t1,lam1), kappa, R(t2,lam2)) ----- #
     # triple into the (N, N) per-point integrand value.
@@ -2068,7 +2068,7 @@ def _C_value_direct_gl(
                 tau_f = float(tau)
                 r1m = _r_mat(t1, tau_f)
                 r2m = _r_mat(t2, tau_f)
-                sig = np.asarray(model.sigma2(n1, tau_f, n2), dtype=float)
+                sig = np.asarray(_sigma2_at(model, n1, tau_f, n2), dtype=float)
                 C_mat += tau_w[k] * _integrand_block(r1m, sig, r2m)
 
     return C_mat
@@ -2087,9 +2087,9 @@ def _probe_diagonal_cusp(model: "PropagatorModel", positions: tuple) -> bool:
         vals = []
         for lam0 in (t_min + 0.7, t_min + 2.3):
             for h in (1e-3, 2.5e-4):
-                k0 = np.asarray(model.kappa2(n1, lam0, n2, lam0), dtype=float)
-                kp = np.asarray(model.kappa2(n1, lam0, n2, lam0 + h), dtype=float)
-                km = np.asarray(model.kappa2(n1, lam0, n2, lam0 - h), dtype=float)
+                k0 = np.asarray(_kappa2_at(model, n1, lam0, n2, lam0), dtype=float)
+                kp = np.asarray(_kappa2_at(model, n1, lam0, n2, lam0 + h), dtype=float)
+                km = np.asarray(_kappa2_at(model, n1, lam0, n2, lam0 - h), dtype=float)
                 scale = max(float(np.max(np.abs(k0))), 1e-300)
                 vals.append(float(np.max(np.abs(kp + km - 2.0 * k0))) / h / scale)
     except Exception:
@@ -2168,13 +2168,13 @@ def _probe_c_transpose(
     try:
         for f1, f2 in _TRANSPOSE_PROBE_TIMES:
             s1, s2 = t0 + f1 * span, t0 + f2 * span
-            k12 = model.kappa2(x1, s1, x2, s2)
-            k21 = np.asarray(model.kappa2(ya, s2, yb, s1), dtype=float).T
+            k12 = _kappa2_at(model, x1, s1, x2, s2)
+            k21 = np.asarray(_kappa2_at(model, ya, s2, yb, s1), dtype=float).T
             if not _same(k12, k21):
                 return False
             if model.sigma2 is not None:
-                w12 = model.sigma2(x1, s1, x2)
-                w21 = np.asarray(model.sigma2(ya, s1, yb), dtype=float).T
+                w12 = _sigma2_at(model, x1, s1, x2)
+                w21 = np.asarray(_sigma2_at(model, ya, s1, yb), dtype=float).T
                 if not _same(w12, w21):
                     return False
     except Exception:  # noqa: BLE001 (a user callable; see the docstring)
@@ -2775,6 +2775,24 @@ def _own_copy(value: Any) -> Any:
     if isinstance(value, (np.ndarray, list)):
         return value.copy()
     return value
+
+
+def _kappa2_at(model: "PropagatorModel", n1: Any, l1: float, n2: Any, l2: float):
+    """``model.kappa2(n1, l1, n2, l2)`` on copies of the two positions.
+
+    A quadrature hands every node of one C value the same two position
+    objects, and the probes hand κ² the caller's positions.  A κ² that
+    writes into its arguments (``n1 -= n2``) would otherwise change every
+    later node with no error, as :meth:`PropagatorCache._C_value_direct_on_copies`
+    prevents for C hooks.  Scalars pass unchanged (:func:`_own_copy`).
+    """
+    return model.kappa2(_own_copy(n1), l1, _own_copy(n2), l2)
+
+
+def _sigma2_at(model: "PropagatorModel", n1: Any, t: float, n2: Any):
+    """``model.sigma2(n1, t, n2)`` on copies of the two positions; see
+    :func:`_kappa2_at`."""
+    return model.sigma2(_own_copy(n1), t, _own_copy(n2))
 
 
 def _rotation_cos(x1, x2) -> float:
@@ -4558,7 +4576,9 @@ class PropagatorCache:
             for a in range(N):
 
                 def integrand(lam2: float, lam1: float, _a: int = a) -> float:
-                    kappa_mat = np.asarray(m.kappa2(n1, lam1, n2, lam2), dtype=float)
+                    kappa_mat = np.asarray(
+                        _kappa2_at(m, n1, lam1, n2, lam2), dtype=float
+                    )
                     return float(_row(t1, lam1, _a) @ kappa_mat @ _row(t2, lam2, _a))
 
                 C_mat[a, a] = _split_dblquad(integrand)
@@ -4570,7 +4590,7 @@ class PropagatorCache:
                         lam2: float, lam1: float, _a: int = a, _b: int = b
                     ) -> float:
                         kappa_mat = np.asarray(
-                            m.kappa2(n1, lam1, n2, lam2), dtype=float
+                            _kappa2_at(m, n1, lam1, n2, lam2), dtype=float
                         )
                         return float(
                             _row(t1, lam1, _a) @ kappa_mat @ _row(t2, lam2, _b)
@@ -4586,7 +4606,7 @@ class PropagatorCache:
                     for a in range(N):
 
                         def w_integrand(tau: float, _a: int = a) -> float:
-                            sig = np.asarray(m.sigma2(n1, tau, n2), dtype=float)
+                            sig = np.asarray(_sigma2_at(m, n1, tau, n2), dtype=float)
                             return float(_row(t1, tau, _a) @ sig @ _row(t2, tau, _a))
 
                         wval, _ = _quad(
@@ -4603,7 +4623,9 @@ class PropagatorCache:
                             def w_integrand(
                                 tau: float, _a: int = a, _b: int = b
                             ) -> float:
-                                sig = np.asarray(m.sigma2(n1, tau, n2), dtype=float)
+                                sig = np.asarray(
+                                    _sigma2_at(m, n1, tau, n2), dtype=float
+                                )
                                 return float(
                                     _row(t1, tau, _a) @ sig @ _row(t2, tau, _b)
                                 )
@@ -4829,10 +4851,16 @@ class PropagatorCache:
                     f"vectorised closed-form c_fn must return shape "
                     f"(n, N, N); got {full.shape} for n={n}, N={N}."
                 )
+            # Owned copies, never the hook's array or a view of it: the
+            # integrators keep several lookups alive at once (one per C
+            # factor), so a hook that fills and returns one preallocated
+            # buffer would otherwise turn every earlier factor into the
+            # last one.  The per-sample path below and C_value's memo
+            # copy too.
             if not self.model.diag_C:
-                return full.astype(float, copy=False)
+                return full.astype(float, copy=True)
             # Diagonal per sample: result[i, a] = full[i, a, a].
-            return np.einsum("iaa->ia", full).astype(float, copy=False)
+            return np.einsum("iaa->ia", full).astype(float, copy=True)
 
         # Per-sample fallback. Slow but always correct.
         if self.model.diag_C:
