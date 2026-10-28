@@ -7931,17 +7931,20 @@ def _C_at_fixed_positions(
 
     ``C_at_batch`` reads a 1-D array whose length equals the batch as one
     scalar position per sample, so a fixed d-vector on a batch of d > 1
-    samples would be misread that way.  Such a vector is broadcast to
-    ``(n, d)`` first.  Every other position passes through unchanged:
-    ``C_at_batch`` already reads a vector of another length as fixed, and
-    with ``n = d = 1`` both readings give the same value.
+    samples would be misread that way.  Such a vector is tiled to
+    ``(n, d)`` first, a writable copy like the one ``C_at_batch`` makes for
+    a vector of another length, so a closed-form C hook that writes to its
+    position arguments sees the same kind of array at every ``n > 1``.
+    Every other position passes through unchanged: ``C_at_batch`` already
+    reads a vector of another length as fixed, and with ``n = d = 1`` both
+    readings give the same value.
     """
     n = len(np.atleast_1d(t_l))
 
     def rows(x: Any) -> Any:
         arr = np.asarray(x, dtype=float)
         if arr.ndim == 1 and n > 1 and len(arr) == n:
-            return np.broadcast_to(arr, (n, n))
+            return np.tile(arr, (n, 1))
         return x
 
     return cache.C_at_batch(t_l, t_r, rows(x_l), rows(x_r))

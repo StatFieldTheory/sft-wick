@@ -20,6 +20,7 @@ contract.
 from __future__ import annotations
 
 import importlib.util as _ilu
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -319,3 +320,129 @@ def test_DD5_two_point_qmc_fixed_vector_position_on_a_batch_of_equal_length(dim)
     )
     assert scalar != 0.0
     assert vector == pytest.approx(scalar, rel=1e-12, abs=0.0)
+
+
+_DD6_T_MIN = 0.3
+_DD6_G = np.array([[0.8, -0.35], [-0.35, 0.6]])
+
+
+@dataclass(frozen=True)
+class _InPlaceSourceC:
+    """``C_ab = G_ab (t1 - t_min)(t2 - t_min) exp(-|x1 - x2|^2)``, written
+    the way a memory-conscious hook might: ``x1 - x2`` is formed in place
+    in the two position arguments.  A vector position has one more axis
+    than a scalar one: ``(n, d)`` against ``(n,)`` per batch, ``(d,)``
+    against a scalar per sample."""
+
+    vectorized: bool
+    has_diagonal_kink = False
+
+    def __call__(self, x1, t1, x2, t2):
+        diff = np.asarray(x1)
+        minus = np.asarray(x2)
+        np.negative(minus, out=minus)
+        diff += minus
+        is_vector = diff.ndim == (2 if self.vectorized else 1)
+        dist2 = np.sum(diff * diff, axis=-1) if is_vector else diff * diff
+        temporal = (np.asarray(t1) - _DD6_T_MIN) * (np.asarray(t2) - _DD6_T_MIN)
+        return (temporal * np.exp(-dist2))[..., None, None] * _DD6_G
+
+
+def _in_place_C_expansion(vectorized):
+    system = sw.System(
+        field=sw.FieldSpec("phi", n_components=2),
+        linear=sw.DiagonalA(gamma=[0.9, 1.3]),
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.ExponentialTemporal(lam=0.5, sigma_t=0.4),
+                spatial=sw.GaussianSpatial(sigma_x=1.0),
+            ),
+        ),
+        t_min=_DD6_T_MIN,
+    )
+    expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0], diag_C=False)
+    props = system.propagators(
+        t_max=2.0,
+        c_closed_form=_InPlaceSourceC(vectorized),
+        c_closed_form_only=True,
+        c_closed_form_vectorized=vectorized,
+        diag_C=False,
+        progress=False,
+    )
+    return expansion, props
+
+
+@pytest.mark.parametrize("vectorized", [True, False])
+@pytest.mark.parametrize(
+    ("dim", "n_gauss", "chunk"),
+    [
+        (3, 2, None),
+        (3, 3, None),
+        (3, 4, None),
+        (2, 2, None),
+        (4, 4, None),
+        (3, 7, 4),
+        (3, 6, 3),
+    ],
+    ids=["d3-n2", "d3-n3", "d3-n4", "d2-n2", "d4-n4", "d3-tail3", "d3-blocks3"],
+)
+def test_DD6_C_hook_may_write_into_fixed_vector_positions(
+    dim, n_gauss, chunk, vectorized
+) -> None:
+    """A closed-form C that writes into its position arguments must work
+    at every batch length.  A fixed ``dim``-vector on a batch of ``dim``
+    samples used to reach the hook as a read-only broadcast view, so the
+    in-place subtraction raised ``ValueError`` at that length only.  One
+    integrated external time makes the GL batch ``n_gauss`` long (blocks
+    of ``chunk`` nodes when one is given).  The reference is the integral
+    over the linear time factor, ``G_01 exp(-|x - y|^2) L^3 / 2``, which
+    GL integrates exactly; the caller's position arrays must come back
+    unchanged."""
+    expansion, props = _in_place_C_expansion(vectorized)
+    x = np.linspace(-0.2, 0.4, dim)
+    y = x + np.linspace(0.3, -0.8, dim)
+    x_before, y_before = x.copy(), y.copy()
+    L = 1.1
+    got = expansion.evaluate(
+        props,
+        positions={"x": x, "y": y},
+        t_final=_DD6_T_MIN + L,
+        component_pair=(0, 1),
+        orders=[0],
+        integrate_over={"x"},
+        method="gauss_legendre",
+        n_gauss=n_gauss,
+        gl_chunk_size=chunk,
+    )
+    separation2 = float(np.dot(x_before - y_before, x_before - y_before))
+    ref = _DD6_G[0, 1] * np.exp(-separation2) * L**3 / 2
+    assert got.total == pytest.approx(ref, rel=2e-14, abs=0.0)
+    np.testing.assert_array_equal(x, x_before)
+    np.testing.assert_array_equal(y, y_before)
+
+
+@pytest.mark.parametrize("dim", [2, 4])
+def test_DD6b_qmc_C_hook_may_write_into_fixed_vector_positions(dim) -> None:
+    """The vectorised QMC path with ``n_samples == dim`` hands the hook
+    the same fixed vector, which must be writable there too.  The
+    reference is the same separation as scalars, as in DD4."""
+    expansion, props = _in_place_C_expansion(True)
+    x = np.linspace(-0.2, 0.4, dim)
+    y = x + np.linspace(0.3, -0.8, dim)
+    common = dict(
+        t_final=_DD6_T_MIN + 1.1,
+        component_pair=(0, 1),
+        orders=[0],
+        integrate_over={"x"},
+        method="qmc_vectorized",
+        n_samples=dim,
+        seed=3,
+    )
+    vector = expansion.evaluate(props, positions={"x": x, "y": y}, **common)
+    scalar = expansion.evaluate(
+        props,
+        positions={"x": 0.37, "y": 0.37 + float(np.linalg.norm(y - x))},
+        **common,
+    )
+    assert scalar.total != 0.0
+    assert vector.total == pytest.approx(scalar.total, rel=1e-12, abs=0.0)
