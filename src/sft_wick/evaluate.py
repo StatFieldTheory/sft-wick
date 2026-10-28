@@ -984,6 +984,26 @@ def _conflicting_group_positions(
     return None
 
 
+def _external_positions(spatial: "SpatialStructure", positions: Any) -> dict:
+    """The entries of ``positions`` that name external points of the
+    diagram.
+
+    ``positions`` places external points.  A vertex point takes the
+    coordinate of its direction group, the points that response
+    propagators join, and that coordinate is the group's external
+    point's.  A key that names a vertex point used to be read too: it
+    replaced the group's coordinate when the external point had no entry,
+    and at a different value it raised the conflicting-group error about a
+    point the caller had not declared.  Since an observable may name its
+    points like the vertex points (``y_0``), one positions dict serving
+    several observables can hold such a key, and it is now ignored, like a
+    key that names no point of the diagram.
+    """
+    if not positions:
+        return {}
+    return {p: positions[p] for p in spatial.external_points if p in positions}
+
+
 def _require_one_position_per_group(
     spatial: "SpatialStructure",
     positions: Any,
@@ -6210,7 +6230,7 @@ class DiagramIntegrand:
                 with the labels and with ``PYTHONHASHSEED``; see
                 :func:`_require_one_position_per_group`.
         """
-        positions = positions or {}
+        positions = _external_positions(spatial, positions)
         _require_one_position_per_group(spatial, positions, where=where)
         group_x: dict[str, Any] = {}
         for group in spatial.direction_groups:
@@ -8578,9 +8598,10 @@ def _integrate_diagrams_dispatch(
     # no group's coordinate is read.
     if positions and _cache_has_spatial_table(cache):
         for dt, ig in zip(diagram_terms, prepared):
+            spatial = ig.spatial if ig is not None else dt.analyze_spatial()
             _require_one_position_per_group(
-                ig.spatial if ig is not None else dt.analyze_spatial(),
-                positions,
+                spatial,
+                _external_positions(spatial, positions),
                 where="integrate_diagrams",
             )
 
@@ -8732,21 +8753,23 @@ def integrate_two_point_qmc(
         # branches below consume ``positions``, the spatial-aware one
         # through ``_resolve_group_x`` and the other through the kappa2
         # ratio, so neither is safe with two positions in one group.
-        _require_one_position_per_group(sp, positions, where="integrate_two_point_qmc")
+        point_positions = _external_positions(sp, positions)
+        _require_one_position_per_group(
+            sp, point_positions, where="integrate_two_point_qmc"
+        )
         ivs = list(reversed(sp.time_integration_vars))
         evs = list(sp.external_points)
 
-        # Build direction dict from positions.
-        # External points (which carry user-specified positions) take
-        # priority over vertex points (which default to 0).
+        # Build direction dict from positions.  Only external points carry
+        # positions (``_external_positions``); a group whose external point
+        # has none sits at 0.
         directions: dict[str, float] = {}
         for pt in evs:
             dvar = sp.direction_map.get(pt)
-            if dvar is not None and pt in positions:
-                directions[dvar] = positions[pt]
-        for pt, dvar in sp.direction_map.items():
-            if dvar not in directions:
-                directions[dvar] = positions.get(pt, 0.0)
+            if dvar is not None and pt in point_positions:
+                directions[dvar] = point_positions[pt]
+        for dvar in sp.direction_map.values():
+            directions.setdefault(dvar, 0.0)
 
         # Spatial-aware dispatch, mirroring
         # ``integrate_moment_qmc_vectorized._lookup_C``.  When the cache has a

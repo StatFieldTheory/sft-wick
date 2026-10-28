@@ -11,7 +11,7 @@ import itertools
 import numbers
 import string
 import warnings
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
@@ -286,7 +286,9 @@ class Expansion:
                 ``<phi_a(x) phi_b(y)>``, ``(a, b, c)`` for a 3-point
                 observable.  ``None`` (default) is ``(0, ..., 0)``.  A
                 tuple of the wrong length, or with an index outside
-                ``0..N-1``, raises ``ValueError``.
+                ``0..N-1``, raises ``ValueError``, and so does a tuple
+                that gives two operators sharing one component letter
+                (``<phi_a(x) phi_a(y)>``) two different indices.
             orders: subset of the expansion's orders; ``None`` uses
                 all.
             vertex_types: subset of the vertex-composition labels
@@ -559,8 +561,9 @@ class Expansion:
                 uses (a 2-point sweep keeps its ``a``, ``b`` columns).
                 ``None`` for both arguments sweeps the single tuple
                 ``(0, ..., 0)``.  A tuple of the wrong length, an index
-                outside ``0..N-1`` or a repeated tuple raises
-                ``ValueError``.
+                outside ``0..N-1``, a repeated tuple, or a tuple giving two
+                operators that share a component letter two different
+                indices raises ``ValueError``.
             vertex_types: optional filter with the same semantics as in
                 :meth:`evaluate`; only diagrams whose
                 :meth:`_vertex_type_label` lies in this set are
@@ -1045,7 +1048,9 @@ class Expansion:
         """Extract the sorted unique coupling-symbol names from
         ``dt.coupling_sum`` and join them into a single string
         (matches demo2's convention: ``{'F'}`` → ``"F"``,
-        ``{'F', 'K'}`` → ``"FK"``)."""
+        ``{'F', 'K'}`` → ``"FK"``).  :class:`System` refuses vertex
+        names for which two sets would get one label (``F``, ``K`` and
+        ``FK``), so the label names one set of vertices."""
         names = _collect_symbol_names(dt.coupling_sum)
         if not names:
             return ""  # order-0 trivial
@@ -1107,6 +1112,8 @@ def _component_indices(component_pair, observable_repr):
     For observable ``(phi_a(x), phi_b(y))`` this yields
     ``{"a": component_pair[0], "b": component_pair[1]}``.  For a
     scalar observable (no component indices), returns ``{}``.
+    Operators sharing a letter write one entry; :func:`_component_tuple`
+    has checked that they were given one index.
     """
     fi: dict[str, int] = {}
     for i, (name, comp, spatial) in enumerate(observable_repr):
@@ -1194,7 +1201,93 @@ def _component_tuple(component, observable, n_components, label):
                 f"{label}: component index {int(c)} in {entries} is outside "
                 f"0..{n - 1} (n_components = {n})."
             )
-    return tuple(int(c) for c in entries)
+    out = tuple(int(c) for c in entries)
+    _require_one_index_per_letter(out, observable, label)
+    return out
+
+
+def _component_letters(observable) -> tuple:
+    """The component letter of each operator of ``observable`` (an
+    ``observable_repr`` or the operator strings); ``None`` for an operator
+    without one, or for a string that does not parse (the parser reports
+    it later)."""
+    from .system import _OBS_PATTERN
+
+    letters = []
+    for op in observable:
+        if isinstance(op, str):
+            m = _OBS_PATTERN.match(op)
+            letters.append(None if m is None else m.group("comp"))
+        else:
+            letters.append(op[1])
+    return tuple(letters)
+
+
+def _require_one_index_per_letter(component, observable, label) -> None:
+    """Refuse a component tuple that gives two operators sharing one
+    component letter two different indices.
+
+    The letter names the index, and the integrand reads one value per name
+    (:func:`_component_indices`), so the later operator's index used to
+    replace the earlier one's: ``<phi_a(x) phi_a(y)>`` asked for ``(0, 1)``
+    returned the ``(1, 1)`` value in rows labelled ``a = 0, b = 1``.  A
+    shared letter given one index is the same observable as distinct
+    letters given that index twice, and stays legal.
+    """
+    first: dict = {}
+    for pos, letter in enumerate(_component_letters(observable)):
+        if letter is None:
+            continue
+        i = first.setdefault(letter, pos)
+        if component[i] != component[pos]:
+            raise ValueError(
+                f"{label}: operators {i + 1} and {pos + 1} of the observable "
+                f"{_observable_text(observable)} share the component letter "
+                f"{letter!r}, so they carry one component index, but the "
+                f"component tuple {tuple(component)} gives them "
+                f"{component[i]} and {component[pos]}.  Give the operators "
+                f"distinct letters to ask for distinct indices."
+            )
+
+
+def _ambiguous_vertex_type_label(names):
+    """Two distinct sets of ``names`` that the vertex-type label (the sorted
+    names, concatenated; :meth:`Expansion._vertex_type_label`) does not
+    tell apart, as sorted tuples, or ``None`` when the label is injective
+    on the subsets of ``names``.
+
+    Two such sets read one string as two strictly increasing sequences of
+    names.  Dropping the names the two readings share at the start leaves
+    two readings of a shorter string that differ in their first name, so
+    one first name is a proper prefix of the other.  The search follows
+    pairs of partial readings from there; a state is the name each reading
+    used last and the text the shorter reading still has to cover, which
+    is a suffix of a name, so there are finitely many.
+    """
+    names = sorted(set(names))
+    queue = deque(
+        ((u,), (v,), v[len(u):])
+        for u in names
+        for v in names
+        if u != v and v.startswith(u)
+    )
+    seen = set()
+    while queue:
+        behind, ahead, rest = queue.popleft()
+        state = (behind[-1], ahead[-1], rest)
+        if state in seen:
+            continue
+        seen.add(state)
+        for w in names:
+            if w <= behind[-1]:
+                continue
+            if rest.startswith(w):
+                if w == rest:
+                    return tuple(sorted((behind + (w,), ahead)))
+                queue.append((behind + (w,), ahead, rest[len(w):]))
+            elif w.startswith(rest):
+                queue.append((ahead, behind + (w,), w[len(rest):]))
+    return None
 
 
 def _resolve_component_tuples(

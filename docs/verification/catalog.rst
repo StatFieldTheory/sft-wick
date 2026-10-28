@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **4875 tests** in 113 files (parametrised
+The suite has **4897 tests** in 114 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -532,7 +532,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*555 tests in 17 files.*
+*577 tests in 18 files.*
 
 .. list-table::
    :header-rows: 1
@@ -543,6 +543,11 @@ Workflow and YAML
      - Reference
      - Tolerance
      - Tests
+   * - ``test_ambiguous_user_names.py``
+     - names read in two ways: two operators sharing a component letter given two indices (L1, YAML), two vertices with one name, vertex names whose labels coincide for two sets, positions keys that name vertex points (L1, L0); the legal spellings keep their values
+     - a brute-force enumeration of the subsets of 1585 name sets; the distinct-letter spelling and the positions without the stray key
+     - exact; 1e-12
+     - 22
    * - ``test_catalog_current.py``
      - this catalogue matches the collected suite
      - tools/gen_test_catalog.py

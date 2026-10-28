@@ -852,9 +852,11 @@ class MultiplicativeImpulse(Sigma2):
 
     To collect the terms of a given power of ``g1``, sum the channels of
     :meth:`Expansion.by_vertex_type` whose vertex powers add up to it (at
-    ``g1²``: ``H`` at order 1, ``GG``, ``GB``, ``BB`` at order 2, and
-    ``L`` at order 1).  A vertex whose coupling is identically zero is not
-    generated.
+    ``g1²``: ``H`` and ``L`` at order 1, and ``G``, ``BG`` and ``B`` at
+    order 2).  A label is the set of a diagram's vertex names, sorted and
+    concatenated, so the order-2 label ``G`` is two ``G`` vertices and
+    ``BG`` is one of each.  A vertex whose coupling is identically zero is
+    not generated.
 
     Expand with ``ito=True`` (the default): the Itô form is what the
     numerical layer evaluates, and under ``ito=False`` it refuses the
@@ -1022,7 +1024,8 @@ class LocalVertex:
 
     Args:
         name: symbolic coupling name (e.g. ``"F"``).  Must be unique
-            per system (used as a dict key in ``coupling_values``).
+            per system (used as a dict key in ``coupling_values``);
+            :class:`System` raises on a repeated name.
         coupling: the **bare** ``F^(n)``, the coefficient as it
             appears in the deterministic equation of motion
             (``dφ_a/dt = … + F^(n)_{a b_1 … b_{n−1}} φ_{b_1} … φ_{b_{n−1}}

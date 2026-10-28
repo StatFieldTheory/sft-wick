@@ -941,6 +941,16 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Expansion.evaluate at the same point",
         "exact (sweep vs evaluate) / 1e-12 / 5e-3 (QMC)",
     ),
+    "tests/test_ambiguous_user_names.py": (
+        "Workflow and YAML",
+        "names read in two ways: two operators sharing a component letter "
+        "given two indices (L1, YAML), two vertices with one name, vertex "
+        "names whose labels coincide for two sets, positions keys that name "
+        "vertex points (L1, L0); the legal spellings keep their values",
+        "a brute-force enumeration of the subsets of 1585 name sets; the "
+        "distinct-letter spelling and the positions without the stray key",
+        "exact; 1e-12",
+    ),
     "tests/test_yaml_spec_coverage.py": (
         "Workflow and YAML",
         "the L1 specs YAML could not express: custom temporal / spatial / "

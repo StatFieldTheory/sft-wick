@@ -163,6 +163,47 @@ class System:
                     f"(MultiplicativeImpulse(vertex_names=..., "
                     f"drift_names=...)).  Coupling values are keyed by name."
                 )
+        self._check_vertex_names()
+
+    def _check_vertex_names(self) -> None:
+        """Refuse two vertices with one name, and vertex names for which
+        two sets of vertices get one vertex-type label.
+
+        Coupling values are keyed by name, so a second vertex of the same
+        name used to replace the first one's coupling for both.  The label
+        of a diagram is its sorted vertex names, concatenated
+        (:meth:`Expansion._vertex_type_label`), so with ``F``, ``K`` and
+        ``FK`` the ``F K`` and ``FK`` channels were both ``"FK"``:
+        ``by_vertex_type`` merged them and ``vertex_types`` selected both.
+        """
+        from .expansion import _ambiguous_vertex_type_label
+
+        seen: dict[str, str] = {}
+        for kind, vertices in (
+            ("local", self.vertices),
+            ("non-local", self.nonlocal_vertices),
+        ):
+            for v in vertices:
+                if v.name in seen:
+                    raise ValueError(
+                        f"vertex name {v.name!r} is used by two vertices (a "
+                        f"{seen[v.name]} and a {kind} one).  Coupling values "
+                        f"are keyed by name, so one coupling would replace "
+                        f"the other for both vertices; rename one."
+                    )
+                seen[v.name] = kind
+        names = list(seen) + [v.name for v in self.multiplicative_vertices]
+        pair = _ambiguous_vertex_type_label(names)
+        if pair is not None:
+            first, second = ("{" + ", ".join(s) + "}" for s in pair)
+            raise ValueError(
+                f"the vertex names {sorted(names)} make the vertex-type "
+                f"labels ambiguous: the diagrams with the vertices {first} "
+                f"and those with {second} would both be labelled "
+                f"{''.join(pair[0])!r}, so by_vertex_type would merge the two "
+                f"channels and vertex_types would select both.  A label is "
+                f"the sorted vertex names, concatenated; rename a vertex."
+            )
 
     # --------------------------------------------------------------- #
     # Derived properties
