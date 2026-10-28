@@ -257,17 +257,22 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "matrices with odd subnormal and lowest-binade entries kept, exact "
         "power-of-two whitening, mean shifts, declared-observable cumulants, "
         "nonsymmetric pairs rounded once, refusal of a symmetric part with an "
-        "unrepresentable entry below 2**-1022 at every constructor, a "
-        "whitened matrix rounded without refusal, a raising NumPy error state, "
-        "both averaging methods at the 2**-900 switch, earlier bits on inputs "
-        "whose halves are exact in C order, Fortran order and transposed "
-        "views on both sides of N = 181/182, and the peak temporary memory "
-        "of a triangular declaration",
+        "unrepresentable entry below 2**-1022 at every constructor when every "
+        "entry is below 2**-1022 (both sides of that threshold), correct "
+        "rounding beside a normal-range entry, W A W of wide Gaussian kernels "
+        "on Gauss-Legendre, Simpson and trapezoid grids and K D K / S K S "
+        "products prepared, a whitened matrix rounded without refusal, a "
+        "raising NumPy error state, both averaging methods at the 2**-900 "
+        "switch, earlier bits on inputs whose halves are exact in C order, "
+        "Fortran order and transposed views on both sides of N = 181/182, "
+        "and the peak temporary memory of a triangular declaration",
         "independent Fraction arithmetic on the declared arrays and the joint "
-        "CGF of Gaussian quadratic forms; source-pinned frozen preparation; "
-        "tracemalloc peak of the earlier expression",
+        "CGF of Gaussian quadratic forms; NumPy traces of the matrix formed "
+        "symmetrically; source-pinned frozen preparation; tracemalloc peak "
+        "of the earlier expression",
         "exact bytes; correctly rounded or certified 1e-12 relative cumulants; "
-        "peak at most half a matrix above the earlier expression",
+        "1e-12 / 1e-11 against the traces; peak at most half a matrix above "
+        "the earlier expression",
     ),
     "tests/test_gaussian_quadratic.py": (
         "Finite Gaussian observables",

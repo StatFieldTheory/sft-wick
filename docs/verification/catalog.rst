@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **5425 tests** in 120 files (parametrised
+The suite has **5475 tests** in 120 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -742,7 +742,7 @@ Self-consistency
 Finite Gaussian observables
 ---------------------------
 
-*763 tests in 7 files.*
+*813 tests in 7 files.*
 
 .. list-table::
    :header-rows: 1
@@ -779,10 +779,10 @@ Finite Gaussian observables
      - exact rational bounds; bitwise correctly rounded values
      - 56
    * - ``test_quadratic_symmetrization.py``
-     - symmetric part of declared quadratic matrices: exactly symmetric matrices with odd subnormal and lowest-binade entries kept, exact power-of-two whitening, mean shifts, declared-observable cumulants, nonsymmetric pairs rounded once, refusal of a symmetric part with an unrepresentable entry below 2**-1022 at every constructor, a whitened matrix rounded without refusal, a raising NumPy error state, both averaging methods at the 2**-900 switch, earlier bits on inputs whose halves are exact in C order, Fortran order and transposed views on both sides of N = 181/182, and the peak temporary memory of a triangular declaration
-     - independent Fraction arithmetic on the declared arrays and the joint CGF of Gaussian quadratic forms; source-pinned frozen preparation; tracemalloc peak of the earlier expression
-     - exact bytes; correctly rounded or certified 1e-12 relative cumulants; peak at most half a matrix above the earlier expression
-     - 169
+     - symmetric part of declared quadratic matrices: exactly symmetric matrices with odd subnormal and lowest-binade entries kept, exact power-of-two whitening, mean shifts, declared-observable cumulants, nonsymmetric pairs rounded once, refusal of a symmetric part with an unrepresentable entry below 2**-1022 at every constructor when every entry is below 2**-1022 (both sides of that threshold), correct rounding beside a normal-range entry, W A W of wide Gaussian kernels on Gauss-Legendre, Simpson and trapezoid grids and K D K / S K S products prepared, a whitened matrix rounded without refusal, a raising NumPy error state, both averaging methods at the 2**-900 switch, earlier bits on inputs whose halves are exact in C order, Fortran order and transposed views on both sides of N = 181/182, and the peak temporary memory of a triangular declaration
+     - independent Fraction arithmetic on the declared arrays and the joint CGF of Gaussian quadratic forms; NumPy traces of the matrix formed symmetrically; source-pinned frozen preparation; tracemalloc peak of the earlier expression
+     - exact bytes; correctly rounded or certified 1e-12 relative cumulants; 1e-12 / 1e-11 against the traces; peak at most half a matrix above the earlier expression
+     - 219
    * - ``test_quadratic_white_reference_parity.py``
      - OU private scratch and fourth-order native ordered-prefix reuse; bounded memory/protocol bypass, scalar order, range fallback and input state; mixed cumulants keep the frozen bits or round correctly; the 0.7.0 cancellation threshold at 1e-10 of the Frobenius bound, from both sides
      - source-pinned frozen reference implementation with exact bytes/error args; independent Gauss-Hermite central cumulants, native matmul line witnesses and Python-int and Fraction mixed contractions

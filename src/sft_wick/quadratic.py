@@ -151,13 +151,17 @@ def _covariance_factor(covariance) -> np.ndarray:
 
 # Halving a float64 below this magnitude can drop its last bit.
 _EXACT_HALVING_MIN = 2.0**-1021
+# Smallest positive normal float64; below it a rounding step is 2**-1074.
+_MIN_NORMAL = 2.0**-1022
 # A pair below this magnitude with a smaller entry is averaged scaled by 2**200.
 _SCALED_AVERAGE_MAX = 2.0**-900
 _AVERAGE_SCALE = 2.0**200
 _AVERAGE_UNSCALE = 2.0**-200
 
 
-def _symmetric_part(matrix: np.ndarray, *, declared: bool = False) -> np.ndarray:
+def _symmetric_part(
+    matrix: np.ndarray, *, declared: bool = False, name: str = "quadratic"
+) -> np.ndarray:
     """Return ``(A + A.T) / 2`` with each entry rounded once to float64.
 
     The result is the array ``A / 2 + A.T / 2`` that earlier versions
@@ -175,12 +179,20 @@ def _symmetric_part(matrix: np.ndarray, *, declared: bool = False) -> np.ndarray
     float64, by at most half a unit in the last place, which is an absolute
     2**-1075 below the normal range.
 
-    With ``declared``, an entry whose exact average is below 2**-1022 and not
-    a float64 raises ``ValueError``: its rounding error can be as large as the
-    entry itself, and a nonzero entry can round to zero. For such an entry the
-    scaled sum of halves is a multiple of 2**-875 below 2**-822, hence exact,
-    and the unscaled entry is exact if and only if scaling it back by 2**200
-    recovers that sum.
+    Every rounded entry is therefore within 2**-53 times the largest
+    magnitude in ``matrix`` of the exact average whenever that largest
+    magnitude is at least 2**-1022, since 2**-1075 = 2**-53 * 2**-1022.
+    With ``declared``, a matrix whose entries all lie below 2**-1022 cannot
+    meet that bound: an entry whose exact average is not a float64 then
+    raises ``ValueError`` naming ``name``, because its rounding error can be
+    as large as the entry itself, and a nonzero entry can round to zero. For
+    such an entry the scaled sum of halves is a multiple of 2**-875 below
+    2**-822, hence exact, and the unscaled entry is exact if and only if
+    scaling it back by 2**200 recovers that sum. A matrix with a larger entry
+    is rounded without refusal: refusing it would refuse W A W for a Gaussian
+    kernel A spanning some 38 correlation lengths on a Gauss-Legendre or
+    Simpson grid, whose two triangles differ in the last bit of their
+    subnormal entries.
     """
     transpose = matrix.T
     with np.errstate(under="ignore"):
@@ -205,23 +217,37 @@ def _symmetric_part(matrix: np.ndarray, *, declared: bool = False) -> np.ndarray
         with np.errstate(under="ignore"):
             total = first / 2 + second / 2
             average = total * _AVERAGE_UNSCALE
-        if declared and np.any(average * _AVERAGE_SCALE != total):
+        if (
+            declared
+            and not np.max(magnitude) >= _MIN_NORMAL
+            and np.any(average * _AVERAGE_SCALE != total)
+        ):
             raise ValueError(
-                "symmetric part of quadratic has an entry below 2**-1022 that "
-                "float64 cannot hold; rescale the observable"
+                f"symmetric part of {name} has an entry below 2**-1022 that "
+                f"float64 cannot hold, and every entry of {name} is below "
+                f"2**-1022 in magnitude, so rounding it can change the entry "
+                f"by up to its whole value.  Declare the matrix exactly "
+                f"symmetric, or multiply it by a power of two that brings its "
+                f"largest entry to 2**-1022 or above (an exact scaling) and "
+                f"rescale the results"
             )
         result[scaled] = average
     return result
 
 
-def _observable_data(factor, quadratic, linear, constant, mean):
+def _observable_data(factor, quadratic, linear, constant, mean, name="quadratic"):
+    """Whitened ``(matrix, endpoint, shifted, dimension)`` of one observable.
+
+    ``name`` is the user's argument the declared ``quadratic`` came from,
+    for the refusal of :func:`_symmetric_part`.
+    """
     factor = _real_array(factor, "factor", ndim=2)
     dimension = factor.shape[0]
     quadratic = _real_array(quadratic, "quadratic", ndim=2)
     if quadratic.shape != (dimension, dimension):
         raise ValueError("quadratic must be square with the factor's row dimension")
     # The antisymmetric part makes identically zero contribution to z.T A z.
-    quadratic = _symmetric_part(quadratic, declared=True)
+    quadratic = _symmetric_part(quadratic, declared=True, name=name)
     linear = (
         np.zeros(dimension) if linear is None else _real_array(linear, "linear", ndim=1)
     )
@@ -577,8 +603,16 @@ class GaussianQuadratic:
         mean: ArrayLike | None = None,
     ) -> GaussianQuadratic:
         """Prepare with an explicit finite real ``(N,r)`` covariance factor."""
+        return cls._from_declared(factor, quadratic, linear, constant, mean)
+
+    @classmethod
+    def _from_declared(
+        cls, factor, quadratic, linear, constant, mean, name="quadratic"
+    ) -> GaussianQuadratic:
+        """:meth:`from_factor`, with ``name`` the user's argument that
+        ``quadratic`` was formed from."""
         matrix, endpoint, shifted, dimension = _observable_data(
-            factor, quadratic, linear, constant, mean
+            factor, quadratic, linear, constant, mean, name
         )
         return cls._from_whitened(matrix, endpoint, shifted, dimension)
 
@@ -690,12 +724,13 @@ class GaussianQuadratic:
         )
         if endpoint.shape != weights.shape:
             raise ValueError("linear_kernel and weights have incompatible shapes")
-        return cls.from_covariance(
-            covariance_kernel,
+        return cls._from_declared(
+            _covariance_factor(covariance_kernel),
             weights[:, None] * matrix * weights[None, :],
             weights * endpoint,
-            constant=constant,
-            mean=mean,
+            constant,
+            mean,
+            "W A W formed from quadratic_kernel and weights",
         )
 
     @classmethod
@@ -746,8 +781,13 @@ class GaussianQuadratic:
             )
         if weighted_mean is not None and weighted_mean.shape != weights.shape:
             raise ValueError("mean and weights have incompatible shapes")
-        return cls.from_factor(
-            np.diag(scale), matrix, endpoint, constant=constant, mean=weighted_mean
+        return cls._from_declared(
+            np.diag(scale),
+            matrix,
+            endpoint,
+            constant,
+            weighted_mean,
+            "quadratic_kernel",
         )
 
     @property
@@ -1093,7 +1133,9 @@ class GaussianQuadraticFamily:
                 "linear and constant must match the observable count and input dimension"
             )
         data = [
-            _observable_data(factor, matrices[i], linear[i], constant[i], mean)
+            _observable_data(
+                factor, matrices[i], linear[i], constant[i], mean, f"quadratic[{i}]"
+            )
             for i in range(count)
         ]
         return cls._from_prepared(
