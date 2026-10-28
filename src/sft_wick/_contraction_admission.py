@@ -16,14 +16,24 @@ a result or declines with ``None``; the caller then runs the ordered fold.
 
 Accuracy contract.  Let ``S[s] = sum_a |c(a) prod_k K_k(s, a)|``, ``A`` the
 number of component assignments, ``T`` the number of monomials (``T = 1``
-for ``"einsum"``) and ``m`` the number of factors in one product.  With
-``u = 2**-53``, a returned result satisfies, at every sample,
+for ``"einsum"``), ``m`` the number of factors in one product and ``q`` the
+number of them that are rationals with no exact float64 value (each the
+largest over the products).  For ``"einsum"`` the factors are the
+coefficient and the kernels, and ``q = 0``; for ``"factorized"`` they are
+the coupling tensors, the rationals and the prefactor of a monomial and the
+kernels, and each rational is converted to float64 with one rounding before
+it is multiplied.  With ``u = 2**-53``, a returned result satisfies, at
+every sample,
 
-    |result - exact| <= 1.01 * (m + A*T) * u * S,
+    |result - exact| <= 1.01 * (m + q + A*T) * u * S,
 
-where ``exact`` is the sum computed in exact arithmetic from the same
-float64 inputs.  The ordered fold satisfies the same bound on every input a
-backend admits; the two results generally differ in their last bits.  The
+where ``exact`` is the sum computed in exact arithmetic from the float64
+coefficient (``"einsum"``) or from the entries of the coupling tensors and
+the exact rationals (``"factorized"``), and from the float64 kernels.  An
+index-free C or R kernel is the float64 value NumPy computes from its table
+(``_isotropic_C``, the trace), shared by every path.  The ordered fold
+satisfies the same bound on every input a backend admits; the two results
+generally differ in their last bits.  The
 bound has no underflow term because of rule (3) below, and it holds for
 ``"factorized"`` with the summed coefficient because of rule (4).
 
@@ -86,7 +96,9 @@ _MAX_EXPONENT = 1020
 #: most ``2**-1075 <= (u/2) * 2**-1021`` of the magnitudes it combines.
 _MIN_EXPONENT = -1021
 
-#: Largest ``m + A*T`` for which ``1.01 (m + A*T) u`` bounds the rounding.
+#: Largest count of coefficient operands and kernels of one product plus
+#: ``A*T + 1``.  A monomial adds at most 25 rationals, so ``1.01 (m + q +
+#: A*T) u`` still bounds the rounding below this limit.
 _MAX_ACCUMULATED = 2**46
 
 #: Coefficients whose rotated imaginary part is nonzero are checked one by
