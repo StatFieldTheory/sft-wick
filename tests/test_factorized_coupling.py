@@ -46,14 +46,18 @@ def admit_all(monkeypatch):
     monkeypatch.setattr(dense, "backend_is_cheaper", lambda backend, ordered: True)
 
 
-def _within_bound(term, cv, fixed, values, cb, rp, jac, rb, terms=1):
+def _within_bound(term, cv, fixed, values, cb, rp, jac, rb, *, scalars, inexact, terms=1):
+    """The documented bound; ``scalars`` counts the tensors, rationals and
+    prefactor of the largest monomial, ``inexact`` those rationals and the
+    prefactor that have no exact float64 value."""
     table = exact.monomial_coefficients(term, cv, fixed)
     reference, scale = exact.exact_sum(
         table, term.propagator_indices, fixed, cb, rp, jac, rb
     )
     assignments = int(np.prod([dim for _, dim in term.propagator_indices]))
+    factors = scalars + len(cb) + len(rb) + 2  # the kernels, rp and jac
     exact.assert_within_bound(
-        values, reference, scale, 10 + len(cb) + len(rb), assignments, terms
+        values, reference, scale, factors, assignments, terms, inexact=inexact
     )
 
 
@@ -276,7 +280,7 @@ def test_zero_coupling_entries_are_contracted(imaginary):
     assert candidate is not None
     fused = _values(candidate, cb, rp, jac, rb)
     assert _stored(candidate)["_factorized_plan"] is not None
-    _within_bound(term, cv, {"p": 1}, fused, cb, rp, jac, rb)
+    _within_bound(term, cv, {"p": 1}, fused, cb, rp, jac, rb, scalars=3, inexact=1)
 
 
 def test_possible_overflow_declines_at_contraction():
@@ -305,7 +309,7 @@ def test_ranges_near_the_underflow_limit_are_contracted_within_the_bound(scale):
     term, cv, candidate, cb, rp, jac, rb = _scaled_factors(scale)
     fused = _values(candidate, cb, rp, jac, rb)
     assert _stored(candidate)["_factorized_plan"] is not None
-    _within_bound(term, cv, {}, fused, cb, rp, jac, rb)
+    _within_bound(term, cv, {}, fused, cb, rp, jac, rb, scalars=3, inexact=1)
     assert np.all(fused != 0.0)
 
 
@@ -371,7 +375,7 @@ def test_runtime_layouts_the_ordered_fold_supports_are_contracted(kind):
     np.testing.assert_allclose(
         got, _values(baseline, cb, rp, jac, rb), rtol=1e-12, atol=1e-14
     )
-    _within_bound(term, cv, {"p": 1}, got, cb, rp, jac, rb)
+    _within_bound(term, cv, {"p": 1}, got, cb, rp, jac, rb, scalars=3, inexact=1)
 
 
 def test_nested_products_and_scalar_factors_materialize_exactly():
@@ -627,7 +631,8 @@ def test_signed_tensors_with_agreeing_monomials_are_contracted_within_the_bound(
     assert candidate is not None
     fused = _values(candidate, cb, rp, jac, rb)
     assert _stored(candidate)["_factorized_plan"] is not None
-    _within_bound(term, cv, {"p": 1}, fused, cb, rp, jac, rb, terms=2)
+    # (2/3) G F with the prefactor 3/7: neither rational is a float64 value.
+    _within_bound(term, cv, {"p": 1}, fused, cb, rp, jac, rb, scalars=4, inexact=2, terms=2)
 
 
 def test_sum_declines_imaginary_cancellation_between_terms():

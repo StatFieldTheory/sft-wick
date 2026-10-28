@@ -170,9 +170,9 @@ def test_sum_headroom_at_the_overflow_limit(admit_all, exponent, admitted, overf
         return
     table = exact.dense_coefficients(baseline.coupling_array, 0)
     reference, scale = exact.exact_sum(table, term.propagator_indices, fixed, cb, rp, jac, [])
-    # The coefficient, C, rp and jac.
+    # The coefficient, C, rp and jac; the coefficient is float64.
     for result in (got, expected):
-        exact.assert_within_bound(result, reference, scale, 4, n)
+        exact.assert_within_bound(result, reference, scale, 4, n, inexact=0)
     if not admitted:
         np.testing.assert_array_equal(got, expected)
 

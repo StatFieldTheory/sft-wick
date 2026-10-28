@@ -7,9 +7,15 @@ factors and R traces are float input transforms that the ordered fold and
 the backends compute with the same NumPy call; the reference applies the
 same transform to obtain its inputs.
 
-``bound`` is the accuracy contract of :mod:`sft_wick._dense_contraction`.
-Its scale ``S`` is always built from the summed coefficient ``c(a)`` that the
-ordered fold multiplies, never from the magnitudes of separate monomials.
+``bound`` is the accuracy contract of :mod:`sft_wick._dense_contraction`,
+``1.01 (m + q + A T) u S``.  Its scale ``S`` is always built from the summed
+coefficient ``c(a)`` that the ordered fold multiplies, never from the
+magnitudes of separate monomials.  ``m`` counts the factors of one product
+and ``q`` the rationals among them (the prefactor included) that have no
+exact float64 value: each is converted to float64 before it is multiplied,
+one rounding more than the products.  Against :func:`dense_coefficients`
+the coefficient is a float64 factor, so ``q = 0``; against
+:func:`monomial_coefficients` the rationals are exact fractions.
 """
 
 from fractions import Fraction
@@ -141,9 +147,13 @@ def exact_sum(table, prop_idx, fixed, c_batches, r_product, jacobians, r_batches
     return exact, scale
 
 
-def bound(scale, factors, assignments, terms=1):
-    """The documented error bound ``1.01 (m + A T) u S`` for one sample."""
-    return Fraction(101, 100) * (factors + assignments * terms) * U * scale
+def bound(scale, factors, assignments, terms=1, *, inexact):
+    """The documented error bound ``1.01 (m + q + A T) u S`` for one sample.
+
+    ``factors`` is ``m``, ``inexact`` is ``q``, ``assignments`` is ``A`` and
+    ``terms`` is ``T``.
+    """
+    return Fraction(101, 100) * (factors + inexact + assignments * terms) * U * scale
 
 
 def errors_in_units(values, exact, scale):
@@ -158,11 +168,11 @@ def errors_in_units(values, exact, scale):
     return float(worst)
 
 
-def assert_within_bound(values, exact, scale, factors, assignments, terms=1):
+def assert_within_bound(values, exact, scale, factors, assignments, terms=1, *, inexact):
     assert len(values) == len(exact)
     for value, reference, size in zip(values, exact, scale):
         error = abs(Fraction(float(value)) - reference)
-        limit = bound(size, factors, assignments, terms)
+        limit = bound(size, factors, assignments, terms, inexact=inexact)
         assert error <= limit, (float(value), float(reference), float(error), float(limit))
 
 

@@ -234,27 +234,50 @@ sample let
 
 * ``S`` be the sum over assignments of the absolute value of the
   coefficient times its propagator factors, where the coefficient is the one
-  the ordered fold multiplies (for ``factorized``, the sum of the monomials
-  at that assignment),
+  the ordered fold multiplies (for ``factorized``, the exact sum of the
+  monomials at that assignment),
 * ``A`` be the number of component assignments, ``T`` the number of monomials
-  (``T = 1`` for ``einsum``) and ``m`` the number of factors in one product,
-  and ``u = 2**-53``.
+  (``T = 1`` for ``einsum``) and ``u = 2**-53``,
+* ``m`` be the number of factors in one product and ``q`` the number of them
+  that are rationals with no exact float64 value, each the largest over the
+  products.
 
-Then
+The factors of a product are its propagator factors (the C and R values, the
+scalar R product and the Jacobian) and, for ``einsum``, the coefficient or,
+for ``factorized``, the coupling tensors of the monomial, its rationals and
+the rational prefactor. A rational such as ``3/7`` is converted to float64
+before it is multiplied, and that conversion rounds once more; ``q`` counts
+these roundings. For ``einsum`` the coefficient enters as the float64 value
+the ordered fold multiplies, so ``q = 0``. Then
 
 .. math::
 
-   |\mathrm{result} - \mathrm{exact}| \le 1.01\,(m + A T)\,u\,S ,
+   |\mathrm{result} - \mathrm{exact}| \le 1.01\,(m + q + A T)\,u\,S ,
 
-where "exact" is the sum computed in exact arithmetic from the same float64
-inputs. The bound has no underflow term: a backend runs only when no product
+where "exact" is the sum computed in exact arithmetic from the float64
+coefficient (for ``einsum``) or from the entries of the coupling tensors
+and the exact rationals (for ``factorized``), and from the float64
+propagator factors. An index-free R enters as its trace and an index-free C as the ``c``
+of ``C = c I``, as the float64 values NumPy computes from the table, which the
+ordered fold and both backends share; the bound does not include the
+rounding of those values. Where the trace NumPy computes is 0, the ordered
+fold and both backends return 0 at that sample, although the exact sum of
+the diagonal entries need not be 0.
+
+The bound has no underflow term: a backend runs only when no product
 of nonzero inputs can fall below ``2**-1021``, so an underflowing operation
 loses less than ``u/2`` of the magnitudes it combines, and the ordered fold
 does not underflow on these inputs either. The bound is relative to ``S``,
 not to the result: when the products cancel, every summation order, the
 ordered one included, can leave a large relative error in the result.
 ``tests/test_contraction_error_bound.py`` checks the bound against an exact
-rational reference on generic signed diagrams.
+rational reference on generic signed diagrams. It also checks monomials of
+five and nine rationals and a prefactor, none of them a float64 value, with
+kernels that are powers of two and every rounding in the same direction.
+Against the exact rational sum, with ``m`` and ``q`` counted as for
+``factorized``, the ordered fold, ``einsum`` and ``factorized`` are then off
+by 12.9 and 20.9 ``u S``, more than ``1.01 (m + A T) u S`` (12.1 and 16.2
+``u S``) and less than ``1.01 (m + q + A T) u S`` (18.2 and 26.3 ``u S``).
 
 ``factorized`` contracts each monomial separately and adds the results. Its
 error would grow with the sum of the monomial magnitudes, which exceeds
@@ -316,10 +339,12 @@ A backend returns a value for a diagram call only when
 * NumPy's underflow policy is ``"ignore"`` (the default; see
   ``numpy.seterr``),
 * the diagram has at most 51 summation indices, one product has at most 64
-  operands, ``m + A T`` is at most ``2**46`` (the range in which
-  ``1.01 (m + A T) u`` bounds the rounding), and for ``einsum`` at most 4096
-  coefficients have a nonzero imaginary part after the observable's phase
-  (each of them is checked with the ordered phase check),
+  operands, the number of its tensors (for ``einsum``, the coefficient) and
+  propagator factors, plus ``A T + 1``, is at most ``2**46`` (a product holds
+  at most 25 rationals, so ``1.01 (m + q + A T) u`` bounds the rounding in
+  this range), and for ``einsum`` at most 4096 coefficients have a nonzero
+  imaginary part after the observable's phase (each of them is checked with
+  the ordered phase check),
 * the arrays the call allocates fit ``contraction_max_bytes`` (see the
   workspace budget below), and
 * its estimated cost is below the ordered fold's.
@@ -434,7 +459,9 @@ N    Orders  diag_C  Samples  ordered s   einsum   factorized
 
 Times are the best of two runs; differences of 2 percent are within the
 run-to-run spread. When a call of either backend declines, the evaluation
-does what the ordered fold does after the declined attempt. Most small
+does what the ordered fold does after the declined attempt; for
+``factorized`` it first materializes the coefficient, which raises
+``ValueError`` when its payload exceeds ``contraction_max_bytes``. Most small
 calls decline from their array counts alone. For calls of 30 to 340
 microseconds a declined ``einsum`` call still took 7 to 14 percent longer
 (median over the diagrams of a run) than the ordered fold, and
@@ -477,9 +504,12 @@ monomials. The budget is not a limit on total memory or process RSS.
 When ``factorized`` prepares an integrand, the budget is compared with the
 owned copies of the coupling tensors and their zero pattern plus a fixed
 reserve of 256 KiB. That checks the payload the integrand keeps; it does not
-bound the temporaries of preparation. The first call that declines
-materializes the coefficient, which raises when the payload it needs
-exceeds the budget (see the section on the lazy coefficient below).
+bound the temporaries of preparation. The first call that declines, for
+any of the reasons listed above, materializes the coefficient, which raises
+``ValueError`` before allocating when the payload it needs exceeds the
+budget (see the section on the lazy coefficient below). A budget that
+declines a call for its workspace can therefore make that call raise where
+the ordered fold returns a value.
 
 Comparing complete results
 ~~~~~~~~~~~~~~~~~~~~~~~~~~

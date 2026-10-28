@@ -130,10 +130,14 @@ or make mutable model data safe to change during evaluation.
 
 ``einsum`` and ``factorized`` evaluate each static diagram's sum over
 component assignments as pairwise contractions. A result lies within the
-error bound ``1.01 (m + A T) u S`` of the exact sum of the same float64
-inputs, which the ordered fold also satisfies; ``S`` is built from the summed
-coefficient the ordered fold uses. A diagram call runs on the ordered fold
-when an input it reads, or an entry the ordered fold multiplies and the
+error bound ``1.01 (m + q + A T) u S`` of the exact sum, which the ordered
+fold also satisfies; ``S`` is built from the summed coefficient the ordered
+fold uses, and ``q`` counts the rationals of one product that have no exact
+float64 value, since converting each rounds once (``q = 0`` for ``einsum``,
+whose exact sum starts from the float64 coefficient). An index-free R or C
+enters as the float64 trace or ``c`` that NumPy computes, which every path
+shares. A diagram call runs on the ordered fold when an input it reads, or
+an entry the ordered fold multiplies and the
 backend leaves out (by a zero of a diagonal C table, or before an R support
 excludes the assignment), is not finite, a product could overflow or underflow,
 a coefficient fails the ordered phase check, NumPy's underflow policy is not
@@ -142,7 +146,9 @@ a coefficient fails the ordered phase check, NumPy's underflow policy is not
 listed in :doc:`/user_guide/resources` is exceeded, the cost rule estimates
 the backend to be slower, or, for ``factorized``, a summation index is carried
 only by an R that the ordered fold reads as its trace or folds into the scalar
-R product. ``factorized`` prepares a monomial,
+R product. A declined ``factorized`` call first materializes the coefficient,
+which raises ``ValueError`` before allocating when its payload exceeds
+``contraction_max_bytes``. ``factorized`` prepares a monomial,
 or a sum of monomials that have no opposite signs at any component
 assignment, from owned snapshots of the original coupling tensors; other
 sums use the ordered preparation. Errors, inf and NaN behave as on the
