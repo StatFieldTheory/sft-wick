@@ -452,24 +452,27 @@ the budget at the largest total they reach at one time; otherwise the call
 runs on the ordered fold. The total is computed from array shapes and R
 supports before any array value is read. For ``einsum`` it counts the
 rotated coefficient, its 0/1 zero mask and the boolean comparison behind
-it, the flattened imaginary part and the index array of the phase check,
-and the arrays of the live-assignment count. For both backends it counts
-the copies of the propagator batches with the sample axis last, the
-index-free factors and the temporaries that compute them, the result of
-every planned contraction step, the output, the scratch block of the range
-scans and the buffers NumPy's iterator may allocate inside one call (up to
-``numpy.getbufsize()`` entries for each of three operands, 192 KiB at the
-default buffer size). A range scan reads an array in blocks of 65536
-entries, so its scratch block holds at most 512 KiB. For ``factorized`` the
-snapshots of the coupling tensors and their zero pattern belong to the
-prepared integrand, not to a call.
+it, and the flattened imaginary part and the index array of the phase
+check. For both backends it counts the boolean and index arrays of the R
+support checks, the arrays of the live-assignment count, the copies of the
+propagator batches with the sample axis last, the index-free factors and
+the temporaries that compute them, the result of every planned contraction
+step, the output, the scratch block of the range scans and the buffers
+NumPy's iterator may allocate inside one call. A ``numpy.einsum`` step
+buffers up to 8192 entries for each of its three operands (192 KiB)
+whatever ``numpy.setbufsize`` holds; a ufunc or a reduction buffers up to
+``numpy.getbufsize()`` entries for each of three operands. A range scan
+reads an array in blocks of 65536 entries, so its scratch block holds at
+most 512 KiB. For ``factorized`` the snapshots of the coupling tensors and
+their zero pattern belong to the prepared integrand, not to a call.
 
-The total leaves out Python objects. On the 298 backend calls of
+The total leaves out Python objects. On the 422 backend calls of
 ``tests/test_contraction_workspace_budget.py``, each run at the smallest
-budget that admits it, the peak traced by ``tracemalloc`` exceeded that
-budget by at most 7216 bytes on Python 3.10 with NumPy 2.2 and 2664 bytes
-on Python 3.14 with NumPy 2.4. The budget is not a limit on total memory or
-process RSS.
+budget that admits it, some of them at ``numpy.setbufsize(32)`` and
+``numpy.setbufsize(2**20)``, the peak traced by ``tracemalloc`` exceeded
+that budget by at most 21040 bytes on Python 3.10 with NumPy 2.2 and 20028
+bytes on Python 3.14 with NumPy 2.4, both on a factorized sum of four
+monomials. The budget is not a limit on total memory or process RSS.
 
 When ``factorized`` prepares an integrand, the budget is compared with the
 owned copies of the coupling tensors and their zero pattern plus a fixed
