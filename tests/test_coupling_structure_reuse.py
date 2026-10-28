@@ -42,7 +42,7 @@ def expression():
         Product(
             (Rational(1, 2), Symbol("K", ("a", "j", "i")), Symbol("A", ("i", "j")))
         ),
-        Product((Rational(-1, 3), Symbol("B", ("j",)), KroneckerDelta("i", "0"))),
+        Product((Rational(-1, 3), Symbol("B", ("j",)), KroneckerDelta("i", "1"))),
     )
     return Sum(pair * 12)
 

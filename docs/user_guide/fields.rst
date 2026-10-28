@@ -65,6 +65,20 @@ Each call produces an operator with a **globally unique integer UID**.
 The contraction engine uses it to distinguish two copies of the same
 field in the same product (e.g. :math:`\phi(x)\,\phi(x)`).
 
+A letter component label such as ``'a'`` is a free label: its component
+is given at evaluation time through ``fixed_indices`` (values count from
+0).  A component label that parses as an integer is a literal component,
+and literals count from 1: ``phi('1', 'x')`` is component 0 and
+``phi('2', 'x')`` component 1.  Coupling tensors, propagators and the
+Kronecker deltas inserted by ``diag_C``, ``diag_R``, ``iso_C`` and
+``iso_R`` all read a literal this way.
+:func:`~sft_wick.perturbation.compute_moment` and
+:func:`~sft_wick.perturbation.compute_moment_numerical` raise
+``ValueError`` for a literal outside ``1..n_components``, ``'0'``
+included.  An L1 observable string takes a component label that starts
+with a letter (``'phi_1(x)'`` does not parse); there the component tuple
+of ``Expansion.evaluate`` chooses the components.
+
 
 UID System and Test Reproducibility
 ------------------------------------

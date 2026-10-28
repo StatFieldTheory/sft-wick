@@ -46,7 +46,12 @@ from .expressions import (
     apply_response_phase,
 )
 from .fields import FieldOperator
-from .indices import IndexContext, fresh_names, observable_labels
+from .indices import (
+    IndexContext,
+    fresh_names,
+    literal_component,
+    observable_labels,
+)
 from .propagators import contract_pair
 from .simplify import (
     _apply_index_sub,
@@ -1730,6 +1735,43 @@ def check_distinct_external_labels(observable, order: int = 1) -> None:
     )
 
 
+def check_literal_component_labels(observable) -> None:
+    """Refuse an observable component label that is a numeric literal
+    naming no component of its field.
+
+    A literal label counts from 1 (:func:`~sft_wick.indices.literal_component`):
+    ``phi('1', 'x')`` is component 0 and ``phi('N', 'x')`` component
+    ``N - 1``.  Without this check an out-of-range literal reaches the
+    arrays: ``phi('0', 'x')`` reads component ``-1``, which NumPy indexing
+    wraps to the last component, and a label above ``N`` raises
+    ``IndexError``, or gives 0 where only a Kronecker delta reads it
+    (``iso_C``, ``iso_R``).
+
+    Args:
+        observable: the external operators.
+
+    Raises:
+        ValueError: if a component label parses as an integer outside
+            ``1..n_components`` of its operator's field.
+    """
+    for op in observable:
+        label = getattr(op, "component_index", None)
+        if label is None:
+            continue
+        component = literal_component(label)
+        n = op.field.n_components
+        if component is None or 0 <= component < n:
+            continue
+        raise ValueError(
+            f"observable operator {op!r}: the component label {label!r} is "
+            f"a numeric literal, and literal labels count from 1 ('1' is "
+            f"component 0), so it names no component of a field with "
+            f"n_components={n}.  Write a literal from 1 to {n}, or a letter "
+            f"label such as 'a' and pin it through fixed_indices, whose "
+            f"values count from 0."
+        )
+
+
 def compute_moment(
     observable: list[FieldOperator],
     action: Action,
@@ -1762,7 +1804,10 @@ def compute_moment(
 
     Args:
         observable: List of field operators defining the observable
-            :math:`\mathcal{O}`.
+            :math:`\mathcal{O}`.  A component label that is a numeric
+            literal counts from 1 (``phi('1', 'x')`` is component 0); one
+            outside ``1..n_components`` raises ``ValueError``
+            (:func:`check_literal_component_labels`).
         action: The interaction action :math:`S_{\mathrm{int}}`.
         order: Maximum perturbative order *N* to compute.
         ito: If ``True``, apply the Itô prescription
@@ -1831,6 +1876,7 @@ def compute_moment(
     """
     validate_target(target, observable)
     check_distinct_external_labels(observable, order)
+    check_literal_component_labels(observable)
     reserved_labels = observable_labels(observable)
     # E_psi: response legs carried by the observable itself.  Fixes the
     # phase needed to rotate a diagram value onto the real axis.
@@ -2752,14 +2798,14 @@ def _eval_symbolic(
             def _resolve(i: str) -> int:
                 if i in index_map:
                     return index_map[i]
-                # Literal observable component (e.g. '1', '2'): 1-indexed
-                try:
-                    return int(i) - 1
-                except ValueError:
+                # Literal observable component: '1' is component 0.
+                literal = literal_component(i)
+                if literal is None:
                     raise KeyError(
                         f"Index '{i}' not found in index_map and is not a literal integer. "
                         "Pass it via the fixed_indices argument of evaluate_coupling()."
-                    ) from None
+                    )
+                return literal
 
             idx = tuple(_resolve(i) for i in expr.indices)
             val = arr[idx]
@@ -2789,25 +2835,30 @@ def _eval_symbolic(
     if isinstance(expr, Sum):
         return sum(_eval_symbolic(t, symbol_values, index_map) for t in expr.terms)
     if isinstance(expr, KroneckerDelta):
-        # Resolve each index against ``index_map``; literal observable
-        # indices ('0', '1', ...) are treated as ints. The delta is
-        # 1 iff the two indices resolve to the same value, else 0.
-        def _resolve(i: str) -> int:
-            if i in index_map:
-                return int(index_map[i])
-            try:
-                return int(i)
-            except ValueError:
-                raise KeyError(
-                    f"KroneckerDelta index {i!r} not found in index_map "
-                    f"and is not a literal integer. Pass it via the "
-                    f"fixed_indices argument of evaluate_coupling()."
-                ) from None
-
-        return 1.0 if _resolve(expr.index1) == _resolve(expr.index2) else 0.0
+        # Resolve each index against ``index_map``, else as a literal
+        # component read as a Symbol index or a propagator leg reads it
+        # ('1' is component 0).  The delta is 1 iff the two indices
+        # resolve to the same component, else 0.
+        first = _delta_component(expr.index1, index_map)
+        return 1.0 if first == _delta_component(expr.index2, index_map) else 0.0
     if isinstance(expr, ImaginaryUnit):
         return 1j
     raise TypeError(f"Cannot numerically evaluate {type(expr).__name__}")
+
+
+def _delta_component(i: str, index_map: dict) -> int:
+    """The component a ``KroneckerDelta`` index denotes: its ``index_map``
+    pin, else its literal reading (:func:`~sft_wick.indices.literal_component`)."""
+    if i in index_map:
+        return int(index_map[i])
+    literal = literal_component(i)
+    if literal is None:
+        raise KeyError(
+            f"KroneckerDelta index {i!r} not found in index_map "
+            f"and is not a literal integer. Pass it via the "
+            f"fixed_indices argument of evaluate_coupling()."
+        )
+    return literal
 
 
 def _eval_symbolic_batched(
@@ -2893,14 +2944,14 @@ def _eval_symbolic_batched(
         def _resolve(i: str) -> int:
             if i in index_map:
                 return index_map[i]
-            try:
-                return int(i) - 1
-            except ValueError:
+            literal = literal_component(i)
+            if literal is None:
                 raise KeyError(
                     f"Index '{i}' not found in index_map and is not a "
                     f"literal integer. Pass it via the fixed_indices "
                     f"argument of evaluate_coupling()."
-                ) from None
+                )
+            return literal
 
         idx = tuple(_resolve(i) for i in expr.indices)
         # Detect whether ``arr`` carries a leading sample axis.
@@ -2919,20 +2970,8 @@ def _eval_symbolic_batched(
             f"rank+1 (with leading sample axis of length {n_samples})."
         )
     if isinstance(expr, KroneckerDelta):
-
-        def _resolve(i: str) -> int:
-            if i in index_map:
-                return int(index_map[i])
-            try:
-                return int(i)
-            except ValueError:
-                raise KeyError(
-                    f"KroneckerDelta index {i!r} not found in index_map "
-                    f"and is not a literal integer. Pass it via the "
-                    f"fixed_indices argument of evaluate_coupling()."
-                ) from None
-
-        return 1.0 if _resolve(expr.index1) == _resolve(expr.index2) else 0.0
+        first = _delta_component(expr.index1, index_map)
+        return 1.0 if first == _delta_component(expr.index2, index_map) else 0.0
     if isinstance(expr, Product):
         result: object = 1.0
         for f in expr.factors:
@@ -3043,7 +3082,9 @@ def compute_moment_numerical(
     sft-wick[parallel]``).
 
     Args:
-        observable: Field operators defining the observable.
+        observable: Field operators defining the observable.  A numeric
+            literal component label counts from 1, as in
+            :func:`compute_moment`.
         action: The interaction action.
         order: Maximum perturbative order.
         coupling_values: ``{name: numpy_array}`` mapping coupling names
@@ -3076,10 +3117,13 @@ def compute_moment_numerical(
             label-keyed :func:`sft_wick.wick.wick_contract_spatial` as
             :func:`compute_moment`, so it inherits the same collapse and
             must refuse the same spelling; see
-            :func:`check_distinct_external_labels`.
+            :func:`check_distinct_external_labels`.  Also if a numeric
+            literal component label lies outside ``1..n_components``
+            (:func:`check_literal_component_labels`).
     """
     validate_target(target, observable)
     check_distinct_external_labels(observable, order)
+    check_literal_component_labels(observable)
     reserved_labels = observable_labels(observable)
     # E_psi: response legs carried by the observable itself.  Fixes the
     # phase needed to rotate a diagram value onto the real axis.

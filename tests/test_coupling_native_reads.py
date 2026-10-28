@@ -42,7 +42,7 @@ def expression(a="a", i="i", j="j"):
                     Rational(1, 3),
                     Symbol("A", (a, i)),
                     Symbol("B", (i, j)),
-                    KroneckerDelta(j, "0"),
+                    KroneckerDelta(j, "1"),
                 )
             )
             for _ in range(24)
