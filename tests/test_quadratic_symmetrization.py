@@ -5,7 +5,9 @@ compare the prepared matrices, endpoints and constants, and the cumulants of
 the declared observables, with references that share no code with the
 package: ``Fraction`` arithmetic on the declared arrays, the joint cumulant
 generating function of Gaussian quadratic forms, and a frozen copy of the
-earlier preparation for inputs whose halves are exact in float64.
+earlier preparation for inputs whose halves are exact in float64, in C order,
+Fortran order and as transposed views. A declared matrix whose symmetric part
+has an entry below the normal range that float64 cannot hold is refused.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from pathlib import Path
 import struct
 import sys
 import tarfile
+import tracemalloc
 import types
 
 import numpy as np
@@ -60,9 +63,12 @@ def _exact_cumulant(matrices, endpoints, slots) -> Fraction:
     The joint CGF is ``-1/2 log det(I - 2 A_t) + 1/2 l_t.(I - 2 A_t)^-1 l_t``
     with ``A_t = sum t_a A_a``. Its slot derivative sums every ordering of
     the slots: rings ``2**(n-1) / n tr(A...A)`` and chains
-    ``2**(n-3) l.A...A.l``.
+    ``2**(n-3) l.A...A.l``. A matrix may be given as a ``Fraction`` array,
+    such as the exact symmetric part of a declared matrix.
     """
-    exact = [_exact(matrix) for matrix in matrices]
+    exact = [
+        matrix if matrix.dtype == object else _exact(matrix) for matrix in matrices
+    ]
     lines = [_exact(endpoint) for endpoint in endpoints]
     dimension = exact[0].shape[0]
     identity = np.array(
@@ -220,10 +226,13 @@ PAIRS = [
     (-3 * U, U),  # exact -U
     (U, EXACT_HALVING + 2.0**-1073),  # 2**-1022 + 1.5U, ties to + 2U
     (-U, EXACT_HALVING + 2.0**-1073),  # 2**-1022 + 0.5U, ties to 2**-1022
-    (U, 0.0),  # 0.5U is not a float64: ties to +0.0
-    (3 * U, 0.0),
+    (2 * U, 0.0),  # exact U
+    (-6 * U, -0.0),  # exact -3U
     ((2**52 - 1) * U, (2**52 + 1) * U),
-    (EXACT_HALVING - U, U),
+    (EXACT_HALVING - U, U),  # exact 2**-1022
+    (EXACT_HALVING - U, 2 * U),  # 2**-1022 + 0.5U, ties to 2**-1022
+    (-(EXACT_HALVING - U), -2 * U),
+    (EXACT_HALVING, 0.0),  # exact 2**-1022, halves exact
     (EXACT_HALVING, -EXACT_HALVING + 2 * U),
     (-0.0, 0.0),
     (3 * U, SCALED_BOUND * (1 - 2.0**-53)),
@@ -243,6 +252,89 @@ def test_symmetric_part_of_a_nonsymmetric_matrix_is_rounded_once(pair):
     family = GaussianQuadraticFamily.from_factor(np.eye(3), matrix[None])
     expected = _rounded(_exact_symmetric_part(matrix))
     assert _bits(family._matrices[0]) == _bits(expected)
+
+
+# Exact averages below 2**-1022 that are not float64 values.
+UNREPRESENTABLE_PAIRS = [
+    (U, 0.0),  # 0.5U, ties to +0.0: a proved zero of a nonzero observable
+    (-U, -0.0),
+    (3 * U, 0.0),  # 1.5U, ties to 2U
+    (5 * U, 0.0),  # 2.5U, ties to 2U
+    (U, 2 * U),
+    (-5 * U, 2 * U),
+    (U, MIN_NORMAL),  # 2**-1023 + 0.5U
+    (EXACT_HALVING - U, 0.0),  # 2**-1022 - 0.5U, ties up to 2**-1022
+    (-(EXACT_HALVING - U), -0.0),
+    ((2**52 - 1) * U, 2 * U),  # largest subnormal paired with an even unit
+]
+
+CONSTRUCTORS = {
+    "single_factor": lambda matrix: GaussianQuadratic.from_factor(np.eye(3), matrix),
+    "single_covariance": lambda matrix: GaussianQuadratic(np.eye(3), matrix),
+    "single_white_noise": lambda matrix: GaussianQuadratic.from_white_noise(
+        np.full(3, 4.0), matrix, np.full(3, 0.25), mean=np.array([0.5, -1.0, 2.0])
+    ),
+    # Unit weights form W A W = A exactly.
+    "single_weighted_grid": lambda matrix: GaussianQuadratic.from_weighted_grid(
+        np.diag([1.5, 0.25, 2.0]), matrix, np.ones(3)
+    ),
+    "family_factor": lambda matrix: GaussianQuadraticFamily.from_factor(
+        np.eye(3), np.array([np.eye(3), matrix])
+    ),
+    "family_covariance": lambda matrix: GaussianQuadraticFamily(
+        np.diag([2.0, 0.5, 3.0]), np.array([matrix, np.eye(3)])
+    ),
+}
+
+
+@pytest.mark.parametrize("constructor", sorted(CONSTRUCTORS))
+@pytest.mark.parametrize("pair", UNREPRESENTABLE_PAIRS)
+def test_unrepresentable_subnormal_symmetric_part_is_refused(pair, constructor):
+    matrix = _with_pair(*pair)
+    exact = _exact_symmetric_part(matrix)[0, 1]
+    assert abs(exact) < MIN_NORMAL and Fraction(float(exact)) != exact
+    with pytest.raises(ValueError, match="symmetric part of quadratic"):
+        CONSTRUCTORS[constructor](matrix)
+    # The transposed declaration is the same observable and is refused too.
+    with pytest.raises(ValueError, match="symmetric part of quadratic"):
+        CONSTRUCTORS[constructor](matrix.T.copy())
+
+
+@pytest.mark.parametrize("units", [1, 2, 3, 4, 5])
+def test_one_sided_subnormal_coupling_is_refused_or_exact(units):
+    # Y1 = k U z0 z1 declared in one triangle, Y2 = 2 T z0 z1.
+    tall = 2.0**1000
+    declared = np.array([[0.0, units * U], [0.0, 0.0]])
+    partner = np.array([[0.0, tall], [tall, 0.0]])
+    matrices = np.array([declared, partner])
+    if units % 2:
+        with pytest.raises(ValueError, match="symmetric part of quadratic"):
+            GaussianQuadraticFamily.from_factor(np.eye(2), matrices)
+        return
+    family = GaussianQuadraticFamily.from_factor(np.eye(2), matrices)
+    exact = _exact_cumulant(
+        [_exact_symmetric_part(declared), partner], np.zeros((2, 2)), (0, 1)
+    )
+    assert exact == 2 * units * Fraction(U) * Fraction(tall)
+    assert_certified(family.mixed_cumulant((0, 1)), exact)
+
+
+def test_whitened_matrix_is_rounded_without_refusal():
+    # Every whitened entry is one product: (F.T A F)[1, 0] = 3U * 0.25 rounds
+    # to U and (F.T A F)[0, 1] = 0, an average of 0.5U that float64 cannot
+    # hold. Only a declared matrix is refused; the whitening is float64
+    # preprocessing that the guarantee does not cover.
+    declared = np.array([[U, 0.0], [0.0, 0.0]])
+    factor = np.array([[0.25, 3.0], [0.0, 0.0]])
+    whitened = np.array(
+        [[0.0, 0.0], [float(Fraction(3 * U) * Fraction(0.25)), 9 * U]]
+    )
+    assert whitened[1, 0] == U
+    expected = _rounded(_exact_symmetric_part(whitened))
+    family = GaussianQuadraticFamily.from_factor(factor, declared[None])
+    single = GaussianQuadratic.from_factor(factor, declared)
+    assert _bits(family._matrices[0]) == _bits(expected)
+    assert single.retained_dimension == 2
 
 
 def test_preparation_ignores_a_raising_numpy_error_state():
@@ -403,3 +495,161 @@ def test_family_preparation_keeps_the_earlier_bits(frozen_quadratic):
         )
         for name in ("_matrices", "_endpoints", "_constants"):
             assert _bits(getattr(current, name)) == _bits(getattr(earlier, name))
+
+
+# -- memory layout of exactly symmetric inputs ----------------------------
+
+# NumPy lays out A / 2 + A.T / 2 for a Fortran-ordered A in C order up to
+# N = 181 and in Fortran order from N = 182, so both sides are checked.
+LAYOUT_SIZES = [5, 40, 181, 182]
+
+
+def _layouts(matrix):
+    """One exactly symmetric matrix in C order, Fortran order and as a view."""
+    contiguous = np.ascontiguousarray(matrix)
+    return {
+        "C": contiguous,
+        "fortran": np.asfortranarray(contiguous),
+        "transposed_view": contiguous.T,
+    }
+
+
+def _generic_symmetric(random, size, scale):
+    raw = random.normal(size=(size, size)) * scale
+    return raw + raw.T
+
+
+def _law_bytes(law):
+    return (
+        _bits(law.eigenvalues),
+        _bits(law._linear_squares),
+        struct.pack("!2d", law._constant, law.mean),
+        struct.pack("!3d", *(law.cumulant(order) for order in (2, 3, 4))),
+    )
+
+
+def _prepared_layout(module, factor, matrix, linear, constant, mean):
+    matrix_out, endpoint, shifted, _ = module._observable_data(
+        factor, matrix, linear, constant, mean
+    )
+    flags = (matrix_out.flags.c_contiguous, matrix_out.flags.f_contiguous)
+    return _bits(matrix_out), flags, _bits(endpoint), struct.pack("!d", shifted)
+
+
+@pytest.mark.parametrize("size", LAYOUT_SIZES)
+def test_symmetric_input_layout_keeps_the_earlier_single_law_bits(
+    frozen_quadratic, size
+):
+    random = np.random.default_rng(3100 + size)
+    matrix = _generic_symmetric(random, size, 1.75)
+    factor = random.normal(size=(size, size - 1))
+    linear = random.normal(size=size)
+    mean = random.normal(size=size) * 0.6
+    gram = factor @ factor.T + np.eye(size)
+    covariance = np.triu(gram) + np.triu(gram, 1).T
+    for label, declared in _layouts(matrix).items():
+        assert np.array_equal(declared, matrix)
+        for build in ("from_factor", "covariance"):
+            laws = []
+            for module in (quadratic, frozen_quadratic):
+                if build == "from_factor":
+                    law = module.GaussianQuadratic.from_factor(
+                        factor, declared, linear, constant=0.3, mean=mean
+                    )
+                else:
+                    law = module.GaussianQuadratic(
+                        covariance, declared, linear, constant=0.3, mean=mean
+                    )
+                laws.append(_law_bytes(law))
+            assert laws[0] == laws[1], (label, build)
+        assert _prepared_layout(
+            quadratic, factor, declared, linear, 0.3, mean
+        ) == _prepared_layout(frozen_quadratic, factor, declared, linear, 0.3, mean)
+
+
+@pytest.mark.parametrize("size", [6, 182])
+def test_symmetric_kernel_layout_keeps_the_earlier_white_noise_bits(
+    frozen_quadratic, size
+):
+    random = np.random.default_rng(3300 + size)
+    kernel = _generic_symmetric(random, size, -0.8)
+    intensity = random.uniform(0.5, 2.0, size)
+    weights = random.uniform(0.1, 1.0, size)
+    linear = random.normal(size=size)
+    mean = random.normal(size=size)
+    for label, declared in _layouts(kernel).items():
+        laws = [
+            _law_bytes(
+                module.GaussianQuadratic.from_white_noise(
+                    intensity, declared, weights, linear, constant=-0.7, mean=mean
+                )
+            )
+            for module in (quadratic, frozen_quadratic)
+        ]
+        assert laws[0] == laws[1], label
+
+
+@pytest.mark.parametrize("size", [4, 12, 40, 182])
+def test_symmetric_input_layout_keeps_the_earlier_family_bits(frozen_quadratic, size):
+    random = np.random.default_rng(3500 + size)
+    scales = np.array([1.0, -3e10, 2e-9])[:, None, None]
+    raw = random.normal(size=(3, size, size)) * scales
+    matrices = raw + raw.swapaxes(1, 2)
+    factor = random.normal(size=(size, size - 1))
+    linear = random.normal(size=(3, size))
+    constants = random.normal(size=3)
+    mean = random.normal(size=size)
+    directions = np.array([1.0, -0.5, 2.0])
+    for label, declared in {
+        "C": matrices,
+        "fortran": np.asfortranarray(matrices),
+        "swapaxes": matrices.swapaxes(1, 2),
+    }.items():
+        assert np.array_equal(declared, matrices)
+        current = GaussianQuadraticFamily.from_factor(
+            factor, declared, linear, constant=constants, mean=mean
+        )
+        earlier = frozen_quadratic.GaussianQuadraticFamily.from_factor(
+            factor, declared, linear, constant=constants, mean=mean
+        )
+        for name in ("_matrices", "_endpoints", "_constants"):
+            assert _bits(getattr(current, name)) == _bits(getattr(earlier, name)), (
+                label,
+                name,
+            )
+        # Mixed cumulants of the earlier prepared bytes, by the current code.
+        reference = GaussianQuadraticFamily._from_prepared(
+            earlier._matrices, earlier._endpoints, earlier._constants, size
+        )
+        for slots in ((0, 1), (0, 1, 1), (0, 2, 1, 2)):
+            assert struct.pack("!d", current.mixed_cumulant(slots)) == struct.pack(
+                "!d", reference.mixed_cumulant(slots)
+            ), (label, slots)
+        assert _law_bytes(current.project(directions)) == _law_bytes(
+            earlier.project(directions)
+        ), label
+
+
+# -- temporary memory of a triangular declaration --------------------------
+
+
+def test_matrix_with_zero_entries_needs_no_extra_temporary():
+    if tracemalloc.is_tracing():
+        pytest.skip("tracemalloc is already tracing")
+    size = 512
+    upper = np.triu(np.random.default_rng(5).normal(size=(size, size)))
+
+    def peak(function):
+        tracemalloc.start()
+        try:
+            result = function(upper)
+            return result, tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+
+    earlier, earlier_peak = peak(lambda matrix: matrix / 2 + matrix.T / 2)
+    current, current_peak = peak(quadratic._symmetric_part)
+    assert _bits(current) == _bits(earlier)
+    # Half a matrix of slack holds the boolean masks; one more float64
+    # matrix, as when the transposed mask and the maximum were built, does not.
+    assert current_peak <= earlier_peak + upper.nbytes // 2

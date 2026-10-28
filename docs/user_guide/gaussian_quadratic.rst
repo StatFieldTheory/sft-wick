@@ -11,10 +11,13 @@ real observable of a finite real Gaussian input:
 The symmetric part of :math:`A` defines the same observable. Preparation uses an
 exactly symmetric :math:`A` unchanged, subnormal entries included, and replaces
 any other :math:`A` by its symmetric part with each entry rounded once to
-float64. Negative quadratic eigenvalues are allowed; the observable need not be
-positive. The covariance must be positive semidefinite. Physical Gaussian input
-is required: a formal joint MSR physical/response propagator block is not an
-ordinary sampling covariance.
+float64. It raises ``ValueError`` when an entry of that symmetric part is below
+``2**-1022`` in magnitude and is not a float64 value: rounding such an entry can
+change it by up to its whole value, to zero included. Negative quadratic
+eigenvalues are allowed; the observable need not be positive. The covariance
+must be positive semidefinite. Physical Gaussian input is required: a formal
+joint MSR physical/response propagator block is not an ordinary sampling
+covariance.
 
 This adapter sums exactly the rings and chains of the declared quadratic
 observable, within floating-point preprocessing and evaluation error. It does
@@ -147,7 +150,11 @@ Quadrature conventions
 ``from_weighted_grid(C, A, weights, ell, ...)`` accepts sampled *colored nodal
 covariance*, kernel coefficients and strictly positive quadrature weights. Its
 finite observable is :math:`b+\ell^{\mathsf T}Wz+z^{\mathsf T}WAWz`, with
-:math:`W=\operatorname{diag}(w_i)` and covariance :math:`C`.
+:math:`W=\operatorname{diag}(w_i)` and covariance :math:`C`. The product
+:math:`WAW` is formed in float64 and prepared as the quadratic matrix. Its two
+triangles round in a different order and can differ in the last bit even for a
+symmetric :math:`A`; it is then symmetrized like any other quadratic matrix
+that is not exactly symmetric.
 
 ``from_white_noise(intensity, A, weights, ell, ...)`` instead accepts nonnegative
 white-noise intensity :math:`c_i`. Its nodal covariance is
@@ -418,9 +425,11 @@ The guarantee concerns the prepared matrices and endpoints. Whitening,
 projection, the covariance eigendecomposition and the symmetrization of a
 quadratic matrix that is not exactly symmetric are float64 operations whose
 errors it does not cover. That symmetrization rounds each entry of
-:math:`(A+A^{\mathsf T})/2` once: by at most ``2**-53`` of its magnitude in the
-normal range, and by at most ``2**-1075`` below ``2**-1022``, where a nonzero
-entry can round to zero. An exactly symmetric matrix is not rounded.
+:math:`(A+A^{\mathsf T})/2` once. At or above ``2**-1022`` in magnitude the
+error is at most ``2**-53`` of the entry. Below ``2**-1022`` a declared entry
+that float64 cannot hold is refused, and an entry of the whitened matrix is
+rounded by at most ``2**-1075``, to zero included. An exactly symmetric matrix
+is not rounded.
 
 Reuse of selected queries
 ~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -157,33 +157,45 @@ _AVERAGE_SCALE = 2.0**200
 _AVERAGE_UNSCALE = 2.0**-200
 
 
-def _symmetric_part(matrix: np.ndarray) -> np.ndarray:
+def _symmetric_part(matrix: np.ndarray, *, declared: bool = False) -> np.ndarray:
     """Return ``(A + A.T) / 2`` with each entry rounded once to float64.
 
-    A matrix that is already symmetric, signs of zeros included, is returned
-    as given. Otherwise ``A / 2 + A.T / 2`` rounds once wherever both halves
-    are exact, which holds for every entry of magnitude at least 2**-1021.
-    A pair with a smaller nonzero entry is averaged after an exact scaling by
-    2**200 when both entries are below 2**-900. When one entry is at least
-    2**-900, the plain sum and the exact average both round to half of it:
-    its float64 neighbours are at least 2**-954 away and the other half is
-    below 2**-1022. An entry is rounded only when the exact average is not a
+    The result is the array ``A / 2 + A.T / 2`` that earlier versions
+    computed, with its memory layout, so the later matrix products follow
+    the same path. That sum rounds once wherever both halves are exact,
+    which holds for every entry of magnitude at least 2**-1021, and it
+    reproduces a symmetric matrix bit for bit when no nonzero entry is
+    smaller. Otherwise a matrix that is already symmetric, signs of zeros
+    included, is copied into it unchanged, and in any other matrix a pair
+    with a smaller nonzero entry is averaged after an exact scaling by 2**200
+    when both entries are below 2**-900. When one entry is at least 2**-900,
+    the plain sum and the exact average both round to half of it: its float64
+    neighbours are at least 2**-954 away and the other half is below
+    2**-1022. An entry is rounded only when the exact average is not a
     float64, by at most half a unit in the last place, which is an absolute
     2**-1075 below the normal range.
+
+    With ``declared``, an entry whose exact average is below 2**-1022 and not
+    a float64 raises ``ValueError``: its rounding error can be as large as the
+    entry itself, and a nonzero entry can round to zero. For such an entry the
+    scaled sum of halves is a multiple of 2**-875 below 2**-822, hence exact,
+    and the unscaled entry is exact if and only if scaling it back by 2**200
+    recovers that sum.
     """
     transpose = matrix.T
-    # Equal bit patterns compare the signs of zeros too. The first row is a
-    # cheap rejection for a generic nonsymmetric matrix.
-    bits = matrix.view(np.uint64)
-    if np.array_equal(bits[:1], bits.T[:1]) and np.array_equal(bits, bits.T):
-        return matrix
     with np.errstate(under="ignore"):
         result = matrix / 2 + transpose / 2
     magnitude = np.abs(matrix)
     halving_rounds = magnitude < _EXACT_HALVING_MIN
+    halving_rounds &= magnitude != 0
     if not np.any(halving_rounds):
         return result
-    halving_rounds &= magnitude != 0
+    # Equal bit patterns compare the signs of zeros too. The first row is a
+    # cheap rejection for a generic nonsymmetric matrix.
+    bits = matrix.view(np.uint64)
+    if np.array_equal(bits[:1], bits.T[:1]) and np.array_equal(bits, bits.T):
+        np.copyto(result, matrix)
+        return result
     scaled = (halving_rounds | halving_rounds.T) & (
         np.maximum(magnitude, magnitude.T) < _SCALED_AVERAGE_MAX
     )
@@ -191,7 +203,14 @@ def _symmetric_part(matrix: np.ndarray) -> np.ndarray:
         first = matrix[scaled] * _AVERAGE_SCALE
         second = transpose[scaled] * _AVERAGE_SCALE
         with np.errstate(under="ignore"):
-            result[scaled] = (first / 2 + second / 2) * _AVERAGE_UNSCALE
+            total = first / 2 + second / 2
+            average = total * _AVERAGE_UNSCALE
+        if declared and np.any(average * _AVERAGE_SCALE != total):
+            raise ValueError(
+                "symmetric part of quadratic has an entry below 2**-1022 that "
+                "float64 cannot hold; rescale the observable"
+            )
+        result[scaled] = average
     return result
 
 
@@ -202,7 +221,7 @@ def _observable_data(factor, quadratic, linear, constant, mean):
     if quadratic.shape != (dimension, dimension):
         raise ValueError("quadratic must be square with the factor's row dimension")
     # The antisymmetric part makes identically zero contribution to z.T A z.
-    quadratic = _symmetric_part(quadratic)
+    quadratic = _symmetric_part(quadratic, declared=True)
     linear = (
         np.zeros(dimension) if linear is None else _real_array(linear, "linear", ndim=1)
     )
@@ -491,9 +510,11 @@ class GaussianQuadratic:
     All inputs are copied. Covariance is rejected unless exactly symmetric
     with no negative computed eigenvalues. An exactly symmetric quadratic
     matrix is used unchanged; any other is replaced by its symmetric part,
-    each entry rounded once to float64. ``from_factor`` accepts an explicit
-    real factor ``L`` defining the PSD covariance ``L @ L.T`` without that
-    eigensolver test. No eigenvalue clipping or regularization is implicit.
+    each entry rounded once to float64, and refused with ``ValueError`` when
+    an entry of that part is below 2**-1022 and not a float64 value.
+    ``from_factor`` accepts an explicit real factor ``L`` defining the PSD
+    covariance ``L @ L.T`` without that eigensolver test. No eigenvalue
+    clipping or regularization is implicit.
 
     Preparation is dense/cubic; a prepared source evaluation is linear in
     latent dimension, with temporary memory bounded by ``chunk_size`` times
