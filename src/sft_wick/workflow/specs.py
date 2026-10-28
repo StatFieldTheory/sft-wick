@@ -43,13 +43,23 @@ class FieldSpec:
 
     Args:
         name: Physical field name (e.g. ``"phi"``).  Used only for
-            symbolic rendering and as a convention.
+            symbolic rendering and as a convention.  It may not be
+            ``"psi"``, the response field's name.
         n_components: Number of field components N.  Use ``1`` for a
             scalar theory.
     """
 
     name: str = "phi"
     n_components: int = 1
+
+    def __post_init__(self) -> None:
+        if self.name == self.response_name:
+            raise ValueError(
+                f"FieldSpec: the physical field may not be named "
+                f"{self.response_name!r}, the name of the response field; "
+                f"the two fields would share one name, and an observable "
+                f"could not say which of them it means."
+            )
 
     @property
     def response_name(self) -> str:

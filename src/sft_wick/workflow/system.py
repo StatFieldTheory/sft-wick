@@ -458,8 +458,9 @@ class System:
                 :meth:`build_fields` and carry letter component labels, as
                 the strings do; the component tuple of
                 :meth:`Expansion.evaluate` gives their components in this
-                order.  A set (``dict_keys`` included) raises, since its
-                order follows ``PYTHONHASHSEED``.
+                order.  A set or a frozenset raises, since its order
+                follows ``PYTHONHASHSEED``; a dict's keys view keeps the
+                dict's insertion order and is accepted.
             orders: the perturbative orders to compute, as one integer or
                 a list of them.  A boolean, a string, a float, a non-integer
                 entry and an empty list raise.
@@ -779,7 +780,9 @@ def _parse_observable(observable, system: System, _max_order: int = 1):
     ``(field_name, component_label, spatial_label)`` for both forms, so the
     two spellings of one observable share a cache entry.
     """
-    if isinstance(observable, collections.abc.Set):
+    if isinstance(observable, collections.abc.Set) and not isinstance(
+        observable, collections.abc.KeysView
+    ):
         raise ValueError(
             f"System.expand: observable is a set, which has no order, and "
             f"the order of the operators fixes which entry of the component "

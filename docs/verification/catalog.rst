@@ -604,7 +604,7 @@ Workflow and YAML
      - 1e-9 (GL) / 2e-3 (qmc_scalar)
      - 46
    * - ``test_observable_operator_inputs.py``
-     - FieldOperator observables in System.expand (order 0 at distinct times, the FK channel at order 2, the same expansion as the string spelling, one index per shared letter); literal labels and foreign fields refused; set, frozenset and dict_keys observables refused
+     - FieldOperator observables in System.expand (order 0 at distinct times, the FK channel at order 2, the same expansion as the string spelling, one index per shared letter); literal labels and foreign fields refused; set and frozenset observables refused, a dict's keys view accepted in its insertion order; a physical field named psi refused
      - closed-form inner and scipy quad outer integral of the exponential covariance; the FK channel of a constant kappa^3 as a 1-D quad
      - 1e-12; 1e-9; bit equality between spellings
      - 13
