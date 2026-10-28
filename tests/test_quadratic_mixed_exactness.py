@@ -240,8 +240,7 @@ def _overlap_case(latent, overlap, seed):
 
 
 @pytest.mark.parametrize("latent", [4, 100, 500])
-# 1e-323 is two subnormal units, the smallest overlap that the family's
-# halving symmetrisation preserves.
+# 1e-323 is two subnormal units.
 @pytest.mark.parametrize("overlap", [1e-9, -3e-30, 1e-150, 1e-323])
 def test_near_zero_overlap_matches_closed_form(latent, overlap):
     family, closed = _overlap_case(latent, overlap, seed=4400 + latent)
@@ -380,7 +379,7 @@ def test_subnormal_and_mixed_magnitude_entries():
     matrices[0][1, 3] = matrices[0][3, 1] = 3e-320
     matrices[1] *= 1e150
     matrices[2] *= 1e-150
-    # Two subnormal units: preparation halves and re-adds it exactly.
+    # Two subnormal units, prepared unchanged.
     matrices[2][0, 0] = -1e-323
     endpoints = random.normal(size=(3, latent))
     endpoints[0, 2] = 2e-310

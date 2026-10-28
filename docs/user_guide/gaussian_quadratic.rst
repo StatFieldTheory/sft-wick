@@ -8,10 +8,13 @@ real observable of a finite real Gaussian input:
 
    z\sim N(\mu,C),\qquad Y=b+\ell^{\mathsf T}z+z^{\mathsf T}Az.
 
-The symmetric part of :math:`A` defines the same observable. Negative quadratic
-eigenvalues are allowed; the observable need not be positive. The covariance must
-be positive semidefinite. Physical Gaussian input is required: a formal joint
-MSR physical/response propagator block is not an ordinary sampling covariance.
+The symmetric part of :math:`A` defines the same observable. Preparation uses an
+exactly symmetric :math:`A` unchanged, subnormal entries included, and replaces
+any other :math:`A` by its symmetric part with each entry rounded once to
+float64. Negative quadratic eigenvalues are allowed; the observable need not be
+positive. The covariance must be positive semidefinite. Physical Gaussian input
+is required: a formal joint MSR physical/response propagator block is not an
+ordinary sampling covariance.
 
 This adapter sums exactly the rings and chains of the declared quadratic
 observable, within floating-point preprocessing and evaluation error. It does
@@ -412,8 +415,12 @@ deciding final float64 range, so a coefficient can be finite even when its
 unscaled cumulant overflows.
 
 The guarantee concerns the prepared matrices and endpoints. Whitening,
-projection and the covariance eigendecomposition are float64 operations whose
-errors it does not cover.
+projection, the covariance eigendecomposition and the symmetrization of a
+quadratic matrix that is not exactly symmetric are float64 operations whose
+errors it does not cover. That symmetrization rounds each entry of
+:math:`(A+A^{\mathsf T})/2` once: by at most ``2**-53`` of its magnitude in the
+normal range, and by at most ``2**-1075`` below ``2**-1022``, where a nonzero
+entry can round to zero. An exactly symmetric matrix is not rounded.
 
 Reuse of selected queries
 ~~~~~~~~~~~~~~~~~~~~~~~~~

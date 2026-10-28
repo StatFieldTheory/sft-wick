@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **4764 tests** in 112 files (parametrised
+The suite has **4853 tests** in 113 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -707,7 +707,7 @@ Self-consistency
 Finite Gaussian observables
 ---------------------------
 
-*594 tests in 6 files.*
+*683 tests in 7 files.*
 
 .. list-table::
    :header-rows: 1
@@ -743,6 +743,11 @@ Finite Gaussian observables
      - independent Python-int contractions; constant-matrix closed form; an exact midpoint between two float64 values
      - exact rational bounds; bitwise correctly rounded values
      - 56
+   * - ``test_quadratic_symmetrization.py``
+     - symmetric part of declared quadratic matrices: exactly symmetric matrices with odd subnormal and lowest-binade entries kept, exact power-of-two whitening, mean shifts, declared-observable cumulants, nonsymmetric pairs rounded once, a raising NumPy error state, both averaging methods at the 2**-900 switch and earlier bits on inputs whose halves are exact
+     - independent Fraction arithmetic on the declared arrays and the joint CGF of Gaussian quadratic forms; source-pinned frozen preparation
+     - exact bytes; correctly rounded or certified 1e-12 relative cumulants
+     - 89
    * - ``test_quadratic_white_reference_parity.py``
      - OU private scratch and fourth-order native ordered-prefix reuse; bounded memory/protocol bypass, scalar order, range fallback and input state; mixed cumulants keep the frozen bits or round correctly; the 0.7.0 cancellation threshold at 1e-10 of the Frobenius bound, from both sides
      - source-pinned frozen reference implementation with exact bytes/error args; independent Gauss-Hermite central cumulants, native matmul line witnesses and Python-int and Fraction mixed contractions
