@@ -36,13 +36,14 @@ New keywords on `Expansion.evaluate` / `Expansion.sweep`, mirrored under
   contracted, and the workspace budget above which a contraction is refused
   rather than allocated.  `einsum` and `factorized` run a diagram call only
   when their result obeys the bound the ordered fold obeys,
-  `|result - exact| <= 1.01 (m + A T) u S`, and every entry the ordered fold
-  multiplies is finite and free of overflow; otherwise they decline and the
-  ordered fold runs.  On 330 diagrams captured from `Expansion.evaluate`
-  (`N` = 2, 3 and 5, orders 2 to 4), `einsum` ran on 204 to 308 of them at
-  2x to 117x the ordered speed per call, and `factorized` on 2 to 4, whose
-  coupling sums have no monomials of opposite sign
-  (`docs/user_guide/resources.rst`).
+  `|result - exact| <= 1.01 (m + A T) u S`, every entry the ordered fold
+  multiplies is finite and free of overflow, and every array the call holds
+  at one time fits `contraction_max_bytes` (Python objects aside); otherwise
+  they decline and the ordered fold runs.  On 330 diagrams captured from
+  `Expansion.evaluate` (`N` = 2, 3 and 5, orders 2 to 4), `einsum` ran on 204
+  to 310 of them at 2.2x to 103x the ordered speed per call, and
+  `factorized` on 2 to 4, whose coupling sums have no monomials of opposite
+  sign (`docs/user_guide/resources.rst`).
 * `propagator_cache_bytes` (default `None`, off) with
   `propagator_cache_contract: fixed_model`: a byte-bounded cache of
   propagator lookups, valid only while the model and its callbacks stay fixed.

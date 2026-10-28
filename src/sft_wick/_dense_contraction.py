@@ -22,10 +22,13 @@ from typing import NamedTuple
 
 import numpy as np
 
-# DEFAULT_CONTRACTION_MAX_BYTES and validate_contraction_options are
-# imported from this module by evaluate, perturbation and the workflow.
+# Re-exported: evaluate, perturbation and the workflow import these two
+# names from this module.
 from ._contraction_admission import (  # noqa: F401
     DEFAULT_CONTRACTION_MAX_BYTES,
+    validate_contraction_options,
+)
+from ._contraction_admission import (
     backend_is_cheaper,
     call_inputs_ok,
     coefficient_cost,
@@ -45,7 +48,6 @@ from ._contraction_admission import (  # noqa: F401
     rotated_real_coefficient,
     step_bytes,
     step_cost,
-    validate_contraction_options,
 )
 from ._contraction_layout import (
     KernelLayout,

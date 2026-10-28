@@ -22,7 +22,7 @@ from ._contraction_admission import (
     finite_range,
     quarter_turn,
 )
-from ._dense_contraction import execute, plan_contraction
+from . import _dense_contraction as _dense
 from .expressions import _NATIVE_NUMERIC_EXPRESSION_CLASSES
 
 # Definition-time class bindings, as the ordered numerical evaluators use.
@@ -337,7 +337,7 @@ def _nonzero_count(monomial, components, shape, available):
         return free
     # A one-element sample axis gives the planner its required output label.
     operands.append((np.ones(1), (0,)))
-    plan = plan_contraction(
+    plan = _dense.plan_contraction(
         tuple(array.shape for array, _ in operands),
         tuple(labels for _, labels in operands),
     )
@@ -346,4 +346,4 @@ def _nonzero_count(monomial, components, shape, available):
     steps, _, workspace = plan
     if 8 * (workspace + sum(array.size for array, _ in operands)) > available:
         return 0
-    return free * int(execute(operands, steps)[0])
+    return free * int(_dense.execute(operands, steps)[0])

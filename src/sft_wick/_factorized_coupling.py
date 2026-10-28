@@ -281,7 +281,15 @@ def check_materialization_budget(term, max_bytes):
 
 def _contract(snapshot, fixed, cb, rp, jac, rb, e_psi, max_bytes):
     """Contract every monomial with the propagator batches, or decline."""
-    if e_psi != snapshot.e_psi or not call_inputs_ok(max_bytes, fixed, cb, rb, rp):
+    # The budget and the underflow policy come first, as in ordered calls:
+    # an unusable budget declines before e_psi is compared.
+    if (
+        type(max_bytes) is not int
+        or max_bytes <= 0
+        or not errors_allow_backend()
+        or e_psi != snapshot.e_psi
+        or not call_inputs_ok(max_bytes, fixed, cb, rb, rp)
+    ):
         return None
     names = {name: (axis, dim) for axis, (name, dim) in enumerate(snapshot.prop_idx, 1)}
     dims = {axis: dim for axis, dim in names.values()}
