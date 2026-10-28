@@ -619,6 +619,17 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "moment hierarchy (examples/reference/ito_moments.py)",
         "1e-12; 1e-6 against the hierarchy",
     ),
+    "tests/test_literal_component_labels.py": (
+        "Integrators",
+        "numeric literal component labels ('1' is component 0) read alike by "
+        "coupling symbols, propagator legs and the Kronecker deltas of "
+        "diag_C, diag_R, iso_C and iso_R, at L0 (both engines, every "
+        "integrator, scalar and batched interpreters, compiled plans)",
+        "exact Ornstein-Uhlenbeck covariance and response; Isserlis' "
+        "theorem; the exact Itô moment hierarchy "
+        "(examples/reference/ito_moments.py)",
+        "1e-13; 1e-9 against the hierarchy",
+    ),
     "tests/test_group_position_conflict.py": (
         "Integrators",
         "two points of ONE R-connected direction group at two positions "

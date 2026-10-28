@@ -26,7 +26,7 @@ def term(phase=0, repetitions=24):
                     Rational(1, 3),
                     Symbol("A", ("a", "i")),
                     Symbol("B", ("i", "j")),
-                    KroneckerDelta("j", "0"),
+                    KroneckerDelta("j", "1"),
                 )
             )
             for _ in range(repetitions)

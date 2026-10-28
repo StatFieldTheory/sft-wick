@@ -46,7 +46,12 @@ from .expressions import (
     apply_response_phase,
 )
 from .fields import FieldOperator
-from .indices import IndexContext, fresh_names, observable_labels
+from .indices import (
+    IndexContext,
+    fresh_names,
+    literal_component,
+    observable_labels,
+)
 from .propagators import contract_pair
 from .simplify import (
     _apply_index_sub,
@@ -2752,14 +2757,14 @@ def _eval_symbolic(
             def _resolve(i: str) -> int:
                 if i in index_map:
                     return index_map[i]
-                # Literal observable component (e.g. '1', '2'): 1-indexed
-                try:
-                    return int(i) - 1
-                except ValueError:
+                # Literal observable component: '1' is component 0.
+                literal = literal_component(i)
+                if literal is None:
                     raise KeyError(
                         f"Index '{i}' not found in index_map and is not a literal integer. "
                         "Pass it via the fixed_indices argument of evaluate_coupling()."
-                    ) from None
+                    )
+                return literal
 
             idx = tuple(_resolve(i) for i in expr.indices)
             val = arr[idx]
@@ -2789,25 +2794,30 @@ def _eval_symbolic(
     if isinstance(expr, Sum):
         return sum(_eval_symbolic(t, symbol_values, index_map) for t in expr.terms)
     if isinstance(expr, KroneckerDelta):
-        # Resolve each index against ``index_map``; literal observable
-        # indices ('0', '1', ...) are treated as ints. The delta is
-        # 1 iff the two indices resolve to the same value, else 0.
-        def _resolve(i: str) -> int:
-            if i in index_map:
-                return int(index_map[i])
-            try:
-                return int(i)
-            except ValueError:
-                raise KeyError(
-                    f"KroneckerDelta index {i!r} not found in index_map "
-                    f"and is not a literal integer. Pass it via the "
-                    f"fixed_indices argument of evaluate_coupling()."
-                ) from None
-
-        return 1.0 if _resolve(expr.index1) == _resolve(expr.index2) else 0.0
+        # Resolve each index against ``index_map``, else as a literal
+        # component read as a Symbol index or a propagator leg reads it
+        # ('1' is component 0).  The delta is 1 iff the two indices
+        # resolve to the same component, else 0.
+        first = _delta_component(expr.index1, index_map)
+        return 1.0 if first == _delta_component(expr.index2, index_map) else 0.0
     if isinstance(expr, ImaginaryUnit):
         return 1j
     raise TypeError(f"Cannot numerically evaluate {type(expr).__name__}")
+
+
+def _delta_component(i: str, index_map: dict) -> int:
+    """The component a ``KroneckerDelta`` index denotes: its ``index_map``
+    pin, else its literal reading (:func:`~sft_wick.indices.literal_component`)."""
+    if i in index_map:
+        return int(index_map[i])
+    literal = literal_component(i)
+    if literal is None:
+        raise KeyError(
+            f"KroneckerDelta index {i!r} not found in index_map "
+            f"and is not a literal integer. Pass it via the "
+            f"fixed_indices argument of evaluate_coupling()."
+        )
+    return literal
 
 
 def _eval_symbolic_batched(
@@ -2893,14 +2903,14 @@ def _eval_symbolic_batched(
         def _resolve(i: str) -> int:
             if i in index_map:
                 return index_map[i]
-            try:
-                return int(i) - 1
-            except ValueError:
+            literal = literal_component(i)
+            if literal is None:
                 raise KeyError(
                     f"Index '{i}' not found in index_map and is not a "
                     f"literal integer. Pass it via the fixed_indices "
                     f"argument of evaluate_coupling()."
-                ) from None
+                )
+            return literal
 
         idx = tuple(_resolve(i) for i in expr.indices)
         # Detect whether ``arr`` carries a leading sample axis.
@@ -2919,20 +2929,8 @@ def _eval_symbolic_batched(
             f"rank+1 (with leading sample axis of length {n_samples})."
         )
     if isinstance(expr, KroneckerDelta):
-
-        def _resolve(i: str) -> int:
-            if i in index_map:
-                return int(index_map[i])
-            try:
-                return int(i)
-            except ValueError:
-                raise KeyError(
-                    f"KroneckerDelta index {i!r} not found in index_map "
-                    f"and is not a literal integer. Pass it via the "
-                    f"fixed_indices argument of evaluate_coupling()."
-                ) from None
-
-        return 1.0 if _resolve(expr.index1) == _resolve(expr.index2) else 0.0
+        first = _delta_component(expr.index1, index_map)
+        return 1.0 if first == _delta_component(expr.index2, index_map) else 0.0
     if isinstance(expr, Product):
         result: object = 1.0
         for f in expr.factors:

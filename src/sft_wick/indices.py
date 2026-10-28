@@ -76,6 +76,26 @@ def is_generated_name(label: str) -> bool:
     )
 
 
+#: What a numeric literal component label counts from: ``phi('1', 'x')`` is
+#: component 0, the component that ``fixed_indices={'a': 0}`` gives a letter
+#: label ``a``.  Coupling symbols, propagator legs and Kronecker deltas all
+#: read a literal through :func:`literal_component`.
+LITERAL_COMPONENT_BASE = 1
+
+
+def literal_component(label) -> int | None:
+    """The 0-based component a numeric literal label denotes (``'1'`` is
+    component 0), or ``None`` when ``int(label)`` rejects ``label``.
+
+    A label pinned through ``fixed_indices`` (an ``index_map`` entry) takes
+    precedence over this reading in every resolver.
+    """
+    try:
+        return int(label) - LITERAL_COMPONENT_BASE
+    except ValueError:
+        return None
+
+
 def fresh_names(prefix: str, count: int, reserved: Iterable[str]) -> list[str]:
     """``count`` names ``f"{prefix}_{k}"`` for ``k = 0, 1, ...``, skipping
     every name in ``reserved``.

@@ -26,6 +26,7 @@ import sys
 import numpy as np
 
 from .expressions import Propagator
+from .indices import literal_component
 from ._propagator_lookup import validate_cache_options, wrap_propagator_cache
 from ._dense_contraction import (
     DEFAULT_CONTRACTION_MAX_BYTES,
@@ -6267,10 +6268,7 @@ class DiagramIntegrand:
             return None
         if idx_name in idx_map:
             return idx_map[idx_name]
-        try:
-            return int(idx_name) - 1  # 1-indexed literal
-        except ValueError:
-            return None
+        return literal_component(idx_name)  # '1' is component 0
 
     _batch_reduction_helpers = (
         ("_r_factor", _r_factor),

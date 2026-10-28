@@ -139,8 +139,9 @@ spatial delta functions respectively.  Their equality and hashing are
 observable indices to different values via ``fixed_indices``
 returns 0.  ``_eval_symbolic`` evaluates a
 ``KroneckerDelta`` to ``1.0`` when both indices resolve to the
-same integer (via ``index_map`` or as a literal numeric label),
-and ``0.0`` otherwise.
+same component (via ``index_map``, or as a literal numeric label,
+which counts from 1 as it does on coupling symbols and propagators:
+``'1'`` is component 0), and ``0.0`` otherwise.
 
 
 Immutability and Hashability

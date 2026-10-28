@@ -35,6 +35,7 @@ from .expressions import (
     Sum,
     Symbol,
 )
+from .indices import literal_component
 
 
 @dataclass(frozen=True)
@@ -896,7 +897,7 @@ def _lower_core(tokens):
                     _SymbolRecipe(
                         name,
                         indices,
-                        tuple(literal(x, 1) for x in indices),
+                        tuple(literal(x) for x in indices),
                         slot,
                         len(symbols),
                     )
@@ -911,7 +912,7 @@ def _lower_core(tokens):
             batched = partial(_batched_symbol, recipe)
         elif kind == "d":
             labels = token[1:]
-            literals = tuple(literal(x, 0) for x in labels)
+            literals = tuple(literal(x) for x in labels)
 
             def scalar(values, index_map):
                 return _delta(labels, literals, index_map)
@@ -956,13 +957,11 @@ def _lower_core(tokens):
 
         return scalar, batched
 
-    def literal(label, offset):
+    def literal(label):
+        # An int is a parameterised label slot, never a literal.
         if type(label) is int:
             return None
-        try:
-            return int(label) - offset
-        except ValueError:
-            return None
+        return literal_component(label)
 
     scalar_node, batched_node = lower()
 

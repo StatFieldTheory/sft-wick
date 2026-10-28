@@ -47,7 +47,7 @@ def partial():
             Product(
                 (Rational(1, 2), Symbol("K", ("a", "j", "i")), Symbol("A", ("i", "j")))
             ),
-            Product((Rational(-1, 3), Symbol("B", ("j",)), KroneckerDelta("i", "0"))),
+            Product((Rational(-1, 3), Symbol("B", ("j",)), KroneckerDelta("i", "1"))),
         )
     )
 
@@ -136,9 +136,10 @@ def test_literal_conventions_and_live_pin_precedence(batched):
             else p.scalar(expr, values, pins)
         )
 
-    assert fn({"a": 1}) == 3
+    # The literal '1' is component 0 in the symbol and in the delta alike.
+    assert fn({"a": 0}) == 3
     assert fn({"1": 1, "a": 1}) == 7
-    assert fn({"a": 0}) == 0
+    assert fn({"a": 1}) == 0
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.complex64, np.float64, np.complex128])
