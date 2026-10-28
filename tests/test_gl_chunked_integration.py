@@ -5,6 +5,7 @@ Changing chunk size may regroup floating-point additions, so comparisons
 use explicit error budgets rather than requiring bit equality for GL.
 """
 
+import math
 from dataclasses import dataclass, field
 from math import factorial
 
@@ -504,6 +505,13 @@ class BandC:
 
 
 def _band_total(band, chunk):
+    return _square_total(band, n_gauss=4, vectorized=True, gl_chunk_size=chunk)
+
+
+def _square_total(c_hook, *, n_gauss, vectorized, **chunk):
+    """Order 0 with both external times integrated over ``[T_MIN, T_MIN + 1]``
+    under the closed form ``c_hook``, on ``n_gauss`` GL nodes per axis;
+    ``chunk`` is ``gl_chunk_size`` when given, the default otherwise."""
     # A smooth temporal kernel: no diagonal cusp, so the square of the two
     # external times is one GL piece rather than two triangles.
     system = sw.System(
@@ -520,9 +528,9 @@ def _band_total(band, chunk):
     exp = system.expand(("phi(x)", "phi(y)"), orders=[0])
     props = system.propagators(
         t_max=2.0,
-        c_closed_form=band,
+        c_closed_form=c_hook,
         c_closed_form_only=True,
-        c_closed_form_vectorized=True,
+        c_closed_form_vectorized=vectorized,
         progress=False,
     )
     return exp.evaluate(
@@ -532,8 +540,8 @@ def _band_total(band, chunk):
         orders=[0],
         integrate_over="all",
         method="gauss_legendre",
-        n_gauss=4,
-        gl_chunk_size=chunk,
+        n_gauss=n_gauss,
+        **chunk,
     ).total
 
 
@@ -617,6 +625,120 @@ def test_block_total_sum_is_fsum_when_finite_and_ieee_addition_otherwise():
     assert _sum_gl_block_totals(blocks([big, big, 1.0, 2.0])) == INF
     assert evaluated == [big, big, 1.0, 2.0]
     assert _sum_gl_block_totals(iter([-big, 3.0, -big])) == -INF
+
+
+RAISE = object()
+
+
+def _blocks_raising(values):
+    """Yield ``values``; ``RAISE`` stands for a block whose evaluation
+    raises ``OverflowError``, as ``math.exp(1000.0)`` in a user callable
+    does."""
+    for value in values:
+        if value is RAISE:
+            raise OverflowError("math range error")
+        yield value
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        [RAISE, 1.0],
+        [0.5, RAISE, 2.0],
+        [0.5, -1.5, 3.0, RAISE],
+        [0.5, INF, RAISE],
+        [0.75 * float(np.finfo(float).max)] * 2 + [RAISE],
+    ],
+    ids=["first", "second", "last", "after-inf", "after-fsum-overflow"],
+)
+def test_block_total_sum_propagates_an_overflow_raised_by_a_block(values):
+    """An ``OverflowError`` raised while a block is evaluated is the
+    caller's, whichever block raises.  It used to be taken for fsum's own
+    overflow, and the sum of the blocks before it came back as the
+    integral (0.0 when the first block raised).  The last cell raises
+    after fsum has overflowed on two finite totals and the remaining
+    blocks are being drained."""
+    from sft_wick.evaluate import _sum_gl_block_totals
+
+    with pytest.raises(OverflowError, match="math range error"):
+        _sum_gl_block_totals(_blocks_raising(values))
+
+
+@dataclass(frozen=True)
+class CoshDecayC:
+    """Per-sample ``C = cosh(k s) exp(-k)`` with ``s = s1`` (or
+    ``1 - s1`` when ``reverse``), written with ``math.cosh``.
+
+    The value is below one everywhere, but ``math.cosh`` raises
+    ``OverflowError`` above ``acosh(max float) = 710.476``.  At
+    ``k = 711`` and 65 GL nodes per axis that is the node row nearest
+    ``s = 1`` only: ``k`` times the outer node is 710.76 and ``k`` times
+    the next one 709.74.  ``s1`` is the slow axis of the grid, so the row
+    is the last 65 nodes, or the first 65 when ``reverse``.
+    """
+
+    k: float
+    reverse: bool
+    has_diagonal_kink = False
+
+    def __call__(self, x1, t1, x2, t2):
+        s = float(t1) - T_MIN
+        if self.reverse:
+            s = 1.0 - s
+        return np.array([[math.cosh(self.k * s) * math.exp(-self.k)]])
+
+
+OVERFLOW_N_GAUSS = 65
+
+
+@pytest.mark.parametrize("reverse", [False, True], ids=["last-row", "first-row"])
+@pytest.mark.parametrize(
+    "chunk",
+    [{"gl_chunk_size": None}, {"gl_chunk_size": 1}, {"gl_chunk_size": 4},
+     {"gl_chunk_size": 15}, {}],
+    ids=["eager", "chunk1", "chunk4", "chunk15", "default"],
+)
+def test_overflow_raised_by_a_C_hook_propagates_from_every_block(
+    chunk, reverse, monkeypatch
+):
+    """The eager grid raises the hook's ``OverflowError``; every blocked
+    grid must too, whether the overflowing row is in the first block or in
+    a later one.  With the default bound of 4096 nodes the 4225-node grid
+    is two blocks and the last row lies in the second.  The blocked sum
+    used to return the total of the blocks finished before the raise, with
+    no warning: 0.0 for the first row at every bound, and for the last row
+    3.6e-4 at bounds 1, 4 and 15 and 7.9e-5 at the default.  The block
+    totals are recorded to check where the raise happened."""
+    import sft_wick.evaluate as ev
+
+    assert DEFAULT_GL_CHUNK_SIZE < OVERFLOW_N_GAUSS**2
+    nodes, _ = np.polynomial.legendre.leggauss(OVERFLOW_N_GAUSS)
+    outer = (nodes[-2:] + 1) / 2
+    assert 711.0 * outer[0] < math.acosh(np.finfo(float).max) < 711.0 * outer[1]
+
+    seen = []
+    summed = ev._sum_gl_block_totals
+
+    def record(totals):
+        return summed(seen.append(total) or total for total in totals)
+
+    monkeypatch.setattr(ev, "_sum_gl_block_totals", record)
+    with pytest.raises(OverflowError):
+        _square_total(
+            CoshDecayC(711.0, reverse),
+            n_gauss=OVERFLOW_N_GAUSS,
+            vectorized=False,
+            **chunk,
+        )
+    size = chunk.get("gl_chunk_size", DEFAULT_GL_CHUNK_SIZE)
+    if size is None or reverse:
+        # The eager grid sums no blocks; the first row is in the first block.
+        assert seen == []
+    else:
+        # Every block before the one holding node 65 * 64, the first node
+        # of the last row, was summed.
+        assert len(seen) == (OVERFLOW_N_GAUSS**2 - OVERFLOW_N_GAUSS) // size
+        assert all(np.isfinite(seen))
 
 
 @pytest.mark.parametrize("n_jobs,evaluate_n_jobs", [(2, 1), (1, 2)])

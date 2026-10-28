@@ -303,11 +303,13 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     "tests/test_gl_chunked_integration.py": (
         "Integrators",
         "chunked static/dynamic GL, causal and kink domains, aliases, "
-        "dense matrix propagators, fixed vectors, phase scale, API and workers",
+        "dense matrix propagators, fixed vectors, phase scale, API and "
+        "workers, non-finite and raising blocks",
         "analytic exponential and polynomial cumulants; exact linear "
-        "response Taylor coefficients; existing per-diagram paths",
+        "response Taylor coefficients; existing per-diagram paths; IEEE "
+        "sum of the eager grid",
         "2e-12 independent GL references; explicit cancellation scale; "
-        "QMC unchanged",
+        "QMC unchanged; exact non-finite totals and propagated errors",
     ),
     "tests/test_sweep_integrand_reuse.py": (
         "Workflow and YAML",

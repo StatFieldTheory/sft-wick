@@ -18,6 +18,7 @@ from types import MethodType, SimpleNamespace
 from typing import Any, Callable, Iterable
 
 import hashlib
+import inspect
 import itertools
 
 import sys
@@ -2709,8 +2710,10 @@ def _sum_gl_block_totals(totals: Iterable[float]) -> float:
     ``ValueError`` for ``inf`` and ``-inf`` together.  The weights sum to
     one, so the exact sum of the finite totals cannot exceed the largest
     node value in magnitude and fsum can overflow only within rounding of
-    the float range; the floating-point sum is returned then.  Every block
-    is evaluated in each case.
+    the float range; the floating-point sum over all blocks is returned
+    then.  An exception raised while a block is evaluated, an
+    ``OverflowError`` from a user callable included, propagates as it
+    does from the eager grid.
     """
     finite_sum = 0.0
     special = None
@@ -2728,6 +2731,12 @@ def _sum_gl_block_totals(totals: Iterable[float]) -> float:
     try:
         exact = fsum(stream)
     except OverflowError:
+        # fsum detects its own overflow while adding the total just yielded,
+        # so the stream is still suspended at that yield.  An OverflowError
+        # raised while a block was evaluated has finished the stream instead,
+        # and belongs to the caller.
+        if inspect.getgeneratorstate(stream) != inspect.GEN_SUSPENDED:
+            raise
         for _ in stream:
             pass
         exact = finite_sum
