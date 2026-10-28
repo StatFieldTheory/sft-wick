@@ -1,645 +1,109 @@
-"""Shared admission, planning and accuracy contract of the opt-in backends.
+"""The ``"einsum"`` backend and the contraction planning both backends share.
 
-The static integrand of a diagram is, per sample ``s``,
+``"einsum"`` contracts the prepared coefficient array of a diagram with its
+propagator batches (:func:`try_static_contraction`).  Both opt-in backends
+plan their pairwise contractions here (:func:`plan_call`,
+:func:`plan_groups`, :func:`plan_contraction`) and run them through
+:func:`finish`.  Their accuracy contract and admission rules are stated in
+:mod:`sft_wick._contraction_admission`, and the kernel layout is built by
+:mod:`sft_wick._contraction_layout`.
 
-    values[s] = sum_a c(a) * prod_k K_k(s, a),
-
-a sum over the component assignments ``a`` of the coefficient ``c`` (the
-rotated real part of the coupling array, or for ``"factorized"`` a sum of
-monomials ``c(a) = sum_t c_t(a)`` of the original coupling tensors) times the
-C and R propagator batches, the scalar R product and the Jacobian.  The
-default ``"ordered"`` backend folds the assignments one at a time.
-``"einsum"`` and ``"factorized"`` evaluate the same sum as a sequence of
-pairwise ``numpy.einsum`` contractions.  An opt-in backend either returns a
-result or declines with ``None``; the caller then runs the ordered fold.
-
-Accuracy contract.  Let ``S[s] = sum_a |c(a) prod_k K_k(s, a)|``, ``A`` the
-number of component assignments, ``T`` the number of monomials (``T = 1``
-for ``"einsum"``) and ``m`` the number of factors in one product.  With
-``u = 2**-53``, a returned result satisfies, at every sample,
-
-    |result - exact| <= 1.01 * (m + A*T) * u * S,
-
-where ``exact`` is the sum computed in exact arithmetic from the same
-float64 inputs.  The ordered fold satisfies the same bound on every input a
-backend admits; the two results generally differ in their last bits.  The
-bound has no underflow term because of rule (3) below, and it holds for
-``"factorized"`` with the summed coefficient because of rule (4).
-
-Behaviour contract.  A backend only returns a result when (1) every array it
-reads is finite, and so is every entry the ordered fold multiplies although
-the backend's index structure excludes it (by the zero of a diagonal
-``(n, N)`` C table, or as an R factor before the fold reaches the R support
-that excludes the assignment), (2) no product or partial sum of those
-entries can overflow in any evaluation order, (3) no product of nonzero
-inputs can fall below
-``2**-1021`` in any evaluation order, so that every underflow error is
-smaller than ``u/2`` times the magnitudes it came from (for
-``"factorized"`` the prefactor and every rational factor of a monomial are
-inputs of their own in (2) and (3), because the ordered preparation
-multiplies them one at a time), (4) for
-``"factorized"``, the monomials of a sum have no opposite signs at any
-assignment, so that ``sum_t |c_t(a)| = |c(a)|``, (5) every coefficient
-passes the phase rule of :func:`sft_wick.evaluate._real_or_raise`, (6)
-``numpy.geterr()["under"]`` is ``"ignore"`` (``numpy.einsum`` reports no
-floating-point errors, so a stricter underflow policy would see different
-events), (7) the arrays the call allocates fit ``contraction_max_bytes`` at
-the largest total they reach at one time (:func:`einsum_workspace`;
-``Contraction.workspace`` and :func:`count_bytes` for ``"factorized"``),
-NumPy's iterator buffers included and Python objects excluded, and (8) the
-cost model predicts it to be cheaper than the ordered fold.  A
-contraction also declines when a summation label is carried by no operand
-of a group (:func:`plan_groups`): the ordered fold adds that group's
-product once per value of the label.  Under
-(1) and (2) neither evaluation order produces inf, NaN or a floating-point
-error, so an exception from the ordered fold (phase error, non-isotropic
-index-free C) is reproduced by declining.  The output never holds ``-0.0``.
-
-The backends accept the package's own classes and exact float64 or
-complex128 arrays only.  Replacing package methods or helpers at run time
-(monkeypatching) is unsupported and is not detected; the test suite
-replaces :func:`backend_is_cheaper` to run fixtures the cost rule declines.
+Both backends apply the cost rule through this module's
+``backend_is_cheaper``, so replacing that name here replaces the rule of
+both; the test suite does so to run fixtures the rule declines.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from functools import lru_cache
 import math
+from typing import NamedTuple
 
 import numpy as np
 
-#: Default workspace budget, in bytes, for one coupling contraction (64 MiB).
-DEFAULT_CONTRACTION_MAX_BYTES = 64 * 1024 * 1024
-
-#: Largest binary exponent a product or partial sum may reach.  Four bits
-#: below the float64 limit leave room for rounding growth.
-_MAX_EXPONENT = 1020
-
-#: Smallest binary exponent a product of nonzero inputs may reach: one above
-#: the smallest normal exponent.  An underflowing operation then loses at
-#: most ``2**-1075 <= (u/2) * 2**-1021`` of the magnitudes it combines.
-_MIN_EXPONENT = -1021
-
-#: Largest ``m + A*T`` for which ``1.01 (m + A*T) u`` bounds the rounding.
-_MAX_ACCUMULATED = 2**46
-
-#: Coefficients whose rotated imaginary part is nonzero are checked one by
-#: one with the ordered projector; above this count the backend declines.
-_MAX_PHASE_CHECKS = 4096
-
-QUARTER_TURNS = (1 + 0j, 1j, -1 + 0j, -1j)
+# DEFAULT_CONTRACTION_MAX_BYTES and validate_contraction_options are
+# imported from this module by evaluate, perturbation and the workflow.
+from ._contraction_admission import (  # noqa: F401
+    DEFAULT_CONTRACTION_MAX_BYTES,
+    backend_is_cheaper,
+    call_inputs_ok,
+    coefficient_cost,
+    count_cost,
+    coupling_array_ok,
+    deferred_bytes,
+    deferred_cost,
+    einsum_buffers,
+    einsum_workspace,
+    finish_workspace,
+    finite_range,
+    kernel_cost,
+    label_axes,
+    minimum_backend_cost,
+    ordered_cost,
+    products_admit,
+    rotated_real_coefficient,
+    step_bytes,
+    step_cost,
+    validate_contraction_options,
+)
+from ._contraction_layout import (
+    KernelLayout,
+    apply_classes,
+    deferred_values,
+    kernel_layout,
+    label_classes,
+    restricted_supports,
+    sample_last,
+    supports_hold,
+)
 
 #: Operands of one planned product; the pairwise search costs O(k**3).
 _MAX_OPERANDS = 64
 
-# Cost model, in units of about one nanosecond.  The constants were fitted to
-# timings of 275 captured diagram calls (N = 2, 3, 5; 256 to 65536 samples;
-# Python 3.10 with NumPy 2.2 and Python 3.14 with NumPy 2.4).  Ordered
-# constants are about 0.65 of the fitted values and backend constants about
-# 1.6 times, so an admitted contraction is faster than the ordered fold with
-# a margin; no admitted call in the calibration set was slower.
-#: Ordered fold: Python work for an assignment whose coefficient is zero.
-_ORDERED_ZERO = 200.0
-#: Ordered fold: Python work for an assignment with a nonzero coefficient
-#: (phase projection, index map, R support lookup).
-_ORDERED_ASSIGNMENT = 1500.0
-#: Ordered fold: fixed cost of one NumPy call on a sample vector.
-_ORDERED_CALL = 200.0
-#: Ordered fold: cost per sample of one NumPy call.
-_ORDERED_ELEMENT = 0.3
-#: Backend: fixed cost of one call (layout, label classes, plan lookups).
-_BACKEND_CALL = 20000.0
-#: Backend: cost per kernel element of one pass (layout copy, range scans).
-_BACKEND_ELEMENT = 0.7
-#: Backend: passes over every kernel element (copy, two range scans and the
-#: zero-skipping magnitude scan of arrays holding zeros or both signs).
-_KERNEL_PASSES = 3.5
-#: Backend: passes over a kernel view the ordered fold multiplies beyond the
-#: backend's slice (one range scan; see :func:`plan_groups`).
-_READ_PASSES = 2.5
-#: Backend (einsum): cost per coefficient element (rotation, masks, scan).
-_BACKEND_COEFFICIENT = 60.0
-#: Backend: fixed cost of one pairwise contraction step.
-_BACKEND_STEP = 20000.0
-#: Backend: cost of one floating-point operation in a contraction step.
-_BACKEND_FLOP = 0.25
-#: Backend: fixed cost of one step of the live-assignment count.
-_COUNT_STEP = 3000.0
-#: Backend (factorized): extra fixed cost of one call.
-_FACTORIZED_CALL = 40000.0
-#: Backend (factorized): fixed cost per monomial of a sum beyond its steps.
-_BACKEND_MONOMIAL = 5000.0
-#: Backend (factorized): cost per monomial of a sum and per sample (phase,
-#: accumulation).
-_BACKEND_MONOMIAL_SAMPLE = 5.0
+
+# ------------------------------------------------------------ planning
 
 
-def validate_contraction_options(backend, max_bytes) -> None:
-    """Validate the backend selector and the positive workspace budget."""
-    if type(backend) is not str or backend not in ("ordered", "einsum", "factorized"):
-        raise ValueError(
-            "contraction_backend must be 'ordered', 'einsum' or 'factorized'"
-        )
-    if type(max_bytes) is not int or max_bytes <= 0:
-        raise ValueError("contraction_max_bytes must be a positive integer")
-
-
-def _native_dtype(array, scalar_type) -> bool:
-    # dtype equality/str aliases longdouble and float64 on macOS ARM.
-    return (
-        array.dtype.type is scalar_type
-        and array.dtype.isnative
-        and array.dtype.metadata is None
-    )
-
-
-def _float64(array) -> bool:
-    return type(array) is np.ndarray and _native_dtype(array, np.float64)
-
-
-def _ordinary_label(value) -> bool:
-    # Numeric literals ("1") resolve differently in the ordered selector.
-    return type(value) is str and value.isidentifier()
-
-
-def fixed_labels_ok(fixed) -> bool:
-    """Whether fixed indices are a dict of identifier labels to ints."""
-    return type(fixed) is dict and all(
-        _ordinary_label(k) and type(v) is int for k, v in fixed.items()
-    )
-
-
-def errors_allow_backend() -> bool:
-    """Whether the floating-point error policy lets a backend run."""
-    return np.geterr()["under"] == "ignore"
-
-
-_MAGNITUDE_BITS = np.uint64(0x7FFFFFFFFFFFFFFF)
-_ONE_BIT = np.uint64(1)
-
-#: Entries a range scan reads at a time.  Its one scratch array holds at
-#: most this many 8-byte entries (512 KiB).
-_SCAN_CHUNK = 2**16
-
-
-def _blocks(array):
-    """Views of ``array`` of at most ``_SCAN_CHUNK`` entries covering it once.
-
-    Slices of the flattened array when flattening is a view, otherwise runs
-    of the first axis; a row longer than ``_SCAN_CHUNK`` is split in turn.
-    ``array`` is not empty.  Every block is one-dimensional except the runs
-    of the first axis of an array that does not flatten to a view.
-    """
-    if array.ndim <= 1 or array.flags.c_contiguous:
-        flat = array.reshape(-1)
-        for start in range(0, flat.size, _SCAN_CHUNK):
-            yield flat[start : start + _SCAN_CHUNK]
-        return
-    row = array.size // array.shape[0]
-    if row > _SCAN_CHUNK:
-        for item in array:
-            yield from _blocks(item)
-        return
-    step = _SCAN_CHUNK // row
-    for start in range(0, array.shape[0], step):
-        yield array[start : start + step]
-
-
-def scan_bytes(elements: int) -> int:
-    """Bytes :func:`finite_range` allocates for an array of ``elements`` entries."""
-    return 8 * min(elements, _SCAN_CHUNK)
-
-
-def finite_range(array):
-    """``(max|x|, min|x| over nonzero x)``, or ``None`` if an entry is not finite.
-
-    The minimum is ``inf`` when every entry is zero.  ``max`` and ``min``
-    propagate NaN and infinities, so two reductions decide finiteness and
-    give both values for an array of one strict sign.  Otherwise the
-    smallest nonzero magnitude comes from the bit patterns: a finite
-    float64 magnitude orders like its uint64 pattern with the sign bit
-    cleared, and subtracting one wraps the zero pattern to the largest
-    integer, so the minimum skips zeros without a masked reduction.
-
-    The only array this function allocates holds at most :func:`scan_bytes`
-    bytes, and no reduction runs over a multidimensional view (NumPy 2.2
-    buffers such a reduction).  An array that flattens to a view is reduced
-    as one vector, and its bit patterns are formed whole when it has at most
-    ``_SCAN_CHUNK`` entries and otherwise in blocks of that many through one
-    scratch array.  Any other array is copied into the scratch block by
-    block.  Maxima and minima of blocks combine exactly, so the result does
-    not depend on the blocks.
-    """
-    if array.size == 0:
-        return 0.0, math.inf
-    if array.ndim == 1:
-        flat = array
-    elif array.ndim == 0 or array.flags.c_contiguous:
-        flat = array.reshape(-1)
-    else:
-        flat = None
-    scratch = None
-    with np.errstate(all="ignore"):
-        if flat is not None:
-            high = float(np.max(flat))
-            low = float(np.min(flat))
-            if not (math.isfinite(high) and math.isfinite(low)):
+def _label_sizes(shapes, labels):
+    """``{label: size}`` over all operands, or ``None`` on a rank or size clash."""
+    dims = {}
+    for shape, indices in zip(shapes, labels):
+        if len(shape) != len(indices):
+            return None
+        for label, size in zip(indices, shape):
+            if dims.setdefault(label, size) != size:
                 return None
-        else:
-            scratch = np.empty(min(array.size, _SCAN_CHUNK), dtype=np.uint64)
-            high, low = -math.inf, math.inf
-            for block in _blocks(array):
-                copy = scratch.view(np.float64)[: block.size]
-                np.copyto(copy.reshape(block.shape), block)
-                top = float(np.max(copy))
-                bottom = float(np.min(copy))
-                if not (math.isfinite(top) and math.isfinite(bottom)):
-                    return None
-                high = max(high, top)
-                low = min(low, bottom)
-    maximum = max(abs(high), abs(low))
-    if maximum == 0.0:
-        return 0.0, math.inf
-    if low > 0.0:
-        return maximum, low
-    if high < 0.0:
-        return maximum, -high
-    if flat is not None and flat.size <= _SCAN_CHUNK:
-        blocks = (flat,)  # one block: its pattern array is the allocation
-    else:
-        blocks = _blocks(array)
-        if scratch is None:
-            scratch = np.empty(min(array.size, _SCAN_CHUNK), dtype=np.uint64)
-    least = None
-    for block in blocks:
-        out = None if scratch is None else scratch[: block.size]
-        if block.ndim > 1:
-            np.copyto(out.reshape(block.shape), block.view(np.uint64))
-            source = out
-        else:
-            source = block.view(np.uint64)
-        if low < 0.0:
-            bits = np.bitwise_and(source, _MAGNITUDE_BITS, out=out)
-            np.subtract(bits, _ONE_BIT, out=bits)
-        else:
-            # A -0.0 pattern minus one exceeds every finite magnitude.
-            bits = np.subtract(source, _ONE_BIT, out=out)
-        block_least = bits.min()
-        least = block_least if least is None else min(least, block_least)
-    smallest = np.array(least + _ONE_BIT, dtype=np.uint64).view(np.float64)
-    return maximum, float(smallest)
+    return dims
 
 
-def exponent_bound(maximum: float) -> int:
-    """Smallest ``e >= 0`` with ``maximum < 2**e`` (0 for ``maximum <= 1/2``)."""
-    if maximum == 0.0:
-        return 0
-    return max(0, math.frexp(maximum)[1])
+def _best_pair(sets, counts, dims):
+    """``((disjoint, loop, out, i, j), kept)`` of the next pairwise step.
 
-
-def exponent_floor(smallest: float) -> int:
-    """Largest ``e <= 0`` with ``smallest >= 2**e`` (0 for ``inf`` or ``>= 1``)."""
-    if not math.isfinite(smallest) or smallest >= 1.0:
-        return 0
-    return math.frexp(smallest)[1] - 1
-
-
-def rotated_real_coefficient(coeff, e_psi):
-    """The real coefficient the ordered fold uses at every assignment.
-
-    The ordered fold multiplies by ``_real_or_raise(c, e_psi)``: the real part
-    of ``c * 1j**e_psi``, accepted when the imaginary part is zero, below the
-    floor, or within tolerance.  That real part is ``(a, -b, -a, b)[e_psi % 4]``
-    for ``c = a + 1j*b``.  Entries with a nonzero rotated imaginary part are
-    tested with the ordered projector itself.  Returns a new contiguous
-    float64 array, or ``None`` when an entry would make the ordered fold raise
-    or the phase is not an exact quarter turn.
+    The pair with a common label, then the smallest loop space, then the
+    smallest result; ``kept`` holds the sample label and every label another
+    operand still carries.
     """
-    if type(e_psi) is not int or not 0 <= e_psi <= 1024:
-        return None
-    if (1j) ** e_psi not in QUARTER_TURNS:
-        return None
-    quarter = e_psi % 4
-    sign = 1.0 if quarter in (0, 3) else -1.0
-    if _native_dtype(coeff, np.float64):
-        if quarter % 2:
-            return None
-        return np.multiply(coeff, sign)
-    if not _native_dtype(coeff, np.complex128):
-        return None
-    kept, other = (coeff.real, coeff.imag) if quarter % 2 == 0 else (
-        coeff.imag,
-        coeff.real,
-    )
-    if np.any(other):
-        # The count is checked before any index array exists.
-        count = np.count_nonzero(other)
-        if count > _MAX_PHASE_CHECKS or not _phases_pass(coeff, other, e_psi):
-            return None
-    return np.multiply(kept, sign)
-
-
-def _phases_pass(coeff, other, e_psi) -> bool:
-    """Whether the ordered projector accepts every coefficient whose rotated
-    imaginary part (``other``) is nonzero.  The index array is freed on
-    return, before the caller allocates the rotated coefficient."""
-    from .evaluate import _real_or_raise
-
-    for position in np.flatnonzero(other):
-        try:
-            _real_or_raise(coeff.flat[position], e_psi)
-        except ValueError:
-            return False
-    return True
-
-
-@dataclass(frozen=True)
-class KernelLayout:
-    """The propagator side of a contraction, as einsum operands.
-
-    Labels are integers: ``0`` is the sample axis and ``1..k`` the summation
-    indices.  ``operands`` holds ``(array, labels)`` pairs; an entry whose
-    array is ``None`` is an index-free factor computed later from ``deferred``
-    (``("isotropic", C)`` or ``("trace", R)``), always with labels ``(0,)``.
-    ``deltas`` lists label pairs a structurally diagonal factor sets equal and
-    ``pins`` labels it fixes to a component; ``zero`` marks a diagonal factor
-    between two different fixed components.  ``skipped_deltas`` and
-    ``skipped_pins`` are the subsets that come from the support of R batch
-    ``p``, stored as ``(left, right, p)`` and ``(label, value, p)``.  The
-    ordered fold multiplies the factors of an assignment a diagonal C table
-    excludes by that table's zero; at an assignment an R support excludes it
-    stops before the C factors, after multiplying the R batches that precede
-    batch ``p``.  ``ranks`` gives, per operand, the last R batch whose
-    support the ordered fold checks before it multiplies that operand: ``p``
-    for R batch ``p``, ``inf`` (every batch) for C factors and the Jacobian
-    and ``-1`` (none) for the scalar R product.  ``supports`` keeps each
-    resolved R support with its labels for the ordered cost estimate, and
-    ``zero_checks`` the R entries outside their support, which must vanish.
-    """
-
-    operands: tuple
-    ranks: tuple
-    deferred: tuple
-    deltas: tuple
-    pins: tuple
-    skipped_deltas: tuple
-    skipped_pins: tuple
-    zero: bool
-    supports: tuple
-    zero_checks: tuple
-    n_c: int
-    n_r: int
-
-
-def _resolve(label, dim, names, fixed):
-    """("sum", axis) for a summation label, ("pin", value) for a fixed one."""
-    if not _ordinary_label(label):
-        return None
-    if label in names:
-        axis, size = names[label]
-        return ("sum", axis) if size == dim else None
-    value = fixed.get(label)
-    if type(value) is int and 0 <= value < dim:
-        return ("pin", value)
-    return None
-
-
-def _select(array, left, right):
-    """A view of an ``(n, N, N)`` batch with fixed components sliced away."""
-    index = [slice(None)]
-    labels = [0]
-    for kind, value in (left, right):
-        if kind == "sum":
-            index.append(slice(None))
-            labels.append(value)
-        else:
-            index.append(value)
-    return array[tuple(index)], tuple(labels)
-
-
-@dataclass
-class _LayoutParts:
-    """Mutable accumulator of :func:`kernel_layout`; never escapes it."""
-
-    samples: int
-    names: dict
-    fixed: dict
-    operands: list = field(default_factory=list)
-    ranks: list = field(default_factory=list)
-    deferred: list = field(default_factory=list)
-    deltas: list = field(default_factory=list)
-    pins: list = field(default_factory=list)
-    skipped_deltas: list = field(default_factory=list)
-    skipped_pins: list = field(default_factory=list)
-    supports: list = field(default_factory=list)
-    zero_checks: list = field(default_factory=list)
-    zero: bool = False
-
-    def batch_ok(self, array, ndim) -> bool:
-        return (
-            _float64(array)
-            and array.ndim in ndim
-            and array.shape[0] == self.samples
-            and bool(array.shape[1])
-            and (array.ndim == 2 or array.shape[2] == array.shape[1])
-        )
-
-    def pair(self, left, right, dim):
-        a = _resolve(left, dim, self.names, self.fixed)
-        b = _resolve(right, dim, self.names, self.fixed)
-        return None if a is None or b is None else (a, b)
-
-    def add(self, operand, rank) -> None:
-        self.operands.append(operand)
-        self.ranks.append(rank)
-
-    def diagonal(self, vectors, left, right, rank, skipped=None) -> None:
-        """Add a diagonal factor ``delta_ab v[:, a]``.
-
-        ``skipped`` is the index of the R batch whose support this is: the
-        ordered fold skips the assignments with ``a != b`` instead of
-        multiplying them by zero.
-        """
-        if left[0] == "sum" and right[0] == "sum":
-            self.add((vectors, (0, left[1])), rank)
-            if left[1] != right[1]:
-                self.deltas.append((left[1], right[1]))
-                if skipped is not None:
-                    self.skipped_deltas.append((left[1], right[1], skipped))
-        elif left[0] == "pin" and right[0] == "pin":
-            if left[1] != right[1]:
-                self.zero = True
-            else:
-                self.add((vectors[:, left[1]], (0,)), rank)
-        else:
-            free, pinned = (left, right) if left[0] == "sum" else (right, left)
-            self.add((vectors[:, pinned[1]], (0,)), rank)
-            self.pins.append((free[1], pinned[1]))
-            if skipped is not None:
-                self.skipped_pins.append((free[1], pinned[1], skipped))
-
-    def add_c(self, batch) -> bool:
-        if type(batch) is not tuple or len(batch) != 3:
-            return False
-        array, left, right = batch
-        if not self.batch_ok(array, (2, 3)):
-            return False
-        if left is None and right is None:
-            self.add((None, (0,)), math.inf)
-            self.deferred.append(("isotropic", array))
-            return True
-        resolved = self.pair(left, right, array.shape[1])
-        if resolved is None:
-            return False
-        if array.ndim == 3:
-            self.add(_select(array, *resolved), math.inf)
-        else:
-            self.diagonal(array, *resolved, math.inf)
-        return True
-
-    def add_r(self, batch, rank) -> bool:
-        if type(batch) is not tuple or len(batch) != 4:
-            return False
-        array, left, right, support = batch
-        if not self.batch_ok(array, (3,)):
-            return False
-        dim = array.shape[1]
-        if (
-            type(support) is not np.ndarray
-            or not _native_dtype(support, np.bool_)
-            or support.shape != (dim, dim)
-        ):
-            return False
-        if not (left and right):
-            self.add((None, (0,)), rank)
-            self.deferred.append(("trace", array))
-            return True
-        resolved = self.pair(left, right, dim)
-        if resolved is None:
-            return False
-        self.supports.append((support, *resolved))
-        on_diagonal = np.diagonal(support)
-        if np.count_nonzero(support) == np.count_nonzero(on_diagonal):
-            diagonal = np.diagonal(array, axis1=1, axis2=2)
-            self.diagonal(diagonal, *resolved, rank, skipped=rank)
-            # A diagonal entry outside the support is skipped by the ordered
-            # fold, so it must hold zero for the diagonal read to be exact.
-            for k in np.flatnonzero(~on_diagonal):
-                self.zero_checks.append(diagonal[:, k])
-        else:
-            self.add(_select(array, *resolved), rank)
-            if not support.all():
-                self.zero_checks.append((array, ~support))
-        return True
-
-
-def kernel_layout(c_batches, r_batches, r_product, jacobians, names, fixed):
-    """Resolve the C and R batches of one integrand call, or return ``None``.
-
-    Reproduces the ordered selectors: summation names take precedence over
-    fixed indices; a ``(n, N)`` C batch is ``delta_ab C[:, a]``; an
-    index-free C is :func:`~sft_wick.evaluate._isotropic_C`; an R with a
-    missing label is its trace; an R entry outside its support contributes
-    nothing.  An R whose support lies on the diagonal is read through its
-    diagonal only.  No float array is read here except views and the boolean
-    supports.
-    """
-    if (
-        type(c_batches) not in (list, tuple)
-        or type(r_batches) not in (list, tuple)
-        or not _float64(r_product)
-        or r_product.ndim != 1
-        or not r_product.size
-        or not _float64(jacobians)
-        or jacobians.shape != r_product.shape
-    ):
-        return None
-    parts = _LayoutParts(r_product.size, names, fixed)
-    parts.add((r_product, (0,)), -1)
-    parts.add((jacobians, (0,)), math.inf)
-    if not all(parts.add_c(batch) for batch in c_batches):
-        return None
-    if not all(parts.add_r(batch, rank) for rank, batch in enumerate(r_batches)):
-        return None
-    return KernelLayout(
-        tuple(parts.operands),
-        tuple(parts.ranks),
-        tuple(parts.deferred),
-        tuple(parts.deltas),
-        tuple(parts.pins),
-        tuple(parts.skipped_deltas),
-        tuple(parts.skipped_pins),
-        parts.zero,
-        tuple(parts.supports),
-        tuple(parts.zero_checks),
-        len(c_batches),
-        len(r_batches),
-    )
-
-
-def label_classes(dims, deltas, pins):
-    """Map each summation label to ``("sum", representative)`` or ``("pin", value)``.
-
-    ``dims`` maps labels to sizes.  Returns ``None`` when two pins of one
-    class disagree (the diagram vanishes structurally).
-    """
-    parent = {label: label for label in dims}
-
-    def find(label):
-        while parent[label] != label:
-            parent[label] = parent[parent[label]]
-            label = parent[label]
-        return label
-
-    for left, right in deltas:
-        a, b = find(left), find(right)
-        if a != b:
-            parent[max(a, b)] = min(a, b)
-    pinned = {}
-    for label, value in pins:
-        root = find(label)
-        if pinned.setdefault(root, value) != value:
-            return None
-    return {
-        label: ("pin", pinned[find(label)])
-        if find(label) in pinned
-        else ("sum", find(label))
-        for label in dims
-    }
-
-
-def apply_classes(array, labels, classes):
-    """Slice pinned axes and rename merged labels of one operand."""
-    index = []
-    renamed = []
-    sliced = False
-    for label in labels:
-        if label == 0:
-            index.append(slice(None))
-            renamed.append(0)
-            continue
-        kind, value = classes[label]
-        if kind == "pin":
-            index.append(value)
-            sliced = True
-        else:
-            index.append(slice(None))
-            renamed.append(value)
-    if sliced:
-        array = array[tuple(index)]
-    return array, tuple(renamed)
-
-
-def sample_last(shape, labels):
-    """Shape and labels of an operand with its sample axis moved last."""
-    if 0 not in labels or labels[-1] == 0:
-        return shape, labels
-    axis = labels.index(0)
-    return (
-        shape[:axis] + shape[axis + 1 :] + (shape[axis],),
-        labels[:axis] + labels[axis + 1 :] + (0,),
-    )
+    best = None
+    for i in range(len(sets)):
+        for j in range(i + 1, len(sets)):
+            involved = sets[i] | sets[j]
+            kept = frozenset(
+                label
+                for label in involved
+                if label == 0
+                or counts[label] > (label in sets[i]) + (label in sets[j])
+            )
+            key = (
+                sets[i].isdisjoint(sets[j]),
+                math.prod(dims[label] for label in involved),
+                math.prod(dims[label] for label in kept),
+                i,
+                j,
+            )
+            if best is None or key < best[0]:
+                best = (key, kept)
+    return best
 
 
 @lru_cache(maxsize=4096)
@@ -661,13 +125,9 @@ def plan_contraction(shapes, labels):
     """
     if len(shapes) > _MAX_OPERANDS:
         return None
-    dims = {}
-    for shape, indices in zip(shapes, labels):
-        if len(shape) != len(indices):
-            return None
-        for label, size in zip(indices, shape):
-            if dims.setdefault(label, size) != size:
-                return None
+    dims = _label_sizes(shapes, labels)
+    if dims is None:
+        return None
     sets = [frozenset(indices) for indices in labels]
     counts = {}
     for indices in sets:
@@ -676,26 +136,7 @@ def plan_contraction(shapes, labels):
     steps = []
     flops = workspace = 0
     while len(sets) > 1:
-        best = None
-        for i in range(len(sets)):
-            for j in range(i + 1, len(sets)):
-                involved = sets[i] | sets[j]
-                kept = frozenset(
-                    label
-                    for label in involved
-                    if label == 0
-                    or counts[label] > (label in sets[i]) + (label in sets[j])
-                )
-                key = (
-                    sets[i].isdisjoint(sets[j]),
-                    math.prod(dims[label] for label in involved),
-                    math.prod(dims[label] for label in kept),
-                    i,
-                    j,
-                )
-                if best is None or key < best[0]:
-                    best = (key, kept)
-        (_, loop, out, i, j), kept = best
+        (_, loop, out, i, j), kept = _best_pair(sets, counts, dims)
         for label in sets[i] | sets[j]:
             counts[label] -= (label in sets[i]) + (label in sets[j])
         for label in kept:
@@ -716,7 +157,8 @@ def planned_path(shapes, labels):
 
     The loop space of a step spans every label of its two operands; NumPy's
     iterator buffers at most that many entries per operand
-    (:func:`einsum_buffers`).  Returns ``(None, 0)`` when planning fails.
+    (:func:`~sft_wick._contraction_admission.einsum_buffers`).  Returns
+    ``(None, 0)`` when planning fails.
     """
     plan = plan_contraction(shapes, labels)
     if plan is None:
@@ -746,64 +188,7 @@ def execute(operands, steps):
     return result
 
 
-def ordered_cost(assignments, nonzero, live, n_c, n_r, samples) -> float:
-    """Estimated cost of the ordered fold for one call.
-
-    Every assignment costs a Python iteration; a nonzero coefficient adds the
-    phase projection and R lookups; a live assignment (nonzero coefficient,
-    every R entry supported) runs ``n_r + n_c + 5`` vector operations.
-    """
-    calls = live * (n_c + n_r + 5)
-    return (
-        assignments * _ORDERED_ZERO
-        + nonzero * _ORDERED_ASSIGNMENT
-        + calls * (_ORDERED_CALL + samples * _ORDERED_ELEMENT)
-    )
-
-
-def factorized_overhead(monomials: int, samples: int) -> float:
-    """Cost of a factorized call beyond its contraction steps."""
-    cost = _FACTORIZED_CALL
-    if monomials > 1:
-        cost += monomials * (_BACKEND_MONOMIAL + _BACKEND_MONOMIAL_SAMPLE * samples)
-    return cost
-
-
-def minimum_backend_cost(steps: int) -> float:
-    """A lower bound of a backend call with ``steps`` contraction steps.
-
-    A product of ``k`` operands takes ``k - 1`` pairwise steps whatever the
-    structure merges, so this bound is known before any array is inspected.
-    """
-    return _BACKEND_CALL + steps * _BACKEND_STEP
-
-
-def backend_is_cheaper(backend: float, ordered: float) -> bool:
-    """The cost rule: run a backend only when it is estimated to be cheaper."""
-    return backend < ordered
-
-
-def restricted_supports(supports):
-    """The resolved R supports that exclude an assignment, with their labels.
-
-    Each support is sliced at its fixed components (a boolean view over its
-    summation labels); a support that is true everywhere removes no
-    assignment and is left out.
-    """
-    restricted = []
-    for support, left, right in supports:
-        index = []
-        indices = []
-        for kind, value in (left, right):
-            if kind == "sum":
-                index.append(slice(None))
-                indices.append(value)
-            else:
-                index.append(value)
-        view = support[tuple(index)]
-        if not view.all():
-            restricted.append((view, tuple(indices)))
-    return tuple(restricted)
+# ------------------------------------------------- live-assignment count
 
 
 def _count_operands(dims, mask_shape, restricted):
@@ -873,93 +258,10 @@ def live_assignments(dims, coefficient_mask, supports, *, restricted=None):
     operands.append((np.ones(1), (0,)))
     steps, flops, _ = plan
     count = execute(operands, steps)
-    return free * int(count[0]), len(steps) * _COUNT_STEP + flops * _BACKEND_FLOP
+    return free * int(count[0]), count_cost(len(steps), flops)
 
 
-def _deferred_values(deferred):
-    """Compute index-free factors with the ordered fold's own calls.
-
-    The ordered fold may never reach these factors, so they are computed
-    without floating-point events; a non-finite result declines later.
-    """
-    from .evaluate import _isotropic_C
-
-    values = []
-    with np.errstate(all="ignore"):
-        for kind, array in deferred:
-            if kind == "isotropic":
-                try:
-                    values.append(_isotropic_C(array, batched=True))
-                except ValueError:
-                    return None
-            else:
-                values.append(np.einsum("iaa->i", array))
-    return values
-
-
-def _supports_hold(zero_checks) -> bool:
-    """Whether every R entry outside its support is zero.
-
-    Each excluded entry is read as a strided column of the batch, so no copy
-    of the excluded entries is made; ``count_nonzero`` allocates nothing.
-    """
-    for check in zero_checks:
-        if type(check) is tuple:
-            array, outside = check
-            for left, right in zip(*np.nonzero(outside)):
-                if np.count_nonzero(array[:, left, right]):
-                    return False
-        elif np.count_nonzero(check):
-            return False
-    return True
-
-
-#: Entries per operand of the iterator buffers of ``numpy.einsum``.  It hands
-#: its iterator a buffer size of 0, which selects NumPy's compiled default
-#: of 8192 entries; ``numpy.setbufsize`` does not change it.
-_EINSUM_BUFSIZE = 8192
-
-
-def iterator_buffers(elements: int) -> int:
-    """Bytes NumPy may allocate inside one ufunc or reduction call that
-    iterates ``elements`` float64 entries.
-
-    NumPy's iterator can buffer each operand (two inputs and the output) in
-    up to ``numpy.getbufsize()`` entries.  Measured with NumPy 2.2 at the
-    default buffer size: two buffers (131072 bytes) for a multiplication of
-    a strided three-dimensional view and for a maximum over one; with NumPy
-    2.4 the same calls allocated less than 64 KiB.  :func:`einsum_buffers`
-    counts ``numpy.einsum``, which does not follow ``numpy.getbufsize()``.
-    """
-    return 24 * min(np.getbufsize(), elements)
-
-
-def einsum_buffers(elements: int) -> int:
-    """Bytes NumPy may allocate inside one ``numpy.einsum`` call whose loop
-    space has ``elements`` points.
-
-    Up to ``_EINSUM_BUFSIZE`` entries for each of two inputs and the output,
-    whatever ``numpy.getbufsize()`` holds.  Measured with NumPy 2.2: three
-    buffers of 8192 entries (196608 bytes) in a step that contracts a
-    six-dimensional coefficient with merged labels against a kernel and two
-    in a strided outer product, at ``numpy.setbufsize(32)``, 8192 and
-    ``2**20`` alike; with NumPy 2.4 the outer product allocated about 64 KiB
-    and the other step no buffer.
-    """
-    return 24 * min(_EINSUM_BUFSIZE, elements)
-
-
-def layout_bytes(layout) -> int:
-    """Bytes of the boolean and index arrays behind the R support checks.
-
-    For every resolved R support of ``n`` entries, :func:`kernel_layout`
-    keeps the complement of the support (``n`` bytes) or forms the
-    complement of its diagonal and the indices of its excluded diagonal
-    entries, :func:`_supports_hold` forms the two index arrays of the
-    excluded entries (at most ``16 n`` bytes) and the reductions over the
-    support may buffer it (at most ``3 n`` bytes).
-    """
-    return 20 * sum(support.size for support, _, _ in layout.supports)
+# ------------------------------------------------------ group planning
 
 
 @dataclass(frozen=True)
@@ -967,8 +269,9 @@ class Contraction:
     """A planned contraction of one or more coefficient groups.
 
     ``workspace`` is the largest number of bytes the arrays allocated by
-    :func:`kernel_layout` and :func:`finish` hold at one time, not counting
-    arrays the caller holds while :func:`finish` runs.
+    :func:`~sft_wick._contraction_layout.kernel_layout` and :func:`finish`
+    hold at one time, not counting arrays the caller holds while
+    :func:`finish` runs.
     """
 
     groups: tuple  # ((phase, ((array, labels), ...), steps), ...)
@@ -976,6 +279,24 @@ class Contraction:
     kernels: tuple
     cost: float
     workspace: int
+
+
+class _KernelPlan(NamedTuple):
+    """The kernel operands of :func:`plan_groups` and their entry counts."""
+
+    #: ``(array or deferred position, sample-last labels, read or None)``.
+    kernels: tuple
+    shapes: tuple
+    labels: tuple
+    #: Labels any kernel carries.
+    carried: set
+    #: Entries of every kernel, and of the views the range checks also read.
+    elements: int
+    read_elements: int
+    #: Entries of the sample-last copies :func:`finish` makes.
+    copies: int
+    #: Entries of the largest array a range scan reads.
+    scanned: int
 
 
 def _pinned_labels(labels, classes):
@@ -994,41 +315,14 @@ def _read_classes(layout, dims, rank):
     return label_classes(dims, deltas, pins)
 
 
-def plan_groups(groups, layout, dims, samples):
-    """Plan every coefficient group against the shared kernel operands.
-
-    ``groups`` holds ``(phase, coefficient_operands)`` with operand labels
-    over the summation labels of ``dims``.  Kernel operands are planned in
-    the sample-last layout :func:`finish` copies them into.  A kernel that
-    the full label classes slice more than the ordered fold does (a pin from
-    a diagonal C table, or from an R support the ordered fold checks only
-    after it has multiplied this kernel) also keeps ``read``, the view the
-    ordered fold multiplies, for the range checks.  Returns ``(Contraction,
-    classes)`` or ``None`` when the diagram vanishes structurally, a plan
-    fails, or a summed label class is carried by no operand of a group: the
-    ordered fold adds that group's product once per value of the label, and
-    an index-free factor (the trace of an R without a partner label) or the
-    scalar R product carries no label.  The cost covers the kernel passes
-    and the planned steps; :func:`factorized_overhead` adds the per-monomial
-    work.  The workspace counts, in bytes, :func:`layout_bytes`, then the
-    larger of two phases of :func:`finish`: the index-free factors while
-    they are computed, and those factors with every sample-last kernel copy
-    and either one range scan or the results of every planned step of one
-    group (all steps are counted, whether or not their results are alive at
-    once) with the iterator buffers of its largest step.
-    """
-    if layout.zero:
-        return None
-    classes = label_classes(dims, layout.deltas, layout.pins)
-    if classes is None:
-        return None
+def _plan_kernels(layout, dims, classes, samples):
+    """The kernel operands in the sample-last layout :func:`finish` copies
+    them into, with the views the ordered fold multiplies beyond them."""
     read_classes = {}
     kernels = []
     shapes = []
     read_sizes = []
     deferred_index = 0
-    # Entries of every kernel and of the sample-last copies finish() makes,
-    # and of the largest array a range scan reads.
     elements = copies = scanned = 0
     for (array, labels), rank in zip(layout.operands, layout.ranks):
         if array is None:
@@ -1053,66 +347,88 @@ def plan_groups(groups, layout, dims, samples):
         scanned = max(scanned, array.size)
         if array.ndim > 1 and labels[-1] == 0:
             copies += array.size
-    kernel_shapes = tuple(shapes)
     kernel_labels = tuple(labels for _, labels, _ in kernels)
-    summed = {value for kind, value in classes.values() if kind == "sum"}
-    kernel_carried = set().union(*kernel_labels)
-    planned = []
-    cost = (
-        _BACKEND_CALL
-        + _KERNEL_PASSES * elements * _BACKEND_ELEMENT
-        + _READ_PASSES * sum(read_sizes) * _BACKEND_ELEMENT
-        + samples
+    return _KernelPlan(
+        tuple(kernels),
+        tuple(shapes),
+        kernel_labels,
+        set().union(*kernel_labels),
+        elements,
+        sum(read_sizes),
+        copies,
+        scanned,
     )
-    # Bytes of one group's planned steps: every step result and the
-    # iterator buffers of its largest step.
+
+
+def _plan_group(operands, classes, summed, kernels):
+    """``(resolved operands, plan, loop)`` of one coefficient group, or ``None``
+    when a summed label class is carried by no operand or planning fails."""
+    resolved = tuple(apply_classes(a, labels, classes) for a, labels in operands)
+    if not summed <= kernels.carried.union(*(indices for _, indices in resolved)):
+        return None
+    plan, loop = planned_path(
+        tuple(array.shape for array, _ in resolved) + kernels.shapes,
+        tuple(indices for _, indices in resolved) + kernels.labels,
+    )
+    if plan is None:
+        return None
+    return resolved, plan, loop
+
+
+def plan_groups(groups, layout, dims, samples):
+    """Plan every coefficient group against the shared kernel operands.
+
+    ``groups`` holds ``(phase, coefficient_operands)`` with operand labels
+    over the summation labels of ``dims``.  Kernel operands are planned in
+    the sample-last layout :func:`finish` copies them into.  A kernel that
+    the full label classes slice more than the ordered fold does (a pin from
+    a diagonal C table, or from an R support the ordered fold checks only
+    after it has multiplied this kernel) also keeps ``read``, the view the
+    ordered fold multiplies, for the range checks.  Returns ``(Contraction,
+    classes)`` or ``None`` when the diagram vanishes structurally, a plan
+    fails, or a summed label class is carried by no operand of a group: the
+    ordered fold adds that group's product once per value of the label, and
+    an index-free factor (the trace of an R without a partner label) or the
+    scalar R product carries no label.  The cost covers the kernel passes
+    and the planned steps; the factorized overhead adds the per-monomial
+    work.  The workspace is
+    :func:`~sft_wick._contraction_admission.finish_workspace`, with the
+    results of every planned step of one group counted whether or not they
+    are alive at once.
+    """
+    if layout.zero:
+        return None
+    classes = label_classes(dims, layout.deltas, layout.pins)
+    if classes is None:
+        return None
+    kernels = _plan_kernels(layout, dims, classes, samples)
+    summed = {value for kind, value in classes.values() if kind == "sum"}
+    planned = []
+    cost = kernel_cost(kernels.elements, kernels.read_elements, samples)
+    # Bytes of one group's planned steps.
     intermediates = 0
     for phase, operands in groups:
-        resolved = tuple(apply_classes(a, labels, classes) for a, labels in operands)
-        if not summed <= kernel_carried.union(*(indices for _, indices in resolved)):
+        group = _plan_group(operands, classes, summed, kernels)
+        if group is None:
             return None
-        plan, loop = planned_path(
-            tuple(array.shape for array, _ in resolved) + kernel_shapes,
-            tuple(indices for _, indices in resolved) + kernel_labels,
-        )
-        if plan is None:
-            return None
-        steps, flops, step_elements = plan
-        cost += len(steps) * _BACKEND_STEP + flops * _BACKEND_FLOP
-        intermediates = max(intermediates, 8 * step_elements + einsum_buffers(loop))
+        resolved, (steps, flops, step_elements), loop = group
+        cost += step_cost(len(steps), flops)
+        intermediates = max(intermediates, step_bytes(step_elements, loop))
         planned.append((phase, resolved, steps))
     if len(groups) > 1:
         # The accumulated result and the previous group's result.
         intermediates += 16 * samples
     deferred_peak = 0
     for kind, array in layout.deferred:
-        cost += array.size * (5 if kind == "isotropic" else 1) * _BACKEND_ELEMENT
-        # _isotropic_C holds at most three arrays of the batch's size at once,
-        # its output among them, and runs ufuncs and reductions; the trace is
-        # one einsum, its output counted below.
-        if kind == "isotropic":
-            held = 24 * array.size + iterator_buffers(array.size)
-        else:
-            held = einsum_buffers(array.size)
-        deferred_peak = max(deferred_peak, held)
-    deferred_values = 8 * samples * len(layout.deferred)
-    # finish() first computes the index-free factors, then copies and scans
-    # the kernels one at a time, then runs the planned steps.
-    workspace = layout_bytes(layout) + max(
-        deferred_values + deferred_peak,
-        deferred_values + 8 * copies + max(scan_bytes(scanned), intermediates),
+        cost += deferred_cost(kind, array.size)
+        deferred_peak = max(deferred_peak, deferred_bytes(kind, array.size))
+    workspace = finish_workspace(
+        layout, samples, deferred_peak, kernels.copies, kernels.scanned, intermediates
     )
-    return Contraction(tuple(planned), tuple(kernels), cost, workspace), classes
+    return Contraction(tuple(planned), kernels.kernels, cost, workspace), classes
 
 
-def _range_admits(headroom, ranges) -> bool:
-    """Rules (2) and (3) of the module contract for one product."""
-    upper = headroom
-    lower = 0
-    for maximum, smallest in ranges:
-        upper += exponent_bound(maximum)
-        lower += exponent_floor(smallest)
-    return upper <= _MAX_EXPONENT and lower >= _MIN_EXPONENT
+# ----------------------------------------------- numeric admission, run
 
 
 def finish(contraction, layout, coefficient_ranges, assignments, *, phase_is_factor=True):
@@ -1127,14 +443,32 @@ def finish(contraction, layout, coefficient_ranges, assignments, *, phase_is_fac
     time and their product can be in range where a partial product is not.
     Returns the sample vector or ``None``.
     """
-    if not _supports_hold(layout.zero_checks):
+    if not supports_hold(layout.zero_checks):
         return None
-    deferred = _deferred_values(layout.deferred)
+    deferred = deferred_values(layout.deferred)
     if deferred is None:
         return None
+    scanned = _scanned_kernels(contraction.kernels, deferred)
+    if scanned is None:
+        return None
+    kernels, kernel_ranges = scanned
+    if not products_admit(
+        contraction.groups, coefficient_ranges, kernel_ranges, assignments, phase_is_factor
+    ):
+        return None
+    return _run_groups(contraction.groups, kernels)
+
+
+def _scanned_kernels(planned, deferred):
+    """The kernel operands of a call and their :func:`finite_range`.
+
+    Each kernel is copied into its sample-last layout and scanned; an
+    index-free factor is taken from ``deferred``.  ``None`` when an entry is
+    not finite.
+    """
     kernels = []
     kernel_ranges = []
-    for array, labels, read in contraction.kernels:
+    for array, labels, read in planned:
         if type(array) is int:
             array = deferred[array]
         elif array.ndim > 1 and labels[-1] == 0:
@@ -1154,21 +488,13 @@ def finish(contraction, layout, coefficient_ranges, assignments, *, phase_is_fac
             scanned = (covered[0], scanned[1])
         kernel_ranges.append(scanned)
         kernels.append((array, labels))
-    terms = len(contraction.groups)
-    headroom = (assignments - 1).bit_length() + (terms - 1).bit_length()
-    for (phase, operands, _), ranges in zip(contraction.groups, coefficient_ranges):
-        if any(scanned is None for scanned in ranges):
-            return None
-        factors = len(operands) + len(kernels) + 1
-        if factors + assignments * terms > _MAX_ACCUMULATED:
-            return None
-        if phase_is_factor:
-            magnitude = abs(phase)
-            ranges = (*ranges, (magnitude, magnitude if magnitude else math.inf))
-        if not _range_admits(headroom, (*kernel_ranges, *ranges)):
-            return None
+    return kernels, kernel_ranges
+
+
+def _run_groups(groups, kernels):
+    """Contract every group with the kernels and add the group results."""
     result = None
-    for phase, operands, steps in contraction.groups:
+    for phase, operands, steps in groups:
         value = execute((*operands, *kernels), steps)
         if phase != 1.0:
             np.multiply(value, phase, out=value)
@@ -1182,20 +508,77 @@ def finish(contraction, layout, coefficient_ranges, assignments, *, phase_is_fac
     return result
 
 
-def _label_axes(prop_idx):
-    """``{label: (axis, size)}`` of the propagator indices, or ``None``."""
-    names = {}
-    for axis, item in enumerate(prop_idx, 1):
-        if (
-            type(item) is not tuple
-            or len(item) != 2
-            or not _ordinary_label(item[0])
-            or type(item[1]) is not int
-            or item[1] <= 0
-            or item[0] in names
-        ):
-            return None
-        names[item[0]] = axis, item[1]
+# ------------------------------------------------------ shared call stage
+
+
+class PlannedCall(NamedTuple):
+    """A backend call that passed the planning stage of its admission."""
+
+    layout: KernelLayout
+    contraction: Contraction
+    classes: dict
+    #: :func:`restricted_supports` of the layout.
+    restricted: tuple
+    #: :func:`count_bytes` of the live-assignment count.
+    counting: int
+    #: Planned cost plus the backend's own work.
+    cost: float
+
+
+def plan_call(groups, batches, names, fixed, dims, extra, upper, mask_shape):
+    """The planning stage both backends run after their lower-bound check.
+
+    ``groups`` are the coefficient groups of :func:`plan_groups` and
+    ``batches`` is ``(c_batches, r_batches, r_product, jacobians)``.
+    Resolves the kernel layout, plans the groups, applies the cost rule to
+    the planned cost plus the backend's ``extra`` work against ``upper``
+    (the ordered estimate with every assignment live), and sizes the
+    live-assignment count over a coefficient mask of ``mask_shape``
+    (``None`` for no mask).  Returns a :class:`PlannedCall` or ``None``; the
+    caller then applies its own workspace rule.
+    """
+    c_batches, r_batches, r_product, jacobians = batches
+    layout = kernel_layout(c_batches, r_batches, r_product, jacobians, names, fixed)
+    if layout is None:
+        return None
+    planned = plan_groups(groups, layout, dims, r_product.size)
+    if planned is None:
+        return None
+    contraction, classes = planned
+    cost = contraction.cost + extra
+    if not backend_is_cheaper(cost, upper):
+        return None
+    restricted = restricted_supports(layout.supports)
+    counting = count_bytes(dims, mask_shape, restricted)
+    if counting is None:
+        return None
+    return PlannedCall(layout, contraction, classes, restricted, counting, cost)
+
+
+def live_cost_admits(planned, assignments, nonzero, live, counted, samples) -> bool:
+    """The cost rule once the live assignments are counted: the planned cost
+    plus the count's own cost (``counted``) against the ordered estimate."""
+    layout = planned.layout
+    estimate = ordered_cost(assignments, nonzero, live, layout.n_c, layout.n_r, samples)
+    return backend_is_cheaper(planned.cost + counted, estimate)
+
+
+# --------------------------------------------------------- the backend
+
+
+def _coefficient_labels(coeff, prop_idx):
+    """The axes of ``prop_idx`` when ``coeff`` spans them, or ``None``.
+
+    ``coeff`` must be a float64 or complex128 array of the propagator
+    indices' shape with more than one entry.
+    """
+    if not coupling_array_ok(coeff):
+        return None
+    names = label_axes(prop_idx)
+    if names is None:
+        return None
+    if coeff.shape != tuple(dim for _, dim in names.values()) or coeff.size <= 1:
+        return None
     return names
 
 
@@ -1212,91 +595,61 @@ def try_static_contraction(
 ):
     """The ``"einsum"`` backend: contract the prepared coefficient array.
 
-    Returns a float64 sample vector under the module's accuracy and
-    behaviour contract, or ``None`` to keep the ordered fold.  No input is
-    modified or retained.
+    Returns a float64 sample vector under the accuracy and behaviour
+    contract of :mod:`sft_wick._contraction_admission`, or ``None`` to keep
+    the ordered fold.  No input is modified or retained.
     """
-    if type(max_bytes) is not int or max_bytes <= 0 or not errors_allow_backend():
+    if not call_inputs_ok(max_bytes, fixed_indices, c_batches, r_batches, r_product):
         return None
-    if (
-        type(coeff) is not np.ndarray
-        or not (_native_dtype(coeff, np.float64) or _native_dtype(coeff, np.complex128))
-        or type(prop_idx) is not tuple
-        or not 1 <= len(prop_idx) <= 51
-        or not fixed_labels_ok(fixed_indices)
-    ):
-        return None
-    names = _label_axes(prop_idx)
+    names = _coefficient_labels(coeff, prop_idx)
     if names is None:
         return None
     dims = {axis: dim for axis, dim in names.values()}
-    if (
-        coeff.shape != tuple(dims.values())
-        or coeff.size <= 1
-        or type(c_batches) not in (list, tuple)
-        or type(r_batches) not in (list, tuple)
-        or not _float64(r_product)
-    ):
-        return None
     samples = r_product.size
     n_c, n_r = len(c_batches), len(r_batches)
+    extra = coefficient_cost(coeff.size)
     # The ordered estimate with every assignment live bounds it from above;
     # the step count bounds the backend from below.  Small diagrams decline
     # here, before any layout work.
     upper = ordered_cost(coeff.size, coeff.size, coeff.size, n_c, n_r, samples)
-    lower = minimum_backend_cost(2 + n_c + n_r) + coeff.size * _BACKEND_COEFFICIENT
-    if not backend_is_cheaper(lower, upper):
+    if not backend_is_cheaper(minimum_backend_cost(2 + n_c + n_r) + extra, upper):
         return None
-    layout = kernel_layout(c_batches, r_batches, r_product, jacobians, names, fixed_indices)
-    if layout is None:
-        return None
-    planned = plan_groups(((1.0, ((coeff, tuple(dims)),)),), layout, dims, samples)
+    planned = plan_call(
+        ((1.0, ((coeff, tuple(dims)),)),),
+        (c_batches, r_batches, r_product, jacobians),
+        names,
+        fixed_indices,
+        dims,
+        extra,
+        upper,
+        coeff.shape,
+    )
     if planned is None:
         return None
-    contraction, classes = planned
-    backend = contraction.cost + coeff.size * _BACKEND_COEFFICIENT
-    if not backend_is_cheaper(backend, upper):
+    workspace = einsum_workspace(
+        coeff.size, planned.contraction, planned.layout, planned.counting
+    )
+    if workspace > max_bytes:
         return None
-    restricted = restricted_supports(layout.supports)
-    counting = count_bytes(dims, coeff.shape, restricted)
-    if counting is None:
-        return None
-    if einsum_workspace(coeff.size, contraction, layout, counting) > max_bytes:
-        return None
+    return _contract_rotated(planned, coeff, e_psi, dims, samples)
+
+
+def _contract_rotated(planned, coeff, e_psi, dims, samples):
+    """The numeric stage of an ``"einsum"`` call: the phase rule, the
+    live-assignment count and its cost check, then :func:`finish`."""
     rotated = rotated_real_coefficient(coeff, e_psi)
     if rotated is None:
         return None
     mask = (rotated != 0.0).astype(np.float64)
-    live, count_cost = live_assignments(dims, mask, (), restricted=restricted)
+    live, counted = live_assignments(dims, mask, (), restricted=planned.restricted)
     nonzero = int(np.count_nonzero(mask))
     del mask
     if live is None:
         return None
-    estimate = ordered_cost(coeff.size, nonzero, live, layout.n_c, layout.n_r, samples)
-    if not backend_is_cheaper(backend + count_cost, estimate):
+    if not live_cost_admits(planned, coeff.size, nonzero, live, counted, samples):
         return None
     coefficient_range = finite_range(rotated)
-    ((_, _, steps),) = contraction.groups
-    operand = apply_classes(rotated, tuple(dims), classes)
-    contraction = replace(contraction, groups=((1.0, (operand,), steps),))
-    return finish(contraction, layout, ((coefficient_range,),), coeff.size)
-
-
-def einsum_workspace(size, contraction, layout, counting) -> int:
-    """Largest number of bytes the arrays of one ``"einsum"`` call hold at once.
-
-    ``size`` is the number of coefficient entries and ``counting`` the
-    :func:`count_bytes` of the live-assignment count.  The phase check holds
-    a flattened copy of the rotated imaginary part and at most
-    ``_MAX_PHASE_CHECKS`` indices; it is over before the rotated coefficient
-    (8 bytes per entry) is formed, which NumPy may buffer from its strided
-    input.  The rotated coefficient lives to the end of the call.  Before
-    :func:`finish` it is joined by the 0/1 mask and, while the mask is
-    formed, by a boolean comparison (1 byte per entry), then by the arrays
-    of the live count; the mask is freed before the coefficient's range scan
-    (:func:`scan_bytes`, at most 8 bytes per entry) and :func:`finish`.
-    """
-    rotating = 8 * size + max(8 * min(size, _MAX_PHASE_CHECKS), iterator_buffers(size))
-    masking = 16 * size + max(size, counting)
-    before = layout_bytes(layout) + max(rotating, masking)
-    return max(before, 8 * size + contraction.workspace)
+    ((_, _, steps),) = planned.contraction.groups
+    operand = apply_classes(rotated, tuple(dims), planned.classes)
+    contraction = replace(planned.contraction, groups=((1.0, (operand,), steps),))
+    return finish(contraction, planned.layout, ((coefficient_range,),), coeff.size)

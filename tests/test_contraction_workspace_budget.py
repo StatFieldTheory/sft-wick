@@ -57,6 +57,7 @@ from contextlib import contextmanager
 import numpy as np
 import pytest
 
+import sft_wick._contraction_admission as admission
 import sft_wick._dense_contraction as dense
 import sft_wick._factorized_coupling as factorized
 from sft_wick._dense_contraction import finite_range, try_static_contraction
@@ -555,7 +556,7 @@ def test_range_scan_in_blocks_matches_the_whole_array(monkeypatch, layout, small
     magnitude in the last block, the largest in a middle one and zeros of
     both signs in the first.  The block is cut to 1000 entries so that small
     arrays span many blocks."""
-    monkeypatch.setattr(dense, "_SCAN_CHUNK", 1000, raising=False)
+    monkeypatch.setattr(admission, "_SCAN_CHUNK", 1000, raising=False)
     rng = np.random.default_rng(9900)
     shapes = {
         "contiguous": (40, 50, 7),
