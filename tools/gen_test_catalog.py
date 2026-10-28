@@ -90,7 +90,7 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "underflow limit admitted and products that can underflow declined, "
         "dtype/budget/error-policy declines, cost rule on small fixtures",
         "Fraction sum over component assignments with the ordered semantics; ordered fold",
-        "documented bound 1.01 (m + A T) u S; 1e-12 relative to ordered",
+        "documented bound 1.01 (m + q + A T) u S; 1e-12 relative to ordered",
     ),
     "tests/test_contraction_admission_rules.py": (
         "Integrators",
@@ -102,7 +102,7 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "factor-sign proof for one-signed tensors in monomials of opposite sign",
         "magnitudes sorted in Python; Fraction sum over component assignments; ordered "
         "fold and its floating-point error",
-        "exact equality of ranges; documented bound 1.01 (m + A T) u S; identical value "
+        "exact equality of ranges; documented bound 1.01 (m + q + A T) u S; identical value "
         "or error where a backend declines",
     ),
     "tests/test_contraction_error_bound.py": (
@@ -120,9 +120,11 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "(kernel level and a real scalar-R cache), rationals and prefactor counted one "
         "at a time (cancelling scales declined with the ordered value or error, both "
         "sides of the exponent limits 1020 and -1021), a factor pair i i with a float "
-        "coefficient raising the ordered TypeError",
+        "coefficient raising the ordered TypeError, monomials of 5 and 9 inexact rationals "
+        "with every rounding in one direction (above 1.01 (m + A T) u S on every path), an "
+        "index-free R whose NumPy trace cancels to 0",
         "Fraction sum over component assignments (dense and summed monomials), ordered fold",
-        "documented bound 1.01 (m + A T) u S with S from the summed coefficient; 1e-12 "
+        "documented bound 1.01 (m + q + A T) u S with S from the summed coefficient; 1e-12 "
         "relative where a decline keeps the ordered value; L1 diagrams 1e-12 of the largest",
     ),
     "tests/test_contraction_workspace_budget.py": (

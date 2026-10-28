@@ -5,8 +5,13 @@ off-diagonal component pair, full, diagonal, partially supported and
 index-free kernels) are contracted by ``einsum`` and ``factorized`` and
 compared with an exact ``Fraction`` reference that shares no code with the
 backends.  Both backends and the ordered fold must lie within the documented
-bound ``1.01 (m + A T) u S``, with ``S`` built from the summed coefficient
-the ordered fold uses.  Values the ordered fold never reads (behind zero
+bound ``1.01 (m + q + A T) u S``, with ``S`` built from the summed coefficient
+the ordered fold uses and ``q`` the rationals of one product that have no
+exact float64 value.  A monomial of five or nine such rationals and such a
+prefactor, whose roundings all go one way, exceeds ``1.01 (m + A T) u S`` on
+every path and stays within the bound with ``q``; an index-free R enters as
+the trace NumPy computes, also where that trace cancels to 0 and the exact
+sum of its entries does not.  Values the ordered fold never reads (behind zero
 coefficients or unsupported R entries) must not let a non-finite value
 through; overflow and products that can underflow must decline; monomials
 of opposite sign must decline; the output holds no ``-0.0``; the planner
@@ -30,6 +35,7 @@ decline, and the exponent limits are checked on both sides.
 """
 
 from dataclasses import replace
+from fractions import Fraction
 
 import numpy as np
 import pytest
@@ -169,9 +175,10 @@ def test_einsum_and_ordered_lie_within_the_bound_of_the_exact_sum(
     reference, scale = exact.exact_sum(
         table, ig.diagram_term.propagator_indices, ig.fixed_indices, cb, rp, jac, rb
     )
+    # The coefficient, the kernels, rp and jac; the coefficient is float64.
     factors = 1 + len(cb) + len(rb) + 2
     for values in (backend, ordered):
-        exact.assert_within_bound(values, reference, scale, factors, N**3)
+        exact.assert_within_bound(values, reference, scale, factors, N**3, inexact=0)
     assert not np.any(np.signbit(backend) & (backend == 0.0))
 
 
@@ -242,9 +249,11 @@ def test_ranges_near_the_underflow_limit_are_admitted_within_the_bound(
     reference, scale = exact.exact_sum(
         table, ig.diagram_term.propagator_indices, ig.fixed_indices, cb, rp, jac, rb
     )
-    assert all(exact.bound(size, 6, N**3) < abs(r) for size, r in zip(scale, reference))
+    assert all(
+        exact.bound(size, 6, N**3, inexact=0) < abs(r) for size, r in zip(scale, reference)
+    )
     for values in (backend, _ordered(ig, cb, rp, jac, rb)):
-        exact.assert_within_bound(values, reference, scale, 6, N**3)
+        exact.assert_within_bound(values, reference, scale, 6, N**3, inexact=0)
 
 
 @pytest.mark.parametrize(
@@ -423,9 +432,11 @@ def test_factorized_and_ordered_lie_within_the_bound_of_the_exact_sum(
         table, term.propagator_indices, fixed, cb, rp, jac, rb
     )
     terms = 1 if kind == "monomial" else 4
+    # Two tensors, one rational, the prefactor and phase, four kernels, rp, jac.
+    # No float64 equals the prefactor 3/7 or the rationals 2/3 and 5/7.
+    inexact = 1 if kind == "monomial" else 2
     for result in (fused, ordered):
-        # Two tensors, one rational, the prefactor and phase, four kernels, rp, jac.
-        exact.assert_within_bound(result, reference, scale, 10, n**6, terms)
+        exact.assert_within_bound(result, reference, scale, 10, n**6, terms, inexact=inexact)
     assert not np.any(np.signbit(fused) & (fused == 0.0))
 
 
@@ -518,8 +529,9 @@ def test_unsupported_diagonal_entry_of_a_diagonal_response(admit_all, backend, e
     reference, scale = exact.exact_sum(
         table, term.propagator_indices, fixed, cb, rp, jac, rb
     )
+    # Two tensors, the rational 1, the prefactor 3/7 (inexact), four kernels, rp, jac.
     for values_out in (result, reference_values):
-        exact.assert_within_bound(values_out, reference, scale, 10, n**6)
+        exact.assert_within_bound(values_out, reference, scale, 10, n**6, inexact=1)
 
 
 def test_planner_keeps_a_four_tensor_monomial_inside_the_default_budget():
@@ -558,7 +570,6 @@ def test_planner_keeps_a_four_tensor_monomial_inside_the_default_budget():
     fused = candidate._static_values([], rp, jac, r_batches=rb)
     assert factorized_state(candidate)[1] is not None, "the call declined"
     # The exact sum factors into two six-label halves.
-    from fractions import Fraction
     import itertools
 
     def half(left, right, rs, s):
@@ -578,7 +589,8 @@ def test_planner_keeps_a_four_tensor_monomial_inside_the_default_budget():
         outer = Fraction(1, 6) * Fraction(float(rp[s])) * Fraction(float(jac[s]))
         reference = left * right * outer
         scale = left_scale * right_scale * abs(outer)
-        exact.assert_within_bound([fused[s]], [reference], [scale], 13, n**12)
+        # Four tensors, the rational 1/6 (inexact), six R kernels, rp and jac.
+        exact.assert_within_bound([fused[s]], [reference], [scale], 13, n**12, inexact=1)
 
 
 def test_live_assignment_count_of_disjoint_supports_is_a_product_of_sums():
@@ -849,9 +861,10 @@ def test_values_behind_a_response_support_pin_are_admitted(admit_all, hidden):
     assert factorized_state(candidate)[1] is not None, "the factorized call declined"
     table = exact.monomial_coefficients(term, values, fixed)
     reference, scale = exact.exact_sum(table, term.propagator_indices, fixed, cb, rp, jac, rb)
-    # The tensor, the rational, two C and two R kernels, rp and jac.
+    # The tensor, the rational, two C and two R kernels, rp and jac; the
+    # rational and the prefactor are 1.
     for result in (ordered, dense_values, fused):
-        exact.assert_within_bound(result, reference, scale, 8, N**3)
+        exact.assert_within_bound(result, reference, scale, 8, N**3, inexact=0)
 
 
 @pytest.mark.parametrize("event", ["overflow", "invalid"])
@@ -947,8 +960,6 @@ def _uniform_sum(n, zeros, rng):
 
 def _pair_sums(tensor, kernel):
     """Exact ``sum_ab T[a, b] K[s, a, b]`` and ``sum_ab |T K|`` per sample."""
-    from fractions import Fraction
-
     sums, sizes = [], []
     for sample in kernel:
         terms = [
@@ -966,8 +977,6 @@ def test_factorized_sum_beyond_the_per_assignment_sign_check_is_admitted(zeros):
     sign check may visit.  The factor signs alone prove that the monomials
     agree, so the sum is prepared and contracted (at the default cost rule)
     instead of raising the materialization budget error."""
-    from fractions import Fraction
-
     rng = np.random.default_rng(9810 + zeros)
     n, samples = 17, 4
     term, values = _uniform_sum(n, zeros, rng)
@@ -1004,8 +1013,8 @@ def test_factorized_sum_beyond_the_per_assignment_sign_check_is_admitted(zeros):
     outer = [Fraction(float(r)) * Fraction(float(j)) for r, j in zip(rp, jac)]
     reference = [r * o for r, o in zip(reference, outer)]
     scale = [s * abs(o) for s, o in zip(scale, outer)]
-    # Three tensors, the rational, three kernels, rp and jac.
-    exact.assert_within_bound(fused, reference, scale, 9, n**6, 2)
+    # Three tensors, the rational, three kernels, rp and jac; -2/3 is inexact.
+    exact.assert_within_bound(fused, reference, scale, 9, n**6, 2, inexact=1)
 
 
 def _boundary_sum(kind, rng):
@@ -1151,9 +1160,10 @@ def test_factorized_sums_a_label_that_only_a_single_label_response_carries(
     table = exact.monomial_coefficients(term, values, fixed)
     reference, scale = exact.exact_sum(table, term.propagator_indices, fixed, cb, rp, jac, rb)
     terms = 2 if kind.startswith("sum") else 1
-    # Two tensors, the rational, the prefactor, two C kernels, R, rp and jac.
+    # Two tensors, the rational, the prefactor, two C kernels, R, rp and jac;
+    # the rational (5/7 or 2/3) is inexact, the prefactor 1 is not.
     for result in (fused, ordered):
-        exact.assert_within_bound(result, reference, scale, 9, N**3, terms)
+        exact.assert_within_bound(result, reference, scale, 9, N**3, terms, inexact=1)
     if kind == "covered":
         assert contracted, "a label the coupling carries is contracted"
     else:
@@ -1324,9 +1334,10 @@ def test_factorized_scalar_ranges_at_the_exponent_limits(
     if accurate:
         table = exact.monomial_coefficients(term, values, fixed)
         reference, scale = exact.exact_sum(table, term.propagator_indices, fixed, cb, rp, jac, [])
-        # The tensor, the rational, the prefactor, C, rp and jac.
+        # The tensor, the rational, the prefactor, C, rp and jac; the
+        # rational and the prefactor are powers of two.
         for result in (fused, ordered):
-            exact.assert_within_bound(result, reference, scale, 6, n)
+            exact.assert_within_bound(result, reference, scale, 6, n, inexact=0)
 
 
 @pytest.mark.parametrize("dtype", ["real", "complex"])
@@ -1372,6 +1383,129 @@ def test_factorized_imaginary_pair_follows_the_ordered_coefficient_dtype(admit_a
     ordered = _ordered(term.build_integrand(values, {}), cb, rp, jac, [])
     table = exact.monomial_coefficients(term, values, {})
     reference, scale = exact.exact_sum(table, term.propagator_indices, {}, cb, rp, jac, [])
-    # Two tensors, the rational, the prefactor, two C kernels, rp and jac.
+    # Two tensors, the rational, the prefactor, two C kernels, rp and jac; the
+    # rational 1/2 and the prefactor 1 are float64 values.
     for result in (fused, ordered):
-        exact.assert_within_bound(result, reference, scale, 8, N**4)
+        exact.assert_within_bound(result, reference, scale, 8, N**4, inexact=0)
+
+
+# Numerators over 2**63 of the prefactor and of nine rationals.  Each value is
+# 2**-63 below the midpoint between two floats just above 1, so converting it
+# to float64 rounds down by almost half an ulp.  The floats, and the two F
+# values per K, were found by a search over random floats in [1, 1 + 2**-21]
+# for which every product of the ordered and of the factorized scalar fold,
+# and the sum over the two assignments, rounds down as well.
+_ALIGNED_PREFACTOR = 9223375660109587455
+_ALIGNED_RATIONALS = (
+    9223374870318584831,
+    9223375373437840383,
+    9223374554917266431,
+    9223375227452744703,
+    9223374554921487359,
+    9223374685247126527,
+    9223375237886473215,
+    9223374471485344767,
+    9223374294257900543,
+)
+_ALIGNED_F = {
+    5: ("0x1.000007522b552p+0", "0x1.0000057d863b7p+0"),
+    9: ("0x1.0000054d11a68p+0", "0x1.00000429b9e89p+0"),
+}
+
+
+def _aligned_case(k):
+    """``q1 ... qk F(i)`` with prefactor ``q0`` over ``C(i, a)``, ``a = 0``, N = 2.
+
+    The kernels are signed powers of two, so their products are exact and
+    every sample has the same relative error on any platform; the unused
+    column ``a = 1`` holds generic values."""
+    n = 2
+    term = DiagramTerm(
+        (Propagator("C", "i", "a", "x", "y"),),
+        Product(
+            tuple(Rational(r, 2**63) for r in _ALIGNED_RATIONALS[:k]) + (Symbol("F", ("i",)),)
+        ),
+        Rational(_ALIGNED_PREFACTOR, 2**63),
+        (),
+        (("i", n),),
+        0,
+    )
+    values = {"F": np.array([float.fromhex(x) for x in _ALIGNED_F[k]])}
+    rng = np.random.default_rng(9890)
+    exponents = rng.integers(-40, 40, (3, SAMPLES))
+    powers = rng.choice((-1.0, 1.0), (3, SAMPLES)) * 2.0**exponents
+    c_table = _signed(rng, (SAMPLES, n, n))
+    c_table[:, :, 0] = powers[0][:, None]
+    return term, values, {"a": 0}, [(c_table, "i", "a")], powers[1], powers[2]
+
+
+@pytest.mark.parametrize("path", ["ordered", "einsum", "factorized"])
+@pytest.mark.parametrize("k", [5, 9])
+def test_each_inexact_rational_adds_one_rounding_to_the_bound(admit_all, k, path):
+    """A monomial of ``k`` rationals and a prefactor, none of them a float64
+    value: each conversion to float64 rounds once besides the products that
+    the factor count ``m`` covers, so the bound is ``1.01 (m + q + A T) u S``
+    with ``q = k + 1``.  With every rounding in one direction (see
+    ``_aligned_case``) each path is off by more than ``1.01 (m + A T) u S``,
+    the bound stated up to 0.7.0, and within the bound with ``q``."""
+    term, values, fixed, cb, rp, jac = _aligned_case(k)
+    scalars = (_ALIGNED_PREFACTOR, *_ALIGNED_RATIONALS[:k])
+    # A float64 value in [1, 2) has a denominator of at most 2**52.
+    assert all(Fraction(r, 2**63).denominator > 2**52 for r in scalars)
+    baseline = term.build_integrand(values, fixed)
+    if path == "ordered":
+        result = _ordered(baseline, cb, rp, jac, [])
+    elif path == "einsum":
+        result = _einsum(baseline, cb, rp, jac, [])
+        assert result is not None, "the einsum call declined"
+    else:
+        candidate = try_build_factorized(term, analyze_spatial(term), values, fixed, LIMIT)
+        result = candidate._static_values(cb, rp, jac, r_batches=[])
+        assert factorized_state(candidate)[1] is not None, "the factorized call declined"
+    table = exact.monomial_coefficients(term, values, fixed)
+    reference, scale = exact.exact_sum(table, term.propagator_indices, fixed, cb, rp, jac, [])
+    # The prefactor, k rationals, F, C, rp and jac.
+    factors, inexact, assignments = k + 5, k + 1, 2
+    assert exact.errors_in_units(result, reference, scale) > 1.01 * (factors + assignments)
+    exact.assert_within_bound(result, reference, scale, factors, assignments, inexact=inexact)
+
+
+def test_an_index_free_response_enters_as_its_numpy_trace(admit_all):
+    """``(5/7) F(i, j)`` over ``C(i, j)`` and an index-free R, read as its
+    trace.  NumPy's trace of the diagonal ``(1, 2**-60, -1)`` is 0, so at
+    those samples the ordered fold and both backends return 0, while the
+    exact sum of the diagonal entries is ``2**-60``.  The bound holds against
+    the reference built from the trace NumPy computes, which every path
+    shares."""
+    rng = np.random.default_rng(9895)
+    term = DiagramTerm(
+        (Propagator("C", "i", "j", "x", "y"), Propagator("R", None, None, "x", "z")),
+        Product((Rational(5, 7), Symbol("F", ("i", "j")))),
+        Rational(1),
+        (),
+        (("i", N), ("j", N)),
+        0,
+    )
+    values = {"F": _signed(rng, (N, N))}
+    response = _signed(rng, (SAMPLES, N, N))
+    response[::2, [0, 1, 2], [0, 1, 2]] = (1.0, 2.0**-60, -1.0)
+    assert np.all(np.einsum("iaa->i", response)[::2] == 0.0)
+    assert sum(Fraction(float(x)) for x in response[0].diagonal()) == Fraction(1, 2**60)
+    cb = [(_signed(rng, (SAMPLES, N, N)), "i", "j")]
+    rb = [(response, None, None, np.ones((N, N), dtype=bool))]
+    rp, jac = _signed(rng, SAMPLES), _signed(rng, SAMPLES)
+    baseline = term.build_integrand(values, {})
+    candidate = try_build_factorized(term, analyze_spatial(term), values, {}, LIMIT)
+    results = (
+        _ordered(baseline, cb, rp, jac, rb),
+        _einsum(baseline, cb, rp, jac, rb),
+        candidate._static_values(cb, rp, jac, r_batches=rb),
+    )
+    assert results[1] is not None, "the einsum call declined"
+    assert factorized_state(candidate)[1] is not None, "the factorized call declined"
+    table = exact.monomial_coefficients(term, values, {})
+    reference, scale = exact.exact_sum(table, term.propagator_indices, {}, cb, rp, jac, rb)
+    # The tensor, the rational 5/7 (inexact), the prefactor, C, R, rp and jac.
+    for result in results:
+        assert np.all(result[::2] == 0.0) and np.all(result[1::2] != 0.0)
+        exact.assert_within_bound(result, reference, scale, 7, N**2, inexact=1)

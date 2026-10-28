@@ -84,10 +84,11 @@ def _check_bound(ig, cb, rp, jac, rb, *results):
     reference, scale = exact.exact_sum(
         table, ig.diagram_term.propagator_indices, ig.fixed_indices, cb, rp, jac, rb
     )
+    # The coefficient, the kernels, rp and jac; the coefficient is float64.
     factors = 1 + len(cb) + len(rb) + 2
     for values in results:
         exact.assert_within_bound(
-            values, reference, scale, factors, ig.coupling_array.size
+            values, reference, scale, factors, ig.coupling_array.size, inexact=0
         )
 
 

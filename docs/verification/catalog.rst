@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **4764 tests** in 112 files (parametrised
+The suite has **4771 tests** in 112 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -252,7 +252,7 @@ Propagator numerics
 Integrators
 -----------
 
-*2011 tests in 52 files.*
+*2018 tests in 52 files.*
 
 .. list-table::
    :header-rows: 1
@@ -286,13 +286,13 @@ Integrators
    * - ``test_contraction_admission_rules.py``
      - admission rules of the einsum and factorized backends one at a time: smallest nonzero magnitude of a mixed-sign array (negative, positive, subnormal, beside zeros and -0.0) and the underflow declines it decides, sum headroom on both sides of the overflow limit and an ordered sum that overflows under over='raise', structural zeros (distinct fixed components, conflicting pins), factor-sign proof for one-signed tensors in monomials of opposite sign
      - magnitudes sorted in Python; Fraction sum over component assignments; ordered fold and its floating-point error
-     - exact equality of ranges; documented bound 1.01 (m + A T) u S; identical value or error where a backend declines
+     - exact equality of ranges; documented bound 1.01 (m + q + A T) u S; identical value or error where a backend declines
      - 21
    * - ``test_contraction_error_bound.py``
-     - error-bound contract of the einsum and factorized backends on generic signed N = 3 diagrams, non-finite values behind zeros, overflow and underflow-risk declines, monomials of opposite sign declined, unsupported diagonal R entry, no -0.0, planner workspace of a four-tensor monomial, live-assignment count and coefficient zero pattern, cost-rule decline of a 64-monomial sum, admission on L1 diagrams, values a diagonal C table multiplies by zero (NaN, inf, overflow) declined with the ordered errors, values behind an R-support pin admitted, R factors multiplied before a later support excludes them declined, sign check and factor-sign proof on both sides of the work limit, N = 17 sums beyond it, a summation index only a single-label or scalar R carries declined (kernel level and a real scalar-R cache), rationals and prefactor counted one at a time (cancelling scales declined with the ordered value or error, both sides of the exponent limits 1020 and -1021), a factor pair i i with a float coefficient raising the ordered TypeError
+     - error-bound contract of the einsum and factorized backends on generic signed N = 3 diagrams, non-finite values behind zeros, overflow and underflow-risk declines, monomials of opposite sign declined, unsupported diagonal R entry, no -0.0, planner workspace of a four-tensor monomial, live-assignment count and coefficient zero pattern, cost-rule decline of a 64-monomial sum, admission on L1 diagrams, values a diagonal C table multiplies by zero (NaN, inf, overflow) declined with the ordered errors, values behind an R-support pin admitted, R factors multiplied before a later support excludes them declined, sign check and factor-sign proof on both sides of the work limit, N = 17 sums beyond it, a summation index only a single-label or scalar R carries declined (kernel level and a real scalar-R cache), rationals and prefactor counted one at a time (cancelling scales declined with the ordered value or error, both sides of the exponent limits 1020 and -1021), a factor pair i i with a float coefficient raising the ordered TypeError, monomials of 5 and 9 inexact rationals with every rounding in one direction (above 1.01 (m + A T) u S on every path), an index-free R whose NumPy trace cancels to 0
      - Fraction sum over component assignments (dense and summed monomials), ordered fold
-     - documented bound 1.01 (m + A T) u S with S from the summed coefficient; 1e-12 relative where a decline keeps the ordered value; L1 diagrams 1e-12 of the largest
-     - 97
+     - documented bound 1.01 (m + q + A T) u S with S from the summed coefficient; 1e-12 relative where a decline keeps the ordered value; L1 diagrams 1e-12 of the largest
+     - 104
    * - ``test_contraction_workspace_budget.py``
      - contraction_max_bytes bounds every array of an einsum or factorized call: each call run at the smallest budget that admits it (found by bisection) on diagrams captured from Expansion.evaluate (N = 2, 3, 5; orders 2 and 4; diag_C off and on; pinned components) at 16, 256 and 8192 samples, kernel layouts (full, diagonal, partial-support, index-free, pinned delta, R trace, five and six indices; real and complex coefficients, C-ordered, Fortran-ordered and strided) and factorized monomials and sums with full and partial R supports; some calls at numpy.setbufsize(32) and 2**20; range scan in blocks against the whole array
      - tracemalloc peak of the call; numpy whole-array maximum and smallest nonzero magnitude
@@ -381,7 +381,7 @@ Integrators
    * - ``test_dense_contraction_backend.py``
      - einsum backend admission: coefficient phase rule, zeros, pins/repeated labels, diagonal/index-free/partial-support kernels, overflow decline, ranges near the underflow limit admitted and products that can underflow declined, dtype/budget/error-policy declines, cost rule on small fixtures
      - Fraction sum over component assignments with the ordered semantics; ordered fold
-     - documented bound 1.01 (m + A T) u S; 1e-12 relative to ordered
+     - documented bound 1.01 (m + q + A T) u S; 1e-12 relative to ordered
      - 70
    * - ``test_diag_fast_component_labels.py``
      - observable component labels pinned through fixed_indices on a C propagator in the iso_R + diag_C scalar fast path; the Kronecker delta between C legs when il != ir
