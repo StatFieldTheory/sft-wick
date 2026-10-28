@@ -317,11 +317,15 @@ def test_ownership_label_collision_filters_routings_not_representative(engine):
             props, pairing, ops, frozenset(vi.spatial_variables)
         )
         assert [plan.is_connected(p) for _, p in routings] == [False, True, True]
+    # The engines name their vertex points around the observable's labels,
+    # so the end-to-end count is that of any other spelling: 3 choices of
+    # the R-connected external times 2 routings of the two phi legs.
+    # Earlier versions also named the vertex point 'y_0' and counted 4.
     if engine == "numerical":
         result = sw.compute_moment_numerical(
             obs, sw.Action([vertex]), 1, {"F": np.ones((2,) * 3)}, target="connected"
         )
-        assert len(result[1]) == 4
+        assert len(result[1]) == 6
     else:
         result = sw.compute_moment(
             obs,
@@ -330,7 +334,7 @@ def test_ownership_label_collision_filters_routings_not_representative(engine):
             collect_topology=engine != "operator",
             target="connected",
         )
-        assert len(result.diagrams_by_order[1]) == 4
+        assert len(result.diagrams_by_order[1]) == 6
         assert all(
             ConnectedIncidence.from_instances(
                 d.observable_ops, d.vertex_instances

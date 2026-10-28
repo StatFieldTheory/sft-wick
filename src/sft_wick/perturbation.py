@@ -46,7 +46,7 @@ from .expressions import (
     apply_response_phase,
 )
 from .fields import FieldOperator
-from .indices import IndexContext
+from .indices import IndexContext, fresh_names, observable_labels
 from .propagators import contract_pair
 from .simplify import (
     _apply_index_sub,
@@ -54,6 +54,7 @@ from .simplify import (
     _match_propagators_after_spatial,
     collect_by_diagram,
     diagonal_propagators,
+    expr_labels,
     simplify,
 )
 from .vertices import VertexInstance
@@ -849,7 +850,13 @@ class DiagramTerm:
             if idx not in ordered_set:
                 ordered.append(idx)
                 ordered_set.add(idx)
-        rename = {old: f"i_{j}" for j, old in enumerate(ordered)}
+        # The new names skip every label of the term that is not renamed,
+        # so an observable index or point spelled ``i_0`` is not captured.
+        taken = expr_labels(new_coupling)
+        for p in new_props:
+            taken |= expr_labels(p)
+        targets = fresh_names("i", len(ordered), taken - ordered_set)
+        rename = dict(zip(ordered, targets))
         if rename:
             new_coupling = _apply_index_sub(new_coupling, rename)
             new_props = [_apply_index_sub(p, rename) for p in new_props]
@@ -1824,6 +1831,7 @@ def compute_moment(
     """
     validate_target(target, observable)
     check_distinct_external_labels(observable, order)
+    reserved_labels = observable_labels(observable)
     # E_psi: response legs carried by the observable itself.  Fixes the
     # phase needed to rotate a diagram value onto the real axis.
     _n_ext_response = sum(1 for _op in observable if _op.field.is_response)
@@ -1881,7 +1889,10 @@ def compute_moment(
                     len(observable), vertex_seq
                 ):
                     continue
-                idx_ctx = IndexContext()
+                # Internal names skip the observable's labels: the Wick
+                # engines key operators by label, so a vertex point named
+                # like an external one would be merged with it.
+                idx_ctx = IndexContext(reserved_labels)
 
                 # Instantiate each vertex copy
                 vertex_instances = [
@@ -3069,6 +3080,7 @@ def compute_moment_numerical(
     """
     validate_target(target, observable)
     check_distinct_external_labels(observable, order)
+    reserved_labels = observable_labels(observable)
     # E_psi: response legs carried by the observable itself.  Fixes the
     # phase needed to rotate a diagram value onto the real axis.
     _n_ext_response = sum(1 for _op in observable if _op.field.is_response)
@@ -3126,7 +3138,7 @@ def compute_moment_numerical(
                     len(observable), vertex_seq
                 ):
                     continue
-                idx_ctx = IndexContext()
+                idx_ctx = IndexContext(reserved_labels)
                 vis = [
                     VertexInstance.instantiate(v, idx_ctx, copy_id=k)
                     for k, v in enumerate(vertex_seq)

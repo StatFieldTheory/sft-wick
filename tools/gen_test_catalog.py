@@ -609,6 +609,16 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "the distinct-label spelling of the same observable",
         "exact",
     ),
+    "tests/test_observable_label_collision.py": (
+        "Integrators",
+        "observable labels spelled like generated names (points y_0, y_1, "
+        "...; indices i_0, i_1, ...) give the values of ordinary labels at "
+        "orders 0 to 4, at L0 (both engines, symbolic and operator-level "
+        "expressions), L1 and YAML; generator and cache-key unit checks",
+        "the ordinary-label spelling of the same observable; the exact Itô "
+        "moment hierarchy (examples/reference/ito_moments.py)",
+        "1e-12; 1e-6 against the hierarchy",
+    ),
     "tests/test_group_position_conflict.py": (
         "Integrators",
         "two points of ONE R-connected direction group at two positions "
@@ -954,6 +964,16 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "a static kappa^3 under component-dependent rates; "
         "Expansion.evaluate at the same point",
         "exact (sweep vs evaluate) / 1e-12 / 5e-3 (QMC)",
+    ),
+    "tests/test_ambiguous_user_names.py": (
+        "Workflow and YAML",
+        "names read in two ways: two operators sharing a component letter "
+        "given two indices (L1, YAML), two vertices with one name, vertex "
+        "names whose labels coincide for two sets, positions keys that name "
+        "vertex points (L1, L0); the legal spellings keep their values",
+        "a brute-force enumeration of the subsets of 1585 name sets; the "
+        "distinct-letter spelling and the positions without the stray key",
+        "exact; 1e-12",
     ),
     "tests/test_yaml_spec_coverage.py": (
         "Workflow and YAML",

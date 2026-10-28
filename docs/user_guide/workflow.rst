@@ -271,9 +271,12 @@ with ``vertex_names=`` and ``drift_names=`` if they collide with your own;
 a vertex whose coupling is identically zero is not generated.
 
 **Orders count vertices**, whatever power of ``g1`` a vertex carries: at
-:math:`g_1^2`, ``H`` sits at order 1 and ``GG``, ``GB``, ``BB`` at order 2
-(and ``L`` at order 1 under Stratonovich).  Use
+:math:`g_1^2`, ``H`` sits at order 1 and the channels labelled ``G``,
+``BG`` and ``B`` at order 2 (and ``L`` at order 1 under Stratonovich).  Use
 ``Expansion.by_vertex_type`` / ``vertex_types=`` to collect a fixed power.
+A label is the set of a diagram's vertex names, sorted and concatenated, so
+two ``G`` vertices are labelled ``G`` and one ``B`` with one ``G`` is
+``BG``.
 
 Expand with ``ito=True`` (the default): the numerical layer evaluates the
 Itô form, and under ``ito=False`` it refuses the equal-point R of a
@@ -1000,7 +1003,7 @@ a misspelt key cannot fall back to its default.
        y: [1.0, 2.0, 3.0]
 
      orders:           null            # optional subset of expand.orders
-     vertex_types:     null            # optional subset of {"F","FF","FK","K",…}
+     vertex_types:     null            # optional subset of {"F","FK","K",…}
      integrate_over:   null            # null | "all" | ["x"] | ...
 
      method:           qmc_vectorized  # 'qmc_vectorized' | 'qmc' | 'qmc_scalar'
@@ -1180,7 +1183,7 @@ Section reference: ``expand``
    * - ``observable``
      - ``list[str]``
      - **required**
-     - e.g. ``["phi_a(x)", "phi_b(y)"]``; component letters are MSR-fixed-indices, spatial args are the keys later swept by ``sweep.positions_grid``
+     - e.g. ``["phi_a(x)", "phi_b(y)"]``; component letters are MSR-fixed-indices, spatial args are the keys later swept by ``sweep.positions_grid``.  Operators that share a component letter carry one index, so a component tuple must give them the same value
    * - ``orders``
      - ``list[int]``
      - **required**
@@ -1411,7 +1414,7 @@ Section reference: ``sweep``
    * - ``vertex_types``
      - ``list[str]`` or ``null``
      - ``null``
-     - Filter diagrams by vertex composition (e.g. ``["FK"]`` for demo2's cross-term)
+     - Filter diagrams by vertex composition (e.g. ``["FK"]`` for demo2's cross-term).  A label is the set of a diagram's vertex names, sorted and concatenated; ``System`` refuses vertex names that give two sets one label (``F``, ``K`` and ``FK``) and two vertices with one name
    * - ``integrate_over``
      - ``null`` / ``"all"`` / ``list[str]``
      - ``null``
