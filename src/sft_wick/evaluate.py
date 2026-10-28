@@ -1448,7 +1448,9 @@ class _LazyTimeSplineCache:
         def _point(args):
             kind, i, t1, t2 = args
             C_mat = np.asarray(
-                parent._C_value_direct(x1_arr, t1, x2_arr, t2, **direct_kwargs)
+                parent._C_value_direct_on_copies(
+                    x1_arr, t1, x2_arr, t2, **direct_kwargs
+                )
             )
             return kind, i, np.array([C_mat[a, b] for a, b in entries])
 
@@ -2743,6 +2745,17 @@ def _sum_gl_block_totals(totals: Iterable[float]) -> float:
     return exact if special is None else special
 
 
+def _own_copy(value: Any) -> Any:
+    """``value``, or a copy of it when it is an array or a list.
+
+    ``ndarray.copy`` keeps the dtype and the ndarray subclass; immutable
+    values (Python and NumPy scalars, tuples) are returned as they are.
+    """
+    if isinstance(value, (np.ndarray, list)):
+        return value.copy()
+    return value
+
+
 def _rotation_cos(x1, x2) -> float:
     """Cosine similarity ``x1·x2 / (|x1| |x2|)`` as a scalar.
 
@@ -2847,7 +2860,9 @@ class PropagatorCache:
 
                 It is consulted by :meth:`_C_value_direct`, hence by
                 :meth:`C_value`, :meth:`C_diagonal` and every
-                ``precompute_C_table_*`` builder.
+                ``precompute_C_table_*`` builder.  Array and list
+                arguments reach it as copies, so it may write into them
+                (:meth:`_C_value_direct_on_copies`).
             c_method: Quadrature method used by :meth:`_C_value_direct`
                 (and therefore by every ``precompute_C_table_*`` builder).
 
@@ -3173,7 +3188,7 @@ class PropagatorCache:
         # Delegate to ``_C_value_direct`` (which adds the white-noise
         # 1-D contribution when ``model.sigma2`` is set), then store
         # in the per-arg memo.
-        C_mat = self._C_value_direct(n1, t1, n2, t2)
+        C_mat = self._C_value_direct_on_copies(n1, t1, n2, t2)
         if cacheable:
             # Handed out read-only: the array returned IS the memo entry, so a
             # caller doing ``C += x`` would silently rewrite every later
@@ -3866,7 +3881,9 @@ class PropagatorCache:
 
         def _point(args):
             idx, x1, t1, x2, t2 = args
-            C_mat = np.asarray(self._C_value_direct(x1, t1, x2, t2, **direct_kwargs))
+            C_mat = np.asarray(
+                self._C_value_direct_on_copies(x1, t1, x2, t2, **direct_kwargs)
+            )
             return idx, np.array([C_mat[a, b] for a, b in entries])
 
         results = progress_map(_point, cells, desc, n_jobs=n_jobs, unit="cell")
@@ -4360,6 +4377,26 @@ class PropagatorCache:
             ]
         self._c_general_axes = (ts, us, xs, xs)
 
+    def _C_value_direct_on_copies(
+        self, n1: Any, t1: Any, n2: Any, t2: Any, **kwargs: Any
+    ) -> np.ndarray:
+        """:meth:`_C_value_direct` on copies of its array and list arguments.
+
+        ``_C_value_direct`` may run user code: ``c_value_fn``, the closed
+        form of ``Propagators.build(c_closed_form=...)``, or an override.
+        Every lookup that reaches it goes through here, so that code may
+        write into its position and time arguments.  Without the copies it
+        would receive the caller's position arrays, a table builder's
+        position reused for every cell, or an integrator's time batch read
+        again later, and a write would change later values with no error.
+        The two positions are copied separately, so they are distinct
+        objects even when the caller passed one object for both.  Values
+        are unchanged.
+        """
+        return self._C_value_direct(
+            _own_copy(n1), _own_copy(t1), _own_copy(n2), _own_copy(t2), **kwargs
+        )
+
     def _C_value_direct(
         self,
         n1: Any,
@@ -4765,7 +4802,7 @@ class PropagatorCache:
         x2_b = _broadcast_x(x2)
 
         if self._closed_form_vectorized:
-            full = np.asarray(self._C_value_direct(x1_b, t1, x2_b, t2))
+            full = np.asarray(self._C_value_direct_on_copies(x1_b, t1, x2_b, t2))
             if full.ndim != 3 or full.shape[0] != n:
                 raise ValueError(
                     f"vectorised closed-form c_fn must return shape "
@@ -4782,7 +4819,9 @@ class PropagatorCache:
             for i in range(n):
                 xi = x1_b[i]
                 xj = x2_b[i]
-                C_mat = np.asarray(self._C_value_direct(xi, t1[i], xj, t2[i]))
+                C_mat = np.asarray(
+                    self._C_value_direct_on_copies(xi, t1[i], xj, t2[i])
+                )
                 result[i] = np.diag(C_mat)
             return result
 
@@ -4790,7 +4829,9 @@ class PropagatorCache:
         for i in range(n):
             xi = x1_b[i]
             xj = x2_b[i]
-            result_full[i] = np.asarray(self._C_value_direct(xi, t1[i], xj, t2[i]))
+            result_full[i] = np.asarray(
+                self._C_value_direct_on_copies(xi, t1[i], xj, t2[i])
+            )
         return result_full
 
     def _lazy_lookup(
@@ -7941,12 +7982,11 @@ def _C_at_fixed_positions(
     ``C_at_batch`` reads a 1-D array whose length equals the batch as one
     scalar position per sample, so a fixed d-vector on a batch of d > 1
     samples would be misread that way.  Such a vector is tiled to
-    ``(n, d)`` first, a writable copy like the one ``C_at_batch`` makes for
-    a vector of another length, so a closed-form C hook that writes to its
-    position arguments sees the same kind of array at every ``n > 1``.
+    ``(n, d)`` first, as ``C_at_batch`` tiles a vector of another length.
     Every other position passes through unchanged: ``C_at_batch`` already
     reads a vector of another length as fixed, and with ``n = d = 1`` both
-    readings give the same value.
+    readings give the same value.  A closed-form C hook receives copies
+    either way (:meth:`PropagatorCache._C_value_direct_on_copies`).
     """
     n = len(np.atleast_1d(t_l))
 

@@ -332,23 +332,28 @@ class _InPlaceSourceC:
     the way a memory-conscious hook might: ``x1 - x2`` is formed in place
     in the two position arguments.  A vector position has one more axis
     than a scalar one: ``(n, d)`` against ``(n,)`` per batch, ``(d,)``
-    against a scalar per sample."""
+    against a scalar per sample.  With ``in_place=False`` the same value
+    is formed without writing, bit for bit: ``a + (-b)`` is ``a - b``."""
 
     vectorized: bool
+    in_place: bool = True
     has_diagonal_kink = False
 
     def __call__(self, x1, t1, x2, t2):
-        diff = np.asarray(x1)
-        minus = np.asarray(x2)
-        np.negative(minus, out=minus)
-        diff += minus
+        if self.in_place:
+            diff = np.asarray(x1)
+            minus = np.asarray(x2)
+            np.negative(minus, out=minus)
+            diff += minus
+        else:
+            diff = np.asarray(x1) - np.asarray(x2)
         is_vector = diff.ndim == (2 if self.vectorized else 1)
         dist2 = np.sum(diff * diff, axis=-1) if is_vector else diff * diff
         temporal = (np.asarray(t1) - _DD6_T_MIN) * (np.asarray(t2) - _DD6_T_MIN)
         return (temporal * np.exp(-dist2))[..., None, None] * _DD6_G
 
 
-def _in_place_C_expansion(vectorized):
+def _in_place_C_expansion(vectorized, in_place=True):
     system = sw.System(
         field=sw.FieldSpec("phi", n_components=2),
         linear=sw.DiagonalA(gamma=[0.9, 1.3]),
@@ -363,7 +368,7 @@ def _in_place_C_expansion(vectorized):
     expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0], diag_C=False)
     props = system.propagators(
         t_max=2.0,
-        c_closed_form=_InPlaceSourceC(vectorized),
+        c_closed_form=_InPlaceSourceC(vectorized, in_place),
         c_closed_form_only=True,
         c_closed_form_vectorized=vectorized,
         diag_C=False,
@@ -446,3 +451,186 @@ def test_DD6b_qmc_C_hook_may_write_into_fixed_vector_positions(dim) -> None:
     )
     assert scalar.total != 0.0
     assert vector.total == pytest.approx(scalar.total, rel=1e-12, abs=0.0)
+
+
+def _dd6_reference(x, y, L, n_integrated):
+    """``G_01 exp(-|x - y|^2)`` times the time factor ``(t1 - t_min)(t2 -
+    t_min)``: ``L^2`` at ``t1 = t2 = t_min + L``, its integral ``L^3 / 2``
+    over one external time."""
+    d = np.atleast_1d(np.asarray(x, dtype=float) - np.asarray(y, dtype=float))
+    time_factor = L**2 if n_integrated == 0 else L**3 / 2
+    return _DD6_G[0, 1] * np.exp(-float(np.dot(d, d))) * time_factor
+
+
+@pytest.mark.parametrize("method", ["qmc", "qmc_scalar", "nquad"])
+def test_DD6c_per_sample_integrators_hand_the_C_hook_copies(method) -> None:
+    """The per-sample integrators reach the hook through
+    ``PropagatorCache.C_value``, which used to pass the caller's position
+    array itself.  The in-place hook then rewrote it, so every later
+    sample saw other positions: -0.14713 on ``qmc`` and ``qmc_scalar``
+    and -0.14680 on ``nquad`` against -0.10545, with no error, and
+    ``nquad`` returned the caller's ``x`` changed.  Both evaluations with
+    the same positions must equal the reading hook's value bit for bit
+    and the exact ``G_01 exp(-|x - y|^2) L^3 / 2``."""
+    x = np.linspace(-0.2, 0.4, 3)
+    y = x + np.linspace(0.3, -0.8, 3)
+    x_before, y_before = x.copy(), y.copy()
+    L = 1.1
+    common = dict(
+        t_final=_DD6_T_MIN + L,
+        component_pair=(0, 1),
+        orders=[0],
+        integrate_over={"x"},
+        method=method,
+    )
+    if method != "nquad":
+        common.update(n_samples=64, seed=3)
+    expansion, props = _in_place_C_expansion(False)
+    positions = {"x": x, "y": y}
+    totals = [
+        expansion.evaluate(props, positions=positions, **common).total
+        for _ in range(2)
+    ]
+    _, reading_props = _in_place_C_expansion(False, in_place=False)
+    reading = expansion.evaluate(
+        reading_props, positions={"x": x_before, "y": y_before}, **common
+    ).total
+    assert totals == [reading, reading]
+    ref = _dd6_reference(x_before, y_before, L, n_integrated=1)
+    assert reading == pytest.approx(ref, rel=1e-9, abs=0.0)
+    np.testing.assert_array_equal(x, x_before)
+    np.testing.assert_array_equal(y, y_before)
+
+
+# One QMC sample has no sample variance; NumPy warns while computing it.
+@pytest.mark.filterwarnings("ignore:Degrees of freedom <= 0:RuntimeWarning")
+@pytest.mark.filterwarnings("ignore:invalid value encountered:RuntimeWarning")
+@pytest.mark.parametrize("vectorized", [True, False])
+@pytest.mark.parametrize(
+    "case", ["zero-dimensional", "gl-n_gauss-1", "qmc-n_samples-1"]
+)
+def test_DD6d_C_hook_may_write_into_a_one_vector_on_a_batch_of_one(
+    case, vectorized
+) -> None:
+    """At batch length ``n = d = 1`` the vectorised hook used to receive
+    the caller's own ``(1,)`` array, or an internal one kept between
+    evaluations, so a second evaluation with the same positions changed:
+    -0.29547 then -0.41929 with no integrated time.  Batch length one is
+    every zero-dimensional evaluation, GL with ``n_gauss = 1`` and QMC
+    with ``n_samples = 1``.  Both evaluations must equal the reading
+    hook's value bit for bit and, where GL or no integral is involved,
+    the exact value (one GL node integrates the linear time factor
+    exactly)."""
+    x = np.array([0.1])
+    y = np.array([0.7])
+    L = 1.1
+    kw = {
+        "zero-dimensional": {},
+        "gl-n_gauss-1": dict(
+            integrate_over={"x"}, method="gauss_legendre", n_gauss=1
+        ),
+        "qmc-n_samples-1": dict(
+            integrate_over={"x"}, method="qmc_vectorized", n_samples=1, seed=3
+        ),
+    }[case]
+    common = dict(t_final=_DD6_T_MIN + L, component_pair=(0, 1), orders=[0], **kw)
+    expansion, props = _in_place_C_expansion(vectorized)
+    positions = {"x": x, "y": y}
+    totals = [
+        expansion.evaluate(props, positions=positions, **common).total
+        for _ in range(2)
+    ]
+    _, reading_props = _in_place_C_expansion(vectorized, in_place=False)
+    reading = expansion.evaluate(
+        reading_props, positions={"x": x.copy(), "y": y.copy()}, **common
+    ).total
+    assert totals == [reading, reading]
+    if case != "qmc-n_samples-1":
+        n_integrated = 0 if case == "zero-dimensional" else 1
+        ref = _dd6_reference(x, y, L, n_integrated)
+        assert reading == pytest.approx(ref, rel=2e-15, abs=0.0)
+    np.testing.assert_array_equal(x, [0.1])
+    np.testing.assert_array_equal(y, [0.7])
+
+
+@dataclass(frozen=True)
+class _TimeShiftC:
+    """Vectorised ``C_ab = G_ab s1 s2 exp(-(x1 - x2)^2)`` with ``s = t -
+    t_min``, formed in place in the time arguments when ``in_place``
+    (``t1 -= t_min``), by subtraction otherwise; the two agree bit for
+    bit."""
+
+    in_place: bool
+    has_diagonal_kink = False
+
+    def __call__(self, x1, t1, x2, t2):
+        if self.in_place:
+            s1 = np.asarray(t1)
+            s1 -= _DD6_T_MIN
+            s2 = np.asarray(t2)
+            s2 -= _DD6_T_MIN
+        else:
+            s1 = np.asarray(t1) - _DD6_T_MIN
+            s2 = np.asarray(t2) - _DD6_T_MIN
+        d = np.asarray(x1) - np.asarray(x2)
+        return (s1 * s2 * np.exp(-d * d))[..., None, None] * _DD6_G
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [
+        dict(method="gauss_legendre", n_gauss=6, gl_chunk_size=None),
+        dict(method="gauss_legendre", n_gauss=6, gl_chunk_size=50),
+        dict(method="qmc_vectorized", n_samples=256, seed=1),
+    ],
+    ids=["gl-eager", "gl-blocks50", "qmc"],
+)
+def test_DD7_vectorised_C_hook_may_write_into_its_time_arguments(kw) -> None:
+    """The vectorised hook used to receive the integrator's time batches,
+    which order 2 reads again for the other C and R factors, so ``t1 -=
+    t_min`` inside the hook changed the integral with no error: 0.06517
+    against 0.14215 on GL at ``n_gauss = 6``, eager or in blocks, and
+    0.06537 against 0.14244 on QMC.  The writing and the reading hook must
+    agree bit for bit, twice in a row.  Distinct rates, couplings of both
+    signs, distinct points and ``t_min != 0``."""
+    F = np.zeros((2, 2, 2))
+    F[0, 1, 1] = 0.7
+    F[1, 0, 1] = -0.4
+    F[1, 1, 0] = -0.4
+    system = sw.System(
+        field=sw.FieldSpec("phi", n_components=2),
+        linear=sw.DiagonalA(gamma=[0.9, 1.3]),
+        vertices=[sw.LocalVertex("F", coupling=F)],
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.ExponentialTemporal(lam=0.5, sigma_t=0.4),
+                spatial=sw.GaussianSpatial(sigma_x=1.0),
+            ),
+        ),
+        t_min=_DD6_T_MIN,
+    )
+    expansion = system.expand(
+        ("phi_a(x)", "phi_b(y)"), orders=[2], diag_C=False, progress=False
+    )
+
+    def total(in_place):
+        props = system.propagators(
+            t_max=2.0,
+            c_closed_form=_TimeShiftC(in_place),
+            c_closed_form_only=True,
+            c_closed_form_vectorized=True,
+            diag_C=False,
+            progress=False,
+        )
+        return expansion.evaluate(
+            props,
+            positions={"x": 0.1, "y": -0.5},
+            t_final=1.6,
+            component_pair=(0, 1),
+            orders=[2],
+            **kw,
+        ).total
+
+    reading = total(False)
+    assert reading != 0.0
+    assert [total(True), total(True)] == [reading, reading]

@@ -439,9 +439,11 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     ),
     "tests/test_d_dim_spatial.py": (
         "Propagator numerics",
-        "vector positions through the L1 evaluate path",
-        "scalar-separation equivalent",
-        "1e-10",
+        "vector positions through the L1 evaluate path; C hooks that "
+        "write into their position and time arguments",
+        "scalar-separation equivalent; exact time integrals of a linear C; "
+        "the same hook without writes",
+        "1e-10; 2e-15 to 1e-9 exact; bit equality",
     ),
     "tests/test_diag_C_offdiagonal.py": (
         "Propagator numerics",
