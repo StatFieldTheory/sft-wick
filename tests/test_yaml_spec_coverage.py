@@ -965,9 +965,20 @@ def test_YC11_allowed_keys_are_the_config_fields():
         assert keys == {f.name for f in dataclasses.fields(cls)}, cls
 
 
-def test_YC11_the_reference_example_uses_only_accepted_keys():
+#: Keys the annotated example gives only as a commented line, because each
+#: excludes a key the example sets (``dt`` excludes ``n_grid_t``, and
+#: ``component_pairs`` is the older name of ``component_tuples``).
+_EXAMPLE_ALTERNATES = {("propagators",): {"dt"}, ("sweep",): {"component_pairs"}}
+
+
+def test_YC11_the_reference_example_uses_only_accepted_keys(tmp_path):
     """The annotated example in the user guide lists every key the parser
-    reads; it must parse, and each key must be one its block accepts."""
+    reads, each with a value the parser accepts: it must load, each key must
+    be one its block accepts, and every accepted key must appear.  It used
+    to omit ``expand.target`` and the four lookup and contraction keys of
+    ``sweep``."""
+    import re
+
     from sft_wick.workflow import config as cf
 
     lines = (ROOT / "docs" / "user_guide" / "workflow.rst").read_text(
@@ -981,7 +992,8 @@ def test_YC11_the_reference_example_uses_only_accepted_keys():
         if line and not line.startswith("   "):
             break
         body.append(line)
-    doc = yaml.safe_load(textwrap.dedent("\n".join(body)))
+    text = textwrap.dedent("\n".join(body))
+    doc = yaml.safe_load(text)
     for block, allowed in (((), cf._TOP_LEVEL_KEYS),
                            (("system",), cf._SYSTEM_KEYS),
                            (("system", "field"), cf._FIELD_KEYS),
@@ -993,8 +1005,16 @@ def test_YC11_the_reference_example_uses_only_accepted_keys():
         for key in block:
             node = node[key]
         assert set(node) <= set(allowed), block
+        alternates = _EXAMPLE_ALTERNATES.get(block, set())
+        assert set(allowed) - set(node) == alternates, block
+        for key in alternates:
+            assert re.search(rf"^\s*# {key}:", text, re.M), (block, key)
     for entry in doc["output"]:
         assert set(entry) <= cf._OUTPUT_KEYS
+    assert set().union(*doc["output"]) == cf._OUTPUT_KEYS
+    path = tmp_path / "example.yaml"
+    path.write_text(text)
+    load_workflow_config(path)
 
 
 def test_YC11_every_shipped_workflow_config_loads():
@@ -1013,9 +1033,11 @@ def test_YC11_every_shipped_workflow_config_loads():
 
 def test_YC12_misspelt_point_in_positions_grid_is_refused(tmp_path):
     """``positions_grid: {x: [0], yy: [0.45]}`` used to leave ``y`` at the
-    default position 0 and return C at zero separation, 65 % high on the
-    quickstart model, with an extra ``yy`` column and no error.  The file
-    is now refused when it is loaded."""
+    default position 0 and return C at zero separation, with an extra
+    ``yy`` column and no error.  On this model that value is 17 % high for
+    (a, b) = (0, 0) and (1, 1): the Gaussian spatial factor
+    ``exp(0.45² / (2 · 0.8²)) = 1.1714``.  The file is now refused when it
+    is loaded."""
     cfg = _base_config()
     cfg["sweep"]["positions_grid"] = {"x": [0.0], "yy": [0.45]}
     path = tmp_path / "c.yaml"
