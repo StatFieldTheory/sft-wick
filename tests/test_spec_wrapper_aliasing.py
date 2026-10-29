@@ -17,12 +17,14 @@ SW4-SW5: ``SeparableTranslation`` and ``SeparableRotation`` given raw
 callables kept the temporal kernel's value while they called the spatial
 (angular) kernel.  Two kernels that fill one shared buffer made κ² the
 square of the second factor: 0.3282 against 0.0767 in translation and
-0.3145 against 0.0751 in rotation.  The order-0 C at distinct points came out
-+76 % on the lazy translation table, whose base is built at zero separation
-where the spatial factor is 1, +6.5 % on the full table and -1.5 % in
-rotation; order 2 moved by up to +141 %.  ``CustomKernel`` and the built-in
-kernels return Python floats and were not affected.  The temporal value is
-now copied when it is an array; a float passes unchanged.
+0.3145 against 0.0751 in rotation.  At order 0 and distinct points, C_00
+came out 76 % high and C_11 78 % high on the lazy translation table, whose
+base is built at zero separation where the spatial factor is 1, and 6.5 %
+and 8.2 % high on the full table.  In rotation C_00 came out 1.5 % low and
+C_11 within 3e-5 of the fresh value.  Order 2 moved at every component
+pair, by 9.8 % to 141 %.  ``CustomKernel`` and the built-in kernels return
+Python floats and were not affected.  The temporal value is now copied when
+it is an array; a float passes unchanged.
 
 SW6-SW7: the YAML probe of ``R_time_vectorized: true`` collected the scalar
 reference values in a list and built them from the time arrays it had just
@@ -365,10 +367,12 @@ _SEPARABLE_PATHS = {
 def test_SW5_shared_kernel_buffer_gives_the_fresh_totals(path):
     """System -> propagators -> Expansion.evaluate at orders 0 and 2 on the
     lazy and full tables: the shared-buffer kernels give the fresh kernels'
-    totals bit for bit (order 0 was +76 % on the lazy translation table,
-    +6.5 % on the full one and -1.5 % in rotation), and the fresh order-0
-    values match the nested-quad reference (7e-14 measured; the external
-    times and the separation are table nodes)."""
+    totals bit for bit (at order 0, C_00 and C_11 were 76 % and 78 % high
+    on the lazy translation table and 6.5 % and 8.2 % high on the full one;
+    in rotation C_00 was 1.5 % low, C_11 within 3e-5 and order 2 off by
+    9.8 % to 16 %), and the fresh order-0 values match the nested-quad
+    reference (7e-14 measured; the external times and the separation are
+    table nodes)."""
     kind, kw = _SEPARABLE_PATHS[path]
     positions = {"x": V1, "y": V2} if kind == "rotation" else {"x": X, "y": Y}
     totals = {}
