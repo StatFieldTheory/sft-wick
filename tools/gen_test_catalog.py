@@ -1179,8 +1179,11 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     "tests/test_repo_hygiene.py": (
         "Workflow and YAML",
         "tracked files hold no agent working files, development records, "
-        "local absolute paths or task IDs",
-        "git ls-files; positive and negative pattern controls",
+        "local absolute paths or task IDs; file names and commit messages "
+        "hold no task IDs",
+        "git ls-files and git log; positive and negative pattern controls; "
+        "a scratch repository whose flagged commits sit behind a merge's "
+        "second parent and are deleted again",
         "exact",
     ),
     "tests/test_catalog_current.py": (

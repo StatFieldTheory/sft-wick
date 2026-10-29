@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **5719 tests** in 124 files (parametrised
+The suite has **5736 tests** in 124 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -552,7 +552,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*756 tests in 22 files.*
+*773 tests in 22 files.*
 
 .. list-table::
    :header-rows: 1
@@ -619,10 +619,10 @@ Workflow and YAML
      - 1e-12; 1e-9; bit equality between spellings
      - 15
    * - ``test_repo_hygiene.py``
-     - tracked files hold no agent working files, development records, local absolute paths or task IDs
-     - git ls-files; positive and negative pattern controls
+     - tracked files hold no agent working files, development records, local absolute paths or task IDs; file names and commit messages hold no task IDs
+     - git ls-files and git log; positive and negative pattern controls; a scratch repository whose flagged commits sit behind a merge's second parent and are deleted again
      - exact
-     - 28
+     - 45
    * - ``test_resource_compare.py``
      - strict resource variants, complete ordered result/stability gates, input protection, fresh serial measurement and failure receipts
      - adversarial metadata/error/cancellation/nonfinite/overflow probes; true GL/QMC subprocesses and stale-bytecode witness
