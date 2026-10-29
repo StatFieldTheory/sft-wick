@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **5593 tests** in 122 files (parametrised
+The suite has **5629 tests** in 123 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -707,7 +707,7 @@ Drawing and LaTeX
 Spectral propagators
 --------------------
 
-*57 tests in 1 files.*
+*93 tests in 2 files.*
 
 .. list-table::
    :header-rows: 1
@@ -723,6 +723,11 @@ Spectral propagators
      - OU closed form at a delta density; Marchenko-Pastur convergence
      - 1e-12 (delta) / recorded
      - 57
+   * - ``test_user_hook_arguments.py``
+     - user hooks that write into their arguments or fill and return them: the density callable of SpectralDensity.from_callable and the f of average, at L0 and at L1 order 0, and the refusal of a density callable that reorders its argument; read-only nodes and weights across pickle, joblib and copy; a solve_self_consistency distance and callback that write into the state, at damping 0 and 0.35, on array and dict states, and an initial state that is the step's own output buffer; a build_R_contracted_callable raw kernel that writes its positions, directly and at L1 order 1 on gauss_legendre and qmc_vectorized, and a chi grid the caller edits after the build
+     - scipy quad over the continuous density; the closed-form fixed point (I - A)^-1 b; the leg-factorised trapezoid sum; the same hook without the write
+     - 1e-12; exact
+     - 36
 
 Self-consistency
 ----------------
