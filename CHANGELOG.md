@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.0 — 2026-10-27
+## 0.7.0 — 2026-10-29
 
 This minor release adds execution and memory controls for coupling
 evaluation and integration, three opt-in observables (connected targets,
@@ -8,6 +8,19 @@ finite Gaussian quadratic observables and analytic OU white cumulants), a
 resource comparison command, vectorised response callables and a recipe for
 changing the integration variable.  Default settings keep the 0.6.1 rules,
 methods and resolutions; values move only where noted below.
+
+It also fixes defects that returned a wrong number without an error: a
+string `vertex_types`, observable labels spelled like the generated names,
+numeric component labels in L0 Kronecker deltas, set observables, two
+Gauss-Legendre position and domain cases, and user callables that write
+into their arguments or return one buffer.  Several inputs now raise: a
+workflow key or point the parser does not read, names and component tuples
+that read two ways, a numeric label outside `1..n_components`, the keys
+view of a mapping that is not a dict, a non-bool `equal_time` or
+`already_R_contracted`, a custom cache's batch method that writes into its
+time arguments, and writes into a `SpectralDensity`.  Each is marked
+**Breaking** below; most of these inputs used to give a wrong number
+without an error.
 
 ### Added: execution and memory controls
 
@@ -515,7 +528,8 @@ groups, the spelling of a partially equal-time vertex the package does not
 support, became `True` and put every leg at one time; a unify_wl probe got
 0.0 against 54.88 with no error.  Both flags now accept a Python or NumPy
 bool and raise `TypeError` otherwise.  `already_R_contracted` had the same
-coercion and gets the same check.
+coercion and gets the same check.  **Breaking**: a non-bool value that
+0.6.1 accepted, such as `1` or a tuple, raises.
 
 ### Added: vectorised response callables
 

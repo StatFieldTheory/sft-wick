@@ -10,11 +10,13 @@ Changelog
    differ, the Markdown file is correct.
 
 
-Version 0.7.0 (2026-10-27)
+Version 0.7.0 (2026-10-29)
 --------------------------
 
-*Execution and memory controls, three opt-in observables, and a resource
-comparison command.*
+*Execution and memory controls, three opt-in observables, a resource
+comparison command, and fixes for values that came out wrong without an
+error.  Several inputs that gave such values now raise; each is marked
+breaking below.*
 
 - New sweep options ``gl_chunk_size``, ``qmc_coupling_chunk_size``,
   ``reuse_integrands``, ``contraction_backend``, ``contraction_max_bytes``
@@ -83,7 +85,8 @@ comparison command.*
   systems with user callables compute their tables on every call.
 - Fixed: batch contractions dropped coefficients below ``1e-20`` in
   magnitude; serial and small-batch paths ignored the contraction options;
-  a non-bool ``equal_time`` or ``already_R_contracted`` was coerced.
+  a non-bool ``equal_time`` or ``already_R_contracted`` was coerced
+  (breaking, it raises ``TypeError``).
 - ``import sft_wick`` no longer imports Matplotlib until drawing is used.
 - The documentation links the repository and the paper, and
   :doc:`citing` gives the citation.
