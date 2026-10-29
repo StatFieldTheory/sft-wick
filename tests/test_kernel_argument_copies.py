@@ -8,7 +8,7 @@ therefore changed every later node: at 3-D positions C_00 came out as
 9.0e-10 on ``gauss_legendre`` and 0.0 on ``dblquad`` against 5.85e-2, with
 no error.  Every κ² and σ² call now receives copies of array and list
 positions, as the closed-form C hooks do since the copies of
-``PropagatorCache._C_value_direct_on_copies``.
+``sft_wick.evaluate._C_value_direct_on_copies``.
 
 KC4: a vectorised closed-form C that fills and returns one preallocated
 buffer was returned as is, so the integrators, which keep one lookup per C

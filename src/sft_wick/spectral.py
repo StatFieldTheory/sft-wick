@@ -71,7 +71,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-from .evaluate import PropagatorCache, PropagatorModel
+from .evaluate import PropagatorCache, PropagatorModel, _overrides, _own_copy
 
 #: Below this rate the ``D/h`` prefactor is replaced by its finite ``h -> 0``
 #: limit.  A zero mode is physical (free diffusion, ``C = 2 D (m - t_min)``);
@@ -438,6 +438,13 @@ class SpectralPropagatorCache(PropagatorCache):
     ``_c_splines`` is set to a sentinel because the batch integrators use it to
     mean "batch C is available"; the scalar accessors are overridden alongside
     so nothing tries to read a table range that does not exist.
+
+    ``C_value`` returns ``_c_matrix``.  A subclass that overrides
+    ``_c_matrix`` (to make C depend on position, say) gets copies of the
+    array positions and times, and ``C_value`` returns a copy of its array:
+    the integrators read the positions again, and a direct caller may keep
+    the result.  ``C_diagonal`` and ``C_diagonal_batch`` do not call
+    ``_c_matrix``, so such a subclass overrides them as well.
     """
 
     def __init__(
@@ -493,7 +500,15 @@ class SpectralPropagatorCache(PropagatorCache):
         )
 
     def C_value(self, n1, t1, n2, t2) -> np.ndarray:
-        return self._c_matrix(n1, t1, n2, t2)
+        if not _overrides(self, SpectralPropagatorCache._c_matrix):
+            return self._c_matrix(n1, t1, n2, t2)
+        # An overridden _c_matrix: copies in, a copy out (see the class
+        # docstring).  The integrators copy the positions before this call
+        # too (_c_lookup_positions); these copies cover a direct call.
+        out = self._c_matrix(
+            _own_copy(n1), _own_copy(t1), _own_copy(n2), _own_copy(t2)
+        )
+        return np.array(out, copy=True)
 
     def C_diagonal(self, n, t1, n_prime=None, t2=None) -> np.ndarray:
         tb = t1 if t2 is None else t2

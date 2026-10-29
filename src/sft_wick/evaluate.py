@@ -1473,8 +1473,8 @@ class _LazyTimeSplineCache:
         def _point(args):
             kind, i, t1, t2 = args
             C_mat = np.asarray(
-                parent._C_value_direct_on_copies(
-                    x1_arr, t1, x2_arr, t2, **direct_kwargs
+                _C_value_direct_on_copies(
+                    parent, x1_arr, t1, x2_arr, t2, **direct_kwargs
                 )
             )
             return kind, i, np.array([C_mat[a, b] for a, b in entries])
@@ -2802,8 +2802,35 @@ def _read_only_times(times: np.ndarray) -> np.ndarray:
     place (``t1 -= t2``) would change every later factor of the sample;
     with the flag cleared the write raises ``ValueError``.  Nothing is
     copied, and the package's own batch methods only read these arguments.
+
+    The arrays the package builds for one lookup and does not read again
+    are read-only as well (``PropagatorCache.C_value``, the batched
+    zero-dimensional branch), so such a write raises on every path rather
+    than on some.  An array that belongs to the caller gets
+    :func:`_read_only_view` instead, which leaves the caller's flag alone.
     """
-    times.flags.writeable = False
+    times.setflags(write=False)
+    return times
+
+
+def _read_only_view(times: Any) -> Any:
+    """``times`` when it is already read-only (or not an ndarray), else a
+    read-only view of it.
+
+    The package's own batch methods (``C_at_batch``, ``C_diagonal_batch``,
+    ``C_matrix_batch``) pass their time arguments on to methods a subclass
+    can override: another batch method, ``_lazy_lookup``,
+    ``_closed_form_at_batch_diag``, ``_on_diagonal``.  The legacy-table
+    lookups behind ``C_value`` and ``C_diagonal`` pass theirs to
+    ``_on_diagonal``.  Those arguments may be the caller's own arrays, so
+    they get a view whose flag is cleared: a write raises ``ValueError``,
+    as on every other path, and the caller's array keeps its own flag.
+    Nothing is copied.
+    """
+    if isinstance(times, np.ndarray) and times.flags.writeable:
+        view = times.view()
+        view.setflags(write=False)
+        return view
     return times
 
 
@@ -2813,7 +2840,7 @@ def _kappa2_at(model: "PropagatorModel", n1: Any, l1: float, n2: Any, l2: float)
     A quadrature hands every node of one C value the same two position
     objects, and the probes hand κ² the caller's positions.  A κ² that
     writes into its arguments (``n1 -= n2``) would otherwise change every
-    later node with no error, as :meth:`PropagatorCache._C_value_direct_on_copies`
+    later node with no error, as :func:`_C_value_direct_on_copies`
     prevents for C hooks.  Scalars pass unchanged (:func:`_own_copy`).
     """
     return model.kappa2(_own_copy(n1), l1, _own_copy(n2), l2)
@@ -2823,6 +2850,33 @@ def _sigma2_at(model: "PropagatorModel", n1: Any, t: float, n2: Any):
     """``model.sigma2(n1, t, n2)`` on copies of the two positions; see
     :func:`_kappa2_at`."""
     return model.sigma2(_own_copy(n1), t, _own_copy(n2))
+
+
+def _C_value_direct_on_copies(
+    cache: "PropagatorCache", n1: Any, t1: Any, n2: Any, t2: Any, **kwargs: Any
+) -> np.ndarray:
+    """``cache._C_value_direct`` on copies of its array and list arguments.
+
+    ``_C_value_direct`` may run user code: ``c_value_fn``, the closed
+    form of ``Propagators.build(c_closed_form=...)``, or an override.
+    Every lookup that reaches it goes through here, so that code may
+    write into its position and time arguments.  Without the copies it
+    would receive the caller's position arrays, a table builder's
+    position reused for every cell, or an integrator's time batch read
+    again later, and a write would change later values with no error.
+    The two positions are copied separately, so they are distinct
+    objects even when the caller passed one object for both.  Values
+    are unchanged.
+
+    A module function, not a method: a subclass overriding a copying
+    method would receive the caller's objects again (an override that
+    formed ``n1 -= n2`` and then called the base method took the order-2
+    value to zero).  A subclass changes ``_C_value_direct``, which always
+    receives the copies.
+    """
+    return cache._C_value_direct(
+        _own_copy(n1), _own_copy(t1), _own_copy(n2), _own_copy(t2), **kwargs
+    )
 
 
 def _rotation_cos(x1, x2) -> float:
@@ -2931,7 +2985,7 @@ class PropagatorCache:
                 :meth:`C_value`, :meth:`C_diagonal` and every
                 ``precompute_C_table_*`` builder.  Array and list
                 arguments reach it as copies, so it may write into them
-                (:meth:`_C_value_direct_on_copies`).  The copies are
+                (:func:`_C_value_direct_on_copies`).  The copies are
                 shallow: the entries of a nested list or an object array
                 are the caller's.
             c_method: Quadrature method used by :meth:`_C_value_direct`
@@ -3173,8 +3227,11 @@ class PropagatorCache:
         )
         if has_spatial_table:
             N = self.model.n_components
-            t1_arr = np.array([t1], dtype=float)
-            t2_arr = np.array([t2], dtype=float)
+            # Read-only, as every time array passed to a batch method is
+            # (see _read_only_times): an override of C_at_batch that writes
+            # into its time arguments raises here as on the integrators.
+            t1_arr = _read_only_times(np.array([t1], dtype=float))
+            t2_arr = _read_only_times(np.array([t2], dtype=float))
             # n1, n2 may be scalars or arrays (e.g. np.float64 or
             # small np.ndarray); converted so the downstream
             # rotation/general paths see consistent shape.  Copies, not
@@ -3206,7 +3263,11 @@ class PropagatorCache:
         if self._c_splines is not None and self._legacy_table_serves_model():
             lo, hi = self._c_table_range  # type: ignore[misc]
             if lo <= t1 <= hi and lo <= t2 <= hi:
-                return self._C_value_from_table(t1, t2)
+                return _owned_lookup(
+                    self,
+                    PropagatorCache._C_value_from_table,
+                    self._C_value_from_table(t1, t2),
+                )
 
         # Check the (n1, t1, n2, t2) memo
         # Key on CONTENTS, not id().  `id()` is unique only among LIVE
@@ -3269,7 +3330,7 @@ class PropagatorCache:
         # skips the memo (object-dtype positions) too, and freezing the result
         # would flip the flag on the user's buffer or on a module-level
         # constant correlator.
-        C_mat = np.array(self._C_value_direct_on_copies(n1, t1, n2, t2), copy=True)
+        C_mat = np.array(_C_value_direct_on_copies(self, n1, t1, n2, t2), copy=True)
         if cacheable:
             # Handed out read-only: the array returned IS the memo entry, so a
             # caller doing ``C += x`` would silently rewrite every later
@@ -3308,7 +3369,11 @@ class PropagatorCache:
         ):
             lo, hi = self._c_table_range  # type: ignore[misc]
             if lo <= t1 <= hi and lo <= t2 <= hi:
-                return self._C_diagonal_from_table(t1, t2)
+                return _owned_lookup(
+                    self,
+                    PropagatorCache._C_diagonal_from_table,
+                    self._C_diagonal_from_table(t1, t2),
+                )
         # Copies for an overridden C_value (see _c_lookup_positions).
         n, n_prime = _c_lookup_positions(self, "C_value", n, n_prime)
         C_mat = self.C_value(n, t1, n_prime, t2)
@@ -3441,6 +3506,9 @@ class PropagatorCache:
         Routes equal times through the 1-D diagonal spline: the 2-D spline
         cannot represent the kink there (see ``precompute_C_table``).
         """
+        # Read-only views for _on_diagonal, which a subclass may override and
+        # after which the times are read again (see _read_only_view).
+        t1, t2 = _read_only_view(t1), _read_only_view(t2)
         ks = self._legacy_diag_ks()
         if self._c_diag_splines is not None and self._on_diagonal(t1, t2):
             t = 0.5 * (float(t1) + float(t2))
@@ -3464,6 +3532,8 @@ class PropagatorCache:
         Shares :meth:`_C_diagonal_from_table`'s diagonal-kink routing so the
         two accessors cannot disagree about C(t, t).
         """
+        # Read-only views for _on_diagonal (see _C_diagonal_from_table).
+        t1, t2 = _read_only_view(t1), _read_only_view(t2)
         N = self.model.n_components
         C_mat = np.zeros((N, N))
         entries = self._legacy_entries()
@@ -3504,6 +3574,10 @@ class PropagatorCache:
         """
         if self._c_splines is None:
             raise RuntimeError("C_diagonal_batch requires precompute_C_table()")
+        # Read-only views for _on_diagonal, which a subclass may override
+        # (see _read_only_view).
+        t1 = _read_only_view(np.asarray(t1))
+        t2 = _read_only_view(np.asarray(t2))
         n = len(t1)
         N = self.model.n_components
         ks = self._legacy_diag_ks()
@@ -3538,8 +3612,9 @@ class PropagatorCache:
         """
         if not isinstance(self._c_splines, (list, tuple)):
             raise RuntimeError("C_matrix_batch requires precompute_C_table()")
-        t1a = np.atleast_1d(np.asarray(t1, dtype=float))
-        t2a = np.atleast_1d(np.asarray(t2, dtype=float))
+        # Read-only views for _on_diagonal (see _read_only_view).
+        t1a = _read_only_view(np.atleast_1d(np.asarray(t1, dtype=float)))
+        t2a = _read_only_view(np.atleast_1d(np.asarray(t2, dtype=float)))
         n = len(t1a)
         N = self.model.n_components
         result = np.zeros((n, N, N))
@@ -3965,7 +4040,7 @@ class PropagatorCache:
         def _point(args):
             idx, x1, t1, x2, t2 = args
             C_mat = np.asarray(
-                self._C_value_direct_on_copies(x1, t1, x2, t2, **direct_kwargs)
+                _C_value_direct_on_copies(self, x1, t1, x2, t2, **direct_kwargs)
             )
             return idx, np.array([C_mat[a, b] for a, b in entries])
 
@@ -4465,26 +4540,6 @@ class PropagatorCache:
             ]
         self._c_general_axes = (ts, us, xs, xs)
 
-    def _C_value_direct_on_copies(
-        self, n1: Any, t1: Any, n2: Any, t2: Any, **kwargs: Any
-    ) -> np.ndarray:
-        """:meth:`_C_value_direct` on copies of its array and list arguments.
-
-        ``_C_value_direct`` may run user code: ``c_value_fn``, the closed
-        form of ``Propagators.build(c_closed_form=...)``, or an override.
-        Every lookup that reaches it goes through here, so that code may
-        write into its position and time arguments.  Without the copies it
-        would receive the caller's position arrays, a table builder's
-        position reused for every cell, or an integrator's time batch read
-        again later, and a write would change later values with no error.
-        The two positions are copied separately, so they are distinct
-        objects even when the caller passed one object for both.  Values
-        are unchanged.
-        """
-        return self._C_value_direct(
-            _own_copy(n1), _own_copy(t1), _own_copy(n2), _own_copy(t2), **kwargs
-        )
-
     def _C_value_direct(
         self,
         n1: Any,
@@ -4727,8 +4782,23 @@ class PropagatorCache:
             ``(n, N)``, the diagonal C values per component, when
             ``model.diag_C``; ``(n, N, N)``, every entry, otherwise.
         """
-        t1 = np.atleast_1d(np.asarray(t1))
-        t2 = np.atleast_1d(np.asarray(t2))
+        # Read-only views: the time-table fallback hands these arrays to a
+        # C_diagonal_batch or C_matrix_batch that a subclass may override,
+        # and the table branches to _lazy_lookup and
+        # _closed_form_at_batch_diag (see _read_only_view).
+        t1 = _read_only_view(np.atleast_1d(np.asarray(t1)))
+        t2 = _read_only_view(np.atleast_1d(np.asarray(t2)))
+        # The positions reach _lazy_lookup or _closed_form_at_batch_diag as
+        # the caller's arrays (one object for both ends when the caller passed
+        # one).  An override of either may write into them, so it gets
+        # copies.  The integrators pass copies already (_C_at_fixed_positions)
+        # and the package's own delegates only read them.
+        if _overrides(
+            self,
+            PropagatorCache._lazy_lookup,
+            PropagatorCache._closed_form_at_batch_diag,
+        ):
+            x1, x2 = _own_copy(x1), _own_copy(x2)
         N = self.model.n_components
 
         # Closed-form-only: skip every spline and call the user's
@@ -4894,7 +4964,7 @@ class PropagatorCache:
         x2_b = _broadcast_x(x2)
 
         if self._closed_form_vectorized:
-            full = np.asarray(self._C_value_direct_on_copies(x1_b, t1, x2_b, t2))
+            full = np.asarray(_C_value_direct_on_copies(self, x1_b, t1, x2_b, t2))
             if full.ndim != 3 or full.shape[0] != n:
                 raise ValueError(
                     f"vectorised closed-form c_fn must return shape "
@@ -4918,7 +4988,7 @@ class PropagatorCache:
                 xi = x1_b[i]
                 xj = x2_b[i]
                 C_mat = np.asarray(
-                    self._C_value_direct_on_copies(xi, t1[i], xj, t2[i])
+                    _C_value_direct_on_copies(self, xi, t1[i], xj, t2[i])
                 )
                 result[i] = np.diag(C_mat)
             return result
@@ -4928,7 +4998,7 @@ class PropagatorCache:
             xi = x1_b[i]
             xj = x2_b[i]
             result_full[i] = np.asarray(
-                self._C_value_direct_on_copies(xi, t1[i], xj, t2[i])
+                _C_value_direct_on_copies(self, xi, t1[i], xj, t2[i])
             )
         return result_full
 
@@ -5496,7 +5566,10 @@ class DiagramIntegrand:
             times: ``{spatial_point: time_value}`` for ALL spatial points.
                 Aliased (non-representative) legs of equal-time non-local
                 vertices may be absent --- their values are filled in from
-                the canonical representatives inside this method.
+                the canonical representatives inside this method.  A
+                cache's ``R_product`` that is not the package's own
+                receives a copy (:func:`_r_product_times`), so a write
+                into it changes neither the C lookups nor this dict.
             directions: ``{direction_var: value}`` for independent direction
                 variables (one per R-connected component, keyed by
                 the representative name from ``spatial.direction_map``).
@@ -5560,9 +5633,14 @@ class DiagramIntegrand:
         # ``PropagatorCache.R_product`` is scalar-only.
         # For matrix-valued R, resolve component indices alongside the
         # C contraction below so order-0 R diagrams do not try to cast an
-        # (N, N) matrix to float.
+        # (N, N) matrix to float.  The C lookups below read ``times`` again,
+        # so a user-written R_product receives a copy (_r_product_times).
         r_val = (
-            cache.R_product(_kept_r_propagators(spatial), times) if model.iso_R else 1.0
+            cache.R_product(
+                _kept_r_propagators(spatial), _r_product_times(cache, times)
+            )
+            if model.iso_R
+            else 1.0
         )
 
         # --- Evaluate C propagators ---
@@ -6487,8 +6565,11 @@ class DiagramIntegrand:
         et_alias = dict(spatial.equal_time_aliases or ())
 
         def _times(var: str) -> np.ndarray:
+            # Read-only like the batched integrators' time arrays, so a
+            # batch method that writes into its time arguments raises here
+            # too (see _read_only_times).
             var = et_alias.get(var, var)
-            return np.full(n_samples, fixed_times.get(var, lambda_f))
+            return _read_only_times(np.full(n_samples, fixed_times.get(var, lambda_f)))
 
         r_product = np.ones(n_samples)
         for sl, sr in _kept_r_propagators(spatial):
@@ -8077,23 +8158,74 @@ def _cache_has_spatial_table(cache: "PropagatorCache") -> bool:
 
 
 @lru_cache(maxsize=1)
-def _package_batch_methods() -> frozenset:
-    """The batch accessors of the package's own caches.
+def _package_batch_methods() -> dict:
+    """The batch accessors of the package's own caches, each mapped to the
+    methods whose output it returns.
 
-    Each allocates the array it returns.  Imported on first use, since
-    :mod:`sft_wick.spectral` imports this module.
+    Each allocates the array it returns, except
+    :meth:`PropagatorCache.C_at_batch`, which returns the array of
+    ``_assemble_C``, ``_lazy_lookup`` or ``_closed_form_at_batch_diag``: it
+    counts as the package's own only while those are (:func:`_trusted`).
+    Imported on first use, since :mod:`sft_wick.spectral` imports this
+    module.
     """
     from .spectral import SpectralPropagatorCache
 
-    return frozenset(
-        (
-            PropagatorCache.C_diagonal_batch,
-            PropagatorCache.C_matrix_batch,
-            PropagatorCache.C_at_batch,
-            PropagatorCache.R_matrix_batch,
-            SpectralPropagatorCache.C_diagonal_batch,
-        )
-    )
+    return {
+        PropagatorCache.C_diagonal_batch: (),
+        PropagatorCache.C_matrix_batch: (),
+        PropagatorCache.C_at_batch: (
+            PropagatorCache._assemble_C,
+            PropagatorCache._lazy_lookup,
+            PropagatorCache._closed_form_at_batch_diag,
+        ),
+        PropagatorCache.R_matrix_batch: (),
+        SpectralPropagatorCache.C_diagonal_batch: (),
+    }
+
+
+def _trusted(method: Any, registry: dict) -> bool:
+    """Whether the bound ``method`` is one of the package's own accessors in
+    ``registry`` and every method it delegates to is the package's own on
+    the same object.
+
+    A subclass can keep a package accessor and override what it calls:
+    ``SpectralPropagatorCache.C_value`` passes its positions to
+    ``_c_matrix``, and ``PropagatorCache.C_at_batch`` returns the array of
+    ``_assemble_C``, ``_lazy_lookup`` or ``_closed_form_at_batch_diag``.
+    Such an accessor is not trusted, so its arguments or its output are
+    copied as for any user-written method.
+    """
+    delegates = registry.get(getattr(method, "__func__", None))
+    if delegates is None:
+        return False
+    return not _overrides(method.__self__, *delegates)
+
+
+def _overrides(obj: Any, *funcs: Any) -> bool:
+    """Whether ``obj`` resolves the name of any of ``funcs``, functions of
+    the package's own classes, to something else: a subclass's method or
+    an instance attribute."""
+    for func in funcs:
+        attr = getattr(obj, func.__name__, None)
+        if getattr(attr, "__func__", attr) is not func:
+            return True
+    return False
+
+
+def _owned_lookup(cache: Any, func: Any, out: Any) -> Any:
+    """``out``, the array a package accessor got from ``cache.<func>``, or
+    a copy of it when ``cache`` overrides ``func``.
+
+    ``C_value`` and ``C_diagonal`` return fresh arrays or read-only memo
+    entries, so a caller may keep them.  A subclass's legacy-table lookup
+    (``_C_value_from_table``, ``_C_diagonal_from_table``) may fill and
+    return one buffer, which would change every result kept from an
+    earlier call.  The package's own lookups allocate and are not copied.
+    """
+    if _overrides(cache, func):
+        return np.array(out, copy=True)
+    return out
 
 
 def _owned_batch(cache: Any, name: str, out: Any) -> Any:
@@ -8102,39 +8234,40 @@ def _owned_batch(cache: Any, name: str, out: Any) -> Any:
 
     The batched integrators keep one batch per C factor and per matrix R
     factor while they ask the cache for the next one.  A user-written cache
-    (a subclass overriding the method, or a cache that is not a
-    :class:`PropagatorCache`) may fill and return one buffer, which would
-    turn every kept factor into the last one.  The package's own methods
-    return fresh arrays and are not copied.  The propagator lookup bank is
-    looked through: it returns its source's array on a miss and a copy on a
-    hit.
+    (a subclass overriding the method or a method it returns the output of,
+    or a cache that is not a :class:`PropagatorCache`) may fill and return
+    one buffer, which would turn every kept factor into the last one.  The
+    package's own methods return fresh arrays and are not copied
+    (:func:`_trusted`).  The propagator lookup bank is looked through: it
+    returns its source's array on a miss and a copy on a hit.
     """
     source = cache._source if type(cache) is _PropagatorLookupCache else cache
-    method = getattr(source, name, None)
-    if getattr(method, "__func__", None) in _package_batch_methods():
+    if _trusted(getattr(source, name, None), _package_batch_methods()):
         return out
     return np.array(out, copy=True)
 
 
 @lru_cache(maxsize=1)
-def _package_c_lookups() -> frozenset:
-    """The scalar C accessors of the package's own caches.
+def _package_c_lookups() -> dict:
+    """The scalar C accessors of the package's own caches, each mapped to
+    the methods it passes its positions to.
 
     Each reads its position arguments only, or passes copies on to a method
     that may write into them (:meth:`PropagatorCache.C_diagonal` calling an
-    overridden ``C_value``, through :func:`_c_lookup_positions`).  Imported
-    on first use, as in :func:`_package_batch_methods`.
+    overridden ``C_value``, through :func:`_c_lookup_positions`), except
+    :meth:`SpectralPropagatorCache.C_value`, which passes them to
+    ``_c_matrix``: it counts as the package's own only while ``_c_matrix``
+    is (:func:`_trusted`).  Imported on first use, as in
+    :func:`_package_batch_methods`.
     """
     from .spectral import SpectralPropagatorCache
 
-    return frozenset(
-        (
-            PropagatorCache.C_value,
-            PropagatorCache.C_diagonal,
-            SpectralPropagatorCache.C_value,
-            SpectralPropagatorCache.C_diagonal,
-        )
-    )
+    return {
+        PropagatorCache.C_value: (),
+        PropagatorCache.C_diagonal: (),
+        SpectralPropagatorCache.C_value: (SpectralPropagatorCache._c_matrix,),
+        SpectralPropagatorCache.C_diagonal: (),
+    }
 
 
 def _c_lookup_positions(cache: Any, name: str, n1: Any, n2: Any) -> tuple[Any, Any]:
@@ -8144,16 +8277,34 @@ def _c_lookup_positions(cache: Any, name: str, n1: Any, n2: Any) -> tuple[Any, A
     The scalar evaluation passes the caller's position objects, and both
     ends of a C inside one direction group are one object.  A user-written
     method that formed the separation in place (``n1 -= n2``) would change
-    the caller's positions and every later lookup.  Such a method receives
+    the caller's positions and every later lookup.  Such a method, or a
+    package method that hands its positions to an overridden one (a
+    ``SpectralPropagatorCache`` subclass overriding ``_c_matrix``), receives
     copies of array and list positions (:func:`_own_copy`).  The package's
     own methods receive the objects themselves.  The propagator lookup bank
     forwards these two methods unchanged, so the bound method found here is
     the one that runs.
     """
-    method = getattr(cache, name, None)
-    if getattr(method, "__func__", None) in _package_c_lookups():
+    if _trusted(getattr(cache, name, None), _package_c_lookups()):
         return n1, n2
     return _own_copy(n1), _own_copy(n2)
+
+
+def _r_product_times(cache: Any, times: dict) -> dict:
+    """The times dict to pass to ``cache.R_product``.
+
+    :meth:`DiagramIntegrand.evaluate` reads ``times`` again for every C
+    lookup after the R product, and a direct caller may read its dict
+    again after the call.  A user-written ``R_product`` that wrote into the
+    dict (``times[k] -= t_min``, ``pop``, ``update``) would change those
+    lookups with no error, so it receives a copy.  The package's own reads
+    the dict only and receives it itself; the propagator lookup bank
+    forwards ``R_product`` unchanged.
+    """
+    method = getattr(cache, "R_product", None)
+    if getattr(method, "__func__", None) is PropagatorCache.R_product:
+        return times
+    return dict(times)
 
 
 def _time_table_C_batch(cache: Any, t_l: np.ndarray, t_r: np.ndarray) -> np.ndarray:

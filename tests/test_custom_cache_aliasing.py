@@ -13,7 +13,11 @@ CA2: with object-dtype positions ``PropagatorCache.C_value`` skips its
 memo and returned the C hook's own array, so a hook that fills and returns
 one buffer changed the first result at the second lookup (C_01 from
 -0.0235 to -0.0075), and a ``C_diagonal`` taken before it (C_11 from 0.078
-to 0.016).  The result is now an owned copy on that branch as well.
+to 0.016).  The result is now an owned copy on that branch as well.  On
+the legacy table both returned the array of an overridden
+``_C_value_from_table`` or ``_C_diagonal_from_table`` as it was, so one
+filling a buffer changed an earlier C_00 from 0.1589 to 0.0499 at the next
+lookup.  That array is now copied when the lookup is not the package's own.
 
 CA3: the batched integrators keep one batch per C factor and per matrix R
 factor while they ask the cache for the next one.  A user-written cache
@@ -68,6 +72,32 @@ the table's range.  With a 0-d array ``t_max`` that the caller then
 increased by 1, a lookup past the grid read the spline outside its nodes
 (-3.5 % at ``t = (2.8, 2.6)``) instead of the direct value.  ``t_max`` is now
 converted to a float, as in the three spatial builders.
+
+CA8: CA4 made the time batches the integrators read again read-only, but
+``PropagatorCache.C_value`` and the batched zero-dimensional branch passed
+fresh writable arrays, so a batch method forming the lag in place raised on
+``gauss_legendre`` at order 2 and went through at order 0, on
+``qmc_scalar`` and ``nquad``.  The package's ``C_at_batch``,
+``C_diagonal_batch`` and ``C_matrix_batch`` passed the caller's own arrays
+on to methods a subclass can override: through the translation fallback of
+``C_at_batch`` a writing ``C_diagonal_batch`` changed the caller's
+``[1.9, 1.7]`` to ``[0.45, 0.5]``, and an ``_on_diagonal`` that writes, read
+again by those two methods, gave the zero-dimensional seven-point function
+at coincident times -61.6 % (``C_diagonal_batch``) and -99.4 %
+(``C_matrix_batch``).  The legacy-table lookups of a direct ``C_value``
+or ``C_diagonal`` also read the times again after ``_on_diagonal``: with
+0-d array times at 1.4 the write moved the caller's ``t1`` to 0, and C_00
+came out -82.4 %, the value at (0.7, 0.7).  Every time array that reaches a
+batch method or one of those overrides is now read-only, as a view where it
+is the caller's.
+
+CA9: ``DiagramIntegrand.evaluate`` passed ``R_product`` the times dict its
+C lookups read next, the caller's own dict on a direct call.  An
+``R_product`` that moves every time down by ``t_min`` after reading them
+gave order 0 at the shifted times, -27.6 % on every integrator, -57.1 % at
+orders 0 and 2 on ``qmc_scalar`` and -9.2 % in ``integrate_two_point_qmc``;
+one that removes the ends of each R raised ``KeyError`` at order 2.  A
+user-written ``R_product`` now receives a copy of the dict.
 
 References share no code with the package: C of the generic system in
 closed form in its inner time integral (``erf``) and by a 48-node
@@ -284,6 +314,33 @@ def test_CA2_C_value_returns_an_owned_array_with_object_positions(layer):
     np.testing.assert_allclose(diag, np.diag(want), rtol=1e-13)
     np.testing.assert_allclose(second, _c_reference(1.1, 1.7, 0.2, 0.55, G_MIX),
                                rtol=1e-13)
+
+
+_TABLE_LOOKUPS = [("_C_value_from_table", "mix"), ("_C_value_from_table", "diag"),
+                  ("_C_diagonal_from_table", "diag")]
+
+
+@pytest.mark.parametrize("name, kind", _TABLE_LOOKUPS,
+                         ids=[f"{n}-{k}" for n, k in _TABLE_LOOKUPS])
+def test_CA2_legacy_table_lookups_return_owned_arrays(name, kind):
+    """On the legacy table ``C_value`` and ``C_diagonal`` returned the array
+    of ``_C_value_from_table`` or ``_C_diagonal_from_table`` as it was (a
+    diagonal view of it from ``C_diagonal`` without ``diag_C``), so an
+    override filling one buffer changed the earlier results at the next
+    lookup."""
+    g, _ = _SYSTEMS[kind]
+    cache = _build(_subclass(name, _reuse), kind, "legacy")
+    plain = _build(PropagatorCache, kind, "legacy")
+    first = {a: getattr(cache, a)(0.0, 1.3, 0.0, 0.9) for a in ("C_value", "C_diagonal")}
+    for a in first:
+        getattr(cache, a)(0.0, 1.75, 0.0, 0.6)
+    for a, value in first.items():
+        np.testing.assert_array_equal(value, getattr(plain, a)(0.0, 1.3, 0.0, 0.9))
+    want = _c_reference(0.0, 1.3, 0.0, 0.9, g)
+    if kind == "diag":
+        want = np.diag(np.diag(want))
+    np.testing.assert_allclose(first["C_value"], want, rtol=1e-4, atol=1e-7)
+    np.testing.assert_allclose(first["C_diagonal"], np.diag(want), rtol=1e-4, atol=1e-7)
 
 
 # ---------------------------------------------------------------------------
@@ -788,3 +845,422 @@ def test_CA7_legacy_table_takes_a_float_t_max():
     got = cache.C_value(0.0, T_MAX + 0.7, 0.0, T_MAX + 0.5)
     want = _c_reference(0.0, T_MAX + 0.7, 0.0, T_MAX + 0.5, G_DIAG, EQUAL)
     np.testing.assert_allclose(got, want, rtol=1e-13, atol=0.0)
+
+
+# ---------------------------------------------------------------------------
+# CA8: every time array that reaches a batch method is read-only
+# ---------------------------------------------------------------------------
+
+_BATCH_NAMES = ("C_at_batch", "C_diagonal_batch", "C_matrix_batch", "R_time_batch",
+                "R_matrix_batch")
+
+
+def _flag_cache(write):
+    """Records the writeable flag of the two time arguments of every batch
+    method; with ``write`` it then forms the lag in place in ``t1``."""
+
+    def wrap(name):
+        parent = getattr(PropagatorCache, name)
+
+        def method(self, t1, t2, *rest):
+            self.__dict__.setdefault("flags", []).append(
+                (name, t1.flags.writeable, t2.flags.writeable))
+            value = parent(self, t1, t2, *rest)
+            if write:
+                t1 -= t2
+            return value
+
+        return method
+
+    return type("_Flags", (PropagatorCache,), {n: wrap(n) for n in _BATCH_NAMES})
+
+
+def _absorbed_kappa3_system(g):
+    return _gaussian_system(g, rates=EQUAL, nonlocal_vertices=[sw.NonLocalVertex(
+        "K", order=3, coupling=_KappaR3(), already_R_contracted=True)])
+
+
+def _seven_point(g, diag_C):
+    system = _absorbed_kappa3_system(g)
+    exp_ = system.expand([f"phi_{c}({p})" for c, p in zip("abcdefg", _SEVEN)],
+                         orders=[1], diag_C=diag_C, progress=False)
+    return exp_, system.build_propagator_model(diag_C=diag_C)
+
+
+_FIVE = ("u", "v", "w", "x", "y")
+
+
+def _five_point_with_psi():
+    """An external ψ leg: a kept R joins two fixed external points, so the
+    zero-dimensional branch calls ``R_time_batch``."""
+    system = _absorbed_kappa3_system(G_DIAG)
+    exp_ = system.expand(["phi_a(u)", "phi_b(v)", "phi_c(w)", "phi_d(x)", "psi_e(y)"],
+                         orders=[1], progress=False)
+    return exp_, system.build_propagator_model()
+
+
+def _zero_dimensional(case, method):
+    """A runner for the batched zero-dimensional branch of ``method``: no
+    diagram of the order-1 seven-point (five-point) function with an
+    absorbed κ³ keeps an integration variable.  ``case`` names the batch
+    method its C or R lookups reach."""
+    if case == "R_time_batch":
+        exp_, model = _five_point_with_psi()
+        g, table, points = G_DIAG, "legacy", _FIVE
+        times = (1.9, 1.5, 1.75, 1.6, 0.9)
+    else:
+        g, diag_C, table = {"C_diagonal_batch": (G_DIAG, True, "legacy"),
+                            "C_matrix_batch": (G_MIX, False, "legacy"),
+                            "C_at_batch": (G_DIAG, True, "spatial")}[case]
+        exp_, model = _seven_point(g, diag_C)
+        points, times = _SEVEN, (1.9, 1.2, 1.5, 0.9, 1.6, 1.3, 1.75)
+
+    def run(cls, *_fixtures):
+        cache = cls(model, homogeneity="general", c_value_fn=_ExactC(g, EQUAL))
+        _TABLES[table](cache)
+        total, _ = integrate_diagrams(
+            exp_.dts_by_order[1], {"K": _KappaR3()}, TX, cache, t_min=T0,
+            method=method, n_gauss=3, n_samples=64, seed=1,
+            fixed_indices=dict(zip("abcdefg", (0, 1, 1, 0, 1, 0, 1))),
+            positions=dict(zip(points, (0.1, -0.4, 0.7, 0.25, -0.15, 0.55, -0.3))),
+            external_times=dict(zip(points, times)))
+        return total, cache
+
+    return run
+
+
+_EXPANSION_METHODS = {
+    "gauss_legendre": dict(n_gauss=6),
+    "qmc_vectorized": dict(n_samples=1024, seed=5),
+    "qmc_scalar": dict(n_samples=64, seed=5),
+    "nquad": {},
+}
+
+
+def _through_expansion(kind, method, orders, pair=PAIR):
+    """A runner for ``Expansion.evaluate`` at 3-D points on a spatial table.
+    The order-0 diagram, and every diagram on ``qmc_scalar``, looks C up
+    through ``C_value`` (through ``C_diagonal`` under equal rates and
+    ``diag_C``)."""
+
+    def run(cls, expansions, equal_rates):
+        if kind == "equal":
+            cache, exp_ = _equal_rates_cache(cls), equal_rates
+        else:
+            cache, exp_ = _build(cls, kind, "spatial"), expansions[kind][1]
+        total = exp_.evaluate(
+            sw.propagators_from_cache(cache), positions={"x": X3, "y": Y3},
+            t_final=TX, external_times={"x": TX, "y": TY}, component_pair=pair,
+            orders=list(orders), method=method, **_EXPANSION_METHODS[method]).total
+        return total, cache
+
+    return run
+
+
+def _two_point_orders_0_2(cls, expansions, equal_rates):
+    """The order-0 diagram has no integration variable; the two-point
+    integrator hands it to the scalar evaluation."""
+    system, exp_ = expansions["mix"]
+    cv = system.build_coupling_values()
+    integrands = [dt.build_integrand(cv, dict(zip("ab", PAIR)))
+                  for order in (0, 2) for dt in exp_.dts_by_order[order]]
+    cache = _build(cls, "mix", "spatial")
+    return _two_point(integrands, cache, {"x": X3, "y": Y3}), cache
+
+
+_CA8_PATHS = {
+    **{f"C_value-{m}": _through_expansion("mix", m, [0])
+       for m in ("gauss_legendre", "qmc_vectorized", "nquad")},
+    "C_value-qmc_scalar": _through_expansion("mix", "qmc_scalar", [0, 2]),
+    "C_diagonal-qmc_scalar": _through_expansion("equal", "qmc_scalar", [0, 2], (1, 1)),
+    "C_value-two_point": _two_point_orders_0_2,
+    **{f"zero_dim-{c}-{m}": _zero_dimensional(c, m)
+       for c in ("C_diagonal_batch", "C_matrix_batch", "C_at_batch", "R_time_batch")
+       for m in ("gauss_legendre", "qmc_vectorized", "nquad")},
+}
+
+
+@pytest.mark.parametrize("path", sorted(_CA8_PATHS))
+def test_CA8_every_path_hands_batch_methods_read_only_times(expansions, equal_rates,
+                                                            path):
+    """The package's batch methods only read these arrays: a cache that
+    records the flags gives the plain cache's value bit for bit, and one
+    that writes raises ``ValueError``.  These paths used to pass fresh
+    writable arrays, so the write that raises on ``gauss_legendre`` at
+    order 2 (CA4) went through here."""
+    run = _CA8_PATHS[path]
+    plain, _ = run(PropagatorCache, expansions, equal_rates)
+    got, cache = run(_flag_cache(False), expansions, equal_rates)
+    assert plain != 0.0
+    assert got == plain
+    assert cache.flags
+    assert [f for f in cache.flags if f[1] or f[2]] == []
+    with pytest.raises(ValueError, match="read-only"):
+        run(_flag_cache(True), expansions, equal_rates)
+
+
+@pytest.mark.parametrize("name", ["C_value", "C_diagonal"])
+def test_CA8_direct_scalar_lookups_hand_C_at_batch_read_only_times(name):
+    """``C_value``, and ``C_diagonal`` through it, on a spatial table."""
+    cache = _equal_rates_cache(_flag_cache(False))
+    plain = getattr(_equal_rates_cache(PropagatorCache), name)(X3, TX, Y3, TY)
+    np.testing.assert_array_equal(getattr(cache, name)(X3, TX, Y3, TY), plain)
+    assert cache.flags == [("C_at_batch", False, False)]
+    with pytest.raises(ValueError, match="read-only"):
+        getattr(_equal_rates_cache(_flag_cache(True)), name)(X3, TX, Y3, TY)
+
+
+def _writing_delegate(name):
+    """A subclass whose ``name`` (``_on_diagonal``, a static method, or
+    ``_lazy_lookup``) reads its arguments, then writes into the first time
+    array."""
+    if name == "_on_diagonal":
+        def on_diagonal(t1, t2):
+            mask = PropagatorCache._on_diagonal(t1, t2)
+            t1 -= t2
+            return mask
+
+        body = staticmethod(on_diagonal)
+    else:
+        def body(self, lazy, t1, t2, *rest):
+            value = PropagatorCache._lazy_lookup(self, lazy, t1, t2, *rest)
+            t1 -= t2
+            return value
+
+    return type(f"_Writing{name}", (PropagatorCache,), {name: body})
+
+
+_DELEGATE_CASES = [
+    ("C_diagonal_batch", "_on_diagonal", "diag", "legacy"),
+    ("C_matrix_batch", "_on_diagonal", "mix", "legacy"),
+    ("C_at_batch", "_lazy_lookup", "mix", "spatial"),
+]
+
+
+@pytest.mark.parametrize("method, delegate, kind, table", _DELEGATE_CASES,
+                         ids=[c[0] for c in _DELEGATE_CASES])
+def test_CA8_package_batch_methods_hand_overrides_read_only_views(method, delegate,
+                                                                  kind, table):
+    """Called with the caller's writable arrays, the package's batch method
+    passes them on as read-only views: the override's write raises, and the
+    caller's arrays keep their values and their flag.  The first pair is
+    coincident, so ``_on_diagonal`` is consulted."""
+    t1, t2 = np.array([1.3, 0.9]), np.array([1.3, 0.6])
+    args = (t1, t2) if method != "C_at_batch" else (t1, t2, X3, Y3)
+    with pytest.raises(ValueError, match="read-only"):
+        getattr(_build(_writing_delegate(delegate), kind, table), method)(*args)
+    np.testing.assert_array_equal(t1, [1.3, 0.9])
+    np.testing.assert_array_equal(t2, [1.3, 0.6])
+    assert t1.flags.writeable and t2.flags.writeable
+    plain = getattr(_build(PropagatorCache, kind, table), method)(*args)
+    assert t1.flags.writeable and t2.flags.writeable
+    got = getattr(_build(_flag_cache(False), kind, table), method)(*args)
+    np.testing.assert_array_equal(got, plain)
+
+
+@pytest.mark.parametrize("name, kind", [("C_diagonal_batch", "diag"),
+                                        ("C_matrix_batch", "mix")])
+def test_CA8_translation_fallback_hands_the_time_table_a_view(name, kind):
+    """``C_at_batch`` on a translation cache with only the legacy table
+    falls back to ``C_diagonal_batch`` or ``C_matrix_batch``, and used to
+    hand them the caller's own time arrays."""
+    g, diag_C = _SYSTEMS[kind]
+    model = _gaussian_system(g).build_propagator_model(diag_C=diag_C)
+
+    def build(cls):
+        cache = cls(model, homogeneity="translation", c_value_fn=_ExactC(g))
+        cache.precompute_C_table(t_max=T_MAX, n_grid=20)
+        return cache
+
+    t1, t2 = np.array([1.9, 1.7]), np.array([1.45, 1.2])
+    with pytest.raises(ValueError, match="read-only"):
+        build(_subclass(name, _lag_in_place)).C_at_batch(t1, t2, 0.3, -0.2)
+    np.testing.assert_array_equal(t1, [1.9, 1.7])
+    assert t1.flags.writeable and t2.flags.writeable
+    np.testing.assert_array_equal(
+        build(_flag_cache(False)).C_at_batch(t1, t2, 0.3, -0.2),
+        build(PropagatorCache).C_at_batch(t1, t2, 0.3, -0.2))
+
+
+@pytest.mark.parametrize("name, g, diag_C", [("C_diagonal_batch", G_DIAG, True),
+                                             ("C_matrix_batch", G_MIX, False)])
+@pytest.mark.parametrize("method", ["gauss_legendre", "qmc_vectorized"])
+def test_CA8_on_diagonal_override_in_the_zero_dimensional_branch(name, g, diag_C,
+                                                                 method):
+    """Coincident external times send C through the diagonal line after
+    ``_on_diagonal`` has seen the times.  A write there changed the value
+    with no error."""
+    exp_, model = _seven_point(g, diag_C)
+    times = dict(zip(_SEVEN, (1.5, 1.2, 1.5, 1.2, 1.5, 1.2, 1.5)))
+
+    def run(cls):
+        cache = cls(model, homogeneity="general", c_value_fn=_ExactC(g, EQUAL))
+        _TABLES["legacy"](cache)
+        return integrate_diagrams(
+            exp_.dts_by_order[1], {"K": _KappaR3()}, TX, cache, t_min=T0,
+            method=method, n_gauss=3, n_samples=64, seed=1,
+            fixed_indices=dict(zip("abcdefg", (0, 1, 1, 0, 1, 0, 1))),
+            external_times=times)[0]
+
+    assert run(PropagatorCache) != 0.0
+    with pytest.raises(ValueError, match="read-only"):
+        run(_writing_delegate("_on_diagonal"))
+
+
+@pytest.mark.parametrize("name", ["C_value", "C_diagonal"])
+@pytest.mark.parametrize("kind", sorted(_SYSTEMS))
+def test_CA8_legacy_table_lookups_hand_on_diagonal_read_only_times(kind, name):
+    """``C_value`` and ``C_diagonal`` on the legacy table ask ``_on_diagonal``
+    about the times and then read them again.  The integrators pass floats
+    there; a direct call with 0-d array times passed the caller's arrays,
+    so a writing ``_on_diagonal`` moved the caller's ``t1`` to 0 and gave C
+    at the shifted time."""
+    g, _ = _SYSTEMS[kind]
+    t1, t2 = np.array(1.4), np.array(1.4)
+    with pytest.raises(ValueError, match="read-only"):
+        getattr(_build(_writing_delegate("_on_diagonal"), kind, "legacy"), name)(
+            0.0, t1, 0.0, t2)
+    assert float(t1) == 1.4 and float(t2) == 1.4
+    assert t1.flags.writeable and t2.flags.writeable
+    plain = _build(PropagatorCache, kind, "legacy")
+    got = getattr(plain, name)(0.0, t1, 0.0, t2)
+    np.testing.assert_array_equal(got, getattr(plain, name)(0.0, 1.4, 0.0, 1.4))
+    want = _c_reference(0.0, 1.4, 0.0, 1.4, g)
+    np.testing.assert_allclose(got, want if name == "C_value" else np.diag(want),
+                               rtol=1e-4, atol=1e-7)
+
+
+# ---------------------------------------------------------------------------
+# CA9: an R_product that writes into its times dict
+# ---------------------------------------------------------------------------
+
+def _shift_times(cache, parent, r_pairs, times):
+    """The parent's value, then every time moved down by ``t_min``."""
+    value = parent(r_pairs, times)
+    for key in list(times):
+        times[key] -= T0
+    return value
+
+
+def _pop_times(cache, parent, r_pairs, times):
+    """The parent's value, then the two ends of every R removed."""
+    value = parent(r_pairs, times)
+    for sl, sr in r_pairs:
+        times.pop(sl, None)
+        times.pop(sr, None)
+    return value
+
+
+_R_PRODUCT = {"shift": _subclass("R_product", _shift_times),
+              "pop": _subclass("R_product", _pop_times)}
+
+
+@pytest.fixture(scope="module")
+def scalar_r():
+    """Equal rates (``R_product`` needs a scalar R) and a mixing κ² with
+    ``diag_C=False``, so the off-diagonal C at order 0 is not zero."""
+    system = _gaussian_system(G_MIX, rates=EQUAL,
+                              vertices=[sw.LocalVertex("F", coupling=F)])
+    exp_ = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0, 2], diag_C=False,
+                         progress=False)
+    model = system.build_propagator_model(diag_C=False)
+    assert model.iso_R and not model.diag_C
+    return system, exp_, model
+
+
+def _scalar_r_cache(model, cls):
+    cache = cls(model, homogeneity="general", c_value_fn=_ExactC(G_MIX, EQUAL))
+    _TABLES["spatial"](cache)
+    return cache
+
+
+# The batched integrators reach R_product through their zero-dimensional
+# diagrams only (order 0 here), qmc_scalar at every order.  The pop variant
+# changes something only where an R pair is read, which is order 2 on
+# qmc_scalar.
+_CA9_CASES = {
+    "qmc_scalar": [0, 2], "nquad": [0], "gauss_legendre": [0],
+    "qmc_vectorized": [0], "two_point": [0, 2],
+}
+
+
+@pytest.mark.parametrize("method, variant",
+                         [(m, "shift") for m in sorted(_CA9_CASES)]
+                         + [("qmc_scalar", "pop")])
+def test_CA9_a_writing_R_product_gives_the_plain_value(scalar_r, method, variant):
+    """The C lookups after the R product read the times dict again."""
+    system, exp_, model = scalar_r
+    orders = _CA9_CASES[method]
+
+    def run(cls):
+        cache = _scalar_r_cache(model, cls)
+        if method == "two_point":
+            cv = system.build_coupling_values()
+            return _two_point([dt.build_integrand(cv, dict(zip("ab", PAIR)))
+                               for order in orders for dt in exp_.dts_by_order[order]],
+                              cache, {"x": X3, "y": Y3})
+        return exp_.evaluate(
+            sw.propagators_from_cache(cache), positions={"x": X3, "y": Y3},
+            t_final=TX, external_times={"x": TX, "y": TY}, component_pair=PAIR,
+            orders=orders, method=method, **_EXPANSION_METHODS[method]).total
+
+    plain = run(PropagatorCache)
+    assert plain != 0.0
+    assert run(_R_PRODUCT[variant]) == plain
+
+
+def test_CA9_order_zero_matches_the_reference(scalar_r):
+    """The plain value itself, through the shifting R_product: order 0 at
+    3-D points against the closed form, to the 16 x 16 table's
+    interpolation error."""
+    _, exp_, model = scalar_r
+    got = exp_.evaluate(
+        sw.propagators_from_cache(_scalar_r_cache(model, _R_PRODUCT["shift"])),
+        positions={"x": X3, "y": Y3}, t_final=TX, external_times={"x": TX, "y": TY},
+        component_pair=PAIR, orders=[0], method="qmc_scalar", n_samples=8).total
+    want = _c_reference(X3, TX, Y3, TY, G_MIX, EQUAL)[PAIR]
+    assert got == pytest.approx(want, rel=2e-4, abs=0.0)
+
+
+@pytest.mark.parametrize("variant", sorted(_R_PRODUCT))
+def test_CA9_direct_evaluate_and_scipy_integrand_keep_the_callers_dict(scalar_r,
+                                                                      variant):
+    """``DiagramIntegrand.evaluate`` called twice with one dict, and the
+    public ``make_scipy_integrand``, on an order-2 diagram at causal
+    times."""
+    system, exp_, model = scalar_r
+    cv = system.build_coupling_values()
+    fixed = dict(zip("ab", PAIR))
+    integrand = next(it for it in (dt.build_integrand(cv, fixed)
+                                   for dt in exp_.dts_by_order[2])
+                     if it.spatial.time_integration_vars)
+    spatial = integrand.spatial
+    # Earliest first (see integration_bounds), all before the externals.
+    inner = {v: 0.6 + 0.3 * k for k, v in enumerate(spatial.time_integration_vars)}
+    dir_x = spatial.direction_map["x"]
+    directions = {d: X3 if d == dir_x else Y3 for d in set(spatial.direction_map.values())}
+    results = {}
+    for key, cls in (("plain", PropagatorCache), ("custom", _R_PRODUCT[variant])):
+        cache = _scalar_r_cache(model, cls)
+        times = {"x": TX, "y": TY, **inner}
+        first = integrand.evaluate(times, directions, cache)
+        second = integrand.evaluate(times, directions, cache)
+        assert times == {"x": TX, "y": TY, **inner}
+        f = integrand.make_scipy_integrand({"x": TX, "y": TY}, directions, cache)
+        results[key] = (first, second, f(*inner.values()))
+    assert results["plain"][0] != 0.0
+    assert results["custom"] == results["plain"]
+
+
+def test_CA9_the_package_R_product_receives_the_dict_itself(scalar_r):
+    """No copy for the package's own ``R_product``, also through the lookup
+    bank; a copy for an override."""
+    from sft_wick.evaluate import _r_product_times
+
+    _, _, model = scalar_r
+    times = {"x": TX, "y": TY}
+    plain = PropagatorCache(model)
+    for cache in (plain, wrap_propagator_cache(plain, **_BANK)):
+        assert _r_product_times(cache, times) is times
+    got = _r_product_times(_R_PRODUCT["shift"](model), times)
+    assert got is not times and got == times
