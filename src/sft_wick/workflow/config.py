@@ -14,6 +14,10 @@ Or programmatically::
 
     cfg = load_workflow_config("examples/demo1_config.yaml")
     sweep, totals_df = run_workflow(cfg)
+
+A key the parser does not read raises :class:`ConfigError` with the dotted
+path of the key and the nearest valid keys; :mod:`.schema` gives the same
+keys as a JSON Schema.
 """
 
 from __future__ import annotations
@@ -24,6 +28,7 @@ import math
 import os
 import re
 import sys
+import warnings
 from dataclasses import dataclass, field
 from dataclasses import fields as _dc_fields
 from pathlib import Path
@@ -32,7 +37,7 @@ from typing import Any
 import numpy as np
 
 from sft_wick._dense_contraction import DEFAULT_CONTRACTION_MAX_BYTES
-from sft_wick.evaluate import DEFAULT_GL_CHUNK_SIZE
+from sft_wick.evaluate import DEFAULT_GL_CHUNK_SIZE, INTEGRATION_METHODS
 
 # =========================================================================
 # Internal dataclasses: a thin typed mirror of the L1 ``System`` spec
@@ -171,6 +176,181 @@ class OutputConfig:
 
 
 # =========================================================================
+# Config errors
+# =========================================================================
+
+
+class _ConfigMessage:
+    """Fields and one-line text shared by :class:`ConfigError` and
+    :class:`ConfigWarning`."""
+
+    def __init__(self, code: str, path: str, detail: str, suggestions=()):
+        self.code = code
+        self.path = path
+        self.detail = detail
+        self.suggestions = tuple(suggestions)
+        super().__init__(str(self))
+
+    def __str__(self) -> str:
+        text = f"{self.path}: {self.detail}" if self.path else self.detail
+        if self.suggestions:
+            text += f"; did you mean {_or_list(self.suggestions)}?"
+        return text
+
+    def __reduce__(self):
+        return (type(self), (self.code, self.path, self.detail, self.suggestions))
+
+
+class ConfigError(_ConfigMessage, ValueError):
+    """A workflow config the parser refuses.
+
+    ``str(error)`` is one line.  ``code`` is one of the codes below,
+    ``path`` the dotted path of the key or block (``system.t_mni``,
+    ``output[0].format``; empty for the file as a whole), ``detail`` the
+    reason, and ``suggestions`` the nearest valid names: every name at the
+    smallest edit distance, so a single misspelling always lists the name
+    meant.  ``sft-wick`` prints ``sft-wick: config error [code] <str>``
+    and exits with status 2.
+
+    ``unknown_key``
+        A key the block does not read, in the file or in an override.
+    ``unknown_point``
+        A ``sweep.positions_grid`` name that ``expand.observable`` does not
+        use.
+    ``invalid_value``
+        Any other refusal of the parser (``sft-wick`` also prints a plain
+        ``ValueError`` or ``TypeError`` of the parser with this code).
+    ``override_syntax``
+        An override that is not ``KEY=VALUE`` with a readable key.
+    ``override_path``
+        An override path through a value, past the end of a list, or into
+        a list the file leaves out.
+    ``read_error``
+        The file, or a module it names, cannot be read (``sft-wick`` only;
+        the Python API raises the ``OSError`` or ``yaml.YAMLError``).
+    """
+
+
+class OverrideError(ConfigError, KeyError):
+    """A refused override.  Also a ``KeyError``, which overrides raised
+    before :class:`ConfigError` existed."""
+
+
+class ConfigWarning(_ConfigMessage, UserWarning):
+    """An unknown key ignored under ``SFT_WICK_STRICT=0``."""
+
+
+#: ``SFT_WICK_STRICT`` values that turn an unknown key in a file into a
+#: :class:`ConfigWarning`; this release only.
+_LENIENT_WORDS = frozenset({"0", "false", "off", "no"})
+
+
+def _strict_keys() -> bool:
+    """False under ``SFT_WICK_STRICT=0``: an unknown key in a file is
+    warned about and ignored, as releases before 0.7.0 ignored it."""
+    raw = os.environ.get("SFT_WICK_STRICT", "").strip().lower()
+    return raw not in _LENIENT_WORDS
+
+
+def _or_list(names) -> str:
+    """``'a'``, ``'a' or 'b'``, ``'a', 'b' or 'c'``."""
+    quoted = [repr(str(n)) for n in names]
+    if len(quoted) == 1:
+        return quoted[0]
+    return ", ".join(quoted[:-1]) + " or " + quoted[-1]
+
+
+def _edit_distance(a: str, b: str, limit: int) -> int:
+    """Optimal string alignment distance: an insertion, a deletion, a
+    substitution or a swap of two neighbours each counts 1.
+
+    Exact up to ``limit``; any larger distance is returned as
+    ``limit + 1``.  The smallest entry of a row never decreases from one
+    row to the next, so the scan stops once it exceeds ``limit``.
+    """
+    before, prev = None, list(range(len(b) + 1))
+    for i in range(1, len(a) + 1):
+        cur = [i] + [0] * len(b)
+        for j in range(1, len(b) + 1):
+            cur[j] = min(
+                prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] != b[j - 1])
+            )
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                cur[j] = min(cur[j], before[j - 2] + 1)
+        if min(cur) > limit:
+            return limit + 1
+        before, prev = prev, cur
+    return min(prev[-1], limit + 1)
+
+
+def _nearest(name: Any, candidates) -> tuple:
+    """Every candidate at the smallest edit distance from ``name``, when
+    that distance is at most ``max(2, len(name) // 3)``.
+
+    Ties are all returned, so a single misspelling, at distance 1 from the
+    name meant, always lists it (``n_grid_q`` lists ``n_grid_r``,
+    ``n_grid_t`` and ``n_grid_x``).
+    """
+    name = str(name)
+    limit = max(2, len(name) // 3)
+    best, found = limit + 1, []
+    for cand in map(str, candidates):
+        bound = min(best, limit)
+        if abs(len(cand) - len(name)) > bound:
+            continue
+        d = _edit_distance(name, cand, bound)
+        if d < best:
+            best, found = d, [cand]
+        elif d == best:
+            found.append(cand)
+    return tuple(sorted(found)) if best <= limit else ()
+
+
+def _join(where: str, key: Any) -> str:
+    """The dotted path of ``key`` in the block at ``where``."""
+    return f"{where}.{key}" if where else str(key)
+
+
+def _converted(convert, value: Any, where: str):
+    """``convert(value)`` (``int`` or ``float``, as the parser has always
+    read the key), raising a :class:`ConfigError` that names ``where``
+    when the value does not convert (``.inf`` for an integer, a word for a
+    number)."""
+    try:
+        return convert(value)
+    except (TypeError, ValueError, OverflowError):
+        kind = "an integer" if convert is int else "a number"
+        detail = f"must be {kind}; got {value!r}"
+        raise ConfigError("invalid_value", where, detail) from None
+
+
+def _grid_points(span: float, dt: float, where: str) -> int:
+    """``max(2, ceil(span / dt))``: the node count a ``dt`` gives."""
+    try:
+        return max(2, int(math.ceil(span / dt)))
+    except (OverflowError, ValueError):
+        detail = f"{dt!r} gives no finite grid over a span of {span!r}"
+        raise ConfigError("invalid_value", where, detail) from None
+
+
+def _tag(d: dict, default=None):
+    """``d['type']``, or ``default`` when absent.  A value that cannot be
+    hashed (a list) gives ``False``, which no type table holds, so it is
+    refused as an unsupported type rather than with a ``TypeError``."""
+    tag = d.get("type", default)
+    try:
+        hash(tag)
+    except TypeError:
+        return False
+    return tag
+
+
+class _ModuleAttributeError(ConfigError, AttributeError):
+    """A module the config names lacks the callable it names.  Also an
+    ``AttributeError``, which the loader raised before."""
+
+
+# =========================================================================
 # YAML → WorkflowConfig
 # =========================================================================
 
@@ -191,6 +371,10 @@ def load_workflow_config(
 
     Returns:
         A :class:`WorkflowConfig` ready to pass to :func:`run_workflow`.
+
+    Raises:
+        ConfigError: the file or an override is refused; an override error
+            is an :class:`OverrideError`, also a ``KeyError``.
     """
     try:
         import yaml
@@ -203,6 +387,7 @@ def load_workflow_config(
     path = Path(path)
     with path.open() as f:
         data = yaml.safe_load(f)
+    _require_mapping(data)
 
     if overrides:
         for dotted_key, value in overrides.items():
@@ -222,33 +407,22 @@ def _override_path(dotted_key: str) -> list:
     segment was looked up as a dict key and every such override raised.
     """
     path: list = []
-    for part in dotted_key.split("."):
+    for part in str(dotted_key).split("."):
         m = _OVERRIDE_SEGMENT.match(part)
         if m is None:
-            raise KeyError(
-                f"override key '{dotted_key}': cannot read the segment "
-                f"'{part}'; write name, or name[index] for a list entry."
+            raise OverrideError(
+                "override_syntax",
+                str(dotted_key),
+                f"cannot read the segment {part!r}; write name, or "
+                f"name[index] for a list entry",
             )
         path.append(m.group("name"))
         path.extend(int(i) for i in re.findall(r"\[(\d+)\]", m.group("idx")))
     return path
 
 
-def _override_step(cur: Any, step: Any, dotted_key: str):
-    """One step along an override path; raises if it does not exist."""
-    if isinstance(step, int):
-        if not isinstance(cur, list) or not 0 <= step < len(cur):
-            raise KeyError(f"override key '{dotted_key}' does not exist in config")
-    elif not isinstance(cur, dict) or step not in cur:
-        raise KeyError(f"override key '{dotted_key}' does not exist in config")
-    return cur[step]
-
-
-#: Optional ``sweep`` keys an override may add when the file omits them;
-#: each is read by ``_parse_sweep`` with a default.  Every other override
-#: key must already exist, and ``_parse_sweep`` refuses a key outside
-#: ``_SWEEP_KEYS``, so a misspelt key raises instead of being ignored.
-_SWEEP_OPTIONAL_KEYS = frozenset(
+#: Every key ``_parse_sweep`` and ``_parse_component_axis`` read.
+_SWEEP_KEYS = frozenset(
     {
         "gl_chunk_size",
         "qmc_coupling_chunk_size",
@@ -265,30 +439,31 @@ _SWEEP_OPTIONAL_KEYS = frozenset(
         "orders",
         "vertex_types",
         "integrate_over",
+        "positions_grid",
+        "t_final_grid",
+        "external_times_grid",
+        "component_tuples",
+        "component_pairs",
     }
 )
 
-#: Every key ``_parse_sweep`` and ``_parse_component_axis`` read.
-_SWEEP_KEYS = _SWEEP_OPTIONAL_KEYS | {
-    "positions_grid",
-    "t_final_grid",
-    "external_times_grid",
-    "component_tuples",
-    "component_pairs",
-}
-
 
 def _apply_override(data: dict, dotted_key: str, value: Any) -> None:
-    """Apply an ``"a.b.c"`` (or ``"a[0].b"``) override to a parsed config."""
-    path = _override_path(dotted_key)
-    cur: Any = data
-    for step in path[:-1]:
-        cur = _override_step(cur, step, dotted_key)
-    leaf = path[-1]
-    optional = path[:-1] == ["sweep"] and leaf in _SWEEP_OPTIONAL_KEYS
-    if not (optional and isinstance(cur, dict)):
-        _override_step(cur, leaf, dotted_key)  # must already exist
-    cur[leaf] = value
+    """Apply an ``"a.b.c"`` (or ``"a[0].b"``) override to a parsed config.
+
+    The path is read against the workflow schema (:mod:`.schema`), not
+    against the file: a key the schema allows is set even when the file
+    leaves it out, and a mapping on the way that the file leaves out is
+    created, as writing the key into the file would.  A key of a ``type``
+    variant follows the ``type`` in the data, so an earlier override can
+    switch it.  A key the schema does not allow raises ``unknown_key``; a
+    step through a value, past the end of a list or into a list the file
+    leaves out raises ``override_path``.
+    """
+    from .schema import override_target
+
+    parent, leaf = override_target(data, _override_path(dotted_key))
+    parent[leaf] = value
 
 
 #: Keys each block reads; a key outside its block's set raises.  The
@@ -339,6 +514,13 @@ _PROPAGATORS_KEYS = frozenset(
     }
 )
 _OUTPUT_KEYS = frozenset({"type", "path", "format", "x", "y", "hue", "facet_col"})
+#: Accepted values of ``propagators.c_method``, ``output[].type`` and
+#: ``output[].format``; :mod:`.schema` lists the same.
+_C_METHODS = ("auto", "dblquad", "gauss_legendre")
+_OUTPUT_TYPES = ("table", "npz", "plot")
+_TABLE_FORMATS = ("markdown", "csv", "plain")
+#: Accepted values of ``propagators.homogeneity`` besides null.
+_HOMOGENEITIES = ("translation", "rotation", "general")
 
 
 def _check_position_labels(expand_cfg, sweep_cfg) -> None:
@@ -356,9 +538,28 @@ def _check_position_labels(expand_cfg, sweep_cfg) -> None:
         return  # System.expand reports the malformed observable
     unknown = sorted(str(k) for k in sweep_cfg.positions_grid if k not in labels)
     if unknown:
-        raise ValueError(
-            f"sweep.positions_grid: position(s) given for {unknown}, which "
-            f"expand.observable does not name; its points are {sorted(labels)}."
+        also = (
+            f" (also unknown: {', '.join(unknown[1:])})" if len(unknown) > 1 else ""
+        )
+        raise ConfigError(
+            "unknown_point",
+            f"sweep.positions_grid.{unknown[0]}",
+            f"a position for a point expand.observable does not name{also}; "
+            f"its points are {sorted(labels)}",
+            _nearest(unknown[0], labels),
+        )
+    times = sweep_cfg.external_times_grid or {}
+    unknown = sorted(str(k) for k in times if k not in labels)
+    if unknown:
+        also = (
+            f" (also unknown: {', '.join(unknown[1:])})" if len(unknown) > 1 else ""
+        )
+        raise ConfigError(
+            "unknown_point",
+            f"sweep.external_times_grid.{unknown[0]}",
+            f"times for a point expand.observable does not name{also}; its "
+            f"points are {sorted(labels)}",
+            _nearest(unknown[0], labels),
         )
     missing = sorted(labels - set(sweep_cfg.positions_grid))
     if missing:
@@ -474,11 +675,14 @@ def _parse_point_grid(raw: Any, where: str) -> dict:
 
 
 def _parse_workflow(data: dict, base_dir: Path) -> WorkflowConfig:
+    _require_mapping(data)
+    # Unknown keys first, so ``swep:`` is reported as a misspelling of
+    # ``sweep`` rather than as a missing section.
+    _reject_unknown_keys(data, _TOP_LEVEL_KEYS, "")
     system_d = _require_dict(data, "system")
     expand_d = _require_dict(data, "expand")
     props_d = _require_dict(data, "propagators")
     sweep_d = _require_dict(data, "sweep")
-    _reject_unknown_keys(data, _TOP_LEVEL_KEYS, "config (top level)")
     output_d = data.get("output")
     if output_d is None:
         output_d = []
@@ -493,7 +697,7 @@ def _parse_workflow(data: dict, base_dir: Path) -> WorkflowConfig:
     # cache can derive its own n_grid_cache from the same dt by default.
     default_dt = props_d.get("dt")
     if default_dt is not None:
-        default_dt = float(default_dt)
+        default_dt = _converted(float, default_dt, "propagators.dt")
 
     sweep_cfg = _parse_sweep(sweep_d)
     system_cfg = _parse_system(
@@ -512,6 +716,18 @@ def _parse_workflow(data: dict, base_dir: Path) -> WorkflowConfig:
         sweep=sweep_cfg,
         output=output_cfgs,
     )
+
+
+def _require_mapping(data: Any) -> None:
+    """The file holds a mapping (an empty file loads as ``None``)."""
+    if not isinstance(data, dict):
+        raise ConfigError(
+            "invalid_value",
+            "config",
+            f"the file must hold a mapping with the sections "
+            f"{', '.join(_TOP_LEVEL_KEYS[:-1])} and optionally output; got "
+            f"{type(data).__name__}",
+        )
 
 
 def _require_dict(d: dict, key: str) -> dict:
@@ -547,8 +763,8 @@ def _parse_system(
                 f"{blocks!r}.  Write a single vertex as a one-entry list."
             )
     name = fld.get("name", "phi")
-    nc = int(fld.get("n_components", 1))
-    t_min = float(d.get("t_min", 0.0))
+    nc = _converted(int, fld.get("n_components", 1), "system.field.n_components")
+    t_min = _converted(float, d.get("t_min", 0.0), "system.t_min")
 
     linear = d.get("linear")
     if linear is None:
@@ -569,6 +785,7 @@ def _parse_system(
         raise ValueError("system.noise is required")
     if isinstance(noise, dict):
         _reject_unknown_keys(noise, _NOISE_KEYS, "system.noise")
+        _check_noise_keys(noise)
 
     # Validate each vertex block and resolve its coupling (file paths are
     # relative to the YAML file).
@@ -599,6 +816,62 @@ def _parse_system(
         t_min=t_min,
         base_dir=base_dir,
     )
+
+
+def _check_noise_keys(noise: dict) -> None:
+    """Refuse an unknown key in the ``kappa2``, kernel and ``sigma2``
+    blocks when the file is loaded.  :func:`build_system` reads their
+    values, and used to be the first to look at their keys, so
+    ``load_workflow_config`` accepted ``sigma_tt``.
+
+    A block whose ``type`` is missing or unsupported is checked against
+    the keys of every type, so a misspelt ``type`` key is still named;
+    :func:`build_system` reports the type itself.
+    """
+    where = "system.noise.kappa2"
+    kappa2 = noise.get("kappa2")
+    if isinstance(kappa2, dict):
+        kt = _tag(kappa2)
+        if kt in _SEPARABLE_KAPPA2:
+            blocks = _SEPARABLE_KAPPA2[kt]
+            allowed = ("type",) + tuple(b for b, _ in blocks)
+            _reject_unknown_keys(kappa2, allowed, where, f"type {kt!r}")
+            for block, axis in blocks:
+                if isinstance(kappa2.get(block), dict):
+                    _check_kernel_keys(kappa2[block], axis)
+        elif kt == "callable_module":
+            _reject_unknown_keys(kappa2, _KAPPA2_CALLABLE_KEYS, where, f"type {kt!r}")
+        else:
+            every = {"type", *_KAPPA2_CALLABLE_KEYS}
+            for blocks in _SEPARABLE_KAPPA2.values():
+                every.update(b for b, _ in blocks)
+            _reject_unknown_keys(kappa2, every, where)
+    sigma2 = noise.get("sigma2")
+    if isinstance(sigma2, dict):
+        st = _tag(sigma2, "constant")
+        keys = _SIGMA2_KEYS.get(st)
+        if keys is not None:
+            _reject_unknown_keys(sigma2, keys, "system.noise.sigma2", f"type {st!r}")
+        else:
+            every = set().union(*_SIGMA2_KEYS.values())
+            _reject_unknown_keys(sigma2, every, "system.noise.sigma2")
+
+
+def _check_kernel_keys(d: dict, axis: str) -> None:
+    """The keys of one kernel block; see :func:`_check_noise_keys`."""
+    where = f"system.noise.kappa2.{_KERNEL_BLOCK[axis]}"
+    kt = _tag(d, "exponential")
+    if kt == "custom":
+        _reject_unknown_keys(d, _CUSTOM_KERNEL_KEYS, where, "type 'custom'")
+    elif (axis, kt) in _KERNEL_PARAMS:
+        allowed = ("type",) + _KERNEL_PARAMS[(axis, kt)]
+        _reject_unknown_keys(d, allowed, where, f"type {kt!r}")
+    else:
+        every = set(_CUSTOM_KERNEL_KEYS)
+        for (a, _), params in _KERNEL_PARAMS.items():
+            if a == axis:
+                every.update(params)
+        _reject_unknown_keys(d, every, where)
 
 
 #: The three ways a vertex block can give its coupling.
@@ -647,8 +920,11 @@ def _parse_vertex(
         raise ValueError(
             f"{where} must be a mapping with 'name' and a coupling; " f"got {v!r}."
         )
-    _reject_unknown_keys(v, _vertex_keys(cls), where)
-    out = dict(v)
+    allowed = _vertex_keys(cls)
+    _reject_unknown_keys(v, allowed, where)
+    # Under SFT_WICK_STRICT=0 an unknown key was only warned about; it is
+    # dropped here, so it is neither read nor recorded.
+    out = {k: val for k, val in v.items() if k in allowed}
     name = out.get("name")
     if not isinstance(name, str) or not name:
         raise ValueError(f"{where}: 'name' (a non-empty string) is required.")
@@ -681,7 +957,13 @@ def _parse_vertex(
             out[flag] = _as_bool(out[flag], f"{where}.{flag}")
 
     if sources[0] == "coupling_path":
-        out["coupling"] = np.load((base_dir / str(out.pop("coupling_path"))).resolve())
+        npy = (base_dir / str(out.pop("coupling_path"))).resolve()
+        try:
+            out["coupling"] = np.load(npy)
+        except (OSError, ValueError, EOFError) as exc:
+            raise ConfigError(
+                "read_error", f"{where}.coupling_path", f"cannot read {npy}: {exc}"
+            ) from None
     elif sources[0] == "coupling_module":
         mod_path = (base_dir / str(out.pop("coupling_module"))).resolve()
         attr = str(out.pop("coupling_attr", "coupling_fn"))
@@ -857,7 +1139,7 @@ def _resolve_linear_diagonal(
     n_components: int | None = None,
 ) -> dict:
     """Parse-time resolver for ``type: diagonal``."""
-    _reject_unknown_keys(lin, _LINEAR_DIAGONAL_KEYS, "system.linear (type 'diagonal')")
+    _reject_unknown_keys(lin, _LINEAR_DIAGONAL_KEYS, "system.linear", "type 'diagonal'")
     if "gamma" in lin and "gamma_module" in lin:
         raise ValueError(
             "system.linear: provide exactly one of {'gamma', 'gamma_module'}"
@@ -882,7 +1164,11 @@ def _resolve_linear_diagonal(
 
     # dt -> n_grid_cache derivation. linear.dt overrides propagators.dt.
     linear_dt = lin.pop("dt", None)
-    effective_dt = float(linear_dt) if linear_dt is not None else default_dt
+    effective_dt = (
+        _converted(float, linear_dt, "system.linear.dt")
+        if linear_dt is not None
+        else default_dt
+    )
     if effective_dt is not None:
         if effective_dt <= 0.0:
             raise ValueError(
@@ -894,10 +1180,14 @@ def _resolve_linear_diagonal(
                 "system.linear: specify exactly one of {'dt' (here or in "
                 "propagators), 'n_grid_cache'}; got both."
             )
-        t_max_cache = float(lin.get("t_max_cache", 100.0))
-        t_min_cache = float(lin.get("t_min_cache", 0.0))
-        lin["n_grid_cache"] = max(
-            2, int(math.ceil((t_max_cache - t_min_cache) / effective_dt))
+        t_max_cache = _converted(
+            float, lin.get("t_max_cache", 100.0), "system.linear.t_max_cache"
+        )
+        t_min_cache = _converted(
+            float, lin.get("t_min_cache", 0.0), "system.linear.t_min_cache"
+        )
+        lin["n_grid_cache"] = _grid_points(
+            t_max_cache - t_min_cache, effective_dt, "system.linear.dt"
         )
     return lin
 
@@ -944,7 +1234,7 @@ def _resolve_linear_explicit(
             "'R_time' (a callable cannot be expressed in YAML).  Use "
             "'R_time_module' + 'R_time_attr' instead."
         )
-    _reject_unknown_keys(lin, _LINEAR_EXPLICIT_KEYS, "system.linear (type 'explicit')")
+    _reject_unknown_keys(lin, _LINEAR_EXPLICIT_KEYS, "system.linear", "type 'explicit'")
     if "R_time_module" not in lin:
         raise ValueError(
             "system.linear.type='explicit' requires "
@@ -1088,7 +1378,9 @@ def _load_callable_from_module(path: Path, attr: str):
     spec_obj.loader.exec_module(module)
     fn = getattr(module, attr, None)
     if fn is None or not callable(fn):
-        raise AttributeError(f"Module {path!r} has no callable attribute {attr!r}.")
+        raise _ModuleAttributeError(
+            "read_error", "", f"module {str(path)!r} has no callable attribute {attr!r}"
+        )
     _register_module_by_value(module)
     return fn
 
@@ -1168,7 +1460,7 @@ def _parse_expand(d: dict) -> ExpandConfig:
         diag_C=bool(d.get("diag_C", True)),
         iso_C=bool(d.get("iso_C", False)),
         cache_path=d.get("cache_path"),
-        n_jobs=int(d.get("n_jobs", 1)),
+        n_jobs=_converted(int, d.get("n_jobs", 1), "expand.n_jobs"),
         target=d.get("target", "moment"),
     )
 
@@ -1181,20 +1473,20 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
     if module_spec is not None:
         module_spec = str((base_dir / module_spec).resolve())
 
-    t_max = float(d["t_max"])
+    t_max = _converted(float, d["t_max"], "propagators.t_max")
     dt = d.get("dt")
     has_n_grid_t = "n_grid_t" in d
     if dt is not None:
-        dt = float(dt)
+        dt = _converted(float, dt, "propagators.dt")
         if dt <= 0.0:
             raise ValueError(f"propagators.dt must be positive, got {dt}")
         if has_n_grid_t:
             raise ValueError(
                 "propagators: specify exactly one of {'dt', 'n_grid_t'}; " "got both."
             )
-        n_grid_t = max(2, int(math.ceil(t_max / dt)))
+        n_grid_t = _grid_points(t_max, dt, "propagators.dt")
     else:
-        n_grid_t = int(d.get("n_grid_t", 60))
+        n_grid_t = _converted(int, d.get("n_grid_t", 60), "propagators.n_grid_t")
 
     c_closed_form = d.get("c_closed_form", "auto")
     if c_closed_form in (False, None, "none", "null", "off"):
@@ -1207,8 +1499,16 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
             f"{c_closed_form!r}.  To supply your own closed form use "
             f"c_closed_form_module / c_closed_form_attr."
         )
+    homogeneity = d.get("homogeneity")
+    if homogeneity is not None and homogeneity not in _HOMOGENEITIES:
+        raise ConfigError(
+            "invalid_value",
+            "propagators.homogeneity",
+            f"must be null or one of {_or_list(_HOMOGENEITIES)}; got {homogeneity!r}",
+            _nearest(homogeneity, _HOMOGENEITIES),
+        )
     c_method = str(d.get("c_method", "auto"))
-    if c_method not in ("auto", "dblquad", "gauss_legendre"):
+    if c_method not in _C_METHODS:
         raise ValueError(
             f"propagators.c_method must be 'auto', 'dblquad' or "
             f"'gauss_legendre'; got {c_method!r}."
@@ -1224,7 +1524,7 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
         n_grid_cos=d.get("n_grid_cos"),
         x_max=d.get("x_max"),
         n_grid_x=d.get("n_grid_x"),
-        n_jobs=int(d.get("n_jobs", 1)),
+        n_jobs=_converted(int, d.get("n_jobs", 1), "propagators.n_jobs"),
         c_closed_form=c_closed_form,
         c_closed_form_module=module_spec,
         c_closed_form_attr=str(d.get("c_closed_form_attr", "C_fn")),
@@ -1233,7 +1533,7 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
         cache_path=d.get("cache_path"),
         interp_method=str(d.get("interp_method", "linear")),
         c_method=c_method,
-        c_n_gauss=int(d.get("c_n_gauss", 20)),
+        c_n_gauss=_converted(int, d.get("c_n_gauss", 20), "propagators.c_n_gauss"),
         diag_C=bool(d.get("diag_C", True)),
     )
 
@@ -1321,6 +1621,16 @@ def _parse_sweep(d: dict) -> SweepConfig:
     vertex_types = _vertex_type_selection(d.get("vertex_types"), "sweep.vertex_types")
     cps = _parse_component_axis(d)
     seed = d.get("seed", 42)
+    method = str(d.get("method", "qmc_vectorized"))
+    if method not in INTEGRATION_METHODS:
+        # Checked here so that a misspelt method stops the load, not the
+        # sweep after the expansion and the propagator table.
+        raise ConfigError(
+            "invalid_value",
+            "sweep.method",
+            f"must be one of {_or_list(INTEGRATION_METHODS)}; got {method!r}",
+            _nearest(method, INTEGRATION_METHODS),
+        )
     return SweepConfig(
         propagator_cache_bytes=d.get("propagator_cache_bytes"),
         propagator_cache_contract=d.get("propagator_cache_contract"),
@@ -1333,11 +1643,11 @@ def _parse_sweep(d: dict) -> SweepConfig:
         orders=None if orders is None else list(orders),
         vertex_types=None if vertex_types is None else sorted(vertex_types),
         integrate_over=_integrate_over_selection(d.get("integrate_over")),
-        method=str(d.get("method", "qmc_vectorized")),
-        n_samples=int(d.get("n_samples", 2**13)),
-        seed=None if seed is None else int(seed),
-        n_jobs=int(d.get("n_jobs", 1)),
-        n_gauss=int(d.get("n_gauss", 8)),
+        method=method,
+        n_samples=_converted(int, d.get("n_samples", 2**13), "sweep.n_samples"),
+        seed=None if seed is None else _converted(int, seed, "sweep.seed"),
+        n_jobs=_converted(int, d.get("n_jobs", 1), "sweep.n_jobs"),
+        n_gauss=_converted(int, d.get("n_gauss", 8), "sweep.n_gauss"),
         reuse_integrands=_as_bool(
             d.get("reuse_integrands", False), "sweep.reuse_integrands"
         ),
@@ -1356,18 +1666,27 @@ def _parse_output(d: dict, index: int = 0) -> OutputConfig:
             f"output[{index}] must be a mapping with a 'type', e.g. "
             f"{{type: table}}; got {d!r}."
         )
+    _reject_unknown_keys(d, _OUTPUT_KEYS, f"output[{index}]")
     if "type" not in d:
         raise ValueError("each output entry must specify a 'type'")
-    _reject_unknown_keys(d, _OUTPUT_KEYS, f"output[{index}]")
     t = d["type"]
-    if t not in ("table", "npz", "plot"):
+    if t not in _OUTPUT_TYPES:
         raise ValueError(
             f"output type must be one of 'table', 'npz', 'plot'; " f"got {t!r}."
+        )
+    fmt = str(d.get("format", "markdown"))
+    if fmt not in _TABLE_FORMATS:
+        # Checked here: the table is written only after the whole sweep.
+        raise ConfigError(
+            "invalid_value",
+            f"output[{index}].format",
+            f"must be one of {_or_list(_TABLE_FORMATS)}; got {fmt!r}",
+            _nearest(fmt, _TABLE_FORMATS),
         )
     return OutputConfig(
         type=t,
         path=d.get("path"),
-        format=str(d.get("format", "markdown")),
+        format=fmt,
         x=d.get("x"),
         y=str(d.get("y", "value")),
         hue=d.get("hue", "order"),
@@ -1439,6 +1758,21 @@ _SEPARABLE_KAPPA2 = {
     "separable_translation": (("temporal", "time"), ("spatial", "space")),
     "separable_rotation": (("temporal", "time"), ("angular", "angular")),
 }
+#: Keys of ``kappa2`` with ``type: callable_module``.
+_KAPPA2_CALLABLE_KEYS = ("type", "module", "attr")
+#: Keys of ``sigma2`` by type.
+_SIGMA2_KEYS = {
+    "constant": ("type", "amplitude"),
+    "callable_module": ("type", "module", "attr"),
+    "multiplicative": (
+        "type",
+        "g0",
+        "g1",
+        "interpretation",
+        "vertex_names",
+        "drift_names",
+    ),
+}
 
 
 def _build_noise(
@@ -1452,11 +1786,12 @@ def _build_noise(
             "optional 'sigma2' block."
         )
     k2_d = dict(d["kappa2"])
-    kt = k2_d.pop("type", None)
+    kt = _tag(k2_d)
+    k2_d.pop("type", None)
     if kt in _SEPARABLE_KAPPA2:
         blocks = _SEPARABLE_KAPPA2[kt]
         _reject_unknown_keys(
-            k2_d, [b for b, _ in blocks], f"system.noise.kappa2 (type {kt!r})"
+            k2_d, [b for b, _ in blocks], "system.noise.kappa2", f"type {kt!r}"
         )
         missing = [b for b, _ in blocks if b not in k2_d]
         if missing:
@@ -1473,7 +1808,10 @@ def _build_noise(
             kappa2 = sp.SeparableRotation(temporal=kernels[0], angular=kernels[1])
     elif kt == "callable_module":
         _reject_unknown_keys(
-            k2_d, ("module", "attr"), "system.noise.kappa2 (type 'callable_module')"
+            k2_d,
+            _KAPPA2_CALLABLE_KEYS[1:],
+            "system.noise.kappa2",
+            "type 'callable_module'",
         )
         if base_dir is None:
             raise ValueError(
@@ -1490,9 +1828,13 @@ def _build_noise(
         fn = _load_callable_from_module(mod_path, attr)
         kappa2 = sp.GeneralKappa2(fn=fn)
     else:
-        raise ValueError(
-            f"Unsupported kappa2.type {kt!r}.  Supported: "
-            f"'separable_translation', 'separable_rotation', 'callable_module'."
+        supported = (*_SEPARABLE_KAPPA2, "callable_module")
+        raise ConfigError(
+            "invalid_value",
+            "system.noise.kappa2.type",
+            f"unsupported type {d['kappa2'].get('type')!r}; supported: "
+            f"{_or_list(supported)}",
+            _nearest(kt, supported) if isinstance(kt, str) else (),
         )
 
     sigma2 = _build_sigma2(d.get("sigma2"), base_dir, n_components)
@@ -1513,9 +1855,10 @@ def _build_sigma2(sig_d: Any, base_dir: Path | None, n_components: int | None):
             f"{where} must be null or a mapping such as "
             f"{{type: constant, amplitude: 0.01}}; got {sig_d!r}."
         )
-    st = sig_d.get("type", "constant")
+    st = _tag(sig_d, "constant")
+    if st in _SIGMA2_KEYS:
+        _reject_unknown_keys(sig_d, _SIGMA2_KEYS[st], where, f"type {st!r}")
     if st == "constant":
-        _reject_unknown_keys(sig_d, ("type", "amplitude"), where)
         if "amplitude" not in sig_d:
             raise ValueError(
                 f"{where}: type 'constant' requires 'amplitude': a number "
@@ -1527,7 +1870,6 @@ def _build_sigma2(sig_d: Any, base_dir: Path | None, n_components: int | None):
             )
         )
     if st == "callable_module":
-        _reject_unknown_keys(sig_d, ("type", "module", "attr"), where)
         if base_dir is None:
             raise ValueError(
                 "noise.sigma2.type='callable_module' requires base_dir; "
@@ -1546,11 +1888,6 @@ def _build_sigma2(sig_d: Any, base_dir: Path | None, n_components: int | None):
         # White noise with amplitude g(phi) = g0 + g1 phi; see
         # MultiplicativeImpulse.  D0 = g0 g0^T enters C, the rest lowers to
         # local vertices.
-        _reject_unknown_keys(
-            sig_d,
-            ("type", "g0", "g1", "interpretation", "vertex_names", "drift_names"),
-            where,
-        )
         missing = [k for k in ("g0", "g1") if k not in sig_d]
         if missing:
             raise ValueError(
@@ -1566,9 +1903,11 @@ def _build_sigma2(sig_d: Any, base_dir: Path | None, n_components: int | None):
             interpretation=str(sig_d.get("interpretation", "ito")),
             **names,
         )
-    raise ValueError(
-        f"Unsupported sigma2.type {st!r}.  Supported: "
-        f"'constant', 'callable_module', 'multiplicative'."
+    raise ConfigError(
+        "invalid_value",
+        f"{where}.type",
+        f"unsupported type {sig_d.get('type')!r}; supported: {_or_list(_SIGMA2_KEYS)}",
+        _nearest(st, _SIGMA2_KEYS) if isinstance(st, str) else (),
     )
 
 
@@ -1618,16 +1957,43 @@ _KERNEL_PARAMS = {
 #: YAML block of each kernel axis; also the default ``attr`` of a
 #: ``type: custom`` kernel.
 _KERNEL_BLOCK = {"time": "temporal", "space": "spatial", "angular": "angular"}
+#: Keys of a kernel with ``type: custom``.
+_CUSTOM_KERNEL_KEYS = ("type", "module", "attr")
 
 
-def _reject_unknown_keys(d: dict, allowed, where: str) -> None:
+def _reject_unknown_keys(d: dict, allowed, where: str, note: str = "") -> None:
     """Refuse a key the block does not read: a misspelt key is otherwise
-    ignored without a word, and its default used instead."""
-    unknown = sorted(str(k) for k in d if k not in set(allowed))
-    if unknown:
-        raise ValueError(
-            f"{where}: unknown key(s) {unknown}; allowed: " f"{sorted(allowed)}."
-        )
+    ignored without a word, and its default used instead.
+
+    ``where`` is the dotted path of the block (``""`` for the top level),
+    ``note`` names the ``type`` whose keys ``allowed`` are.  The error
+    names the first unknown key and the keys nearest it.  Under
+    ``SFT_WICK_STRICT=0`` each unknown key is a :class:`ConfigWarning`
+    instead, and the block is read as if the key were absent.
+    """
+    allowed = set(allowed)
+    unknown = sorted((k for k in d if k not in allowed), key=str)
+    if not unknown:
+        return
+    detail = "unknown key" + (f" for {note}" if note else "")
+    if not _strict_keys():
+        for key in unknown:
+            warnings.warn(
+                ConfigWarning(
+                    "unknown_key",
+                    _join(where, key),
+                    f"{detail}, ignored because SFT_WICK_STRICT=0",
+                    _nearest(key, allowed),
+                ),
+                stacklevel=3,
+            )
+        return
+    if len(unknown) > 1:
+        others = ", ".join(_join(where, k) for k in unknown[1:])
+        detail += f" (also unknown: {others})"
+    raise ConfigError(
+        "unknown_key", _join(where, unknown[0]), detail, _nearest(unknown[0], allowed)
+    )
 
 
 def _yaml_number(value: Any, where: str):
@@ -1687,9 +2053,9 @@ def _build_kernel(d: dict, axis: str, base_dir: Path | None = None):
             f"{where} must be a mapping such as {{type: exponential, ...}}; "
             f"got {d!r}."
         )
-    kt = d.get("type", "exponential")
+    kt = _tag(d, "exponential")
     if kt == "custom":
-        _reject_unknown_keys(d, ("type", "module", "attr"), where)
+        _reject_unknown_keys(d, _CUSTOM_KERNEL_KEYS, where, "type 'custom'")
         if "module" not in d:
             raise ValueError(
                 f"{where}: type 'custom' requires 'module: <path to a .py "
@@ -1714,7 +2080,7 @@ def _build_kernel(d: dict, axis: str, base_dir: Path | None = None):
             f"Unsupported {axis}-kernel type {kt!r} at {where}.  "
             f"Supported: {supported + ['custom']}."
         )
-    _reject_unknown_keys(d, ("type",) + params, where)
+    _reject_unknown_keys(d, ("type",) + params, where, f"type {kt!r}")
     missing = [p for p in params if p not in d]
     if missing:
         raise ValueError(f"{where}: type {kt!r} requires {missing}.")
@@ -1748,6 +2114,57 @@ def _build_kernel(d: dict, axis: str, base_dir: Path | None = None):
 # =========================================================================
 
 
+def check_before_run(cfg: WorkflowConfig, system=None):
+    """The checks :func:`run_workflow` makes before the expansion, on
+    ``cfg`` alone: the component tuples against the observable and
+    ``n_components``, ``sweep.orders`` against ``expand.orders``, one
+    parallel layer, and the closed-form C module on disk.  Builds the
+    System unless ``system`` is given, and returns it.
+
+    ``sft-wick validate`` and ``sft-wick run`` call it before anything is
+    computed.  A ``sweep.vertex_types`` label is checked only against the
+    diagrams, after the expansion.
+    """
+    from .expansion import _resolve_component_tuples
+
+    system = build_system(cfg.system) if system is None else system
+    _resolve_component_tuples(
+        None,
+        cfg.sweep.component_tuples,
+        tuple(cfg.expand.observable),
+        system.n_components,
+        "sweep.component_tuples",
+    )
+    if cfg.sweep.orders is not None:
+        absent = [o for o in cfg.sweep.orders if o not in cfg.expand.orders]
+        if absent:
+            # The message Expansion._orders_list gives after the expansion.
+            raise ValueError(
+                f"sweep: order(s) {absent} are not in the expansion; it holds "
+                f"orders {list(cfg.expand.orders)}."
+            )
+    # Parallelism layers cannot nest because joblib's loky backend does not
+    # support nested process pools: ``sweep.n_jobs`` (over grid points) and
+    # ``expand.n_jobs`` (over diagrams within a grid point).
+    if int(cfg.expand.n_jobs) != 1 and int(cfg.sweep.n_jobs) != 1:
+        raise ValueError(
+            "Specify exactly one of {expand.n_jobs > 1, sweep.n_jobs > 1}; "
+            "nested joblib loky pools are not supported."
+        )
+    module = cfg.propagators.c_closed_form_module
+    if module is not None and not Path(module).is_file():
+        raise FileNotFoundError(
+            f"propagators.c_closed_form_module: no such file {module}"
+        )
+    return system
+
+
+def effective_expand_diag_C(cfg: WorkflowConfig) -> bool:
+    """The ``diag_C`` the expansion runs with: ``propagators.diag_C:
+    false`` also turns ``expand.diag_C`` off (see :func:`run_workflow`)."""
+    return bool(cfg.expand.diag_C and cfg.propagators.diag_C)
+
+
 def run_workflow(cfg: WorkflowConfig, progress: Any = None):
     """Execute the full pipeline: expand, build propagators, sweep,
     emit outputs.
@@ -1775,20 +2192,10 @@ def _run_workflow(cfg: WorkflowConfig, stage):
         cfg.sweep.contraction_max_bytes,
     )
 
-    system = build_system(cfg.system)
-
-    # Check the component axis against the observable before the expensive
-    # stages run; Expansion.sweep checks it again, but only after the
-    # expansion and the propagator table have been built.
-    from .expansion import _resolve_component_tuples
-
-    _resolve_component_tuples(
-        None,
-        cfg.sweep.component_tuples,
-        tuple(cfg.expand.observable),
-        system.n_components,
-        "sweep.component_tuples",
-    )
+    # The component axis, the order selection and the parallel layers are
+    # checked before the expensive stages run; Expansion.sweep checks them
+    # again, but only after the expansion and the propagator table.
+    system = check_before_run(cfg)
 
     # ``propagators.diag_C`` is the user-facing knob (the single
     # source of truth for "is C diagonal?"). The symbolic-side
@@ -1799,12 +2206,9 @@ def _run_workflow(cfg: WorkflowConfig, stage):
     # cross-component pair at order 0. Reject the contradictory
     # combination with a clear pointer instead of silently rounding
     # the result to zero.
-    expand_diag_C = cfg.expand.diag_C
-    if (not cfg.propagators.diag_C) and cfg.expand.diag_C:
-        # User opted into off-diagonal C but left expand.diag_C at its
-        # default (True). Auto-sync so the common case works without
-        # forcing users to set the knob twice.
-        expand_diag_C = False
+    # A user who opted into off-diagonal C but left expand.diag_C at its
+    # default (True) gets it synced, without setting the knob twice.
+    expand_diag_C = effective_expand_diag_C(cfg)
 
     with stage("expansion", f"orders {list(cfg.expand.orders)}"):
         expansion = system.expand(
@@ -1866,19 +2270,10 @@ def _run_workflow(cfg: WorkflowConfig, stage):
         + (", lazy per-separation table" if props.is_lazy else "")
     )
 
-    # Mutual-exclusion: parallelism layers cannot nest because joblib's
-    # loky backend does not support nested process pools. Higher-level
-    # ``sweep.n_jobs`` (over Cartesian-product grid points) is forwarded
-    # to ``expansion.sweep``; lower-level ``expand.n_jobs`` (over
-    # diagrams within a single grid point) is forwarded as
-    # ``evaluate_n_jobs``. The downstream :meth:`Expansion.sweep` enforces
-    # the ``exactly one of {n_jobs, evaluate_n_jobs} > 1`` invariant.
-    if int(cfg.expand.n_jobs) != 1 and int(cfg.sweep.n_jobs) != 1:
-        raise ValueError(
-            "Specify exactly one of {expand.n_jobs > 1, sweep.n_jobs > 1}; "
-            "nested joblib loky pools are not supported."
-        )
-
+    # ``sweep.n_jobs`` (over Cartesian-product grid points) is forwarded to
+    # ``expansion.sweep``; ``expand.n_jobs`` (over diagrams within a single
+    # grid point) is forwarded as ``evaluate_n_jobs``.  check_before_run
+    # refused the two together; :meth:`Expansion.sweep` enforces it too.
     with stage("sweep", f"method={cfg.sweep.method}"):
         sweep = expansion.sweep(
             props,

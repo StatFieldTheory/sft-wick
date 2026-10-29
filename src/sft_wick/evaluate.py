@@ -8536,6 +8536,11 @@ def integrate_moment(
         )
 
 
+#: The ``method`` values :func:`_integrate_moment_dispatch` accepts; the
+#: YAML parser and the workflow schema read them from here.
+INTEGRATION_METHODS = ("qmc_vectorized", "qmc", "qmc_scalar", "gauss_legendre", "nquad")
+
+
 def _integrate_moment_dispatch(
     integrand: DiagramIntegrand,
     lambda_f: float,
@@ -8715,8 +8720,7 @@ def _integrate_moment_dispatch(
         )
     else:
         raise ValueError(
-            f"Unknown method {method!r}; use 'qmc', 'qmc_scalar', "
-            f"'qmc_vectorized', 'nquad', or 'gauss_legendre'"
+            f"Unknown method {method!r}; use one of {list(INTEGRATION_METHODS)}"
         )
 
 

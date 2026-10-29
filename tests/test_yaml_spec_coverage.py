@@ -803,14 +803,19 @@ def test_YC8_override_reaches_a_list_entry(tmp_path):
     assert loaded.system.linear["gamma"] == [1.25]
 
 
-@pytest.mark.parametrize("key", ["output[2].path", "output[0].missing",
-                                 "system[0].linear"])
-def test_YC8_override_of_a_missing_entry_raises(tmp_path, key):
+@pytest.mark.parametrize("key,match", [
+    ("output[2].path", r"^output\[2\]: output has 1 entry"),
+    ("output[0].missing", r"^output\[0\]\.missing: unknown key"),
+    ("system[0].linear", r"^system\[0\]: system is a mapping, not a list"),
+])
+def test_YC8_override_of_a_missing_entry_raises(tmp_path, key, match):
+    """A list entry the file lacks, a key no block reads and an index into
+    a mapping raise a KeyError (a ConfigError since the schema)."""
     cfg = _base_config()
     cfg["output"] = [{"type": "table", "format": "csv", "path": "out.csv"}]
     path = tmp_path / "c.yaml"
     path.write_text(yaml.safe_dump(cfg))
-    with pytest.raises(KeyError, match="does not exist in config"):
+    with pytest.raises(KeyError, match=match):
         load_workflow_config(path, overrides={key: "x"})
 
 
@@ -869,7 +874,7 @@ def test_YC10_misspelt_sweep_key_is_refused(tmp_path, typo, value):
     cfg["sweep"][typo] = value
     path = tmp_path / "c.yaml"
     path.write_text(yaml.safe_dump(cfg))
-    match = rf"sweep: unknown key\(s\) \['{typo}'\]"
+    match = rf"^sweep\.{typo}: unknown key"
     with pytest.raises(ValueError, match=match):
         load_workflow_config(path)
     # The override path checks that a key exists, which a misspelt key in
@@ -883,12 +888,10 @@ def test_YC10_every_sweep_key_is_accepted_and_read(tmp_path):
     ``component_tuples``, and each optional key reaches its field."""
     import dataclasses
 
-    from sft_wick.workflow.config import (_SWEEP_KEYS, _SWEEP_OPTIONAL_KEYS,
-                                          SweepConfig)
+    from sft_wick.workflow.config import _SWEEP_KEYS, SweepConfig
 
     fields = {f.name for f in dataclasses.fields(SweepConfig)}
     assert _SWEEP_KEYS == fields | {"component_tuples"}
-    assert _SWEEP_OPTIONAL_KEYS <= _SWEEP_KEYS
     required = {"positions_grid", "t_final_grid", "component_tuples",
                 "component_pairs"}
     assert set(_SWEEP_VALUES) == _SWEEP_KEYS - required
@@ -916,20 +919,20 @@ def test_YC10_every_sweep_key_is_accepted_and_read(tmp_path):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("block,typo,where", [
-    pytest.param((), "swep", r"config \(top level\)", id="swep"),
-    pytest.param(("system",), "t_minn", "system", id="t_minn"),
-    pytest.param(("system",), "local_vertices", "system",
+    pytest.param((), "swep", "", id="swep"),
+    pytest.param(("system",), "t_minn", r"system\.", id="t_minn"),
+    pytest.param(("system",), "local_vertices", r"system\.",
                  id="local_vertices"),
-    pytest.param(("system", "field"), "n_component", "system.field",
+    pytest.param(("system", "field"), "n_component", r"system\.field\.",
                  id="n_component"),
-    pytest.param(("system", "noise"), "sigma_2", "system.noise",
+    pytest.param(("system", "noise"), "sigma_2", r"system\.noise\.",
                  id="sigma_2"),
-    pytest.param(("expand",), "ordrs", "expand", id="ordrs"),
-    pytest.param(("expand",), "diag_c", "expand", id="diag_c"),
-    pytest.param(("propagators",), "n_grid_tt", "propagators",
+    pytest.param(("expand",), "ordrs", r"expand\.", id="ordrs"),
+    pytest.param(("expand",), "diag_c", r"expand\.", id="diag_c"),
+    pytest.param(("propagators",), "n_grid_tt", r"propagators\.",
                  id="n_grid_tt"),
-    pytest.param(("propagators",), "c_methd", "propagators", id="c_methd"),
-    pytest.param(("output", 0), "fromat", r"output\[0\]", id="fromat"),
+    pytest.param(("propagators",), "c_methd", r"propagators\.", id="c_methd"),
+    pytest.param(("output", 0), "fromat", r"output\[0\]\.", id="fromat"),
 ])
 def test_YC11_misspelt_key_is_refused_in_every_block(tmp_path, block, typo,
                                                      where):
@@ -945,8 +948,7 @@ def test_YC11_misspelt_key_is_refused_in_every_block(tmp_path, block, typo,
     node[typo] = 0.5
     path = tmp_path / "c.yaml"
     path.write_text(yaml.safe_dump(cfg))
-    with pytest.raises(ValueError,
-                       match=rf"^{where}: unknown key\(s\) \['{typo}'\]"):
+    with pytest.raises(ValueError, match=rf"^{where}{typo}: unknown key"):
         load_workflow_config(path)
 
 
@@ -1044,8 +1046,9 @@ def test_YC12_misspelt_point_in_positions_grid_is_refused(tmp_path):
     path.write_text(yaml.safe_dump(cfg))
     with pytest.raises(
         ValueError,
-        match=r"^sweep\.positions_grid: position\(s\) given for \['yy'\]"
-        r".*\['x', 'y'\]",
+        match=r"^sweep\.positions_grid\.yy: a position for a point "
+        r"expand\.observable does not name; its points are \['x', 'y'\]; "
+        r"did you mean 'y'\?",
     ):
         load_workflow_config(path)
 

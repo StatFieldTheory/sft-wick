@@ -108,7 +108,13 @@ sft-wick run quickstart.yaml                   # full pipeline, progress bars
 sft-wick run quickstart.yaml --override sweep.seed=7
 sft-wick run quickstart.yaml --dry-run         # validate + cost estimate
 sft-wick run quickstart.yaml --quiet           # no bars / banners
+sft-wick validate quickstart.yaml              # check the config, run nothing
+sft-wick schema                                # JSON Schema of the config files
 ```
+
+A misspelt key stops the command with exit status 2 and one line that
+names it, e.g. `sft-wick: config error [unknown_key] system.t_mni: unknown
+key; did you mean 't_min'?`.
 
 The next step up is `examples/demo1_config.yaml` (orders 0, 2 and 4;
 four separations; the sweep behind the paper's Gaussian-noise figures),

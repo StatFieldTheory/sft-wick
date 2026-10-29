@@ -55,6 +55,10 @@ dev = [
     # passing on any developer machine that happened to have mpmath -- the
     # catalogue claiming a verification that never ran.
     "mpmath>=1.3",
+    # The workflow JSON Schema is checked with the reference validator
+    # (tests/test_workflow_schema.py, test_workflow_corpora.py); the package
+    # itself does not import it.
+    "jsonschema>=4.0",
 ]
 docs = [
     "sphinx>=7.0",

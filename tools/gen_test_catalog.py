@@ -1141,6 +1141,37 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "integrals; demo 3's Campbell closed form",
         "exact (YAML vs L1) / 1e-9 - 1e-6",
     ),
+    "tests/test_workflow_schema.py": (
+        "Workflow and YAML",
+        "the workflow JSON Schema: a valid 2020-12 document; keys, defaults "
+        "and required keys of each block against its config dataclass; the "
+        "keys of every block and type variant against the parser in both "
+        "directions; value enumerations; every shipped config validates",
+        "config dataclass field sets; the parser's own key check and value "
+        "checks; the jsonschema reference validator",
+        "exact",
+    ),
+    "tests/test_workflow_corpora.py": (
+        "Workflow and YAML",
+        "every single-edit misspelling (deletion, transposition, "
+        "substitution) of every key in every shipped config refused with "
+        "its dotted path and the key meant (substitutions outside the quick "
+        "start marked slow); every key a shipped config leaves out, set by "
+        "override, gives the result of writing it into the file",
+        "the parsed WorkflowConfig of the edited file, written out field by "
+        "field; the jsonschema reference validator",
+        "exact",
+    ),
+    "tests/test_workflow_cli.py": (
+        "Workflow and YAML",
+        "sft-wick config errors: exit status 2 and one stderr line with code, "
+        "dotted path and suggestion; validate, schema and --print-resolved; "
+        "overrides of keys the file leaves out; SFT_WICK_STRICT=0; the "
+        "ConfigError / OverrideError types",
+        "the parsed config; an edited copy of the file; a real subprocess "
+        "for the exit status",
+        "exact",
+    ),
     "tests/test_workflow_config.py": (
         "Workflow and YAML",
         "YAML → System lowering, run_workflow, overrides, dt, parallel "

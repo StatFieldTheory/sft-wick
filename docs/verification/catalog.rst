@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **5736 tests** in 124 files (parametrised
+The suite has **5914 tests** in 127 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -552,7 +552,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*773 tests in 22 files.*
+*951 tests in 25 files.*
 
 .. list-table::
    :header-rows: 1
@@ -663,11 +663,26 @@ Workflow and YAML
      - raw L0 pipeline (validate_phase5); closed forms
      - 1e-6
      - 15
+   * - ``test_workflow_cli.py``
+     - sft-wick config errors: exit status 2 and one stderr line with code, dotted path and suggestion; validate, schema and --print-resolved; overrides of keys the file leaves out; SFT_WICK_STRICT=0; the ConfigError / OverrideError types
+     - the parsed config; an edited copy of the file; a real subprocess for the exit status
+     - exact
+     - 93
    * - ``test_workflow_config.py``
      - YAML → System lowering, run_workflow, overrides, dt, parallel layers, closed-form-only path, explicit R, callable modules and by-value hook transport to an existing worker pool
      - L1 flow on the same physics; isolated hook unavailable to workers
      - 1e-6 / 2e-2 (spline vs exact C); exact (hook transport)
      - 33
+   * - ``test_workflow_corpora.py``
+     - every single-edit misspelling (deletion, transposition, substitution) of every key in every shipped config refused with its dotted path and the key meant (substitutions outside the quick start marked slow); every key a shipped config leaves out, set by override, gives the result of writing it into the file
+     - the parsed WorkflowConfig of the edited file, written out field by field; the jsonschema reference validator
+     - exact
+     - 24
+   * - ``test_workflow_schema.py``
+     - the workflow JSON Schema: a valid 2020-12 document; keys, defaults and required keys of each block against its config dataclass; the keys of every block and type variant against the parser in both directions; value enumerations; every shipped config validates
+     - config dataclass field sets; the parser's own key check and value checks; the jsonschema reference validator
+     - exact
+     - 61
    * - ``test_yaml_spec_coverage.py``
      - the L1 specs YAML could not express: custom temporal / spatial / angular kernels, a matrix-valued explicit R, a matrix ConstantImpulse; validation of the vertex, kernel and sigma2 blocks; a misspelt key refused in every block; overrides into list entries
      - the equivalent L1 System; scipy quadrature of the defining C integrals; demo 3's Campbell closed form
