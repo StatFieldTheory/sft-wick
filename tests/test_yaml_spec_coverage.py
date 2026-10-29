@@ -1248,3 +1248,51 @@ def test_YC17_an_isotropy_flag_whose_condition_fails_is_refused(tmp_path,
     cfg["system"]["vertices"] = [{"name": "F", "coupling": _F_TENSOR}]
     with pytest.raises(ValueError, match="iso_C=True|iso_R=True"):
         _run(tmp_path, cfg)
+
+
+@pytest.mark.parametrize("old,new,path", [
+    pytest.param("system:\n", "system:\n  <<: {t_min: 0.5, t_min: 0.0}\n",
+                 "system.t_min", id="inline-mapping"),
+    pytest.param("system:\n", "system:\n  <<: [{t_min: 0.5, t_min: 0.0}]\n",
+                 "system.t_min", id="inline-list"),
+    pytest.param("system:\n",
+                 "system:\n  <<: [{t_min: 0.5}, {t_min: 0.2, t_min: 0.0}]\n",
+                 "system.t_min", id="second-source-of-a-list"),
+    pytest.param("system:\n",
+                 "system:\n  <<: {<<: {t_min: 0.5, t_min: 0.0}}\n",
+                 "system.t_min", id="merge-inside-a-merge-source"),
+    pytest.param("  - {type: table, format: markdown}\n",
+                 "  - <<: &t {type: table, format: markdown, format: csv}\n",
+                 "output[0].format", id="anchor-defined-in-the-merge"),
+    pytest.param("{x: [0.0], y: [0.0, 0.5, 1.5]}",
+                 "{<<: {y: [0.5], y: [0.0]}, x: [0.0]}",
+                 "sweep.positions_grid.y", id="point-in-a-merge-source"),
+])
+def test_YC14_a_key_written_twice_in_a_merge_source_is_refused(
+        tmp_path, old, new, path):
+    """A mapping written in place as the value of ``<<:`` was not walked,
+    so a key written twice in it kept the last value (``t_min = 0.0``, the
+    point ``y`` at 0.0) and ``sft-wick validate`` reported the file
+    valid."""
+    from sft_wick.workflow.config import ConfigError
+
+    text = _QUICKSTART.read_text()
+    assert text.count(old) == 1
+    with pytest.raises(ConfigError) as info:
+        load_workflow_config(_write(tmp_path, "c.yaml",
+                                    text.replace(old, new)))
+    assert (info.value.code, info.value.path) == ("duplicate_key", path)
+    assert "\n" not in str(info.value)
+
+
+@pytest.mark.parametrize("merge,t_min", [
+    ("  <<: {t_min: 0.5}\n  t_min: 0.25\n", 0.25),     # explicit key wins
+    ("  <<: [{t_min: 0.5}, {t_min: 0.25}]\n", 0.5),    # earlier source wins
+    ("  <<: {<<: {t_min: 0.5}, t_min: 0.25}\n", 0.25), # override in a source
+])
+def test_YC14_merge_overrides_still_apply(tmp_path, merge, t_min):
+    """Overrides that YAML's merge defines stay accepted: a key after the
+    merge, the earlier of two sources, a key over a nested merge."""
+    text = _QUICKSTART.read_text().replace("system:\n", "system:\n" + merge)
+    loaded = load_workflow_config(_write(tmp_path, "c.yaml", text))
+    assert loaded.system.t_min == t_min

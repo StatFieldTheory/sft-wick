@@ -516,3 +516,26 @@ def test_real_dynamic_qmc_relative_module_ignores_stale_bytecode(tmp_path):
         row["order"] == 2 and row["value"] != 0
         for row in report["runs"][0]["result"]["rows"]
     )
+
+
+@pytest.mark.parametrize("text", [
+    "case: {<<: {a: 1, a: 2}}",
+    "case: {<<: [{a: 1, a: 2}]}",
+    "case: {<<: [{a: 1}, {b: 2, b: 3}]}",
+    "case: {<<: &d {a: 1, a: 2}}",
+    "case: {<<: {<<: {a: 1, a: 2}}}",
+], ids=["inline-mapping", "inline-list", "second-source", "anchor-in-merge",
+        "nested-merge"])
+def test_duplicate_keys_inside_a_merge_source(text):
+    """A mapping written in place as the value of ``<<:`` was flattened
+    without the duplicate check, so ``{a: 1, a: 2}`` gave ``a: 2``."""
+    with pytest.raises(ValueError, match="duplicate mapping key '[ab]'"):
+        rc._safe_mapping(text, "variants")
+
+
+def test_merge_overrides_still_apply():
+    case = rc._safe_mapping("case: {<<: [{a: 1}, {a: 2, b: 3}], c: 4}",
+                            "config")
+    assert case["case"] == {"a": 1, "b": 3, "c": 4}
+    nested = rc._safe_mapping("case: {<<: {<<: {a: 1}, a: 5}}", "config")
+    assert nested["case"] == {"a": 5}

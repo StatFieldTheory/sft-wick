@@ -150,7 +150,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     ),
     "tests/test_resource_compare.py": (
         "Workflow and YAML",
-        "strict resource variants, complete ordered result/stability gates, input protection, fresh serial measurement and failure receipts",
+        "strict resource variants, complete ordered result/stability gates, input protection "
+        "(duplicate keys, also in merged mappings), fresh serial measurement and failure receipts",
         "adversarial metadata/error/cancellation/nonfinite/overflow probes; true GL/QMC subprocesses and stale-bytecode witness",
         "exact repeat/QMC gates; explicit 1e-12 relative and 1e-14 absolute GL budget",
     ),

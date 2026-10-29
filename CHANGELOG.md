@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed: `compare-resources` kept the last of a key written twice in a merged mapping
+
+`sft-wick compare-resources` refuses a key written twice in its config and
+variants files, but a mapping merged in with `<<:` and written in place
+was flattened without the check, so `case: {<<: {a: 1, a: 2}}` gave
+`a: 2`.  It is refused now; overrides that the merge defines stay.
+
 ### Fixed: a quoted `"false"` switched a flag on
 
 **Breaking (a value that is not a flag).**  `expand.response_phase`, `ito`,
@@ -23,8 +30,10 @@ does not read).**
   `duplicate_key`, its dotted path and both line numbers.  YAML keeps the
   last, so a second `n_samples`, or a misspelling that gives a key the
   block already holds (`y` for `x`), replaced the first without a message.
-  A key that overrides one brought in by a `<<: *anchor` merge is not a
-  duplicate.
+  A mapping merged in with `<<:` is checked as well, also when it is
+  written in place (`<<: {t_min: 0.5, t_min: 0.0}`, a list of such
+  mappings, or `<<: &anchor {...}`).  A key that overrides one brought in
+  by the merge, or the earlier of two merged mappings, is not a duplicate.
 * A spatial grid key of `propagators` that the run would not read is
   refused before the run: one for another homogeneity, or `r_max` without
   `n_grid_r` (`x_max` without `n_grid_x`, and the reverse).  `n_grid_t`
