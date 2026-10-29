@@ -77,15 +77,32 @@ def _safe_mapping(text, label):
     class UniqueLoader(yaml.SafeLoader):
         pass
 
-    def construct(loader, node, deep=False):
+    merge = "tag:yaml.org,2002:merge"
+
+    def refuse_repeats(loader, node, deep):
+        """Refuse a key written twice in ``node`` or in a mapping it merges
+        in with ``<<:``, which flatten_mapping reads without constructing it.
+        Each merged mapping is checked on its own, so a key overriding a
+        merged one, or the earlier of two merged mappings, stays legal."""
         explicit = set()
         for key_node, value_node in node.value:
-            if key_node.tag == "tag:yaml.org,2002:merge":
+            if key_node.tag == merge:
+                sources = (
+                    value_node.value
+                    if isinstance(value_node, yaml.SequenceNode)
+                    else [value_node]
+                )
+                for source in sources:
+                    if isinstance(source, yaml.MappingNode):
+                        refuse_repeats(loader, source, deep)
                 continue
             key = loader.construct_object(key_node, deep=deep)
             if key in explicit:
                 raise ValueError(f"{label}: duplicate mapping key {key!r}")
             explicit.add(key)
+
+    def construct(loader, node, deep=False):
+        refuse_repeats(loader, node, deep)
         loader.flatten_mapping(node)
         mapping = {}
         for key_node, value_node in node.value:

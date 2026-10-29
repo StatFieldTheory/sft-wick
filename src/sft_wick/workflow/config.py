@@ -407,9 +407,10 @@ def _load_yaml(stream):
 
     YAML keeps the last of two equal keys, so a second ``n_samples``, or a
     misspelling that gives a key the block already holds (``y`` for ``x``,
-    ``diag_C`` for ``diag_R``), replaced the first without a word.  A key
-    that overrides one brought in by a ``<<: *anchor`` merge is YAML's
-    merge, not a duplicate.
+    ``diag_C`` for ``diag_R``), replaced the first without a word.  A
+    mapping merged in with ``<<:`` is checked too, also when it is written
+    in place.  A key that overrides one brought in by the merge, or the
+    earlier of two merged mappings, is YAML's merge, not a duplicate.
     """
     import yaml
 
@@ -440,6 +441,17 @@ def _refuse_duplicate_keys(loader, node, where: str, seen: set) -> None:
     lines: dict = {}
     for key_node, value_node in node.value:
         if key_node.tag == _MERGE_TAG:
+            # The mapping, or each mapping of a list, merged in here: its
+            # keys land in this mapping, so it is walked with this path.
+            # Each source is checked on its own; a key of this mapping or
+            # of an earlier source overriding it is YAML's merge.
+            sources = (
+                value_node.value
+                if isinstance(value_node, yaml.SequenceNode)
+                else [value_node]
+            )
+            for source in sources:
+                _refuse_duplicate_keys(loader, source, where, seen)
             continue
         key = loader.construct_object(key_node, deep=True)
         try:

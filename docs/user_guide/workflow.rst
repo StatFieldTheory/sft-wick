@@ -1971,8 +1971,9 @@ one line on standard error:
 
 The code in brackets is one of ``unknown_key``, ``unknown_point`` (a
 ``sweep.positions_grid`` name the observable does not use),
-``duplicate_key`` (a key written twice in one mapping, which YAML
-would read as the last value), ``invalid_value``, ``override_syntax``,
+``duplicate_key`` (a key written twice in one mapping, or in a
+mapping merged in with ``<<:``, which YAML would read as the last
+value), ``invalid_value``, ``override_syntax``,
 ``override_path`` (an override through a value or past the end of a
 list) and ``read_error`` (the file, or a module it names, cannot be
 read).  The suggestion lists
