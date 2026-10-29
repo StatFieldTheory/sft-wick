@@ -482,6 +482,29 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "array, and per sample",
         "1e-12; 5e-4 through the 10 x 10 table; bit equality",
     ),
+    "tests/test_custom_cache_aliasing.py": (
+        "Integrators",
+        "a 0-d array t_max with an R_time that writes into its time argument, "
+        "in select_gl_node_count and the lazy general and translation tables; "
+        "C_value with object-dtype positions and a C hook returning one "
+        "buffer, at L0 and L1; user-written caches (subclass, subclass with "
+        "the lookup bank, forwarding wrapper) whose C_diagonal_batch, "
+        "C_matrix_batch, C_at_batch or R_matrix_batch return one buffer, on "
+        "gauss_legendre and qmc_vectorized at order 2, in "
+        "integrate_two_point_qmc and in the zero-dimensional branch; batch "
+        "methods writing into their time arguments; a C_at_batch writing into "
+        "its position arguments, through Expansion.evaluate, C_value and "
+        "integrate_two_point_qmc; a C_value or C_diagonal writing into its "
+        "position arguments, at order 0 on every integrator, at order 2 on "
+        "qmc_scalar, in integrate_two_point_qmc and in the legacy "
+        "precompute_C_table; the legacy table with a 0-d array t_max",
+        "erf inner and 48-node Gauss-Legendre outer time integral of the "
+        "Gaussian temporal kernel with a dense R, checked against scipy "
+        "dblquad; the same cache returning fresh arrays and reading its "
+        "arguments only; the plain R with a float t_max",
+        "1e-13 off the legacy grid; 1e-12; 1e-6 at table nodes; 2e-4 through "
+        "the 16 x 16 table; bit equality; ValueError on a write",
+    ),
     "tests/test_d_dim_spatial.py": (
         "Propagator numerics",
         "vector positions through the L1 evaluate path; C hooks that "
