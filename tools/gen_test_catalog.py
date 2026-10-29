@@ -497,13 +497,34 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "integrate_two_point_qmc; a C_value or C_diagonal writing into its "
         "position arguments, at order 0 on every integrator, at order 2 on "
         "qmc_scalar, in integrate_two_point_qmc and in the legacy "
-        "precompute_C_table; the legacy table with a 0-d array t_max",
+        "precompute_C_table; the legacy table with a 0-d array t_max; "
+        "read-only time arrays into every batch method on every path (C_value "
+        "and C_diagonal, the zero-dimensional branch of three integrators, "
+        "the translation fallback of C_at_batch) and into _lazy_lookup and "
+        "_on_diagonal overrides, with the caller's arrays left writable; an "
+        "R_product writing into its times dict, on five integrators, in a "
+        "direct DiagramIntegrand.evaluate and in make_scipy_integrand",
         "erf inner and 48-node Gauss-Legendre outer time integral of the "
         "Gaussian temporal kernel with a dense R, checked against scipy "
         "dblquad; the same cache returning fresh arrays and reading its "
         "arguments only; the plain R with a float t_max",
         "1e-13 off the legacy grid; 1e-12; 1e-6 at table nodes; 2e-4 through "
         "the 16 x 16 table; bit equality; ValueError on a write",
+    ),
+    "tests/test_trusted_cache_delegates.py": (
+        "Integrators",
+        "package cache methods trusted by identity whose delegates a subclass "
+        "overrides: a SpectralPropagatorCache _c_matrix writing into its "
+        "positions, at orders 0 and 2 on gauss_legendre, qmc_vectorized and "
+        "qmc_scalar, an nquad sweep and without a table; _assemble_C, "
+        "_lazy_lookup and _closed_form_at_batch_diag returning one buffer, "
+        "with and without the lookup bank and in integrate_two_point_qmc; an "
+        "override in front of _C_value_direct writing into its positions",
+        "closed-form spectral C of a two-node density; the erf and "
+        "Gauss-Legendre C of test_custom_cache_aliasing; the same subclass "
+        "without the write or the buffer; the plain cache",
+        "1e-13 (closed form); 2e-4 through the 16 x 16 table; 1e-12; bit "
+        "equality",
     ),
     "tests/test_d_dim_spatial.py": (
         "Propagator numerics",
