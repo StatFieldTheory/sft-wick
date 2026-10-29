@@ -438,6 +438,12 @@ class SpectralPropagatorCache(PropagatorCache):
     ``_c_splines`` is set to a sentinel because the batch integrators use it to
     mean "batch C is available"; the scalar accessors are overridden alongside
     so nothing tries to read a table range that does not exist.
+
+    ``C_value`` returns ``_c_matrix``.  A subclass that overrides
+    ``_c_matrix`` (to make C depend on position, say) gets copies of the
+    positions from the integrators, which read them again.  ``C_diagonal``
+    and ``C_diagonal_batch`` do not call ``_c_matrix``, so such a subclass
+    overrides them as well.
     """
 
     def __init__(

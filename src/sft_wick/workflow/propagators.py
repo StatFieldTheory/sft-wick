@@ -427,12 +427,18 @@ def propagators_from_cache(cache) -> "Propagators":
     of which system it was meant for.  It IS checked at use, in
     :meth:`Expansion.evaluate`, where both numbers are known.
 
-    A cache that overrides the batch methods may return one reused buffer,
-    because the integrators copy the batches they keep.  Its batch methods
-    must not write into their time arguments: where an integrator reads a
-    time batch again it passes it read-only, and a write raises
-    ``ValueError``.  Its ``C_at_batch``, ``C_value`` and ``C_diagonal``
-    receive copies of array positions.
+    A cache that overrides the batch methods, or a method whose array the
+    package's ``C_at_batch`` returns (``_assemble_C``, ``_lazy_lookup``,
+    ``_closed_form_at_batch_diag``), may return one reused buffer, because
+    the integrators copy the batches they keep.  Its batch methods must not
+    write into their time arguments: every time array the package passes to
+    a batch method, or on to ``_lazy_lookup``,
+    ``_closed_form_at_batch_diag`` and ``_on_diagonal``, is read-only, and a
+    write raises ``ValueError``.  Its ``C_at_batch``, ``C_value`` and
+    ``C_diagonal`` receive copies of array positions, as does ``C_value`` on
+    a ``SpectralPropagatorCache`` subclass that overrides ``_c_matrix``.  Its
+    ``R_product`` receives a copy of the times dict.  ``_C_value_direct``
+    receives copies of its array arguments.
     """
     return Propagators(cache=cache, homogeneity="translation", is_lazy=False)
 
