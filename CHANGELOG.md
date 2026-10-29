@@ -249,9 +249,17 @@ non-string label and a numeric literal label.  A set or frozenset
 observable came in hash order, so `PYTHONHASHSEED` decided which component
 of the tuple belonged to which operator (-0.06211 or -0.14544 at `(0, 1)`);
 it raises `ValueError`.  A dict's keys view keeps the dict's insertion order
-and is accepted.
+and is accepted; the keys view of another mapping, which may follow hash
+order, raises.
 
 ### Fixed: user callables that write into their arguments or return one buffer
+
+Each site below returned a wrong value without an error when a user
+callable wrote into an array the package reads again, or returned one
+buffer that the package kept across a later call.  Callables that do
+neither give the same values as before.
+
+Propagator hooks (L0, and L1 or L2 where a hook reaches it):
 
 * A closed-form C hook (`c_value_fn`, a `c_closed_form`, an override of
   `_C_value_direct`) received arrays the package reads again: the caller's
@@ -276,10 +284,96 @@ and is accepted.
   factor, which allocates, and was not affected.
 * A κ² that returned one buffer gave the diagonal-cusp probe three equal
   values, so `dblquad` integrated a `|Δt|` cusp without the split (7.9e-8
-  relative instead of 1.9e-16, 38 times slower).
+  relative instead of 1.9e-16, 38 times slower).  `integrate_two_point_qmc`
+  divided κ² at a separation by the κ² at zero separation it had kept, so
+  the value at separation 0.8 was 2.23 times too large at orders 0 and 2.
+* The Gauss-Legendre C quadrature kept `R(t1, λ1)` while it called
+  `R(t2, λ2)`: a dense `ExplicitR` returning one buffer gave C_00 48 % high
+  and C_10 of the wrong sign, with and without white noise.  `dblquad` was
+  not affected.  The YAML R probe compared `R(t1, t2)` after `R(t2, t1)` had
+  overwritten it, so an R without the Heaviside factor loaded when it
+  reused a buffer.
 
-Every value the package keeps is now a copy.  Callables that neither write
-into their arguments nor reuse a buffer give the same values.
+Spec wrappers (L1 and L2):
+
+* A callable `DiagonalA` rate that filled and returned one buffer gave every
+  row of the Γ grid the rate at `t_max_cache`.  On a two-component rate,
+  R(2.7, 1.1) came out 0.1264 and 0.4643 against the exact 0.1389 and
+  0.2666; in `Expansion.evaluate` order 0 moved by -8.9 % and +53 %, order 2
+  at (1, 1) by +129 %, and order 2 at (0, 1) changed sign.  Through YAML
+  `gamma_module`, a rate whose components meet only at `t_max_cache` made a
+  matrix R scalar, so component 1 got the response of component 0.
+* `SeparableTranslation` and `SeparableRotation` given raw callables (not
+  `CustomKernel`) kept the temporal value while they called the spatial or
+  angular kernel.  Two kernels filling one buffer made κ² the square of the
+  second factor (0.3282 against 0.0767).  The order-0 C at distinct points
+  came out 76 % (C_00) and 78 % (C_11) high on the lazy translation table,
+  6.5 % and 8.2 % high on the full table, and 1.5 % low (C_00) in rotation;
+  order 2 moved by up to 141 %.  YAML `type: custom` and the built-in
+  kernels return floats and were not affected.
+
+Custom propagator caches (L1 through `propagators_from_cache`, and L0):
+
+* The batched integrators (`gauss_legendre`, `qmc_vectorized`,
+  `integrate_two_point_qmc`, the zero-dimensional branch) keep one batch per
+  C and matrix-R factor while they ask for the next.  A cache that overrides
+  a batch method, or is not a `PropagatorCache`, and reuses one output
+  buffer gave every kept factor the last batch: 2.8 times the order-2 value
+  through `C_at_batch`, +16.5 % through `R_matrix_batch`, -1.2 % through
+  `C_diagonal_batch`, -5.5 % and -12.5 % in the zero-dimensional branch.
+  The outputs of batch methods other than the package's own are now copied.
+* The same integrators passed time batches they read again, so a batch
+  method forming the lag in place (`t1 -= t2`) changed every later factor:
+  -72 % through `R_matrix_batch`, -59 % through `R_time_batch`, -63 % in
+  `integrate_two_point_qmc`.  **Breaking (custom caches)**: those batches
+  are now read-only, and such a write raises `ValueError`, as does a Cython
+  memoryview over them declared without `const`.
+* A custom `C_at_batch`, `C_value` or `C_diagonal` received the caller's
+  position arrays, one object for both ends of a C inside a direction group.
+  One forming the separation in place zeroed the caller's positions or
+  turned `x` into `x - y`: 3.2 times the order-2 value through `C_at_batch`,
+  and at orders 0 and 2 through `C_value` -43 % on `gauss_legendre` and 2.5
+  times the value on `qmc_scalar`.  These methods now receive copies of
+  array and list positions; the package's own accessors copy nothing.
+* `PropagatorCache.C_value` with object-dtype positions returned the C
+  hook's own array, so a `c_value_fn` reusing a buffer changed an earlier
+  result (C_01 from -0.0235 to -0.0075).
+* `select_gl_node_count`, `resolve_c_method` and the C table builders passed
+  the caller's `t_max` object to R and kept it as the table range.  A 0-d
+  array `t_max` and an R writing into its time argument moved `t_max` from
+  2.1 to 1.58, chose `dblquad` instead of Gauss-Legendre and changed C by
+  up to 23 % (L0).  `t_max` is now converted to a float.
+
+Spectral densities, self-consistency, R-contracted vertices:
+
+* `SpectralDensity.from_callable` called `rho(h)` and then built the nodes
+  from the same `h`.  A `rho` shifting its argument by 0.2 moved every node
+  by 0.2, and one filling and returning its argument made the nodes the
+  density values: the order-0 C_11 through `spectral_cache` came out 51 %
+  high and 12.8 times too large.  `rho` now receives a copy, and a `rho`
+  that reorders its argument in place raises `ValueError`.
+* `SpectralDensity.average` passed the density's own nodes to `f`.  An `f`
+  doubling its argument in place moved the nodes of the frozen, hashed
+  density, so a later average gave 0.0157 against 0.0907 and a cache built
+  earlier gave 0.108 of its order-0 value.  `f` now receives a copy, and the
+  stored nodes and weights are read-only, also after pickle, joblib and
+  `copy.deepcopy`.
+* `solve_self_consistency` handed a user distance the live states, the
+  callback the live state after mixing, and iterated on the caller's
+  `initial` itself.  On a linear contraction that converges in 27
+  iterations, a distance subtracting in place diverged after 6, one sorting
+  in place reported convergence 2.8 from the fixed point, and a callback
+  rounding in place ended at `max_iter`.  A step that fills and returns its
+  own buffer, started from that buffer, reported convergence after one
+  iteration with a residual of 0.  The distance and the callback now
+  receive copies and the loop starts from a copy of `initial`, so a callback
+  can no longer steer the iteration by writing into the state.
+* `build_R_contracted_callable` passed the caller's positions to each of its
+  raw-kernel calls and kept `chi_grid` by reference.  A raw kernel centring
+  its positions in place made the order-1 three-point function at L1
+  (`already_R_contracted=True`) 566 times too small, and a change to
+  `chi_grid` after the build changed every later value.  The wrapper now
+  keeps its own copies.
 
 ### Changed: the propagator disk cache covers built-in specs only
 
@@ -354,7 +448,8 @@ CPU time of a Gauss-Legendre evaluation.
 * `ExplicitR(vectorized=True)` and the YAML key
   `system.linear.R_time_vectorized: true` declare a user callable as
   vectorised.  The YAML loader calls it on arrays once and compares with its
-  scalar calls.
+  scalar calls, which it makes first, on floats, and copies, so an R that
+  reuses one buffer or uses its time arrays as scratch space loads.
 * A callable without the flag is now called once per distinct causal pair
   for a scalar R, as `R_matrix_batch` already did for a matrix R.
 

@@ -67,10 +67,13 @@ comparison command.*
   from 1 elsewhere; breaking, a literal outside ``1..n_components`` raises.
 - Fixed: ``System.expand`` raised on every ``FieldOperator`` observable,
   and a set observable came in hash order (it now raises).
-- Fixed: user callables (closed-form C, ``GeneralKappa2``,
-  ``CustomImpulse``, L0 couplings) that write into their arguments or
-  return one buffer gave wrong values without an error; the package now
-  copies what it reads again or keeps.
+- Fixed: user callables that write into their arguments or return one
+  buffer gave wrong values without an error: closed-form C hooks,
+  ``GeneralKappa2``, ``CustomImpulse``, ``ExplicitR``, L0 couplings, a
+  callable ``DiagonalA`` rate, raw separable kernels, custom propagator
+  caches, ``SpectralDensity``, ``solve_self_consistency`` and
+  ``build_R_contracted_callable``.  Breaking for custom caches: the time
+  batches their batch methods receive are read-only.
 - The propagator disk cache (``cache_path``) covers built-in specs only;
   systems with user callables compute their tables on every call.
 - Fixed: batch contractions dropped coefficients below ``1e-20`` in
