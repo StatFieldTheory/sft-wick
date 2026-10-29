@@ -373,11 +373,11 @@ mechanisms give other sizes.
   `C_matrix_batch` on `gauss_legendre`, `qmc_vectorized` and `nquad`
   (`qmc_scalar` looks C up with float times, which such a write leaves
   unchanged).  On a direct call the write changed the caller's arrays
-  (`[1.9, 1.7]` became `[0.45, 0.5]` through the translation fallback).  The legacy-table lookups of a direct
-  `C_value` or `C_diagonal` also read the times again after `_on_diagonal`:
-  with 0-d array times at 1.4 the write moved the caller's `t1` to 0, and
-  C_00 came out -82.4 %, the value at (0.7, 0.7).  These pass read-only
-  views too.
+  (`[1.9, 1.7]` became `[0.45, 0.5]` through the translation fallback).
+  The legacy-table lookups of a direct `C_value` or `C_diagonal` also read
+  the times again after `_on_diagonal`: with 0-d array times at 1.4 the
+  write moved the caller's `t1` to 0, and C_00 came out -82.4 %, the value
+  at (0.7, 0.7).  These pass read-only views too.
 * A custom `C_at_batch`, `C_value` or `C_diagonal` received the caller's
   position arrays, one object for both ends of a C inside a direction group.
   One forming the separation in place zeroed the caller's positions or
@@ -398,9 +398,9 @@ mechanisms give other sizes.
   to 0.0499 at the next lookup.  The integrators take each entry before the
   next lookup and were not affected.  The result is now copied when the
   lookup is not the package's own.
-* The integrators took `SpectralPropagatorCache.C_value` and
-  `PropagatorCache.C_at_batch` for the package's own whatever a subclass had
-  done to the methods they call.  `C_value` passes its positions to
+* The copies above did not reach a subclass that keeps
+  `SpectralPropagatorCache.C_value` or `PropagatorCache.C_at_batch` and
+  overrides a method they call.  `C_value` passes its positions to
   `_c_matrix`: one forming the separation in place turned the caller's `x`
   into `x - y` at order 0, so at orders 0 and 2 in one call the total came
   out -16.8 % on `gauss_legendre` and -17.0 % on `qmc_scalar` at component

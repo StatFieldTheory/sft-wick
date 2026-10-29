@@ -506,7 +506,8 @@ class SpectralPropagatorCache(PropagatorCache):
         # docstring).  The integrators copy the positions before this call
         # too (_c_lookup_positions); these copies cover a direct call.
         out = self._c_matrix(
-            _own_copy(n1), _own_copy(t1), _own_copy(n2), _own_copy(t2))
+            _own_copy(n1), _own_copy(t1), _own_copy(n2), _own_copy(t2)
+        )
         return np.array(out, copy=True)
 
     def C_diagonal(self, n, t1, n_prime=None, t2=None) -> np.ndarray:
