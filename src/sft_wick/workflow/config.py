@@ -217,6 +217,8 @@ class ConfigError(_ConfigMessage, ValueError):
     ``unknown_point``
         A ``sweep.positions_grid`` name that ``expand.observable`` does not
         use.
+    ``duplicate_key``
+        A key written twice in one mapping of the file.
     ``invalid_value``
         Any other refusal of the parser (``sft-wick`` also prints a plain
         ``ValueError`` or ``TypeError`` of the parser with this code).
@@ -377,7 +379,7 @@ def load_workflow_config(
             is an :class:`OverrideError`, also a ``KeyError``.
     """
     try:
-        import yaml
+        import yaml  # noqa: F401  (read by _load_yaml; checked here first)
     except ImportError as e:
         raise ImportError(
             "YAML workflow configs require PyYAML.  "
@@ -386,7 +388,7 @@ def load_workflow_config(
 
     path = Path(path)
     with path.open() as f:
-        data = yaml.safe_load(f)
+        data = _load_yaml(f)
     _require_mapping(data)
 
     if overrides:
@@ -394,6 +396,68 @@ def load_workflow_config(
             _apply_override(data, dotted_key, value)
 
     return _parse_workflow(data, base_dir=path.parent)
+
+
+_MERGE_TAG = "tag:yaml.org,2002:merge"
+
+
+def _load_yaml(stream):
+    """``yaml.safe_load(stream)``, refusing a key written twice in one
+    mapping.
+
+    YAML keeps the last of two equal keys, so a second ``n_samples``, or a
+    misspelling that gives a key the block already holds (``y`` for ``x``,
+    ``diag_C`` for ``diag_R``), replaced the first without a word.  A key
+    that overrides one brought in by a ``<<: *anchor`` merge is YAML's
+    merge, not a duplicate.
+    """
+    import yaml
+
+    loader = yaml.SafeLoader(stream)
+    try:
+        node = loader.get_single_node()
+        if node is None:
+            return None
+        _refuse_duplicate_keys(loader, node, "", set())
+        return loader.construct_document(node)
+    finally:
+        loader.dispose()
+
+
+def _refuse_duplicate_keys(loader, node, where: str, seen: set) -> None:
+    """Walk the composed YAML ``node``; ``where`` is its dotted path."""
+    import yaml
+
+    if id(node) in seen:  # an alias of a node already walked
+        return
+    seen.add(id(node))
+    if isinstance(node, yaml.SequenceNode):
+        for i, item in enumerate(node.value):
+            _refuse_duplicate_keys(loader, item, f"{where}[{i}]", seen)
+        return
+    if not isinstance(node, yaml.MappingNode):
+        return
+    lines: dict = {}
+    for key_node, value_node in node.value:
+        if key_node.tag == _MERGE_TAG:
+            continue
+        key = loader.construct_object(key_node, deep=True)
+        try:
+            hash(key)
+        except TypeError:
+            key = None
+        here = _join(where, key)
+        line = key_node.start_mark.line + 1
+        if key is not None and key in lines:
+            raise ConfigError(
+                "duplicate_key",
+                here,
+                f"written twice in one mapping, on lines {lines[key]} and "
+                f"{line}; YAML would keep only the last",
+            )
+        if key is not None:
+            lines[key] = line
+        _refuse_duplicate_keys(loader, value_node, here, seen)
 
 
 _OVERRIDE_SEGMENT = re.compile(r"^(?P<name>[^.\[\]]+)(?P<idx>(?:\[\d+\])*)$")
@@ -1452,13 +1516,13 @@ def _parse_expand(d: dict) -> ExpandConfig:
     return ExpandConfig(
         observable=tuple(obs),
         orders=orders,
-        response_phase=bool(d.get("response_phase", True)),
-        ito=bool(d.get("ito", True)),
-        collect_topology=bool(d.get("collect_topology", True)),
-        iso_R=d.get("iso_R"),
-        diag_R=bool(d.get("diag_R", True)),
-        diag_C=bool(d.get("diag_C", True)),
-        iso_C=bool(d.get("iso_C", False)),
+        response_phase=_flag(d, "response_phase", True, "expand"),
+        ito=_flag(d, "ito", True, "expand"),
+        collect_topology=_flag(d, "collect_topology", True, "expand"),
+        iso_R=None if d.get("iso_R") is None else _flag(d, "iso_R", None, "expand"),
+        diag_R=_flag(d, "diag_R", True, "expand"),
+        diag_C=_flag(d, "diag_C", True, "expand"),
+        iso_C=_flag(d, "iso_C", False, "expand"),
         cache_path=d.get("cache_path"),
         n_jobs=_converted(int, d.get("n_jobs", 1), "expand.n_jobs"),
         target=d.get("target", "moment"),
@@ -1528,13 +1592,15 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
         c_closed_form=c_closed_form,
         c_closed_form_module=module_spec,
         c_closed_form_attr=str(d.get("c_closed_form_attr", "C_fn")),
-        c_closed_form_only=bool(d.get("c_closed_form_only", False)),
-        c_closed_form_vectorized=bool(d.get("c_closed_form_vectorized", False)),
+        c_closed_form_only=_flag(d, "c_closed_form_only", False, "propagators"),
+        c_closed_form_vectorized=_flag(
+            d, "c_closed_form_vectorized", False, "propagators"
+        ),
         cache_path=d.get("cache_path"),
         interp_method=str(d.get("interp_method", "linear")),
         c_method=c_method,
         c_n_gauss=_converted(int, d.get("c_n_gauss", 20), "propagators.c_n_gauss"),
-        diag_C=bool(d.get("diag_C", True)),
+        diag_C=_flag(d, "diag_C", True, "propagators"),
     )
 
 
@@ -1674,6 +1740,15 @@ def _parse_output(d: dict, index: int = 0) -> OutputConfig:
         raise ValueError(
             f"output type must be one of 'table', 'npz', 'plot'; " f"got {t!r}."
         )
+    needs = {"npz": ("path",), "plot": ("path", "x")}.get(t, ())
+    for key in needs:
+        if d.get(key) is None:
+            # Checked here: npz and plot outputs are written after the sweep.
+            raise ConfigError(
+                "invalid_value",
+                f"output[{index}].{key}",
+                f"output type {t!r} requires {key!r}",
+            )
     fmt = str(d.get("format", "markdown"))
     if fmt not in _TABLE_FORMATS:
         # Checked here: the table is written only after the whole sweep.
@@ -2021,6 +2096,11 @@ _TRUE_WORDS = {"true", "yes", "on", "1"}
 _FALSE_WORDS = {"false", "no", "off", "0"}
 
 
+def _flag(d: dict, key: str, default: bool | None, block: str) -> bool:
+    """``d[key]`` (or ``default``) read as a flag; see :func:`_as_bool`."""
+    return _as_bool(d.get(key, default), f"{block}.{key}")
+
+
 def _as_bool(value: Any, where: str) -> bool:
     """A YAML flag as a bool.
 
@@ -2151,12 +2231,59 @@ def check_before_run(cfg: WorkflowConfig, system=None):
             "Specify exactly one of {expand.n_jobs > 1, sweep.n_jobs > 1}; "
             "nested joblib loky pools are not supported."
         )
+    _check_spatial_grid(cfg, system)
     module = cfg.propagators.c_closed_form_module
     if module is not None and not Path(module).is_file():
         raise FileNotFoundError(
             f"propagators.c_closed_form_module: no such file {module}"
         )
     return system
+
+
+#: The spatial grid keys of ``propagators`` each homogeneity reads; the keys
+#: of a pair are read only together (``Propagators.build``).
+_SPATIAL_GRIDS = {
+    "translation": ("r_max", "n_grid_r"),
+    "rotation": ("n_grid_cos",),
+    "general": ("x_max", "n_grid_x"),
+}
+
+
+def _check_spatial_grid(cfg: WorkflowConfig, system) -> None:
+    """Refuse a spatial grid key the run would not read: one for another
+    homogeneity, or one of a pair without the other.  ``n_grid_t``
+    misspelt as ``n_grid_r`` or ``n_grid_x`` used to be ignored this way,
+    leaving the default 60 time nodes."""
+    props = cfg.propagators
+    hom = props.homogeneity or system.homogeneity
+    read = _SPATIAL_GRIDS.get(hom, ())
+    given = [
+        k
+        for grid in _SPATIAL_GRIDS.values()
+        for k in grid
+        if getattr(props, k) is not None
+    ]
+    for key in given:
+        owner = next(h for h, grid in _SPATIAL_GRIDS.items() if key in grid)
+        if key not in read:
+            detail = (
+                f"is read only under homogeneity {owner!r}, and this run's "
+                f"homogeneity is {hom!r}, so it would be ignored"
+            )
+        elif not all(k in given for k in read):
+            other = next(k for k in read if k not in given)
+            detail = (
+                f"is read only together with propagators.{other}, so alone "
+                f"it would be ignored"
+            )
+        else:
+            continue
+        raise ConfigError(
+            "invalid_value",
+            f"propagators.{key}",
+            detail,
+            _nearest(key, _PROPAGATORS_KEYS - {key}),
+        )
 
 
 def effective_expand_diag_C(cfg: WorkflowConfig) -> bool:

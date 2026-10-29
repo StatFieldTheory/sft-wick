@@ -353,3 +353,60 @@ def test_CO2_override_follows_a_type_set_by_an_earlier_override():
         f"{temporal}.type": "gaussian", f"{temporal}.lam": 0.07})
     assert cfg.system.noise["kappa2"]["temporal"] == {
         "type": "gaussian", "lam": 0.07, "sigma_t": 0.3}
+
+
+# ---------------------------------------------------------------------------
+# CO3 -- a misspelling that gives another key of the block
+# ---------------------------------------------------------------------------
+
+class _Pairs(list):
+    """A mapping written as ``(key, value)`` pairs, so a YAML file can hold
+    one key twice, as a misspelt file does."""
+
+
+class _Dumper(yaml.SafeDumper):
+    pass
+
+
+_Dumper.add_representer(
+    _Pairs, lambda d, data: d.represent_mapping("tag:yaml.org,2002:map", data))
+
+
+def _with_pairs(doc, where: tuple, mapping: _Pairs):
+    if not where:
+        return mapping
+    out = copy.deepcopy(doc)
+    node = out
+    for step in where[:-1]:
+        node = node[step]
+    node[where[-1]] = mapping
+    return out
+
+
+@pytest.mark.parametrize("path", CONFIGS, ids=IDS)
+def test_CO3_a_misspelling_that_gives_another_valid_key_is_refused(path):
+    """CO1 leaves out the edits that give a key the block accepts (a point
+    name swapped for another, ``n_grid_t`` for ``n_grid_r``).  Each is
+    refused too: as a key written twice when the block holds the other key
+    already, as a spatial grid key the run would not read, or as a missing
+    ``t_max``.  The file is written as YAML with the key twice, and read
+    with the loader of :func:`load_workflow_config`."""
+    doc = yaml.safe_load(path.read_text())
+    points = _observable_points(doc)
+    cases = 0
+    for where, mapping, allowed, kind in list(_mappings(doc)):
+        valid = allowed if kind == "key" else points
+        for key in list(mapping):
+            for edit in sorted(_edits(str(key))):
+                if not (edit in valid or edit in mapping):
+                    continue
+                cases += 1
+                pairs = _Pairs((edit if k == key else k, v)
+                               for k, v in mapping.items())
+                text = yaml.dump(_with_pairs(doc, where, pairs), Dumper=_Dumper,
+                                 sort_keys=False)
+                with pytest.raises((ConfigError, ValueError)):
+                    data = cf._load_yaml(text)
+                    cfg = cf._parse_workflow(data, base_dir=path.parent)
+                    cf.check_before_run(cfg)
+    assert cases > 0

@@ -1071,3 +1071,180 @@ def test_YC12_L1_positions_may_name_points_the_observable_does_not_use(tmp_path)
     omitted = exp.evaluate(props, positions={"x": 0.0}, **kw).total
     explicit = exp.evaluate(props, positions={"x": 0.0, "y": 0.0}, **kw).total
     assert omitted == explicit
+
+
+# ---------------------------------------------------------------------------
+# YC13 -- a flag reads the words true and false, not Python truthiness
+# ---------------------------------------------------------------------------
+
+_FLAGS = [
+    ("expand", "response_phase"), ("expand", "ito"),
+    ("expand", "collect_topology"), ("expand", "diag_R"),
+    ("expand", "diag_C"), ("expand", "iso_C"),
+    ("propagators", "c_closed_form_only"),
+    ("propagators", "c_closed_form_vectorized"), ("propagators", "diag_C"),
+]
+
+
+@pytest.mark.parametrize("block,key", _FLAGS, ids=[".".join(f) for f in _FLAGS])
+def test_YC13_a_flag_reads_the_words_true_and_false(tmp_path, block, key):
+    """These flags were read with ``bool()``, so a quoted ``"false"`` (or
+    ``"no"``, ``"off"``) switched the flag on without an error, e.g.
+    ``expand.iso_C`` or ``propagators.diag_C``."""
+    for raw, read in [("false", False), ("no", False), ("off", False),
+                      (0, False), (False, False), ("true", True),
+                      ("yes", True), (1, True), (True, True)]:
+        cfg = _base_config()
+        cfg[block][key] = raw
+        loaded = load_workflow_config(_write(tmp_path, "c.yaml",
+                                             yaml.safe_dump(cfg)))
+        assert getattr(getattr(loaded, block), key) is read, (raw, read)
+    for raw in ["maybe", 2, None]:
+        cfg = _base_config()
+        cfg[block][key] = raw
+        with pytest.raises(ValueError, match=f"{block}.{key} must be true "
+                                             f"or false"):
+            load_workflow_config(_write(tmp_path, "c.yaml",
+                                        yaml.safe_dump(cfg)))
+
+
+def test_YC13_expand_iso_R_is_null_or_a_flag(tmp_path):
+    """``expand.iso_R`` was passed on as written, so ``"false"`` reached
+    ``System.expand`` as a non-empty string."""
+    for raw, read in [(None, None), ("false", False), ("true", True),
+                      (False, False)]:
+        cfg = _base_config(expand__iso_R=raw)
+        loaded = load_workflow_config(_write(tmp_path, "c.yaml",
+                                             yaml.safe_dump(cfg)))
+        assert loaded.expand.iso_R is read, raw
+    with pytest.raises(ValueError, match="expand.iso_R must be true or false"):
+        load_workflow_config(_write(tmp_path, "c.yaml", yaml.safe_dump(
+            _base_config(expand__iso_R="maybe"))))
+
+
+# ---------------------------------------------------------------------------
+# YC14 -- a key written twice in one mapping is refused
+# ---------------------------------------------------------------------------
+
+_QUICKSTART = ROOT / "examples" / "quickstart.yaml"
+
+
+@pytest.mark.parametrize("old,new,path,lines", [
+    ("  n_samples: 4096\n", "  n_samples: 4096\n  n_samples: 64\n",
+     "sweep.n_samples", (48, 49)),
+    ("sweep:\n", "sweep: {}\nsweep:\n", "sweep", (44, 45)),
+    ("{x: [0.0], y: [0.0, 0.5, 1.5]}", "{x: [0.0], y: [0.5], y: [1.5]}",
+     "sweep.positions_grid.y", (45, 45)),
+    ("{type: table, format: markdown}",
+     "{type: table, format: markdown, format: csv}", "output[0].format",
+     (52, 52)),
+])
+def test_YC14_a_key_written_twice_is_refused(tmp_path, old, new, path, lines):
+    """YAML keeps the last of two equal keys, so a second ``n_samples`` (or
+    a misspelling that gives a key the block already has, such as ``y`` for
+    ``x``) replaced the first without an error."""
+    from sft_wick.workflow.config import ConfigError
+
+    text = _QUICKSTART.read_text()
+    assert text.count(old) == 1
+    path_ = _write(tmp_path, "c.yaml", text.replace(old, new))
+    with pytest.raises(ConfigError) as info:
+        load_workflow_config(path_)
+    err = info.value
+    assert (err.code, err.path) == ("duplicate_key", path)
+    first, second = lines
+    assert f"lines {first} and {second}" in str(err), str(err)
+    assert "\n" not in str(err)
+
+
+def test_YC14_a_merge_key_override_is_not_a_duplicate(tmp_path):
+    """``<<: *anchor`` followed by a key the anchor holds overrides it;
+    that is YAML's merge, not a key written twice."""
+    text = _QUICKSTART.read_text().replace(
+        "  - {type: table, format: markdown}\n",
+        "  - &table {type: table, format: markdown}\n"
+        "  - <<: *table\n    format: csv\n")
+    loaded = load_workflow_config(_write(tmp_path, "c.yaml", text))
+    assert [o.format for o in loaded.output] == ["markdown", "csv"]
+
+
+# ---------------------------------------------------------------------------
+# YC15 -- a spatial grid key the run would not read is refused
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("homogeneity,keys,refused", [
+    (None, {"n_grid_r": 40}, "n_grid_r"),            # n_grid_t misspelt
+    (None, {"r_max": 3.0}, "r_max"),
+    (None, {"n_grid_x": 60}, "n_grid_x"),             # n_grid_t misspelt
+    (None, {"n_grid_cos": 16}, "n_grid_cos"),
+    (None, {"r_max": 3.0, "n_grid_r": 40, "x_max": 3.0}, "x_max"),
+    ("rotation", {"r_max": 3.0, "n_grid_r": 40}, "r_max"),
+    ("general", {"x_max": 2.0}, "x_max"),
+    ("general", {"x_max": 2.0, "n_grid_x": 8, "n_grid_r": 4}, "n_grid_r"),
+    (None, {"r_max": 3.0, "n_grid_r": 40}, None),
+    ("rotation", {"n_grid_cos": 16}, None),
+    ("general", {"x_max": 2.0, "n_grid_x": 8}, None),
+])
+def test_YC15_a_spatial_grid_key_the_run_ignores_is_refused(
+        tmp_path, homogeneity, keys, refused):
+    """The translation full grid reads r_max and n_grid_r together, the
+    rotation grid n_grid_cos, the general grid x_max and n_grid_x
+    together; any other combination was ignored.  So ``n_grid_t``
+    misspelt as ``n_grid_r`` or ``n_grid_x`` left the default 60 time
+    nodes in place, and ``sft-wick validate`` reported the file valid."""
+    from sft_wick.workflow.config import ConfigError, check_before_run
+
+    doc = yaml.safe_load(_QUICKSTART.read_text())
+    doc["propagators"].update(keys)
+    if homogeneity is not None:
+        doc["propagators"]["homogeneity"] = homogeneity
+    cfg = load_workflow_config(_write(tmp_path, "c.yaml", yaml.safe_dump(doc)))
+    if refused is None:
+        check_before_run(cfg)
+        return
+    with pytest.raises(ConfigError) as info:
+        check_before_run(cfg)
+    assert info.value.path == f"propagators.{refused}"
+    assert info.value.code == "invalid_value"
+
+
+# ---------------------------------------------------------------------------
+# YC16 -- an output entry's required keys are checked when the file loads
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("entry,missing", [
+    ({"type": "npz"}, "path"),
+    ({"type": "plot", "x": "y"}, "path"),
+    ({"type": "plot", "path": "p.png"}, "x"),
+    ({"type": "plot", "path": "p.png", "y": "value"}, "x"),   # x misspelt y
+])
+def test_YC16_output_requirements_are_checked_at_load(tmp_path, entry,
+                                                      missing):
+    """These used to raise only after the whole sweep had run."""
+    from sft_wick.workflow.config import ConfigError
+
+    doc = yaml.safe_load(_QUICKSTART.read_text())
+    doc["output"] = [entry]
+    with pytest.raises(ConfigError) as info:
+        load_workflow_config(_write(tmp_path, "c.yaml", yaml.safe_dump(doc)))
+    assert info.value.path == f"output[0].{missing}"
+
+
+# ---------------------------------------------------------------------------
+# YC17 -- a misspelling between iso_R / iso_C cannot change a value silently
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("flag", ["iso_R", "iso_C"])
+def test_YC17_an_isotropy_flag_whose_condition_fails_is_refused(tmp_path,
+                                                                flag):
+    """``iso_R`` and ``iso_C`` are one edit apart, so one can be written for
+    the other.  Each states a simplification, and on a system without the
+    isotropy it states (rates 0.9 and 1.4) the run refuses it; ``diag_R``
+    and ``diag_C`` are refused the same way on off-diagonal R or C
+    (tests/test_diag_C_offdiagonal.py).  Switching one off keeps the value.
+    So such a misspelling stops the run or leaves the number as it was."""
+    cfg = _base_config(expand__orders=[2])
+    cfg["expand"][flag] = True
+    cfg["system"]["vertices"] = [{"name": "F", "coupling": _F_TENSOR}]
+    with pytest.raises(ValueError, match="iso_C=True|iso_R=True"):
+        _run(tmp_path, cfg)

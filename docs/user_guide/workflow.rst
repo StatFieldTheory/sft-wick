@@ -1358,15 +1358,15 @@ Section reference: ``propagators``
    * - ``r_max`` + ``n_grid_r``
      - ``float`` + ``int``
      - ``null``
-     - Translation full-grid mode (both required to leave lazy mode)
+     - Translation full-grid mode; give both or neither.  One alone, or either under another homogeneity, is refused before the run, since it would be ignored
    * - ``n_grid_cos``
      - ``int``
      - ``null``
-     - Rotation full-grid mode
+     - Rotation full-grid mode; refused under another homogeneity
    * - ``x_max`` + ``n_grid_x``
      - ``float`` + ``int``
      - ``null``
-     - General full-grid mode
+     - General full-grid mode; give both or neither, refused under another homogeneity
    * - ``c_closed_form``
      - ``str``
      - ``"auto"``
@@ -1739,6 +1739,9 @@ Each list entry is a ``{type: <kind>, path: ..., ...}`` dict. Three kinds today:
      - {type: plot,   path: result.png,
         x: y, hue: order, facet_col: t_final}                  # matplotlib facet grid
 
+``npz`` and ``plot`` entries require ``path``, and ``plot`` requires
+``x``; both are checked when the file is loaded, before the sweep runs.
+
 .. _integrator-choice:
 
 Choosing an integrator (``sweep.method`` and ``propagators.c_method``)
@@ -1968,14 +1971,31 @@ one line on standard error:
 
 The code in brackets is one of ``unknown_key``, ``unknown_point`` (a
 ``sweep.positions_grid`` name the observable does not use),
-``invalid_value``, ``override_syntax``, ``override_path`` (an override
-through a value or past the end of a list) and ``read_error`` (the
-file, or a module it names, cannot be read).  The suggestion lists
+``duplicate_key`` (a key written twice in one mapping, which YAML
+would read as the last value), ``invalid_value``, ``override_syntax``,
+``override_path`` (an override through a value or past the end of a
+list) and ``read_error`` (the file, or a module it names, cannot be
+read).  The suggestion lists
 every valid name at the smallest edit distance, so a single
 misspelling always lists the name meant.  In Python,
 :func:`~sft_wick.workflow.config.load_workflow_config` raises
 :class:`~sft_wick.workflow.config.ConfigError` with the same ``code``,
 ``path`` and ``suggestions``; an override error is also a ``KeyError``.
+
+A flag is read from the words ``true`` and ``false`` (also ``yes`` and
+``no``, ``on`` and ``off``, ``1`` and ``0``); any other value is
+refused, so a quoted ``"false"`` reads as false.
+
+A misspelling can give another key of the same block.  The parser
+refuses each such case: a key written twice when the block holds the
+other key already, a missing required key (``t_max`` written as
+``r_max``), a spatial grid key the run would not read (``n_grid_t``
+written as ``n_grid_r``), a plot without ``x``.  One pair is not
+refused: ``iso_R`` and ``iso_C``, and likewise ``diag_R`` and
+``diag_C``, when only one of the two is in the file.  Each states a
+simplification; :meth:`~sft_wick.workflow.System.expand` refuses one
+whose condition fails, and switching one off keeps the value, so such
+a misspelling stops the run or leaves the number unchanged.
 
 With ``SFT_WICK_STRICT=0`` in the environment, an unknown key in the
 file is reported as a one-line warning and ignored, as releases before
