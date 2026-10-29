@@ -396,6 +396,9 @@ def test_SC4_enumerations_are_what_the_parser_accepts(schema, location, key,
     path = ("output", 0) if location == "output[]" else path
     for value in _enum(schema, location, key) + [near_miss]:
         doc = _base()
+        if location == "output[]":
+            # npz and plot outputs require a path, and a plot an x.
+            doc["output"][0].update(path="o.out", x="y")
         _get(doc, path)[key] = value
         try:
             cf._parse_workflow(doc, base_dir=QUICKSTART.parent)
@@ -433,3 +436,58 @@ def test_SC5_null_blocks_the_parser_accepts_validate(schema, path, value):
     cf._parse_workflow(copy.deepcopy(doc), base_dir=QUICKSTART.parent)
     errors = list(jsonschema.Draft202012Validator(schema).iter_errors(doc))
     assert not errors, [e.message for e in errors]
+
+
+# ---------------------------------------------------------------------------
+# SC6 -- keys one edit apart, and what refuses a misspelling between them
+# ---------------------------------------------------------------------------
+
+def _one_edit_apart(a: str, b: str) -> bool:
+    """A deletion, an insertion, a substitution or a swap of neighbours
+    turns ``a`` into ``b`` (written here, not taken from the package)."""
+    if a == b or abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        diff = [i for i in range(len(a)) if a[i] != b[i]]
+        return len(diff) == 1 or (len(diff) == 2 and diff[1] == diff[0] + 1
+                                  and a[diff[0]] == b[diff[1]]
+                                  and a[diff[1]] == b[diff[0]])
+    short, long_ = sorted((a, b), key=len)
+    return any(long_[:i] + long_[i + 1:] == short for i in range(len(long_)))
+
+
+_REQUIRED = "the misspelt key is required, so it is missing"
+_GRID = ("a spatial grid key the homogeneity does not read, or half of a "
+         "pair, is refused (YC15)")
+_SIMPLIFICATION = ("System.expand refuses a simplification whose condition "
+                   "fails (YC17), and switching one off keeps the value")
+#: Every pair of keys in one block that a single edit turns into each other,
+#: with what refuses a misspelling of one into the other.  When both keys
+#: are in the block the misspelling writes one key twice, which is refused
+#: as a duplicate (YC14).
+_COLLISIONS = {
+    ("system.noise.sigma2<multiplicative>", "g0", "g1"): _REQUIRED,
+    ("expand", "iso_R", "iso_C"): _SIMPLIFICATION,
+    ("expand", "diag_R", "diag_C"): _SIMPLIFICATION,
+    ("propagators", "t_max", "r_max"): _REQUIRED,
+    ("propagators", "t_max", "x_max"): _REQUIRED,
+    ("propagators", "n_grid_t", "n_grid_r"): _GRID,
+    ("propagators", "n_grid_t", "n_grid_x"): _GRID,
+    ("propagators", "r_max", "x_max"): _GRID,
+    ("propagators", "n_grid_r", "n_grid_x"): _GRID,
+    ("output[]", "x", "y"): "a plot requires x, checked at load (YC16)",
+}
+
+
+def test_SC6_every_pair_of_keys_one_edit_apart_is_listed(blocks):
+    """A key added next to one a single edit away needs an entry here and
+    a check that refuses the misspelling."""
+    found = set()
+    for location, keys in blocks.items():
+        keys = sorted(keys)
+        for i, a in enumerate(keys):
+            for b in keys[i + 1:]:
+                if _one_edit_apart(a, b):
+                    found.add((location, a, b))
+    listed = {(loc, *sorted((a, b))) for loc, a, b in _COLLISIONS}
+    assert found == listed

@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+### Fixed: a quoted `"false"` switched a flag on
+
+**Breaking (a value that is not a flag).**  `expand.response_phase`, `ito`,
+`collect_topology`, `diag_R`, `diag_C`, `iso_C` and
+`propagators.c_closed_form_only`, `c_closed_form_vectorized` and `diag_C`
+were read with Python's `bool()`, so a quoted `"false"`, `"no"` or `"off"`
+switched the flag on without an error (`expand.iso_C`, `propagators.diag_C`).
+They are read like the other flags of the file: `true` and `false`, `yes`
+and `no`, `on` and `off`, `1` and `0`; any other value, `null` and `2`
+included, is refused.  `expand.iso_R` is `null` or such a flag; a string
+used to reach `System.expand` as written.
+
+### Changed: a misspelling that gives another key of the block is refused
+
+**Breaking (a file with a key written twice, or with a grid key the run
+does not read).**
+
+* A key written twice in one mapping is refused with the code
+  `duplicate_key`, its dotted path and both line numbers.  YAML keeps the
+  last, so a second `n_samples`, or a misspelling that gives a key the
+  block already holds (`y` for `x`), replaced the first without a message.
+  A key that overrides one brought in by a `<<: *anchor` merge is not a
+  duplicate.
+* A spatial grid key of `propagators` that the run would not read is
+  refused before the run: one for another homogeneity, or `r_max` without
+  `n_grid_r` (`x_max` without `n_grid_x`, and the reverse).  `n_grid_t`
+  misspelt as `n_grid_r` or `n_grid_x` used to leave the default 60 time
+  nodes, and `sft-wick validate` reported the file valid.
+* `npz` and `plot` outputs require `path`, and `plot` requires `x`, when
+  the file is loaded; they were checked after the sweep.
+
+`tests/test_workflow_schema.py` (SC6) lists every pair of keys in one block
+that a single edit turns into each other, with what refuses a misspelling
+between them.  One pair is not refused when only one of its keys is in the
+file: `iso_R` and `iso_C`, and likewise `diag_R` and `diag_C`.  Each states
+a simplification that `System.expand` refuses when its condition fails, and
+switching one off keeps the value, so such a misspelling stops the run or
+leaves the number unchanged.
+
 ### Added: a JSON Schema of the workflow files, `sft-wick validate` and `--print-resolved`
 
 `sft_wick.workflow.schema.workflow_json_schema()` returns a JSON Schema

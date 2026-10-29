@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **5914 tests** in 127 files (parametrised
+The suite has **5958 tests** in 127 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -552,7 +552,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*951 tests in 25 files.*
+*995 tests in 25 files.*
 
 .. list-table::
    :header-rows: 1
@@ -674,20 +674,20 @@ Workflow and YAML
      - 1e-6 / 2e-2 (spline vs exact C); exact (hook transport)
      - 33
    * - ``test_workflow_corpora.py``
-     - every single-edit misspelling (deletion, transposition, substitution) of every key in every shipped config refused with its dotted path and the key meant (substitutions outside the quick start marked slow); every key a shipped config leaves out, set by override, gives the result of writing it into the file
+     - every single-edit misspelling (deletion, transposition, substitution) of every key in every shipped config refused with its dotted path and the key meant (substitutions outside the quick start marked slow); every misspelling that gives another key of the block refused as well; every key a shipped config leaves out, set by override, gives the result of writing it into the file
      - the parsed WorkflowConfig of the edited file, written out field by field; the jsonschema reference validator
      - exact
-     - 24
+     - 35
    * - ``test_workflow_schema.py``
-     - the workflow JSON Schema: a valid 2020-12 document; keys, defaults and required keys of each block against its config dataclass; the keys of every block and type variant against the parser in both directions; value enumerations; every shipped config validates
+     - the workflow JSON Schema: a valid 2020-12 document; keys, defaults and required keys of each block against its config dataclass; the keys of every block and type variant against the parser in both directions; value enumerations; every shipped config validates; every pair of keys one edit apart listed with what refuses it
      - config dataclass field sets; the parser's own key check and value checks; the jsonschema reference validator
      - exact
-     - 61
+     - 62
    * - ``test_yaml_spec_coverage.py``
-     - the L1 specs YAML could not express: custom temporal / spatial / angular kernels, a matrix-valued explicit R, a matrix ConstantImpulse; validation of the vertex, kernel and sigma2 blocks; a misspelt key refused in every block; overrides into list entries
+     - the L1 specs YAML could not express: custom temporal / spatial / angular kernels, a matrix-valued explicit R, a matrix ConstantImpulse; validation of the vertex, kernel and sigma2 blocks; a misspelt key refused in every block; overrides into list entries; flags read from true/false words; a key written twice; spatial grid keys the run ignores; output requirements at load; isotropy flags refused when their condition fails
      - the equivalent L1 System; scipy quadrature of the defining C integrals; demo 3's Campbell closed form
      - exact (YAML vs L1) / 1e-9 - 1e-6
-     - 68
+     - 100
 
 Drawing and LaTeX
 -----------------
