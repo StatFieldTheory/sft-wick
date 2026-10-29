@@ -83,6 +83,9 @@ YAML + CLI (L2)
    :show-inheritance:
    :member-order: bysource
 
+.. automodule:: sft_wick.workflow.schema
+   :members: workflow_json_schema, override_target, resolved_config
+
 .. automodule:: sft_wick.workflow.cli
    :members:
    :undoc-members:

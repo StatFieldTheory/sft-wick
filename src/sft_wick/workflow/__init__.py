@@ -35,6 +35,7 @@ Example::
     print(sweep.totals())
 """
 
+from .config import ConfigError, ConfigWarning
 from .expansion import Expansion
 from .propagators import Propagators, propagators_from_cache
 from .r_contracted import build_R_contracted_callable
@@ -67,6 +68,8 @@ from .system import System
 __all__ = [
     "propagators_from_cache",
     "build_R_contracted_callable",
+    "ConfigError",
+    "ConfigWarning",
     "ConstantImpulse",
     "CustomImpulse",
     "CustomKernel",

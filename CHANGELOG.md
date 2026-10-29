@@ -2,6 +2,100 @@
 
 ## Unreleased
 
+### Added: a JSON Schema of the workflow files, `sft-wick validate` and `--print-resolved`
+
+`sft_wick.workflow.schema.workflow_json_schema()` returns a JSON Schema
+(draft 2020-12) of the workflow YAML, and `sft-wick schema` prints it: the
+keys of every block, their value types, enumerations and defaults, and the
+keys a block requires.  The keys and defaults of `expand`, `propagators`,
+`sweep` and each `output` entry are the fields of their config dataclasses;
+the top level and `system` follow `WorkflowConfig` and `SystemConfig`, and
+the blocks inside `system` take their keys from the parser's key tables and
+their defaults from the L1 specs they lower to.  Every shipped config
+validates against it.  A rule that ties two keys together (`dt` or
+`n_grid_t`, one coupling source per vertex) stays the parser's.
+
+`sft-wick validate CONFIG` parses the config, applies any `--override`,
+builds the System and makes the checks `run_workflow` makes before the
+expansion (`check_before_run`), without running anything.  `sft-wick run`
+makes the same checks first.  `--print-resolved` (on `run` and
+`validate`) prints the config with the value the run uses for every key:
+defaults filled in and derived values such as `n_grid_t` from `dt` shown.
+
+### Changed: a refused config is one line with the dotted path and the nearest keys, exit status 2
+
+**Breaking (the message, and the exit status of the CLI).**  The parser
+raises `sft_wick.workflow.ConfigError`, a `ValueError` with the fields
+`code`, `path` and `suggestions`.  Its message is one line: the dotted path
+of the key (`system.t_mni`, `output[0].fromat`), the reason, and every valid
+name at the smallest edit distance, so a single misspelling always lists
+the name meant (`system.t_mni: unknown key; did you mean 't_min'?`).  The
+0.7.0 message `system: unknown key(s) ['t_mni']; allowed: [...]` is gone.
+`sft-wick run` and `sft-wick validate` print `sft-wick: config error [code]
+...` on standard error and exit with status 2, where they printed a
+traceback and exited with status 1; a parser `ValueError` or `TypeError`
+without a code is printed as `invalid_value`, and a file that cannot be
+read as `read_error`.  The codes are listed in the workflow guide.
+
+Also when the file is loaded:
+
+* The keys of the `kappa2`, kernel and `sigma2` blocks are checked.  0.7.0
+  checked them only when the System was built, so `load_workflow_config`
+  accepted `system.noise.kappa2.temporal.sigma_tt`.
+* A misspelt section (`swep:`) is reported as an unknown key with a
+  suggestion, where it was reported as a missing `sweep` section.
+* `sweep.method` is checked, with a suggestion for `gauss_legendr`.  It
+  used to fail at the sweep stage, after the expansion and the propagator
+  table had been built.
+* A point name in `sweep.positions_grid` that the observable does not use
+  has the code `unknown_point` and a suggestion.  A point name in
+  `sweep.external_times_grid` is checked the same way; it used to fail at
+  the sweep stage.
+* `output[].format` and `propagators.homogeneity` are checked, with a
+  suggestion.  A misspelt table format used to fail after the whole sweep
+  had run.
+* A value that does not convert to the number a key takes (`n_samples:
+  .inf`, `dt` too small for a finite grid), a `type` that is a list, a
+  module without the attribute named and an unreadable `.npy` file are
+  refused with the dotted path; they used to end in an `OverflowError`,
+  a `TypeError` without a path, an `AttributeError` or an `EOFError`.  The
+  missing attribute is still an `AttributeError`.
+* `run_workflow` checks the order selection, the parallel layers and the
+  closed-form C module before the expansion, with the messages it gave
+  after it.
+* An `--override` without `=` is a config error with status 2; it was a
+  `SystemExit` with status 1.
+
+### Changed: `--override` sets a key the file leaves out
+
+`--override` and `load_workflow_config(path, overrides=...)` read the key
+against the schema instead of the file.  A key the schema allows is set
+when the file leaves it out (`system.t_min`, `expand.iso_C`,
+`propagators.dt`); 0.7.0 accepted only the optional `sweep` keys and raised
+`KeyError: override key ... does not exist in config` for the rest.  A
+mapping on the way that the file leaves out is created
+(`system.noise.sigma2.amplitude`), and a key of a `type` variant follows the
+`type` in the file or one set by an earlier override.  The result is the
+result of writing the key into the file: over the shipped configs there are
+628 cases of a block leaving out a key the schema allows, and with the key
+set to its default the parsed config, or the refusal, is the same either
+way (`tests/test_workflow_corpora.py`, CO2).  An
+override error is an `OverrideError`, a `ConfigError` that is also a
+`KeyError`, so `except KeyError` still catches it; its message changed.
+
+### Added: `SFT_WICK_STRICT=0`, for this release only
+
+With `SFT_WICK_STRICT=0` in the environment, an unknown key in a workflow
+file is a `ConfigWarning` (one line on standard error from the CLI) and is
+ignored, as releases before 0.7.0 ignored it.  It is meant for moving old
+configs over and will be removed in a later release.  Overrides stay
+strict.
+
+### Changed: test dependencies
+
+`jsonschema>=4.0` joins the `dev` extra; the tests check the schema with
+it.  The package does not import it.
+
 ### Changed: repository
 
 * `tests/test_repo_hygiene.py` refuses any three-digit task number (`T`, an

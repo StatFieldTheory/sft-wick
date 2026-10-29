@@ -78,9 +78,11 @@ Run it:
    sft-wick run demo1_config.yaml                  # full pipeline
    sft-wick run demo1_config.yaml --override sweep.seed=7
    sft-wick run demo1_config.yaml --dry-run        # validate + summarize
+   sft-wick validate demo1_config.yaml             # check only, run nothing
 
-The CLI is registered on install; ``--override key=value`` patches
-any leaf field (safe scalar coercion, no ``eval``).  Larger
+The CLI is registered on install; ``--override key=value`` sets any
+key the schema allows, including one the file leaves out (safe scalar
+coercion, no ``eval``).  Larger
 examples exercising non-local vertices, closed-form :math:`C`
 hooks, and dynamic couplings live in ``examples/demo1_config.yaml``
 and ``examples/demo2_config.yaml``.
@@ -862,8 +864,10 @@ Annotated full example
 Every key the parser recognises, with its default value and a
 one-line note. Drop unused keys; only the marked **required**
 fields must be present.  A key the parser does not read raises a
-``ValueError`` that names it and lists the keys its block accepts, so
-a misspelt key cannot fall back to its default.
+:class:`~sft_wick.workflow.config.ConfigError` (a ``ValueError``) that
+gives its dotted path and the nearest keys its block accepts, so a
+misspelt key cannot fall back to its default.  ``sft-wick schema``
+prints the same keys as a JSON Schema; see `Checking a config`_.
 
 .. code-block:: yaml
 
@@ -1891,8 +1895,14 @@ composes cleanly with any of the ``n_jobs > 1`` knobs:
 Parameter scans from the shell
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``--override key=value`` patches any leaf field in the parsed
-config (safe scalar coercion, no ``eval``):
+``--override key=value`` sets a key of the config (safe scalar
+coercion, no ``eval``).  The key is read against the schema, not the
+file: a key the file leaves out is set, and a mapping on the way that
+the file leaves out (``system.noise.sigma2`` in
+``--override system.noise.sigma2.amplitude=0.01``) is created, as
+writing the key into the file would.  A key of a ``type`` variant
+follows the ``type`` in the file, or one set by an earlier override.
+An override cannot add a list entry.
 
 .. code-block:: bash
 
@@ -1907,8 +1917,70 @@ config (safe scalar coercion, no ``eval``):
    sft-wick run demo2/L2/config_FK.yaml \
        --override sweep.n_gauss=12
 
+   # start the time integration at 0.5, a key the file leaves out
+   sft-wick run demo1_config.yaml --override system.t_min=0.5
+
    # validate without running
    sft-wick run demo1_config.yaml --dry-run
+
+Checking a config
+~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   sft-wick validate demo1_config.yaml               # parse, build the System
+   sft-wick validate demo1_config.yaml --print-resolved
+   sft-wick run demo1_config.yaml --print-resolved   # print it, then run
+   sft-wick schema > sft-wick-config.schema.json
+
+``sft-wick validate`` parses the config, applies any ``--override``,
+builds the :class:`~sft_wick.workflow.System` and makes the checks
+:func:`~sft_wick.workflow.config.run_workflow` makes before the
+expansion: the component tuples against the observable, the
+``sweep.orders`` against ``expand.orders``, one parallel layer, and the
+closed-form C module on disk.  So it also reports what only the build
+checks (a kernel parameter that is not positive, a module without the
+attribute named).  It runs no expansion.  ``sft-wick run`` makes the
+same checks first.  A ``sweep.vertex_types`` label is checked against
+the diagrams, so only after the expansion.
+
+``--print-resolved`` prints the config in the layout of the file with
+the value the run uses for every key: defaults filled in, derived
+values shown (``propagators.n_grid_t`` from ``propagators.dt``), and a
+coupling module replaced by the callable loaded from it.  It is a
+record of a run, not a file to load again.
+
+``sft-wick schema`` prints a JSON Schema (draft 2020-12) of the config
+files: the keys of every block, their value types, enumerations and
+defaults, and the keys a block requires.  Editors and tools that read
+JSON Schema can check a file with it.  Rules that tie two keys
+together (``dt`` or ``n_grid_t``, one coupling source per vertex) are
+checked by the parser only, so the parser decides.  The schema asks
+for ``true`` and ``false`` where the parser also reads other
+spellings of a flag (``yes``, ``on``, ``1``).
+
+A config the parser refuses ends the command with exit status 2 and
+one line on standard error:
+
+.. code-block:: text
+
+   sft-wick: config error [unknown_key] system.t_mni: unknown key; did you mean 't_min'?
+
+The code in brackets is one of ``unknown_key``, ``unknown_point`` (a
+``sweep.positions_grid`` name the observable does not use),
+``invalid_value``, ``override_syntax``, ``override_path`` (an override
+through a value or past the end of a list) and ``read_error`` (the
+file, or a module it names, cannot be read).  The suggestion lists
+every valid name at the smallest edit distance, so a single
+misspelling always lists the name meant.  In Python,
+:func:`~sft_wick.workflow.config.load_workflow_config` raises
+:class:`~sft_wick.workflow.config.ConfigError` with the same ``code``,
+``path`` and ``suggestions``; an override error is also a ``KeyError``.
+
+With ``SFT_WICK_STRICT=0`` in the environment, an unknown key in the
+file is reported as a one-line warning and ignored, as releases before
+0.7.0 ignored it; overrides stay strict.  The setting is meant for
+moving old configs over and will be removed in a later release.
 
 Homogeneity modes
 -----------------

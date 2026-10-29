@@ -6,29 +6,48 @@ Usage::
         Execute expansion → propagators → sweep → emit outputs.
 
     sft-wick run CONFIG.yaml --override sweep.seed=7 --override sweep.n_samples=4096
-        Patch config fields without editing the file.
+        Patch config fields without editing the file; a key the file
+        leaves out is set too.
 
     sft-wick run CONFIG.yaml --dry-run
         Parse + validate the config, print a resolved summary and a cost
         estimate (diagram counts, grid size, quadrature calls, a rough
         wall-clock from a one-second micro-benchmark), exit 0.
 
+    sft-wick run CONFIG.yaml --print-resolved
+        Also print the config with every default filled in.
+
     sft-wick run CONFIG.yaml --quiet
         No progress bars or stage banners (``SFT_WICK_PROGRESS=0`` does
         the same from the environment).
 
+    sft-wick validate CONFIG.yaml [--override ...] [--print-resolved]
+        Parse the config and build its System; run nothing.
+
+    sft-wick schema
+        Print the JSON Schema of the config files.
+
     sft-wick quickstart
         Write ``quickstart.yaml`` (a < 1 minute demo1 sweep) to the
         current directory and run it.
+
+A config the parser refuses ends the command with exit status 2 and one
+line on stderr, ``sft-wick: config error [code] path: reason``; the codes
+are listed under :class:`~sft_wick.workflow.config.ConfigError`.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
+import warnings
 from pathlib import Path
+
+#: Exit status of a config the parser refuses (argparse uses 2 as well).
+CONFIG_ERROR_STATUS = 2
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -64,6 +83,32 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="no progress bars or stage banners (also: SFT_WICK_PROGRESS=0).",
     )
+    run_p.add_argument(
+        "--print-resolved",
+        action="store_true",
+        help="print the config with every default filled in before running.",
+    )
+
+    validate_p = sub.add_parser(
+        "validate",
+        help="parse a workflow YAML and build its System; run nothing.",
+    )
+    validate_p.add_argument("config", type=Path, help="path to a YAML file")
+    validate_p.add_argument(
+        "--override",
+        "-o",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="patch a field, as for run.  May be repeated.",
+    )
+    validate_p.add_argument(
+        "--print-resolved",
+        action="store_true",
+        help="print the config with every default filled in, as YAML.",
+    )
+
+    sub.add_parser("schema", help="print the JSON Schema of workflow YAML files.")
 
     compare_p = sub.add_parser(
         "compare-resources",
@@ -100,15 +145,116 @@ def main(argv: list[str] | None = None) -> int:
     qs_p.add_argument("--dry-run", action="store_true")
 
     args = parser.parse_args(argv)
-    if args.cmd == "run":
-        return _cmd_run(args)
-    if args.cmd == "quickstart":
-        return _cmd_quickstart(args)
-    if args.cmd == "compare-resources":
-        return _cmd_compare_resources(args)
+    commands = {
+        "run": _cmd_run,
+        "validate": _cmd_validate,
+        "schema": _cmd_schema,
+        "quickstart": _cmd_quickstart,
+        "compare-resources": _cmd_compare_resources,
+    }
+    if args.cmd in commands:
+        return commands[args.cmd](args)
 
     parser.print_help()
     return 1
+
+
+def _config_error_line(exc: BaseException) -> str:
+    """The one line ``sft-wick`` prints for a refused config."""
+    from .config import ConfigError
+
+    if isinstance(exc, ConfigError):
+        code = exc.code
+    elif isinstance(exc, (OSError, ImportError, EOFError)) or _is_yaml_error(exc):
+        code = "read_error"
+    else:
+        code = "invalid_value"
+    text = " ".join(str(exc).split())
+    return f"sft-wick: config error [{code}] {text}"
+
+
+def _is_yaml_error(exc: BaseException) -> bool:
+    import yaml
+
+    return isinstance(exc, yaml.YAMLError)
+
+
+def _load(args, *, build: bool = False):
+    """Load ``args.config`` with ``args.override``; with ``build``, also
+    build the System and make the checks :func:`run_workflow` makes before
+    the expansion (:func:`~sft_wick.workflow.config.check_before_run`).
+
+    Returns ``(cfg, overrides, None)``, or ``(None, None, status)`` after
+    printing the one-line error.  Each unknown key ignored under
+    ``SFT_WICK_STRICT=0`` is printed once as a one-line warning; other
+    warnings are passed on.
+    """
+    import yaml
+
+    from .config import ConfigWarning, check_before_run, load_workflow_config
+
+    caught: list = []
+    error = None
+    cfg = overrides = None
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", ConfigWarning)
+            overrides = _parse_overrides(args.override)
+            cfg = load_workflow_config(args.config, overrides=overrides)
+            if build:
+                check_before_run(cfg)
+    except (
+        ValueError,
+        TypeError,
+        ArithmeticError,
+        OSError,
+        EOFError,
+        ImportError,
+        yaml.YAMLError,
+    ) as exc:
+        error = exc
+    seen = set()
+    for w in caught:
+        if not issubclass(w.category, ConfigWarning):
+            warnings.showwarning(w.message, w.category, w.filename, w.lineno)
+        elif str(w.message) not in seen:
+            seen.add(str(w.message))
+            print(
+                f"sft-wick: config warning [{w.message.code}] {w.message}",
+                file=sys.stderr,
+            )
+    if error is not None:
+        print(_config_error_line(error), file=sys.stderr)
+        return None, None, CONFIG_ERROR_STATUS
+    return cfg, overrides, None
+
+
+def _resolved_yaml(cfg) -> str:
+    import yaml
+
+    from .schema import resolved_config
+
+    return yaml.safe_dump(
+        resolved_config(cfg), sort_keys=False, default_flow_style=None, width=88
+    )
+
+
+def _cmd_validate(args) -> int:
+    cfg, _, status = _load(args, build=True)
+    if status is not None:
+        return status
+    if args.print_resolved:
+        print(_resolved_yaml(cfg), end="")
+    else:
+        print(f"[sft-wick] valid: {args.config}")
+    return 0
+
+
+def _cmd_schema(args) -> int:
+    from .schema import workflow_json_schema
+
+    print(json.dumps(workflow_json_schema(), indent=2))
+    return 0
 
 
 def _progress_setting(args) -> bool:
@@ -170,22 +316,28 @@ def _cmd_quickstart(args) -> int:
         print(f"[sft-wick] wrote {target}")
     args.config = target
     args.override = []
+    args.print_resolved = False
     return _cmd_run(args)
 
 
 def _cmd_run(args) -> int:
-    from .config import load_workflow_config, run_workflow
-
-    overrides = _parse_overrides(args.override)
+    from .config import run_workflow
 
     t0 = time.perf_counter()
-    cfg = load_workflow_config(args.config, overrides=overrides)
+    # Built here once for the checks, so a config error ends with status 2
+    # before any stage; run_workflow builds its own System.
+    cfg, overrides, status = _load(args, build=True)
+    if status is not None:
+        return status
     print(
         f"[sft-wick] loaded config: {args.config} " f"({time.perf_counter() - t0:.2f}s)"
     )
     if overrides:
         keys = ", ".join(f"{k}={v!r}" for k, v in overrides.items())
         print(f"[sft-wick] applied overrides: {keys}")
+    if getattr(args, "print_resolved", False):
+        print("[sft-wick] resolved config:")
+        print(_resolved_yaml(cfg), end="")
 
     _print_summary(cfg)
     _maybe_warn_blas_oversubscription(cfg)
@@ -221,10 +373,14 @@ def _parse_overrides(strs: list[str]) -> dict:
     No arbitrary-expression parsing: only scalar literals are
     accepted.
     """
+    from .config import OverrideError
+
     out: dict = {}
     for s in strs:
         if "=" not in s:
-            raise SystemExit(f"--override must be KEY=VALUE, got {s!r}.")
+            raise OverrideError(
+                "override_syntax", "", f"--override must be KEY=VALUE, got {s!r}"
+            )
         k, v_str = s.split("=", 1)
         out[k.strip()] = _coerce_scalar(v_str.strip())
     return out
