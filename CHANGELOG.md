@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Changed: repository
+
+* `tests/test_repo_hygiene.py` refuses any three-digit task number (`T`, an
+  optional hyphen, three digits) and the subtask IDs that extend it, where it
+  used to refuse only numbers below 100, also when a slash follows the
+  number, and identifiers of planning notes kept outside the repository.  It
+  checks tracked file names (RH9) and the commit messages reachable from
+  `HEAD` (RH7).  `flagged_commit_messages` and `flagged_commit_content` take
+  `git log` revision arguments, so the messages, added paths and added lines
+  of a set of commits can be checked before a push; RH8 runs both on a
+  scratch repository.
+
 ## 0.7.0 — 2026-10-29
 
 This minor release adds execution and memory controls for coupling
