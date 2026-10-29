@@ -26,7 +26,10 @@ New keywords on `Expansion.evaluate` / `Expansion.sweep`, mirrored under
   `R_time_vectorized`, `c_closed_form_vectorized`) receive blocks of at most
   4096 rows, so they must treat each sample independently of the batch.
   `--override sweep.gl_chunk_size=null` selects the eager grid on a file
-  that omits the key.
+  that omits the key.  Non-finite block totals combine as the eager sum
+  over the nodes does (NaN, or the one infinity), and an exception raised
+  while a block is evaluated propagates, an `OverflowError` from a user
+  callable included.
 * `qmc_coupling_chunk_size` (default `None`): build dynamic coupling tensors
   on `qmc_vectorized` in row blocks.  The callable must be sample-separable.
 * `reuse_integrands` (default `False`): prepare static coupling tensors and
@@ -36,10 +39,14 @@ New keywords on `Expansion.evaluate` / `Expansion.sweep`, mirrored under
   contracted, and the workspace budget above which a contraction is refused
   rather than allocated.  `einsum` and `factorized` run a diagram call only
   when their result obeys the bound the ordered fold obeys,
-  `|result - exact| <= 1.01 (m + A T) u S`, every entry the ordered fold
+  `|result - exact| <= 1.01 (m + q + A T) u S` with `q` the rationals of one
+  product that have no exact float64 value, every entry the ordered fold
   multiplies is finite and free of overflow, and every array the call holds
-  at one time fits `contraction_max_bytes` (Python objects aside); otherwise
-  they decline and the ordered fold runs.  On 330 diagrams captured from
+  at one time fits `contraction_max_bytes` (Python objects aside).
+  Otherwise `einsum` declines and the ordered fold runs; `factorized` first
+  materializes the coefficient, which raises `ValueError` when its payload
+  exceeds `contraction_max_bytes`, so every budget below 256 KiB raises
+  there, where `ordered` and `einsum` return a value.  On 330 diagrams captured from
   `Expansion.evaluate` (`N` = 2, 3 and 5, orders 2 to 4), `einsum` ran on 204
   to 310 of them at 2.2x to 103x the ordered speed per call, and
   `factorized` on 2 to 4, whose coupling sums have no monomials of opposite
@@ -59,7 +66,9 @@ modifies the configuration.
 * `System.expand(..., target="connected")` (also `compute_moment`,
   `compute_moment_numerical`, YAML `expand.target`) keeps only the connected
   contributions.  The default `target="moment"` is unchanged
-  (`docs/user_guide/connected_targets.rst`).
+  (`docs/user_guide/connected_targets.rst`).  Under it, a `vertex_types`
+  label that a diagram at the requested orders could carry, and none does,
+  is a computed zero.
 * `GaussianQuadratic`, `GaussianQuadraticFamily`,
   `GaussianQuadraticStatistics` and `GaussianSpectralTail` give the cumulants
   and characteristic function of `Y = b + l·z + zᵀAz` for a finite Gaussian
@@ -68,7 +77,11 @@ modifies the configuration.
   puts its rounding error within `1e-12` of its magnitude, and otherwise the
   correctly rounded exact value of the prepared data; a zero is returned
   only when it is proved.  The exact evaluation raises `ArithmeticError`
-  above its work or memory limit.
+  above its work or memory limit.  Preparation uses an exactly symmetric
+  `A` unchanged, subnormal entries included, and replaces any other by its
+  symmetric part with each entry rounded once to float64; it raises
+  `ValueError` only when every entry of a declared matrix is below
+  `2**-1022` and an entry of its symmetric part is not a float64 value.
 * `OUWhiteCumulant` evaluates the response contraction of a static
   equal-time noise cumulant under a constant diagonal OU response in closed
   form, removing one time integration per absorbed vertex
@@ -125,12 +138,148 @@ top-level key used only to hold YAML anchors or notes is refused too.
 `sweep.positions_grid` refuses a point that `expand.observable` does not
 name when the file is loaded.  A misspelt point used to stay at the
 default position: `positions_grid: {x: [0], yy: [0.45]}` returned the value
-at zero separation, 65 % high on the quickstart model, and added a `yy`
-column.  The L1 `positions` argument of `Expansion.evaluate` and
+at zero separation, 57 % high on the quickstart model, and added a `yy`
+column.  A point the observable names and the grid omits sat at the default
+coordinate 0; YAML now requires every one.  A grid key that YAML reads as a
+number or a boolean (an unquoted `1` or `on`) is refused with advice to
+quote it, and a block of the wrong shape (a mapping for `output`, a scalar
+for `vertices`, a string observable) is refused with the block's name.
+`sweep.integrate_over` is checked at load, and one string other than `all`
+is one point name, so `--override sweep.integrate_over=x` runs; at L1 write
+a list.  The L1 `positions` argument of `Expansion.evaluate` and
 `Expansion.sweep` still accepts points the observable does not use, so one
 positions dict can serve several observables; a point given no position
 takes the default there.  All shipped configurations load unchanged
 (`tests/test_yaml_spec_coverage.py`, YC11 and YC12).
+
+### Fixed: a string `vertex_types` was read one character at a time
+
+`Expansion.evaluate` and `Expansion.sweep` filtered diagrams with
+`set(vertex_types)`, so `vertex_types="FK"`, which YAML `vertex_types: FK`
+and `--override sweep.vertex_types=FK` produce, selected the label `F` and
+dropped `FK`.  On a two-component model (cubic `F`, constant `κ³`, rates 0.8
+and 1.3, `t_min = 0.3`) the run returned the F channel, -1.0286e-2, for the
+FK channel, -2.0545e-1, with no error; the FK value agrees with a 1-D quad of
+the channel to 2.1e-12.  **Breaking**: the selectors follow one rule at L1,
+in `System.expand` and in YAML.
+
+* One string is one label; a list, tuple, set, array, pandas Index or other
+  iterable of strings is a set of labels.  A mapping raises `TypeError`
+  (pass `list(exp.by_vertex_type(order))`), and so do bytes, a scalar and a
+  non-string entry.
+* One integer is one order.  A boolean, a string, a float, a negative order
+  and a non-integer entry raise: `"2"` used to select order 2, `2.5` order 2,
+  `b"2"` order 50, and `System.expand(obs, orders=2)` raised.
+* An empty selection raises `ValueError`.  Under the moment target, an order
+  outside `expand.orders` and a label that no diagram at the selected orders
+  carries raise before any integral, naming what is present; they used to
+  fail after the work, and a misspelt label next to a valid one dropped its
+  channel without a message.  An order of the expansion that holds no
+  diagram gives zero rows, as under the connected target; it used to end in
+  `KeyError: 'x'` in `totals()` after the propagators were built.
+* YAML applies the rules when the file is loaded, and the run and the
+  dry-run estimate check the selection against the expansion before the
+  propagators are built.
+
+### Fixed: observable labels spelled like the generated names
+
+The expansion names its vertex points `y_0, y_1, ...` and its component
+indices `i_0, i_1, ...`, and the Wick engines key operators by these
+strings, so an observable label spelled the same way was merged with the
+vertex point or index of that name.  On a generic model whose order-2 value
+is 2.5355e-2 (exact Itô hierarchy), `(y_0, y_1)` returned 0, `(x, y_0)` and
+three other spellings raised about a response chain joining two points, and
+the L0 component labels `(i_0, i_1)` gave 0.0740 and 0.0672.  The generators
+now skip the observable's labels (`IndexContext(reserved=...)`, which a
+caller that instantiates vertex copies itself must pass too).  Every
+spelling agrees with `(x, y)` to 1e-12 or better (4e-16 at order 2);
+observables without such labels
+give the same diagrams, expressions and cache keys as before.
+
+### Changed: names that read two ways raise
+
+**Breaking.**  Each of these returned a number without an error.
+
+* Two observable operators that share a component letter carry one index,
+  so a component tuple giving them different values took the later one:
+  `<phi_a(x) phi_a(y)>` at `(0, 1)` returned the `(1, 1)` values (0.05272 at
+  order 0, where the value is 0).  `Expansion.evaluate`, `Expansion.sweep`
+  and the YAML component axis refuse such a tuple.
+* Of two vertices with one name, the second coupling replaced the first for
+  both (-0.01099 against 0.01867 at order 2).  `System` refuses a repeated
+  name.
+* With vertices `F`, `K` and `FK`, the `F K` and `FK` channels were both
+  labelled `"FK"` (-0.06248 against -0.05974 for `F K` alone).  `System`
+  refuses vertex names for which two sets of vertices share a label, when
+  it is built.
+* An L0 `positions` key spelled like a vertex point (`y_0`) was read as that
+  point's position; the resolvers read external points only.
+* `FieldSpec("psi")` gave the physical and the response field one name, so
+  a `phi` and a `psi` operator of one label shared a cache key; it raises.
+
+### Fixed: literal component labels in Kronecker deltas (L0)
+
+A numeric component label in an L0 observable, as in `phi("1", "x")`,
+counts from 1 for coupling symbols and propagator legs, but the
+`KroneckerDelta` that `diag_C`, `diag_R`, `iso_C` and `iso_R` insert between
+two external labels read it from 0.  On a two-component OU process (rates
+0.7 and 1.9, white noise diag(0.8, 1.3), `t_min = 0.4`), with both L0
+engines and every integrator:
+
+* `<phi_1 phi_b>` under `diag_C`: 0 at b = 0 (exact 0.315), and 0.315 at
+  b = 1 (exact 0); `<phi_1 psi_b>` under `diag_R` the same with 0.657.
+* Four points under `diag_C`: 0 at (b, d) = (0, 1) and (1, 0) (exact 3.3e-3
+  and 5.4e-3).
+* Three points at first order in a quadratic drift: -0.138 against -0.330
+  from the exact hierarchy.
+
+Every resolver now reads the label one way (`sft_wick.indices.literal_component`).
+**Breaking (L0)**: `compute_moment` and `compute_moment_numerical` refuse a
+numeric label outside `1..n_components`, also when `fixed_indices` pins it;
+`"0"` used to wrap to the last component.  L1 strings and YAML accept only
+letter labels and were not affected.
+
+### Fixed: `System.expand` with `FieldOperator` observables or a set
+
+The `FieldOperator` branch of `System.expand` raised `AttributeError` on
+every call, although the docstring offered the form.  It now gives the
+expansion and the cache key of the string spelling, and refuses an
+operator of another field, a missing label on a multi-component field, a
+non-string label and a numeric literal label.  A set or frozenset
+observable came in hash order, so `PYTHONHASHSEED` decided which component
+of the tuple belonged to which operator (-0.06211 or -0.14544 at `(0, 1)`);
+it raises `ValueError`.  A dict's keys view keeps the dict's insertion order
+and is accepted.
+
+### Fixed: user callables that write into their arguments or return one buffer
+
+* A closed-form C hook (`c_value_fn`, a `c_closed_form`, an override of
+  `_C_value_direct`) received arrays the package reads again: the caller's
+  positions on the per-sample integrators, a table builder's position for
+  every cell, the time batches of the vectorised path.  A hook forming
+  `x1 - x2` in place gave -0.14713 on `qmc` against -0.10545 at d = 3; a
+  vectorised hook doing `t1 -= t_min` gave 0.06517 against 0.14215 at order
+  2.  Hooks now receive copies of array and list arguments (shallow ones).
+* A `GeneralKappa2` or `CustomImpulse` callable that wrote into its
+  positions changed every later quadrature node: at 3-D positions C_00
+  came out about 1e-9 (`gauss_legendre`) and 0.0 (`dblquad`) against
+  5.85e-2, and the caller's
+  position came back changed.  It now receives copies, at about 4 % per GL C
+  value with 3-D positions.
+* A vectorised closed-form C that filled and returned one buffer made every
+  earlier C factor equal to the last one: 0.28329 against 0.15921 under
+  `diag_C` at order 2, and 0.054947 against 0.043179 without it.
+* An L0 coupling callable that returned one buffer gave both κ³ copies of a
+  six-point function the last copy's tensor, 20 % off, on `gauss_legendre`
+  and `qmc_vectorized` for a vectorised callable and on the per-sample
+  `qmc` loop for either contract.  L1 wraps each callable in its MSR
+  factor, which allocates, and was not affected.
+* A κ² that returned one buffer gave the diagonal-cusp probe three equal
+  values, so `dblquad` integrated a `|Δt|` cusp without the split (7.9e-8
+  relative instead of 1.9e-16, 38 times slower).
+
+Every value the package keeps is now a copy.  Callables that neither write
+into their arguments nor reuse a buffer give the same values.
 
 ### Changed: the propagator disk cache covers built-in specs only
 

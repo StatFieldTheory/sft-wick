@@ -33,8 +33,10 @@ comparison command.*
   family are within ``1e-12`` relative of the exact value or correctly
   rounded.
 - The opt-in contraction backends ``einsum`` and ``factorized`` run only when
-  their result obeys the ordered fold's error bound; otherwise the ordered
-  fold runs.
+  their result obeys the ordered fold's error bound,
+  ``1.01 (m + q + A T) u S``; otherwise ``einsum`` declines and the ordered
+  fold runs, and ``factorized`` first materializes the coefficient, which
+  raises ``ValueError`` when its payload exceeds ``contraction_max_bytes``.
 - Vectorised response callables (``ExplicitR(vectorized=True)``, YAML
   ``R_time_vectorized``) and a recipe for changing the integration variable
   (:doc:`user_guide/time_variable`).
@@ -48,6 +50,27 @@ comparison command.*
 - Breaking: a workflow key the parser does not read raises ``ValueError`` in
   every block, and so does a ``sweep.positions_grid`` point the observable
   does not name; a misspelt key or point used to fall back to its default.
+  The grid must name every point of the observable.
+- Fixed and breaking: a string ``vertex_types`` was read one character at a
+  time, so ``vertex_types: FK`` returned the F channel (20 times too small
+  on the test model). One string is now one label and one integer one
+  order; other types, negative orders, empty selections and labels or
+  orders the expansion lacks raise before any integral, and an order that
+  holds no diagram gives zero rows.
+- Fixed: observable labels spelled like the generated names (``y_0``,
+  ``i_0``) were merged with a vertex point or index. Breaking: a component
+  letter shared by two operators with different components, two vertices
+  with one name, vertex names whose vertex-type labels coincide and a
+  physical field named ``psi`` raise.
+- Fixed (L0): a numeric literal component label was read from 0 in the
+  Kronecker deltas of ``diag_C``, ``diag_R``, ``iso_C`` and ``iso_R`` and
+  from 1 elsewhere; breaking, a literal outside ``1..n_components`` raises.
+- Fixed: ``System.expand`` raised on every ``FieldOperator`` observable,
+  and a set observable came in hash order (it now raises).
+- Fixed: user callables (closed-form C, ``GeneralKappa2``,
+  ``CustomImpulse``, L0 couplings) that write into their arguments or
+  return one buffer gave wrong values without an error; the package now
+  copies what it reads again or keeps.
 - The propagator disk cache (``cache_path``) covers built-in specs only;
   systems with user callables compute their tables on every call.
 - Fixed: batch contractions dropped coefficients below ``1e-20`` in
