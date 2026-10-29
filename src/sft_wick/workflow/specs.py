@@ -91,6 +91,17 @@ def _is_scalar_pair(t1, t2) -> bool:
     return np.ndim(t1) == 0 and np.ndim(t2) == 0
 
 
+def _owned(value):
+    """``value``, copied when it is an array.
+
+    The separable κ² wrappers keep the temporal factor while they call the
+    spatial or angular kernel, and two user kernels may fill and return one
+    shared buffer.  Floats, which every built-in kernel returns, pass
+    unchanged.
+    """
+    return value.copy() if isinstance(value, np.ndarray) else value
+
+
 class _StaticIsoR:
     """Static (constant-gamma) iso-R: ``R(t1, t2) = exp(-gamma (t1 - t2))``
     for ``t1 >= t2`` else 0.
@@ -248,7 +259,8 @@ class _SeparableTranslationKappa2:
             dr = float(abs(diff))
         else:
             dr = float(np.linalg.norm(diff))
-        return self.temporal(t1 - t2) * self.spatial(dr) * np.eye(self._n)
+        kt = _owned(self.temporal(t1 - t2))
+        return kt * self.spatial(dr) * np.eye(self._n)
 
 
 class _SeparableRotationKappa2:
@@ -273,7 +285,8 @@ class _SeparableRotationKappa2:
     def __call__(self, n1, t1, n2, t2):
         from sft_wick.evaluate import _rotation_cos
         cos_val = _rotation_cos(n1, n2)
-        return self.temporal(t1 - t2) * self.angular(cos_val) * np.eye(self._n)
+        kt = _owned(self.temporal(t1 - t2))
+        return kt * self.angular(cos_val) * np.eye(self._n)
 
 
 class _ConstantImpulseIso:
@@ -430,8 +443,10 @@ class DiagonalA(LinearOp):
         :attr:`is_iso_R` both read it."""
         t_grid = np.linspace(self.t_min_cache, self.t_max_cache,
                              self.n_grid_cache)
+        # ``np.array`` copies: the list keeps every value until the stack,
+        # and a rate may fill and return one buffer.
         gamma_vals = np.array([
-            np.atleast_1d(np.asarray(self.gamma(t), dtype=float))
+            np.atleast_1d(np.array(self.gamma(t), dtype=float))
             for t in t_grid
         ])
         return t_grid, gamma_vals

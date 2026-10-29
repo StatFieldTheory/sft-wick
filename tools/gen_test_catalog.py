@@ -1025,6 +1025,20 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "covariance; the FK channel of a constant kappa^3 as a 1-D quad",
         "1e-12; 1e-9; bit equality between spellings",
     ),
+    "tests/test_spec_wrapper_aliasing.py": (
+        "Workflow and YAML",
+        "a callable DiagonalA rate that fills and returns one buffer, in the "
+        "spline grid, R, the order-0 and order-2 totals at L1 and iso_R "
+        "through YAML gamma_module; SeparableTranslation and "
+        "SeparableRotation kernels that share one output buffer, in kappa2 "
+        "and the order-0 and order-2 totals on the lazy and full tables, "
+        "gauss_legendre and dblquad; the YAML R_time_vectorized probe with "
+        "an R that fills one buffer or uses its time arrays as scratch space",
+        "closed-form Gamma of the rates; nested scipy quad of the order-0 C; "
+        "the same callables without the buffer or the write",
+        "1e-8 (R and the rate system's C); 1e-10 (separable C); bit equality "
+        "against the fresh callables",
+    ),
     "tests/test_empty_order_selection.py": (
         "Workflow and YAML",
         "an order at which the expansion holds no diagram (order 1 of a "
