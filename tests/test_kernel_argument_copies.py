@@ -30,12 +30,13 @@ probe compared the buffer with its own transpose.
 
 KC7-KC9: the same for values kept across a second call to the same
 callable.  ``integrate_two_point_qmc`` divided κ² at a separation by κ² at
-zero separation, so a κ² returning one buffer made the ratio 1 (2.23 times
-too large at separation 0.8).  The Gauss-Legendre C quadrature kept
-R(t1, λ1) while it called R(t2, λ2), so a dense ``ExplicitR`` returning one
-buffer gave C_00 48 % high and C_10 of the wrong sign.  The YAML R probes
-compared R(t1, t2) after R(t2, t1) had overwritten it, and accepted an R
-without the Heaviside factor.
+zero separation, so a κ² returning one buffer made the ratio 1 (C_11 at
+separation 0.8 2.23 times too large at order 0, 2.20 times at order 2).
+The Gauss-Legendre C quadrature kept R(t1, λ1) while it called R(t2, λ2),
+so a dense ``ExplicitR`` returning one buffer gave C_00 48 % high without
+white noise and 62 % high with it, and C_10 of the wrong sign in both.  The
+YAML R probes tested R(t1, t2) after R(t2, t1) had overwritten it, and
+accepted a buffer-reusing R that is not finite at causal times.
 
 References share no code with the package: for κ², the inner time
 integral of the Gaussian temporal kernel in closed form (``erf``) and the
@@ -487,8 +488,9 @@ def _kappa_two_point(n1, t1, n2, t2):
 @pytest.mark.parametrize("order", [0, 2])
 def test_KC7_two_point_qmc_keeps_its_own_kappa_at_zero_separation(order):
     """``integrate_two_point_qmc`` keeps κ²(0, 0) and divides κ²(n_l, n_r)
-    by it; a κ² returning one buffer made the ratio 1, so the value at
-    separation 0.8 came out e^0.8 = 2.23 times too large."""
+    by it; a κ² returning one buffer made the ratio 1, so C_11 at
+    separation 0.8 came out e^0.8 = 2.23 times too large at order 0 and
+    2.20 times at order 2."""
     from sft_wick import Action, Field, Vertex, compute_moment
     from sft_wick.evaluate import PropagatorModel, integrate_two_point_qmc
 
@@ -528,7 +530,8 @@ def _R_dense(t, tp):
 def test_KC8_gl_c_quadrature_keeps_its_own_first_response(sigma2):
     """The Gauss-Legendre C quadrature keeps R(t1, λ1) while it calls
     R(t2, λ2); a dense ``ExplicitR`` returning one buffer gave C_00 48 %
-    high and C_10 of the wrong sign."""
+    high without white noise and 62 % high with it, and C_10 of the wrong
+    sign in both."""
     values = []
     for R in (_R_dense, _Reused(_R_dense, (2, 2))):
         noise = sw.GaussianNoise(
@@ -547,7 +550,7 @@ def test_KC8_gl_c_quadrature_keeps_its_own_first_response(sigma2):
     np.testing.assert_array_equal(values[1], values[0])
 
 
-def _R_without_heaviside(t1, t2):
+def _R_nan_when_causal(t1, t2):
     return np.full((2, 2), np.nan) if t1 > t2 else np.zeros((2, 2))
 
 
@@ -557,6 +560,6 @@ def test_KC9_yaml_r_probes_keep_their_first_value():
     same R returning fresh arrays was refused."""
     from sft_wick.workflow.config import _probe_R_time
 
-    for R in (_R_without_heaviside, _Reused(_R_without_heaviside, (2, 2))):
+    for R in (_R_nan_when_causal, _Reused(_R_nan_when_causal, (2, 2))):
         with pytest.raises(ValueError):
             _probe_R_time(R, False, 2, 0.0, 3.0)

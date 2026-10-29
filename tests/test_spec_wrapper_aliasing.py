@@ -10,7 +10,9 @@ the order-0 values were -8.9 % and +53 % off, the order-2 value at (1, 1)
 +129 %, and the order-2 value at (0, 1) had the wrong sign (0.00368 against
 -0.00112).  Through YAML ``gamma_module``, a rate whose two components meet
 only at ``t_max_cache`` turned a matrix R into a scalar one (``iso_R``
-true), and component 1 got component 0's response.  Each value is now
+true), and both components got the response of the rate at
+``t_max_cache`` held constant (0.2903 against 0.1344 and 0.2224 at
+R(2.7, 1.1)).  Each value is now
 copied as it is collected.
 
 SW4-SW5: ``SeparableTranslation`` and ``SeparableRotation`` given raw
@@ -258,7 +260,8 @@ _GAMMA_YAML = textwrap.dedent("""
 def test_SW3_yaml_buffer_rate_keeps_a_matrix_response(tmp_path):
     """Through ``gamma_module``: a buffer rate whose components cross at
     t_max_cache made every grid row equal there, so iso_R came out true and
-    component 1 got component 0's response."""
+    both components got the response of the rate at t_max_cache held
+    constant."""
     from sft_wick.workflow.config import build_system, load_workflow_config
 
     (tmp_path / "sw_gamma_rate.py").write_text(_GAMMA_MODULE)

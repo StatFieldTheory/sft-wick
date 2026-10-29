@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **5629 tests** in 123 files (parametrised
+The suite has **5630 tests** in 123 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -547,7 +547,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*755 tests in 22 files.*
+*756 tests in 22 files.*
 
 .. list-table::
    :header-rows: 1
@@ -609,10 +609,10 @@ Workflow and YAML
      - 1e-9 (GL) / 2e-3 (qmc_scalar)
      - 46
    * - ``test_observable_operator_inputs.py``
-     - FieldOperator observables in System.expand (order 0 at distinct times, the FK channel at order 2, the same expansion as the string spelling, one index per shared letter); literal labels and foreign fields refused; set and frozenset observables refused, a dict's keys view accepted in its insertion order; a physical field named psi refused
+     - FieldOperator observables in System.expand (order 0 at distinct times, the FK channel at order 2, the same expansion as the string spelling, one index per shared letter); literal labels and foreign fields refused; set and frozenset observables refused, a dict's keys view accepted in its insertion order, the keys view of another mapping (a ChainMap's included) refused; a physical field named psi refused
      - closed-form inner and scipy quad outer integral of the exponential covariance; the FK channel of a constant kappa^3 as a 1-D quad
      - 1e-12; 1e-9; bit equality between spellings
-     - 14
+     - 15
    * - ``test_repo_hygiene.py``
      - tracked files hold no agent working files, development records, local absolute paths or task IDs
      - git ls-files; positive and negative pattern controls

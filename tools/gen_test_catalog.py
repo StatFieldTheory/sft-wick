@@ -1042,7 +1042,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "times, the FK channel at order 2, the same expansion as the string "
         "spelling, one index per shared letter); literal labels and foreign "
         "fields refused; set and frozenset observables refused, a dict's "
-        "keys view accepted in its insertion order; a physical field named "
+        "keys view accepted in its insertion order, the keys view of another "
+        "mapping (a ChainMap's included) refused; a physical field named "
         "psi refused",
         "closed-form inner and scipy quad outer integral of the exponential "
         "covariance; the FK channel of a constant kappa^3 as a 1-D quad",

@@ -464,9 +464,11 @@ class System:
                 :meth:`Expansion.evaluate` gives their components in this
                 order.  A set or a frozenset raises, since its order
                 follows ``PYTHONHASHSEED``; a dict's keys view keeps the
-                dict's insertion order and is accepted (the keys view of
-                another mapping is refused, since its order is the
-                mapping's).
+                dict's insertion order and is accepted (also through an
+                ``OrderedDict``, a dict subclass or a ``MappingProxyType``).
+                The keys view of any other mapping, a ``ChainMap``
+                included, is refused, since the package cannot check its
+                order; pass ``list(mapping.keys())``.
             orders: the perturbative orders to compute, as one integer or
                 a list of them.  A boolean, a string, a float, a non-integer
                 entry and an empty list raise.
@@ -786,6 +788,16 @@ def _parse_observable(observable, system: System, _max_order: int = 1):
     ``(field_name, component_label, spatial_label)`` for both forms, so the
     two spellings of one observable share a cache entry.
     """
+    if isinstance(observable, collections.abc.KeysView) and not isinstance(
+        observable, type({}.keys())
+    ):
+        raise ValueError(
+            f"System.expand: observable is the keys view of a mapping that "
+            f"is not a dict, whose order the package cannot check, and the "
+            f"order of the operators fixes which entry of the component "
+            f"tuple belongs to which operator; give a list or a tuple, e.g. "
+            f"list(mapping.keys()); got {observable!r}."
+        )
     if isinstance(observable, collections.abc.Set) and not isinstance(
         observable, type({}.keys())
     ):
