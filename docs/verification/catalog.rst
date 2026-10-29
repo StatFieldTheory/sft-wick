@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **5578 tests** in 121 files (parametrised
+The suite has **5593 tests** in 122 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -547,7 +547,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*740 tests in 21 files.*
+*755 tests in 22 files.*
 
 .. list-table::
    :header-rows: 1
@@ -628,6 +628,11 @@ Workflow and YAML
      - callback nonexecution witnesses, grid cardinality and connected Gaussian zero coefficients
      - exact status, callback and diagram-count checks
      - 6
+   * - ``test_spec_wrapper_aliasing.py``
+     - a callable DiagonalA rate that fills and returns one buffer, in the spline grid, R, the order-0 and order-2 totals at L1 and iso_R through YAML gamma_module; SeparableTranslation and SeparableRotation kernels that share one output buffer, in kappa2 and the order-0 and order-2 totals on the lazy and full tables, gauss_legendre and dblquad; the YAML R_time_vectorized probe with an R that fills one buffer or uses its time arrays as scratch space
+     - closed-form Gamma of the rates; nested scipy quad of the order-0 C; the same callables without the buffer or the write
+     - 1e-8 (R and the rate system's C); 1e-10 (separable C); bit equality against the fresh callables
+     - 15
    * - ``test_sweep_component_tuples.py``
      - n-point sweeps: Expansion.sweep, the YAML sweep block and the CLI over component tuples of the observable's length; demo 4 level A from two shipped configs; the refusals (tuple length, index range, a repeated tuple or grid value, colliding columns)
      - the Campbell closed form K_R of examples/demo4; a numpy einsum for a static kappa^3 under component-dependent rates; Expansion.evaluate at the same point
