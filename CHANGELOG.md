@@ -354,9 +354,20 @@ Custom propagator caches (L1 through `propagators_from_cache`, and L0):
   -59 % through `R_time_batch`, -63 % in `integrate_two_point_qmc`.
   **Breaking (custom caches)**: those batches are now read-only, and such a
   write raises `ValueError`, as does a Cython memoryview over them declared
-  without `const`.  The zero-dimensional branch and `PropagatorCache.C_value`
-  pass fresh time arrays that nothing reads again, so a write there changes
-  nothing.
+  without `const`.  So is every other time array the package passes to a
+  batch method: those of the zero-dimensional branch and of
+  `PropagatorCache.C_value` (the order-0 diagram on every integrator, every
+  diagram on `qmc_scalar` and `nquad`), and the arguments that the package's
+  `C_at_batch`, `C_diagonal_batch` and `C_matrix_batch` pass on to methods a
+  subclass can override (`C_diagonal_batch` or `C_matrix_batch` in the
+  translation fallback of `C_at_batch`, `_lazy_lookup`,
+  `_closed_form_at_batch_diag`, `_on_diagonal`), as read-only views where
+  they are the caller's arrays.  A write there changed a value only through
+  `_on_diagonal`, after which those two methods read the times again: at
+  coincident times the zero-dimensional seven-point function came out
+  -61.6 % through `C_diagonal_batch` and -99.4 % through `C_matrix_batch`.
+  On a direct call the write changed the caller's arrays (`[1.9, 1.7]`
+  became `[0.45, 0.5]` through the translation fallback).
 * A custom `C_at_batch`, `C_value` or `C_diagonal` received the caller's
   position arrays, one object for both ends of a C inside a direction group.
   One forming the separation in place zeroed the caller's positions or
@@ -366,6 +377,27 @@ Custom propagator caches (L1 through `propagators_from_cache`, and L0):
   receives copies of array and list positions, and every `C_at_batch`, the
   package's own included, receives float64 array copies; the integrators
   pass the package's own `C_value` and `C_diagonal` the caller's objects.
+* The integrators took `SpectralPropagatorCache.C_value` and
+  `PropagatorCache.C_at_batch` for the package's own whatever a subclass had
+  done to the methods they call.  `C_value` passes its positions to
+  `_c_matrix`: one forming the separation in place turned the caller's `x`
+  into `x - y` at order 0, so at orders 0 and 2 in one call the total came
+  out -16.8 % on `gauss_legendre` and -17.0 % on `qmc_scalar` at component
+  pair (1, 1), -49 % at (1, 0), and the second point of an `nquad` sweep
+  -90.0 %.  `C_at_batch` returns the array of `_assemble_C`, `_lazy_lookup`
+  or `_closed_form_at_batch_diag`: any of them returning one buffer gave
+  every kept C factor the last one, +181.8 % at order 2 on `gauss_legendre`,
+  `qmc_vectorized` and `integrate_two_point_qmc`, with and without the
+  lookup bank.  Each now counts as the package's own only while those
+  methods are too; otherwise its positions or its output are copied.
+* `DiagramIntegrand.evaluate` handed `R_product` the times dict that its C
+  lookups read next, the caller's own dict on a direct call.  An
+  `R_product` that moved every time down by `t_min` after reading them gave
+  order 0 at the shifted times, -27.6 % on every integrator; at orders 0
+  and 2, -57.1 % on `qmc_scalar` and -9.2 % in `integrate_two_point_qmc`.
+  One that removed the two ends of each R raised `KeyError` at order 2 on
+  `qmc_scalar`.  An `R_product` other than the package's own now receives a
+  copy of the dict.
 
 Spectral densities, self-consistency, R-contracted vertices:
 

@@ -74,9 +74,9 @@ comparison command.*
   ``GeneralKappa2``, ``CustomImpulse``, ``ExplicitR``, L0 couplings, a
   callable ``DiagonalA`` rate, raw separable kernels, custom propagator
   caches, ``SpectralDensity``, ``solve_self_consistency`` and
-  ``build_R_contracted_callable``.  Breaking: the time batches that the
-  batched integrators read again are read-only, so a custom cache's batch
-  method writing into them raises ``ValueError``; ``SpectralDensity`` nodes
+  ``build_R_contracted_callable``.  Breaking: every time array the package
+  passes to a cache's batch method is read-only, so a custom cache's batch
+  method writing into one raises ``ValueError``; ``SpectralDensity`` nodes
   and weights are read-only, and ``from_callable`` raises when ``rho``
   reorders its argument in place.
 - The propagator disk cache (``cache_path``) covers built-in specs only;
