@@ -494,13 +494,16 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "integrate_two_point_qmc and in the zero-dimensional branch; batch "
         "methods writing into their time arguments; a C_at_batch writing into "
         "its position arguments, through Expansion.evaluate, C_value and "
-        "integrate_two_point_qmc",
+        "integrate_two_point_qmc; a C_value or C_diagonal writing into its "
+        "position arguments, at order 0 on every integrator, at order 2 on "
+        "qmc_scalar, in integrate_two_point_qmc and in the legacy "
+        "precompute_C_table; the legacy table with a 0-d array t_max",
         "erf inner and 48-node Gauss-Legendre outer time integral of the "
         "Gaussian temporal kernel with a dense R, checked against scipy "
         "dblquad; the same cache returning fresh arrays and reading its "
         "arguments only; the plain R with a float t_max",
-        "1e-12; 1e-6 at table nodes; 2e-4 through the 16 x 16 table; bit "
-        "equality; ValueError on a write",
+        "1e-13 off the legacy grid; 1e-12; 1e-6 at table nodes; 2e-4 through "
+        "the 16 x 16 table; bit equality; ValueError on a write",
     ),
     "tests/test_d_dim_spatial.py": (
         "Propagator numerics",

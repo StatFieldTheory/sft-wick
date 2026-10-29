@@ -46,6 +46,29 @@ positions on both batched integrators and in ``integrate_two_point_qmc``.
 Through ``C_value`` (order 0) the caller's ``x`` became ``x - y``.  The
 cache now receives owned float copies.
 
+CA6: the scalar C lookups of ``DiagramIntegrand.evaluate`` passed the
+caller's position arrays to ``C_value`` and ``C_diagonal``, one object for
+both ends inside a group.  That route serves every zero-dimensional static
+diagram (order 0 at least) on every integrator, every diagram on
+``qmc_scalar`` and ``nquad``, and the zero-dimensional diagrams of
+``integrate_two_point_qmc``.  A user-written ``C_value`` or ``C_diagonal``
+that forms the separation in place (``n1 -= n2``) turned the caller's ``x``
+into ``x - y`` at order 0, and the order-2 diagrams then read it: at orders
+0 and 2, -43 % on ``gauss_legendre``, ``qmc_vectorized`` and
+``integrate_two_point_qmc`` with distinct rates, 2.5 times the value on
+``qmc_scalar``; with equal rates -16 % on ``gauss_legendre`` and +60 % on
+``qmc_scalar``, also when the override is ``C_value`` and the scalar loop
+asks the package's ``C_diagonal``.  The legacy ``precompute_C_table``
+passed its ``direction`` as both ends of every node, and such an override
+zeroed it.  A method that is not the package's own now receives copies of
+array positions; the package's own receive the objects themselves.
+
+CA7: the legacy ``precompute_C_table`` kept the caller's ``t_max`` object as
+the table's range.  With a 0-d array ``t_max`` that the caller then
+increased by 1, a lookup past the grid read the spline outside its nodes
+(-3.5 % at ``t = (2.8, 2.6)``) instead of the direct value.  ``t_max`` is now
+converted to a float, as in the three spatial builders.
+
 References share no code with the package: C of the generic system in
 closed form in its inner time integral (``erf``) and by a 48-node
 Gauss-Legendre rule in the outer one, itself checked against scipy
@@ -66,9 +89,11 @@ from scipy.integrate import dblquad
 from scipy.special import erf
 
 import sft_wick as sw
+from sft_wick._propagator_lookup import wrap_propagator_cache
 from sft_wick.evaluate import (
     PropagatorCache,
     PropagatorModel,
+    _c_lookup_positions,
     integrate_diagrams,
     integrate_two_point_qmc,
     select_gl_node_count,
@@ -577,3 +602,189 @@ def test_CA5_two_point_qmc_with_a_writing_cache(expansions):
         np.testing.assert_array_equal(py, Y3)
     assert totals[False] != 0.0
     assert totals[True] == totals[False]
+
+
+# ---------------------------------------------------------------------------
+# CA6: a C_value or C_diagonal that writes into its position arguments
+# ---------------------------------------------------------------------------
+
+EQUAL = (0.9, 0.9)
+
+
+def _separation_scalar(name, write):
+    """A ``C_value`` or ``C_diagonal`` override computing C from the
+    separation, formed in ``n1`` in place when ``write``.  It counts its
+    calls in ``cache.calls``, so a test can show it was reached."""
+
+    def body(cache, parent, n1, t1, n2, t2):
+        cache.calls = getattr(cache, "calls", 0) + 1
+        if write:
+            n1 -= n2
+            d = n1
+        else:
+            d = np.asarray(n1, dtype=float) - np.asarray(n2, dtype=float)
+        return parent(d, t1, np.zeros_like(d), t2)
+
+    return _subclass(name, body)
+
+
+@pytest.fixture(scope="module")
+def equal_rates():
+    """Equal rates and ``diag_C``: the scalar loop takes ``C_diagonal``."""
+    system = _gaussian_system(G_DIAG, rates=EQUAL,
+                              vertices=[sw.LocalVertex("F", coupling=F)])
+    return system.expand(("phi_a(x)", "phi_b(y)"), orders=[0, 2], progress=False)
+
+
+def _equal_rates_cache(cls):
+    model = _gaussian_system(G_DIAG, rates=EQUAL).build_propagator_model(diag_C=True)
+    assert model.iso_R and model.diag_C
+    cache = cls(model, homogeneity="general", c_value_fn=_ExactC(G_DIAG, EQUAL))
+    _TABLES["spatial"](cache)
+    return cache
+
+
+# Order 0 is zero-dimensional: every integrator evaluates it through the
+# scalar DiagramIntegrand.evaluate, and the order-2 diagrams after it read the
+# caller's positions again.  qmc_scalar takes the scalar route at order 2 too.
+_CA6_METHODS = {
+    "gl": ("gauss_legendre", dict(n_gauss=6), [0, 2]),
+    "qmc": ("qmc_vectorized", dict(n_samples=1024, seed=5), [0, 2]),
+    "scalar": ("qmc_scalar", dict(n_samples=64, seed=5), [0, 2]),
+    "nquad": ("nquad", {}, [0]),
+}
+# (system, overridden method, component pair, integrator).  The scalar loop
+# reaches C_diagonal at order 2 only (order 0 asks for C_value), and with
+# equal rates a C_value override is reached through the package's C_diagonal.
+_CA6_CASES = (
+    [("mix", "C_value", PAIR, m) for m in sorted(_CA6_METHODS)]
+    + [("equal", "C_value", (1, 1), m) for m in sorted(_CA6_METHODS)]
+    + [("equal", "C_diagonal", (1, 1), "scalar")]
+)
+
+
+@pytest.mark.parametrize("kind, name, pair, method", _CA6_CASES,
+                         ids=[f"{k}-{n}-{m}" for k, n, _, m in _CA6_CASES])
+def test_CA6_a_scalar_C_lookup_writing_into_its_positions(expansions, equal_rates,
+                                                          kind, name, pair, method):
+    exp_ = equal_rates if kind == "equal" else expansions[kind][1]
+    mname, kw, orders = _CA6_METHODS[method]
+
+    def build(cls):
+        if kind == "equal":
+            return _equal_rates_cache(cls)
+        return _build(cls, kind, "spatial")
+
+    def run(cache):
+        px, py = X3.copy(), Y3.copy()
+        value = exp_.evaluate(
+            sw.propagators_from_cache(cache), positions={"x": px, "y": py},
+            t_final=TX, external_times={"x": TX, "y": TY}, component_pair=pair,
+            orders=orders, method=mname, **kw).total
+        return value, px, py
+
+    runs = {}
+    for write in (False, True):
+        cache = build(_separation_scalar(name, write))
+        runs[write] = run(cache)
+        assert cache.calls > 0
+    plain = run(build(PropagatorCache))[0]
+    assert runs[False][0] != 0.0
+    assert runs[True][0] == runs[False][0]
+    assert runs[False][0] == pytest.approx(plain, rel=1e-12, abs=0.0)
+    for _, px, py in runs.values():
+        np.testing.assert_array_equal(px, X3)
+        np.testing.assert_array_equal(py, Y3)
+
+
+def test_CA6_order_zero_matches_the_reference(equal_rates):
+    """The fresh value itself, through a writing C_diagonal: order 0 at 3-D
+    points against the closed form, to the 16 x 16 table's interpolation
+    error."""
+    cache = _equal_rates_cache(_separation_scalar("C_diagonal", True))
+    got = equal_rates.evaluate(
+        sw.propagators_from_cache(cache), positions={"x": X3.copy(), "y": Y3.copy()},
+        t_final=TX, external_times={"x": TX, "y": TY}, component_pair=(1, 1),
+        orders=[0], method="qmc_scalar", n_samples=8).total
+    want = _c_reference(X3, TX, Y3, TY, G_DIAG, EQUAL)[1, 1]
+    assert got == pytest.approx(want, rel=2e-4, abs=0.0)
+
+
+def test_CA6_two_point_qmc_with_a_writing_C_value(expansions):
+    """The order-0 diagram has no integration variable and is delegated to
+    the scalar evaluate; the order-2 diagrams after it read the caller's
+    positions again."""
+    system, exp_ = expansions["mix"]
+    cv = system.build_coupling_values()
+    integrands = [dt.build_integrand(cv, dict(zip("ab", PAIR)))
+                  for order in (0, 2) for dt in exp_.dts_by_order[order]]
+    totals, positions = {}, []
+    for write in (False, True):
+        px, py = X3.copy(), Y3.copy()
+        cache = _build(_separation_scalar("C_value", write), "mix", "spatial")
+        totals[write] = _two_point(integrands, cache, {"x": px, "y": py})
+        assert cache.calls > 0
+        positions += [px, py]
+    plain = _two_point(integrands, _build(PropagatorCache, "mix", "spatial"),
+                       {"x": X3.copy(), "y": Y3.copy()})
+    assert totals[False] != 0.0
+    assert totals[True] == totals[False]
+    assert totals[False] == pytest.approx(plain, rel=1e-12, abs=0.0)
+    for got, want in zip(positions, (X3, Y3) * 2):
+        np.testing.assert_array_equal(got, want)
+
+
+def test_CA6_the_package_accessors_receive_the_caller_positions():
+    """No copy for the package's own C_value and C_diagonal, which only read
+    their positions, also through the lookup bank.  An overridden C_value
+    gets copies, and the package's C_diagonal makes them for it."""
+    model = _gaussian_system(G_DIAG, rates=EQUAL).build_propagator_model()
+    x, y = X3.copy(), Y3.copy()
+    plain = PropagatorCache(model)
+    bank = wrap_propagator_cache(plain, **_BANK)
+    assert bank is not plain
+    for cache in (plain, bank):
+        for name in ("C_value", "C_diagonal"):
+            got = _c_lookup_positions(cache, name, x, y)
+            assert got[0] is x and got[1] is y
+    custom = _separation_scalar("C_value", False)(model)
+    got = _c_lookup_positions(custom, "C_diagonal", x, y)
+    assert got[0] is x and got[1] is y
+    got = _c_lookup_positions(custom, "C_value", x, x)
+    assert got[0] is not x and got[1] is not x and got[0] is not got[1]
+    np.testing.assert_array_equal(got[0], X3)
+
+
+def test_CA6_legacy_table_hands_an_override_copies_of_its_direction():
+    """``precompute_C_table`` passes its ``direction`` to ``C_value`` as both
+    ends of every node."""
+    model = _gaussian_system(G_DIAG, rates=EQUAL).build_propagator_model()
+    tables = {}
+    for write in (False, True):
+        cache = _separation_scalar("C_value", write)(
+            model, c_value_fn=_ExactC(G_DIAG, EQUAL))
+        direction = np.array([0.35, -0.2])
+        cache.precompute_C_table(t_max=T_MAX, n_grid=8, direction=direction)
+        np.testing.assert_array_equal(direction, [0.35, -0.2])
+        tables[write] = cache.C_diagonal(direction, 1.3, direction, 0.9)
+    np.testing.assert_array_equal(tables[True], tables[False])
+
+
+# ---------------------------------------------------------------------------
+# CA7: the legacy time-only table and a 0-d array t_max
+# ---------------------------------------------------------------------------
+
+def test_CA7_legacy_table_takes_a_float_t_max():
+    """The caller reuses its 0-d ``t_max`` after the build.  The table's range
+    used to follow it, so a lookup past the grid read the spline outside its
+    nodes instead of the direct value."""
+    model = _gaussian_system(G_DIAG, rates=EQUAL).build_propagator_model()
+    cache = PropagatorCache(model, c_value_fn=_ExactC(G_DIAG, EQUAL))
+    t_max = np.array(T_MAX)
+    cache.precompute_C_table(t_max=t_max, n_grid=12)
+    t_max += 1.0
+    assert cache._c_table_range == (T0, T_MAX)
+    assert type(cache._c_table_range[1]) is float
+    got = cache.C_value(0.0, T_MAX + 0.7, 0.0, T_MAX + 0.5)
+    want = _c_reference(0.0, T_MAX + 0.7, 0.0, T_MAX + 0.5, G_DIAG, EQUAL)
+    np.testing.assert_allclose(got, want, rtol=1e-13, atol=0.0)

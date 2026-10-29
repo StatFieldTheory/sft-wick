@@ -3309,6 +3309,8 @@ class PropagatorCache:
             lo, hi = self._c_table_range  # type: ignore[misc]
             if lo <= t1 <= hi and lo <= t2 <= hi:
                 return self._C_diagonal_from_table(t1, t2)
+        # Copies for an overridden C_value (see _c_lookup_positions).
+        n, n_prime = _c_lookup_positions(self, "C_value", n, n_prime)
         C_mat = self.C_value(n, t1, n_prime, t2)
         return np.diag(C_mat)
 
@@ -3359,6 +3361,9 @@ class PropagatorCache:
         """
         from scipy.interpolate import RectBivariateSpline
 
+        # A float, not the caller's object: the table keeps it as its range,
+        # as in precompute_C_table_translation.
+        t_max = float(t_max)
         m = self.model
         t_min = m.t_min
         ts = np.linspace(t_min, t_max, n_grid)
@@ -3369,7 +3374,10 @@ class PropagatorCache:
 
         for i in range(n_grid):
             for j in range(n_grid):
-                C_mat = self.C_value(direction, ts[i], direction, ts[j])
+                # ``direction`` is both ends of every node: copies for an
+                # overridden C_value (see _c_lookup_positions).
+                x1, x2 = _c_lookup_positions(self, "C_value", direction, direction)
+                C_mat = self.C_value(x1, ts[i], x2, ts[j])
                 for k, (a, b) in enumerate(entries):
                     grids[k][i, j] = C_mat[a, b]
 
@@ -5570,8 +5578,12 @@ class DiagramIntegrand:
             for sp_l, sp_r, il, ir in spatial.c_propagators:
                 dir_l = spatial.direction_map[sp_l]
                 dir_r = spatial.direction_map[sp_r]
-                n_l = directions.get(dir_l, directions.get(sp_l))
-                n_r = directions.get(dir_r, directions.get(sp_r))
+                n_l, n_r = _c_lookup_positions(
+                    cache,
+                    "C_value",
+                    directions.get(dir_l, directions.get(sp_l)),
+                    directions.get(dir_r, directions.get(sp_r)),
+                )
                 C_mat = cache.C_value(n_l, times[sp_l], n_r, times[sp_r])
                 if il is None and ir is None:
                     c_val *= _isotropic_C(C_mat)
@@ -5638,8 +5650,12 @@ class DiagramIntegrand:
         for sp_l, sp_r, il, ir in spatial.c_propagators:
             dir_l = spatial.direction_map[sp_l]
             dir_r = spatial.direction_map[sp_r]
-            n_l = directions.get(dir_l, directions.get(sp_l))
-            n_r = directions.get(dir_r, directions.get(sp_r))
+            n_l, n_r = _c_lookup_positions(
+                cache,
+                "C_diagonal",
+                directions.get(dir_l, directions.get(sp_l)),
+                directions.get(dir_r, directions.get(sp_r)),
+            )
             c_diag = cache.C_diagonal(n_l, times[sp_l], n_r, times[sp_r])
 
             if il is None and ir is None:
@@ -5759,8 +5775,12 @@ class DiagramIntegrand:
             for sp_l, sp_r, il, ir in spatial.c_propagators:
                 dir_l = spatial.direction_map[sp_l]
                 dir_r = spatial.direction_map[sp_r]
-                n_l = directions.get(dir_l, directions.get(sp_l))
-                n_r = directions.get(dir_r, directions.get(sp_r))
+                n_l, n_r = _c_lookup_positions(
+                    cache,
+                    "C_value",
+                    directions.get(dir_l, directions.get(sp_l)),
+                    directions.get(dir_r, directions.get(sp_r)),
+                )
                 C_mat = cache.C_value(n_l, times[sp_l], n_r, times[sp_r])
 
                 if il is None and ir is None:
@@ -8096,6 +8116,46 @@ def _owned_batch(cache: Any, name: str, out: Any) -> Any:
     return np.array(out, copy=True)
 
 
+@lru_cache(maxsize=1)
+def _package_c_lookups() -> frozenset:
+    """The scalar C accessors of the package's own caches.
+
+    Each reads its position arguments only, or passes copies on to a method
+    that may write into them (:meth:`PropagatorCache.C_diagonal` calling an
+    overridden ``C_value``, through :func:`_c_lookup_positions`).  Imported
+    on first use, as in :func:`_package_batch_methods`.
+    """
+    from .spectral import SpectralPropagatorCache
+
+    return frozenset(
+        (
+            PropagatorCache.C_value,
+            PropagatorCache.C_diagonal,
+            SpectralPropagatorCache.C_value,
+            SpectralPropagatorCache.C_diagonal,
+        )
+    )
+
+
+def _c_lookup_positions(cache: Any, name: str, n1: Any, n2: Any) -> tuple[Any, Any]:
+    """The two positions to pass to ``cache.<name>``, which is ``C_value``
+    or ``C_diagonal``.
+
+    The scalar evaluation passes the caller's position objects, and both
+    ends of a C inside one direction group are one object.  A user-written
+    method that formed the separation in place (``n1 -= n2``) would change
+    the caller's positions and every later lookup.  Such a method receives
+    copies of array and list positions (:func:`_own_copy`).  The package's
+    own methods receive the objects themselves.  The propagator lookup bank
+    forwards these two methods unchanged, so the bound method found here is
+    the one that runs.
+    """
+    method = getattr(cache, name, None)
+    if getattr(method, "__func__", None) in _package_c_lookups():
+        return n1, n2
+    return _own_copy(n1), _own_copy(n2)
+
+
 def _time_table_C_batch(cache: Any, t_l: np.ndarray, t_r: np.ndarray) -> np.ndarray:
     """C from a cache without a spatial table: ``(n, N)`` diagonals from
     ``C_diagonal_batch``, or ``(n, N, N)`` from ``C_matrix_batch`` when the
@@ -8230,9 +8290,12 @@ def integrate_moment(
         cache: A :class:`PropagatorCache` (or compatible custom
             cache).  The batched integrators copy the arrays a custom
             cache's batch methods return, so those may reuse one buffer.
-            They pass read-only time arrays and copies of array positions,
-            so a batch method that writes into its time arguments raises
-            ``ValueError``.
+            Where ``qmc_vectorized``, ``gauss_legendre`` and
+            :func:`integrate_two_point_qmc` read a time batch again for a
+            later factor, they pass it read-only, so a batch method that
+            writes into it raises ``ValueError``.  ``C_at_batch``, and a
+            custom cache's ``C_value`` and ``C_diagonal``, receive copies of
+            array positions.
         t_min: Lower time bound (default 0).
         direction: Direction value for all spatial points.
         method: ``'qmc'`` (default, auto-selects vectorised vs
@@ -8389,9 +8452,12 @@ def _integrate_moment_dispatch(
         cache: A :class:`PropagatorCache` (or compatible custom
             cache).  The batched integrators copy the arrays a custom
             cache's batch methods return, so those may reuse one buffer.
-            They pass read-only time arrays and copies of array positions,
-            so a batch method that writes into its time arguments raises
-            ``ValueError``.
+            Where ``qmc_vectorized``, ``gauss_legendre`` and
+            :func:`integrate_two_point_qmc` read a time batch again for a
+            later factor, they pass it read-only, so a batch method that
+            writes into it raises ``ValueError``.  ``C_at_batch``, and a
+            custom cache's ``C_value`` and ``C_diagonal``, receive copies of
+            array positions.
         t_min: Lower time bound (default 0).
         direction: Direction value for all spatial points.
         method: ``'qmc'`` (default, auto-selects vectorised vs
