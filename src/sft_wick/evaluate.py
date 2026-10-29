@@ -27,7 +27,11 @@ import numpy as np
 
 from .expressions import Propagator
 from .indices import literal_component
-from ._propagator_lookup import validate_cache_options, wrap_propagator_cache
+from ._propagator_lookup import (
+    _PropagatorLookupCache,
+    validate_cache_options,
+    wrap_propagator_cache,
+)
 from ._dense_contraction import (
     DEFAULT_CONTRACTION_MAX_BYTES,
     try_static_contraction,
@@ -2215,17 +2219,22 @@ def select_gl_node_count(
 
     Returns ``None``, meaning "use dblquad", when the cap is reached
     or the kernel raises on the probe positions.
+
+    ``t_max`` is converted to a float first: the probe cells pass it to
+    ``R_time`` at every node, and a 0-d array would let an ``R_time`` that
+    writes into its time argument move the caller's ``t_max``.
     """
     import math
 
+    t_max = float(t_max)
     t_min = float(model.t_min)
-    if float(t_max) <= t_min:
+    if t_max <= t_min:
         return int(n_start)
     if positions is None:
         n1 = n2 = np.asarray(0.0)
     else:
         n1, n2 = positions
-    span = float(t_max) - t_min
+    span = t_max - t_min
     h = span / 60.0
     mid = t_min + 0.5 * span
     cells = [
@@ -2783,6 +2792,21 @@ def _own_copy(value: Any) -> Any:
     return value
 
 
+def _read_only_times(times: np.ndarray) -> np.ndarray:
+    """``times`` with its writeable flag cleared, returned for chaining.
+
+    The batched integrators hand the cache's batch methods views of the
+    time batches they read again for the next factor: columns of one
+    ``(n_samples, n_vars)`` array, and fixed-time arrays shared by every
+    point pinned at one time.  A user-written cache that formed the lag in
+    place (``t1 -= t2``) would change every later factor of the sample;
+    with the flag cleared the write raises ``ValueError``.  Nothing is
+    copied, and the package's own batch methods only read these arguments.
+    """
+    times.flags.writeable = False
+    return times
+
+
 def _kappa2_at(model: "PropagatorModel", n1: Any, l1: float, n2: Any, l2: float):
     """``model.kappa2(n1, l1, n2, l2)`` on copies of the two positions.
 
@@ -3152,15 +3176,17 @@ class PropagatorCache:
             t1_arr = np.array([t1], dtype=float)
             t2_arr = np.array([t2], dtype=float)
             # n1, n2 may be scalars or arrays (e.g. np.float64 or
-            # small np.ndarray); pass through np.asarray so the
-            # downstream rotation/general paths see consistent shape.
+            # small np.ndarray); converted so the downstream
+            # rotation/general paths see consistent shape.  Copies, not
+            # views: the caller reads its positions again, and an override
+            # of C_at_batch may write into its position arguments.
             x1_arr = (
-                np.asarray(n1, dtype=float).reshape(1, -1)
+                np.array(n1, dtype=float).reshape(1, -1)
                 if np.ndim(n1) > 0
                 else np.array([float(n1)])
             )
             x2_arr = (
-                np.asarray(n2, dtype=float).reshape(1, -1)
+                np.array(n2, dtype=float).reshape(1, -1)
                 if np.ndim(n2) > 0
                 else np.array([float(n2)])
             )
@@ -3235,18 +3261,19 @@ class PropagatorCache:
         # Delegate to ``_C_value_direct`` (which adds the white-noise
         # 1-D contribution when ``model.sigma2`` is set), then store
         # in the per-arg memo.
-        C_mat = self._C_value_direct_on_copies(n1, t1, n2, t2)
+        # COPY on both branches.  ``_C_value_direct`` ends in
+        # ``np.asarray(...)``, which is the identity for a float64 array, so
+        # without the copy the result is the C hook's own object.  A
+        # ``c_value_fn`` that fills and returns one preallocated buffer would
+        # then change an earlier result at the next lookup, on the branch that
+        # skips the memo (object-dtype positions) too, and freezing the result
+        # would flip the flag on the user's buffer or on a module-level
+        # constant correlator.
+        C_mat = np.array(self._C_value_direct_on_copies(n1, t1, n2, t2), copy=True)
         if cacheable:
             # Handed out read-only: the array returned IS the memo entry, so a
             # caller doing ``C += x`` would silently rewrite every later
             # lookup.  Failing loudly beats corrupting the cache.
-            #
-            # COPY first.  ``_C_value_direct`` ends in ``np.asarray(...)``,
-            # which is the identity for a float64 array, so freezing in place
-            # would flip the flag on the USER'S object, breaking the
-            # idiomatic ``c_value_fn`` that fills and returns one preallocated
-            # buffer, or that returns a module-level constant correlator.
-            C_mat = np.array(C_mat, copy=True)
             C_mat.flags.writeable = False
             self._c_cache[cache_key] = C_mat
             if len(self._c_cache) > _C_CACHE_MAXSIZE:
@@ -3678,6 +3705,7 @@ class PropagatorCache:
             return self.c_method, (
                 self.n_gauss if self.c_method == "gauss_legendre" else None
             )
+        t_max = float(t_max)  # select_gl_node_count hands it to R_time
         horizon = getattr(self, "_c_method_horizon", None)
         if (
             self._c_method_resolved is not None
@@ -4022,6 +4050,9 @@ class PropagatorCache:
                 f"homogeneity='translation', got {self.homogeneity!r}"
             )
 
+        # A float, not the caller's object: the table keeps it as its range
+        # and the method probe hands it to R_time (select_gl_node_count).
+        t_max = float(t_max)
         m = self.model
         t_min = m.t_min
         self._c_table_range = (t_min, t_max)
@@ -4177,6 +4208,7 @@ class PropagatorCache:
                 f"homogeneity='rotation', got {self.homogeneity!r}"
             )
 
+        t_max = float(t_max)  # see precompute_C_table_translation
         m = self.model
         t_min = m.t_min
         self._c_table_range = (t_min, t_max)
@@ -4325,6 +4357,7 @@ class PropagatorCache:
                 f"homogeneity='general', got {self.homogeneity!r}"
             )
 
+        t_max = float(t_max)  # see precompute_C_table_translation
         m = self.model
         t_min = m.t_min
         self._c_table_range = (t_min, t_max)
@@ -5848,7 +5881,12 @@ class DiagramIntegrand:
         """
         out = []
         for p in self._kept_r_propagator_objects():
-            R_b = cache.R_matrix_batch(times(p.spatial_left), times(p.spatial_right))
+            # Kept while the next R is looked up: owned (see _owned_batch).
+            R_b = _owned_batch(
+                cache,
+                "R_matrix_batch",
+                cache.R_matrix_batch(times(p.spatial_left), times(p.spatial_right)),
+            )
             out.append((R_b, p.index_left, p.index_right, np.any(R_b != 0.0, axis=0)))
         return out
 
@@ -7072,10 +7110,14 @@ class DiagramIntegrand:
 
         # Build variable-name to column lookup.  Fixed externals are
         # NOT in times_arr; they get a special lookup that returns a
-        # constant ``lambda_f`` array.
+        # constant ``lambda_f`` array.  All of them are read-only from here
+        # on (see _read_only_times).
+        _read_only_times(times_arr)
         var_to_col = {var: i for i, var in enumerate(sobol_vars)}
-        fixed_t_by = {v: np.full(n_samples, t) for v, t in fixed_times.items()}
-        fixed_t = np.full(n_samples, lambda_f)
+        fixed_t_by = {
+            v: _read_only_times(np.full(n_samples, t)) for v, t in fixed_times.items()
+        }
+        fixed_t = _read_only_times(np.full(n_samples, lambda_f))
         # Equal-time alias map: see analyze_spatial / SpatialStructure.
         _et_alias = dict(spatial.equal_time_aliases or ())
 
@@ -7518,9 +7560,14 @@ class DiagramIntegrand:
                 times_arr[:, idx] = np.where(valid, lo_v + u[:, idx] * width, lo_v)
                 jacobians = np.where(valid, jacobians * width, 0.0)
 
+            # Read-only from here on, as in the QMC path (_read_only_times).
+            _read_only_times(times_arr)
             var_to_col = {var: i for i, var in enumerate(gl_vars)}
-            fixed_t_by = {v: np.full(n_samples, t) for v, t in fixed_times.items()}
-            fixed_t = np.full(n_samples, lambda_f)
+            fixed_t_by = {
+                v: _read_only_times(np.full(n_samples, t))
+                for v, t in fixed_times.items()
+            }
+            fixed_t = _read_only_times(np.full(n_samples, lambda_f))
             # Equal-time alias: aliased K-vertex legs share the canonical
             # representative's time variable. Resolved transparently inside
             # ``_times`` so r-propagator, c-propagator, and dynamic-coupling
@@ -8009,10 +8056,53 @@ def _cache_has_spatial_table(cache: "PropagatorCache") -> bool:
     return any(getattr(cache, n, None) is not None for n in names)
 
 
+@lru_cache(maxsize=1)
+def _package_batch_methods() -> frozenset:
+    """The batch accessors of the package's own caches.
+
+    Each allocates the array it returns.  Imported on first use, since
+    :mod:`sft_wick.spectral` imports this module.
+    """
+    from .spectral import SpectralPropagatorCache
+
+    return frozenset(
+        (
+            PropagatorCache.C_diagonal_batch,
+            PropagatorCache.C_matrix_batch,
+            PropagatorCache.C_at_batch,
+            PropagatorCache.R_matrix_batch,
+            SpectralPropagatorCache.C_diagonal_batch,
+        )
+    )
+
+
+def _owned_batch(cache: Any, name: str, out: Any) -> Any:
+    """``out``, returned by ``cache.<name>``, or a copy of it when that
+    method is not one of the package's own.
+
+    The batched integrators keep one batch per C factor and per matrix R
+    factor while they ask the cache for the next one.  A user-written cache
+    (a subclass overriding the method, or a cache that is not a
+    :class:`PropagatorCache`) may fill and return one buffer, which would
+    turn every kept factor into the last one.  The package's own methods
+    return fresh arrays and are not copied.  The propagator lookup bank is
+    looked through: it returns its source's array on a miss and a copy on a
+    hit.
+    """
+    source = cache._source if type(cache) is _PropagatorLookupCache else cache
+    method = getattr(source, name, None)
+    if getattr(method, "__func__", None) in _package_batch_methods():
+        return out
+    return np.array(out, copy=True)
+
+
 def _time_table_C_batch(cache: Any, t_l: np.ndarray, t_r: np.ndarray) -> np.ndarray:
     """C from a cache without a spatial table: ``(n, N)`` diagonals from
     ``C_diagonal_batch``, or ``(n, N, N)`` from ``C_matrix_batch`` when the
     model keeps the off-diagonal entries (``diag_C=False``).
+
+    The integrators keep the result while they look up the next C, so the
+    output of a user-written batch method is copied (:func:`_owned_batch`).
 
     Raises:
         ValueError: if the model keeps off-diagonal entries but the cache
@@ -8020,7 +8110,7 @@ def _time_table_C_batch(cache: Any, t_l: np.ndarray, t_r: np.ndarray) -> np.ndar
     """
     model = getattr(cache, "model", None)
     if getattr(model, "diag_C", True):
-        return cache.C_diagonal_batch(t_l, t_r)
+        return _owned_batch(cache, "C_diagonal_batch", cache.C_diagonal_batch(t_l, t_r))
     full = getattr(cache, "C_matrix_batch", None)
     if full is None:
         raise ValueError(
@@ -8030,7 +8120,7 @@ def _time_table_C_batch(cache: Any, t_l: np.ndarray, t_r: np.ndarray) -> np.ndar
             f"would be dropped.  Give the cache a C_matrix_batch(t1, t2) -> "
             f"(n, N, N), or a spatial table."
         )
-    return full(t_l, t_r)
+    return _owned_batch(cache, "C_matrix_batch", full(t_l, t_r))
 
 
 def _C_at_fixed_positions(
@@ -8042,10 +8132,17 @@ def _C_at_fixed_positions(
     scalar position per sample, so a fixed d-vector on a batch of d > 1
     samples would be misread that way.  Such a vector is tiled to
     ``(n, d)`` first, as ``C_at_batch`` tiles a vector of another length.
-    Every other position passes through unchanged: ``C_at_batch`` already
-    reads a vector of another length as fixed, and with ``n = d = 1`` both
-    readings give the same value.  A closed-form C hook receives copies
-    either way (:meth:`PropagatorCache._C_value_direct_on_copies`).
+    ``C_at_batch`` already reads a vector of another length as fixed, and
+    with ``n = d = 1`` both readings give the same value.
+
+    Any other array or list position is passed as an owned float copy.  The
+    caller's positions are read again by later lookups and diagrams, and
+    both ends of a C inside one group are one object, so a cache that wrote
+    into its position arguments (``x1 -= x2``) would change them.  Scalars
+    pass unchanged.
+
+    The integrators keep the result while they look up the next C, so the
+    output of a user-written ``C_at_batch`` is copied (:func:`_owned_batch`).
     """
     n = len(np.atleast_1d(t_l))
 
@@ -8053,9 +8150,13 @@ def _C_at_fixed_positions(
         arr = np.asarray(x, dtype=float)
         if arr.ndim == 1 and n > 1 and len(arr) == n:
             return np.tile(arr, (n, 1))
+        if isinstance(x, (np.ndarray, list)):
+            return np.array(arr, copy=True)
         return x
 
-    return cache.C_at_batch(t_l, t_r, rows(x_l), rows(x_r))
+    return _owned_batch(
+        cache, "C_at_batch", cache.C_at_batch(t_l, t_r, rows(x_l), rows(x_r))
+    )
 
 
 def integrate_moment(
@@ -8127,7 +8228,11 @@ def integrate_moment(
             :class:`~sft_wick.perturbation.DiagramTerm`.
         lambda_f: Upper integration limit for external times.
         cache: A :class:`PropagatorCache` (or compatible custom
-            cache).
+            cache).  The batched integrators copy the arrays a custom
+            cache's batch methods return, so those may reuse one buffer.
+            They pass read-only time arrays and copies of array positions,
+            so a batch method that writes into its time arguments raises
+            ``ValueError``.
         t_min: Lower time bound (default 0).
         direction: Direction value for all spatial points.
         method: ``'qmc'`` (default, auto-selects vectorised vs
@@ -8282,7 +8387,11 @@ def _integrate_moment_dispatch(
             :class:`~sft_wick.perturbation.DiagramTerm`.
         lambda_f: Upper integration limit for external times.
         cache: A :class:`PropagatorCache` (or compatible custom
-            cache).
+            cache).  The batched integrators copy the arrays a custom
+            cache's batch methods return, so those may reuse one buffer.
+            They pass read-only time arrays and copies of array positions,
+            so a batch method that writes into its time arguments raises
+            ``ValueError``.
         t_min: Lower time bound (default 0).
         direction: Direction value for all spatial points.
         method: ``'qmc'`` (default, auto-selects vectorised vs
@@ -9071,6 +9180,7 @@ def integrate_two_point_qmc(
             t_arr[:, j] = ext_times.get(evs[j], t_f)
         for j in range(ni):
             t_arr[:, len(evs) + j] = t_s[:, j]
+        _read_only_times(t_arr)
         et_alias = dict(sp.equal_time_aliases or ())
 
         def _t(label: str) -> np.ndarray:
