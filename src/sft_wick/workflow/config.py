@@ -974,6 +974,13 @@ def _probe_R_time_vectorized(R, t_min: float, t_max: Any) -> None:
     span = _probe_span(t_min, t_max)
     t1 = t_min + span * np.array([0.7, 0.9, 0.5])
     t2 = t_min + span * np.array([0.2, 0.1, 0.4])
+    # The scalar reference comes first, from floats, so an R that writes
+    # into its time arrays cannot change it; ``np.array`` copies each value,
+    # since the list keeps it across the later calls and an R may fill and
+    # return one buffer.
+    ref = np.array(
+        [np.array(R(float(a), float(b)), dtype=float) for a, b in zip(t1, t2)]
+    )
     try:
         arr = np.asarray(R(t1, t2), dtype=float)
     except Exception as e:  # noqa: BLE001 (a user callable)
@@ -981,9 +988,6 @@ def _probe_R_time_vectorized(R, t_min: float, t_max: Any) -> None:
             f"{where}: true, but R_time raised {type(e).__name__} on arrays "
             f"of shape (3,): {e}"
         ) from e
-    ref = np.array(
-        [np.asarray(R(float(a), float(b)), dtype=float) for a, b in zip(t1, t2)]
-    )
     if arr.shape != ref.shape:
         raise ValueError(
             f"{where}: true, but R_time on arrays of shape (3,) returned "
@@ -1019,7 +1023,9 @@ def _probe_R_time(
     span = _probe_span(t_min, t_max)
     t1, t2 = t_min + 0.7 * span, t_min + 0.2 * span
     try:
-        fwd = np.asarray(R(t1, t2), dtype=float)
+        # ``np.array`` copies: ``fwd`` is kept while R is called again,
+        # and an R may fill and return one buffer.
+        fwd = np.array(R(t1, t2), dtype=float)
         bwd = np.asarray(R(t2, t1), dtype=float)
     except Exception as e:  # noqa: BLE001 (a user callable)
         raise ValueError(

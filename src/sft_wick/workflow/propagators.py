@@ -426,6 +426,13 @@ def propagators_from_cache(cache) -> "Propagators":
     The component count is NOT checked here, because a cache carries no record
     of which system it was meant for.  It IS checked at use, in
     :meth:`Expansion.evaluate`, where both numbers are known.
+
+    A cache that overrides the batch methods may return one reused buffer,
+    because the integrators copy the batches they keep.  Its batch methods
+    must not write into their time arguments: where an integrator reads a
+    time batch again it passes it read-only, and a write raises
+    ``ValueError``.  Its ``C_at_batch``, ``C_value`` and ``C_diagonal``
+    receive copies of array positions.
     """
     return Propagators(cache=cache, homogeneity="translation", is_lazy=False)
 

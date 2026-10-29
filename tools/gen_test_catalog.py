@@ -473,12 +473,37 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "qmc_vectorized and gauss_legendre; an L0 coupling callable that "
         "returns one buffer, vectorised and per sample, on three integrators; "
         "a kappa2 that returns one buffer, in the cusp and transposition "
-        "probes",
+        "probes and in integrate_two_point_qmc; a dense ExplicitR that "
+        "returns one buffer, in the Gauss-Legendre C quadrature with and "
+        "without white noise and in the YAML R probe",
         "erf inner and scipy quad outer time integral of the Gaussian "
         "temporal kernel plus a quad white-noise term; the same kernel "
         "without writes; the same hook, coupling or kernel with a fresh "
         "array, and per sample",
         "1e-12; 5e-4 through the 10 x 10 table; bit equality",
+    ),
+    "tests/test_custom_cache_aliasing.py": (
+        "Integrators",
+        "a 0-d array t_max with an R_time that writes into its time argument, "
+        "in select_gl_node_count and the lazy general and translation tables; "
+        "C_value with object-dtype positions and a C hook returning one "
+        "buffer, at L0 and L1; user-written caches (subclass, subclass with "
+        "the lookup bank, forwarding wrapper) whose C_diagonal_batch, "
+        "C_matrix_batch, C_at_batch or R_matrix_batch return one buffer, on "
+        "gauss_legendre and qmc_vectorized at order 2, in "
+        "integrate_two_point_qmc and in the zero-dimensional branch; batch "
+        "methods writing into their time arguments; a C_at_batch writing into "
+        "its position arguments, through Expansion.evaluate, C_value and "
+        "integrate_two_point_qmc; a C_value or C_diagonal writing into its "
+        "position arguments, at order 0 on every integrator, at order 2 on "
+        "qmc_scalar, in integrate_two_point_qmc and in the legacy "
+        "precompute_C_table; the legacy table with a 0-d array t_max",
+        "erf inner and 48-node Gauss-Legendre outer time integral of the "
+        "Gaussian temporal kernel with a dense R, checked against scipy "
+        "dblquad; the same cache returning fresh arrays and reading its "
+        "arguments only; the plain R with a float t_max",
+        "1e-13 off the legacy grid; 1e-12; 1e-6 at table nodes; 2e-4 through "
+        "the 16 x 16 table; bit equality; ValueError on a write",
     ),
     "tests/test_d_dim_spatial.py": (
         "Propagator numerics",
@@ -1017,11 +1042,26 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "times, the FK channel at order 2, the same expansion as the string "
         "spelling, one index per shared letter); literal labels and foreign "
         "fields refused; set and frozenset observables refused, a dict's "
-        "keys view accepted in its insertion order; a physical field named "
+        "keys view accepted in its insertion order, the keys view of another "
+        "mapping (a ChainMap's included) refused; a physical field named "
         "psi refused",
         "closed-form inner and scipy quad outer integral of the exponential "
         "covariance; the FK channel of a constant kappa^3 as a 1-D quad",
         "1e-12; 1e-9; bit equality between spellings",
+    ),
+    "tests/test_spec_wrapper_aliasing.py": (
+        "Workflow and YAML",
+        "a callable DiagonalA rate that fills and returns one buffer, in the "
+        "spline grid, R, the order-0 and order-2 totals at L1 and iso_R "
+        "through YAML gamma_module; SeparableTranslation and "
+        "SeparableRotation kernels that share one output buffer, in kappa2 "
+        "and the order-0 and order-2 totals on the lazy and full tables, "
+        "gauss_legendre and dblquad; the YAML R_time_vectorized probe with "
+        "an R that fills one buffer or uses its time arrays as scratch space",
+        "closed-form Gamma of the rates; nested scipy quad of the order-0 C; "
+        "the same callables without the buffer or the write",
+        "1e-8 (R and the rate system's C); 1e-10 (separable C); bit equality "
+        "against the fresh callables",
     ),
     "tests/test_empty_order_selection.py": (
         "Workflow and YAML",
@@ -1031,6 +1071,23 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "evaluate's by_order, and through --override sweep.orders=N",
         "closed-form covariance of test_observable_operator_inputs",
         "1e-12; exact zeros",
+    ),
+    "tests/test_user_hook_arguments.py": (
+        "Spectral propagators",
+        "user hooks that write into their arguments or fill and return them: "
+        "the density callable of SpectralDensity.from_callable and the f of "
+        "average, at L0 and at L1 order 0, and the refusal of a density "
+        "callable that reorders its argument; read-only nodes and weights "
+        "across pickle, joblib and copy; a solve_self_consistency distance "
+        "and callback that write into the state, at damping 0 and 0.35, on "
+        "array and dict states, and an initial state that is the step's own "
+        "output buffer; a build_R_contracted_callable raw kernel that writes "
+        "its positions, directly and at L1 order 1 on gauss_legendre and "
+        "qmc_vectorized, and a chi grid the caller edits after the build",
+        "scipy quad over the continuous density; the closed-form fixed point "
+        "(I - A)^-1 b; the leg-factorised trapezoid sum; the same hook "
+        "without the write",
+        "1e-12; exact",
     ),
     "tests/test_sweep_selectors.py": (
         "Workflow and YAML",

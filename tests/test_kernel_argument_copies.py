@@ -28,6 +28,16 @@ cusp found, so ``dblquad`` integrated a ``|Δt|`` cusp without the split:
 7.9e-8 relative instead of 1.9e-16, 38 times slower), and the transposition
 probe compared the buffer with its own transpose.
 
+KC7-KC9: the same for values kept across a second call to the same
+callable.  ``integrate_two_point_qmc`` divided κ² at a separation by κ² at
+zero separation, so a κ² returning one buffer made the ratio 1 (C_11 at
+separation 0.8 2.23 times too large at order 0, 2.20 times at order 2).
+The Gauss-Legendre C quadrature kept R(t1, λ1) while it called R(t2, λ2),
+so a dense ``ExplicitR`` returning one buffer gave C_00 48 % high without
+white noise and 62 % high with it, and C_10 of the wrong sign in both.  The
+YAML R probes tested R(t1, t2) after R(t2, t1) had overwritten it, and
+accepted a buffer-reusing R that is not finite at causal times.
+
 References share no code with the package: for κ², the inner time
 integral of the Gaussian temporal kernel in closed form (``erf``) and the
 outer one by scipy ``quad``, plus a 1-D ``quad`` for the σ² term; for the
@@ -452,3 +462,104 @@ def test_KC6_a_reused_kappa_buffer_gets_the_fresh_probe_verdicts(kernel, cusp):
         want = _probe_c_transpose(fresh, x1, x2, 2.2, swap=swap)
         assert _probe_c_transpose(reused, x1, x2, 2.2, swap=swap) is want
     assert _probe_c_transpose(fresh, x1, x2, 2.2, swap=False) is (kernel is _cusped)
+
+
+# ---------------------------------------------------------------------------
+# KC7-KC9: R and κ² values kept across a later call to the same callable
+# ---------------------------------------------------------------------------
+
+class _Reused:
+    """Fills one buffer with ``fn``'s value and returns it."""
+
+    def __init__(self, fn, shape):
+        self.fn = fn
+        self.buffer = np.empty(shape)
+
+    def __call__(self, *args):
+        self.buffer[...] = self.fn(*args)
+        return self.buffer
+
+
+def _kappa_two_point(n1, t1, n2, t2):
+    r = float(abs(np.atleast_1d(n1)[0] - np.atleast_1d(n2)[0]))
+    return np.diag([1.0, 1.4]) * exp(-r)
+
+
+@pytest.mark.parametrize("order", [0, 2])
+def test_KC7_two_point_qmc_keeps_its_own_kappa_at_zero_separation(order):
+    """``integrate_two_point_qmc`` keeps κ²(0, 0) and divides κ²(n_l, n_r)
+    by it; a κ² returning one buffer made the ratio 1, so C_11 at
+    separation 0.8 came out e^0.8 = 2.23 times too large at order 0 and
+    2.20 times at order 2."""
+    from sft_wick import Action, Field, Vertex, compute_moment
+    from sft_wick.evaluate import PropagatorModel, integrate_two_point_qmc
+
+    phi = Field("phi", "physical", n_components=2)
+    psi = Field("psi", "response", n_components=2)
+    res = compute_moment([phi("a", "x"), phi("b", "y")],
+                         Action([Vertex(fields=[psi, phi, phi], coupling="F")]),
+                         order=order, diag_R=True, diag_C=True, iso_R=True)
+    F = np.zeros((2, 2, 2))
+    F[0, 0, 0], F[1, 1, 1], F[0, 1, 1] = -0.5, 0.3, 0.2
+    totals = []
+    for kappa in (_kappa_two_point, _Reused(_kappa_two_point, (2, 2))):
+        model = PropagatorModel(R_time=lambda t, tp: np.exp(-0.9 * (t - tp)),
+                                kappa2=kappa, n_components=2, iso_R=True,
+                                diag_C=True, t_min=0.0)
+        cache = PropagatorCache(model)
+        cache.precompute_C_table(t_max=3.0, n_grid=30)
+        integrands = [dt.build_integrand({"F": -1j * F},
+                                         fixed_indices={"a": 1, "b": 1})
+                      for dt in res.diagram_terms(order)]
+        totals.append(integrate_two_point_qmc(
+            integrands, 3.0, {"x": 0.0, "y": 0.8}, cache, n_samples=1024,
+            seed=3)[0])
+    assert totals[0] != 0.0
+    assert totals[1] == totals[0]
+
+
+_A_DENSE = np.array([[0.9, 0.35], [-0.2, 1.4]])
+
+
+def _R_dense(t, tp):
+    from scipy.linalg import expm
+    return expm(-_A_DENSE * (t - tp)) if t > tp else np.zeros((2, 2))
+
+
+@pytest.mark.parametrize("sigma2", [False, True], ids=["kappa2", "white"])
+def test_KC8_gl_c_quadrature_keeps_its_own_first_response(sigma2):
+    """The Gauss-Legendre C quadrature keeps R(t1, λ1) while it calls
+    R(t2, λ2); a dense ``ExplicitR`` returning one buffer gave C_00 48 %
+    high without white noise and 62 % high with it, and C_10 of the wrong
+    sign in both."""
+    values = []
+    for R in (_R_dense, _Reused(_R_dense, (2, 2))):
+        noise = sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.ExponentialTemporal(lam=0.4, sigma_t=0.7),
+                spatial=sw.GaussianSpatial(sigma_x=1.3)),
+            sigma2=sw.ConstantImpulse(np.diag([0.45, 0.3])) if sigma2 else None)
+        system = sw.System(field=sw.FieldSpec("phi", n_components=2),
+                           linear=sw.ExplicitR(R_time=R, iso_R=False),
+                           noise=noise, t_min=0.2)
+        props = system.propagators(t_max=2.0, n_grid_t=8, diag_C=False,
+                                   c_method="gauss_legendre", progress=False)
+        values.append(np.asarray(props.cache.C_value(
+            np.array(0.0), 1.7, np.array(0.5), 1.1)))
+    assert np.all(values[0] != 0.0)
+    np.testing.assert_array_equal(values[1], values[0])
+
+
+def _R_nan_when_causal(t1, t2):
+    return np.full((2, 2), np.nan) if t1 > t2 else np.zeros((2, 2))
+
+
+def test_KC9_yaml_r_probes_keep_their_first_value():
+    """The R probe compared R(t1, t2) after R(t2, t1) had overwritten it, so
+    a buffer-reusing R that is NaN at causal times was accepted while the
+    same R returning fresh arrays was refused."""
+    from sft_wick.workflow.config import _probe_R_time
+
+    for R in (_R_nan_when_causal, _Reused(_R_nan_when_causal, (2, 2))):
+        with pytest.raises(ValueError):
+            _probe_R_time(R, False, 2, 0.0, 3.0)

@@ -66,11 +66,19 @@ comparison command.*
   Kronecker deltas of ``diag_C``, ``diag_R``, ``iso_C`` and ``iso_R`` and
   from 1 elsewhere; breaking, a literal outside ``1..n_components`` raises.
 - Fixed: ``System.expand`` raised on every ``FieldOperator`` observable,
-  and a set observable came in hash order (it now raises).
-- Fixed: user callables (closed-form C, ``GeneralKappa2``,
-  ``CustomImpulse``, L0 couplings) that write into their arguments or
-  return one buffer gave wrong values without an error; the package now
-  copies what it reads again or keeps.
+  and a set observable came in hash order (it now raises); breaking, so
+  does the keys view of a mapping that is not a dict, a ``ChainMap``'s
+  included.
+- Fixed: user callables that write into their arguments or return one
+  buffer gave wrong values without an error: closed-form C hooks,
+  ``GeneralKappa2``, ``CustomImpulse``, ``ExplicitR``, L0 couplings, a
+  callable ``DiagonalA`` rate, raw separable kernels, custom propagator
+  caches, ``SpectralDensity``, ``solve_self_consistency`` and
+  ``build_R_contracted_callable``.  Breaking: the time batches that the
+  batched integrators read again are read-only, so a custom cache's batch
+  method writing into them raises ``ValueError``; ``SpectralDensity`` nodes
+  and weights are read-only, and ``from_callable`` raises when ``rho``
+  reorders its argument in place.
 - The propagator disk cache (``cache_path``) covers built-in specs only;
   systems with user callables compute their tables on every call.
 - Fixed: batch contractions dropped coefficients below ``1e-20`` in

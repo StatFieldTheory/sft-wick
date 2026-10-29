@@ -9,8 +9,9 @@ although the docstring advertised the form (OO1).  The component tuple of
 follows ``PYTHONHASHSEED``, is refused as the YAML loader refuses it; on the
 model below the set ``{"phi_a(x)", "phi_b(y)"}`` gave -0.0621 or -0.1454
 at ``component_pair=(0, 1)`` depending on the seed, with no error (OO2).
-A dict's keys view iterates in insertion order and is accepted.  A
-physical field named ``psi`` shared its name with the response field, so a
+A dict's keys view iterates in insertion order and is accepted; the keys
+view of another mapping, a ``ChainMap`` included, is refused, since its
+order cannot be checked.  A physical field named ``psi`` shared its name with the response field, so a
 ``phi`` and a ``psi`` operator of one label shared a cache key (OO3).
 
 The model is generic: two components with distinct rates, a local cubic
@@ -26,7 +27,9 @@ external times.  References share no code with the package:
 """
 from __future__ import annotations
 
+import collections.abc
 import os
+import types
 
 import numpy as np
 import pytest
@@ -198,12 +201,44 @@ def test_OO1_operators_the_string_form_cannot_spell_are_refused(system, make,
 # OO2: a set has no order
 # ---------------------------------------------------------------------------
 
+class _SetBackedMapping(collections.abc.Mapping):
+    """A mapping whose keys come in hash order: its ``keys()`` is a
+    ``KeysView`` but not a dict's."""
+
+    def __init__(self, keys):
+        self._keys = set(keys)
+
+    def __getitem__(self, key):
+        if key in self._keys:
+            return 0
+        raise KeyError(key)
+
+    def __iter__(self):
+        return iter(self._keys)
+
+    def __len__(self):
+        return len(self._keys)
+
+
 @pytest.mark.parametrize("make", [
     lambda: {"phi_a(x)", "phi_b(y)"},
     lambda: frozenset({"phi_a(x)", "phi_b(y)"}),
 ], ids=["set", "frozenset"])
 def test_OO2_a_set_observable_is_refused(system, make):
     with pytest.raises(ValueError, match="set, which has no order"):
+        system.expand(make(), orders=[0, 2], progress=False)
+
+
+@pytest.mark.parametrize("make", [
+    lambda: _SetBackedMapping(["phi_a(x)", "phi_b(y)"]).keys(),
+    lambda: collections.ChainMap({"phi_a(x)": 0, "phi_b(y)": 1}).keys(),
+], ids=["set_backed_keys", "chainmap_keys"])
+def test_OO2_the_keys_view_of_another_mapping_is_refused(system, make):
+    """The package cannot check the order of a mapping that is not a dict:
+    the set-backed one iterates in hash order, the ChainMap in a fixed one,
+    and both raise with the advice to pass a list."""
+    with pytest.raises(ValueError, match="keys view of a mapping that is not "
+                                         "a dict.*list\\(mapping.keys\\(\\)\\)"):
         system.expand(make(), orders=[0, 2], progress=False)
 
 
@@ -217,17 +252,18 @@ def test_OO2_a_set_of_field_operators_is_refused(system):
 def test_OO2_ordered_spellings_are_accepted(system, props):
     """A list, a tuple, a dict's values and a dict's keys keep their order
     (a dict iterates in insertion order, so its keys view is a set with an
-    order); the swapped list is the other observable, so (0, 1) moves to
-    its mirror."""
+    order; a MappingProxyType over a dict gives the same view); the swapped
+    list is the other observable, so (0, 1) moves to its mirror."""
     values = {"first": "phi_a(x)", "second": "phi_b(y)"}.values()
     keys = {"phi_a(x)": 0, "phi_b(y)": 1}.keys()
+    proxy_keys = types.MappingProxyType({"phi_a(x)": 0, "phi_b(y)": 1}).keys()
     totals = [
         _evaluate(system.expand(obs, orders=[0, 2], progress=False), props,
                   (0, 1), external_times=TIMES).total
         for obs in (["phi_a(x)", "phi_b(y)"], ("phi_a(x)", "phi_b(y)"), values,
-                    keys)
+                    keys, proxy_keys)
     ]
-    assert totals[0] == totals[1] == totals[2] == totals[3]
+    assert len(set(totals)) == 1
     swapped = _evaluate(
         system.expand(["phi_b(y)", "phi_a(x)"], orders=[0, 2], progress=False),
         props, (0, 1), external_times=TIMES).total

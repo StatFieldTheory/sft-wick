@@ -306,7 +306,8 @@ def solve_self_consistency(
 
     Args:
         initial: the starting state.  Anything ``step`` accepts and
-            ``distance`` can compare.
+            ``distance`` can compare.  The loop starts from a copy, so
+            ``initial`` may be a buffer that ``step`` fills and returns.
         step: ``state -> next_state``.  For DMFT this is "build the diagrams
             with these propagators, extract the self-energy, solve Dyson".
             It is handed a **copy** of the state, so it may mutate its
@@ -314,7 +315,9 @@ def solve_self_consistency(
             the object it was given, which would otherwise make the residual
             identically zero and fake convergence on iteration 1.
         distance: how far apart two states are; defaults to
-            :func:`max_abs_distance`.
+            :func:`max_abs_distance`.  A user distance receives **copies**
+            of both states, so it may write into its arguments: the loop
+            reads both again (mixing, the cycle test, the history).
         tol: converged when the residual ``||step(x) - x||`` drops below
             this.  Measured on the step, not on the damped movement, so the
             criterion does not loosen as ``damping`` rises.  It is an
@@ -341,8 +344,9 @@ def solve_self_consistency(
             iteration would need thousands of steps there and damping is the
             real answer.  Cycles of period 6 or more are not detected.
         callback: called as ``callback(iteration, state, residual)`` after
-            each iteration, with the POST-mixing state, for progress output
-            or for recording the trajectory.
+            each iteration, with a copy of the POST-mixing state, for
+            progress output or for recording the trajectory.  Writing into
+            the copy does not change the iteration.
 
     Returns:
         A :class:`SelfConsistencyResult`.  **Check ``converged`` before using
@@ -363,8 +367,22 @@ def solve_self_consistency(
             "filtered-away component) rather than an intended input."
         )
 
-    dist = distance if distance is not None else max_abs_distance
-    state = initial
+    if distance is None or distance is max_abs_distance:
+        dist = max_abs_distance          # does not write its arguments
+    else:
+        # The loop reads both arguments again.  Passed as is, a distance that
+        # subtracted in place (`a -= b`) made a convergent run diverge, and
+        # one that sorted its arguments in place reported convergence 2.8
+        # away from the fixed point.
+        def dist(a, b):
+            return distance(_copy_state(a), _copy_state(b))
+    # A copy: a `step` that fills and returns a buffer it owns is often
+    # started from that buffer (a solver updating `self.G` in place, started
+    # from `self.G`).  With `state = initial` the first call overwrote the
+    # state before the residual was taken, so the residual was 0.0 and the
+    # run "converged" after one iteration, 0.338 from the fixed point in the
+    # regression test.
+    state = _copy_state(initial)
     history: deque = deque(maxlen=_CYCLE_HISTORY)   # states >= 2 steps back
     residuals: list[float] = []
     cycle_streak = 0
@@ -393,7 +411,9 @@ def solve_self_consistency(
             mixed = _copy_state(mixed)
         prev, state = state, mixed
         if callback is not None:
-            callback(it, state, res)
+            # A copy: `state` is read again by the distance, the cycle test,
+            # the next step and the result.
+            callback(it, _copy_state(state), res)
 
         if not np.isfinite(res):
             return SelfConsistencyResult(state, False, "diverged", it,
