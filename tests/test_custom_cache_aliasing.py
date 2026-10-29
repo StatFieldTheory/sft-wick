@@ -13,7 +13,11 @@ CA2: with object-dtype positions ``PropagatorCache.C_value`` skips its
 memo and returned the C hook's own array, so a hook that fills and returns
 one buffer changed the first result at the second lookup (C_01 from
 -0.0235 to -0.0075), and a ``C_diagonal`` taken before it (C_11 from 0.078
-to 0.016).  The result is now an owned copy on that branch as well.
+to 0.016).  The result is now an owned copy on that branch as well.  On
+the legacy table both returned the array of an overridden
+``_C_value_from_table`` or ``_C_diagonal_from_table`` as it was, so one
+filling a buffer changed an earlier C_00 from 0.1589 to 0.0499 at the next
+lookup.  That array is now copied when the lookup is not the package's own.
 
 CA3: the batched integrators keep one batch per C factor and per matrix R
 factor while they ask the cache for the next one.  A user-written cache
@@ -80,8 +84,12 @@ on to methods a subclass can override: through the translation fallback of
 ``[1.9, 1.7]`` to ``[0.45, 0.5]``, and an ``_on_diagonal`` that writes, read
 again by those two methods, gave the zero-dimensional seven-point function
 at coincident times -61.6 % (``C_diagonal_batch``) and -99.4 %
-(``C_matrix_batch``).  Every time array that reaches a batch method or one
-of those overrides is now read-only, as a view where it is the caller's.
+(``C_matrix_batch``).  The legacy-table lookups of a direct ``C_value``
+or ``C_diagonal`` also read the times again after ``_on_diagonal``: with
+0-d array times at 1.4 the write moved the caller's ``t1`` to 0, and C_00
+came out -82.4 %, the value at (0.7, 0.7).  Every time array that reaches a
+batch method or one of those overrides is now read-only, as a view where it
+is the caller's.
 
 CA9: ``DiagramIntegrand.evaluate`` passed ``R_product`` the times dict its
 C lookups read next, the caller's own dict on a direct call.  An
@@ -306,6 +314,33 @@ def test_CA2_C_value_returns_an_owned_array_with_object_positions(layer):
     np.testing.assert_allclose(diag, np.diag(want), rtol=1e-13)
     np.testing.assert_allclose(second, _c_reference(1.1, 1.7, 0.2, 0.55, G_MIX),
                                rtol=1e-13)
+
+
+_TABLE_LOOKUPS = [("_C_value_from_table", "mix"), ("_C_value_from_table", "diag"),
+                  ("_C_diagonal_from_table", "diag")]
+
+
+@pytest.mark.parametrize("name, kind", _TABLE_LOOKUPS,
+                         ids=[f"{n}-{k}" for n, k in _TABLE_LOOKUPS])
+def test_CA2_legacy_table_lookups_return_owned_arrays(name, kind):
+    """On the legacy table ``C_value`` and ``C_diagonal`` returned the array
+    of ``_C_value_from_table`` or ``_C_diagonal_from_table`` as it was (a
+    diagonal view of it from ``C_diagonal`` without ``diag_C``), so an
+    override filling one buffer changed the earlier results at the next
+    lookup."""
+    g, _ = _SYSTEMS[kind]
+    cache = _build(_subclass(name, _reuse), kind, "legacy")
+    plain = _build(PropagatorCache, kind, "legacy")
+    first = {a: getattr(cache, a)(0.0, 1.3, 0.0, 0.9) for a in ("C_value", "C_diagonal")}
+    for a in first:
+        getattr(cache, a)(0.0, 1.75, 0.0, 0.6)
+    for a, value in first.items():
+        np.testing.assert_array_equal(value, getattr(plain, a)(0.0, 1.3, 0.0, 0.9))
+    want = _c_reference(0.0, 1.3, 0.0, 0.9, g)
+    if kind == "diag":
+        want = np.diag(np.diag(want))
+    np.testing.assert_allclose(first["C_value"], want, rtol=1e-4, atol=1e-7)
+    np.testing.assert_allclose(first["C_diagonal"], np.diag(want), rtol=1e-4, atol=1e-7)
 
 
 # ---------------------------------------------------------------------------
@@ -1070,6 +1105,29 @@ def test_CA8_on_diagonal_override_in_the_zero_dimensional_branch(name, g, diag_C
     assert run(PropagatorCache) != 0.0
     with pytest.raises(ValueError, match="read-only"):
         run(_writing_delegate("_on_diagonal"))
+
+
+@pytest.mark.parametrize("name", ["C_value", "C_diagonal"])
+@pytest.mark.parametrize("kind", sorted(_SYSTEMS))
+def test_CA8_legacy_table_lookups_hand_on_diagonal_read_only_times(kind, name):
+    """``C_value`` and ``C_diagonal`` on the legacy table ask ``_on_diagonal``
+    about the times and then read them again.  The integrators pass floats
+    there; a direct call with 0-d array times passed the caller's arrays,
+    so a writing ``_on_diagonal`` moved the caller's ``t1`` to 0 and gave C
+    at the shifted time."""
+    g, _ = _SYSTEMS[kind]
+    t1, t2 = np.array(1.4), np.array(1.4)
+    with pytest.raises(ValueError, match="read-only"):
+        getattr(_build(_writing_delegate("_on_diagonal"), kind, "legacy"), name)(
+            0.0, t1, 0.0, t2)
+    assert float(t1) == 1.4 and float(t2) == 1.4
+    assert t1.flags.writeable and t2.flags.writeable
+    plain = _build(PropagatorCache, kind, "legacy")
+    got = getattr(plain, name)(0.0, t1, 0.0, t2)
+    np.testing.assert_array_equal(got, getattr(plain, name)(0.0, 1.4, 0.0, 1.4))
+    want = _c_reference(0.0, 1.4, 0.0, 1.4, g)
+    np.testing.assert_allclose(got, want if name == "C_value" else np.diag(want),
+                               rtol=1e-4, atol=1e-7)
 
 
 # ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **5709 tests** in 124 files (parametrised
+The suite has **5719 tests** in 124 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -257,7 +257,7 @@ Propagator numerics
 Integrators
 -----------
 
-*2419 tests in 56 files.*
+*2429 tests in 56 files.*
 
 .. list-table::
    :header-rows: 1
@@ -309,10 +309,10 @@ Integrators
      - 2e-15; invalid phases raise
      - 14
    * - ``test_custom_cache_aliasing.py``
-     - a 0-d array t_max with an R_time that writes into its time argument, in select_gl_node_count and the lazy general and translation tables; C_value with object-dtype positions and a C hook returning one buffer, at L0 and L1; user-written caches (subclass, subclass with the lookup bank, forwarding wrapper) whose C_diagonal_batch, C_matrix_batch, C_at_batch or R_matrix_batch return one buffer, on gauss_legendre and qmc_vectorized at order 2, in integrate_two_point_qmc and in the zero-dimensional branch; batch methods writing into their time arguments; a C_at_batch writing into its position arguments, through Expansion.evaluate, C_value and integrate_two_point_qmc; a C_value or C_diagonal writing into its position arguments, at order 0 on every integrator, at order 2 on qmc_scalar, in integrate_two_point_qmc and in the legacy precompute_C_table; the legacy table with a 0-d array t_max; read-only time arrays into every batch method on every path (C_value and C_diagonal, the zero-dimensional branch of three integrators, the translation fallback of C_at_batch) and into _lazy_lookup and _on_diagonal overrides, with the caller's arrays left writable; an R_product writing into its times dict, on five integrators, in a direct DiagramIntegrand.evaluate and in make_scipy_integrand
+     - a 0-d array t_max with an R_time that writes into its time argument, in select_gl_node_count and the lazy general and translation tables; C_value with object-dtype positions and a C hook returning one buffer, at L0 and L1; legacy-table lookups returning one buffer; user-written caches (subclass, subclass with the lookup bank, forwarding wrapper) whose C_diagonal_batch, C_matrix_batch, C_at_batch or R_matrix_batch return one buffer, on gauss_legendre and qmc_vectorized at order 2, in integrate_two_point_qmc and in the zero-dimensional branch; batch methods writing into their time arguments; a C_at_batch writing into its position arguments, through Expansion.evaluate, C_value and integrate_two_point_qmc; a C_value or C_diagonal writing into its position arguments, at order 0 on every integrator, at order 2 on qmc_scalar, in integrate_two_point_qmc and in the legacy precompute_C_table; the legacy table with a 0-d array t_max; read-only time arrays into every batch method on every path (C_value and C_diagonal, the zero-dimensional branch of three integrators, the translation fallback of C_at_batch) and into _lazy_lookup and _on_diagonal overrides, also from direct C_value and C_diagonal calls with 0-d times, with the caller's arrays left writable; an R_product writing into its times dict, on five integrators, in a direct DiagramIntegrand.evaluate and in make_scipy_integrand
      - erf inner and 48-node Gauss-Legendre outer time integral of the Gaussian temporal kernel with a dense R, checked against scipy dblquad; the same cache returning fresh arrays and reading its arguments only; the plain R with a float t_max
-     - 1e-13 off the legacy grid; 1e-12; 1e-6 at table nodes; 2e-4 through the 16 x 16 table; bit equality; ValueError on a write
-     - 121
+     - 1e-13 off the legacy grid; 1e-12; 1e-6 at table nodes; 2e-4 through the 16 x 16 table; 1e-4 through the 20 x 20 legacy table; bit equality; ValueError on a write
+     - 128
    * - ``test_demo2_kernels.py``
      - demo2's hand-written R-contracted κ³ / κ⁴ kernels, the raw-vs-R-contracted route on a NON-constant kernel, the already_R_contracted contract, pinned FK and order-0 values, the single-site cumulant ladder
      - cusp-aware adaptive quadrature and randomised-Sobol QMC of the raw leg integrals; the cumulant generating function
@@ -539,10 +539,10 @@ Integrators
      - 1e-10
      - 23
    * - ``test_trusted_cache_delegates.py``
-     - package cache methods trusted by identity whose delegates a subclass overrides: a SpectralPropagatorCache _c_matrix writing into its positions, at orders 0 and 2 on gauss_legendre, qmc_vectorized and qmc_scalar, an nquad sweep and without a table; _assemble_C, _lazy_lookup and _closed_form_at_batch_diag returning one buffer, with and without the lookup bank and in integrate_two_point_qmc; an override in front of _C_value_direct writing into its positions
+     - package cache methods trusted by identity whose delegates a subclass overrides: a SpectralPropagatorCache _c_matrix writing into its positions, at orders 0 and 2 on gauss_legendre, qmc_vectorized and qmc_scalar, an nquad sweep and without a table; _assemble_C, _lazy_lookup and _closed_form_at_batch_diag returning one buffer, with and without the lookup bank and in integrate_two_point_qmc; an override in front of _C_value_direct writing into its positions; direct C_value and C_at_batch calls with a writing or buffered _c_matrix, _lazy_lookup or _closed_form_at_batch_diag
      - closed-form spectral C of a two-node density; the erf and Gauss-Legendre C of test_custom_cache_aliasing; the same subclass without the write or the buffer; the plain cache
      - 1e-13 (closed form); 2e-4 through the 16 x 16 table; 1e-12; bit equality
-     - 40
+     - 43
    * - ``test_vectorized_r_time.py``
      - vectorised response callables: the four built-in DiagonalA R classes on arrays, R_time_batch / R_matrix_batch calling a vectorised R once per batch and any other R once per distinct causal pair, ExplicitR(vectorized=True), the YAML key R_time_vectorized and its load-time probe; pickling and two workers; 2-D and broadcast times; channel totals on every integrator with scalar and matrix R, constant and time-dependent rates, t_min != 0; static, equal_time and already_R_contracted κ³ with a matrix R
      - the scalar calls of the same R (np.vectorize, the old path)

@@ -13,7 +13,12 @@ and the order-2 diagrams read it: -16.8 % on ``gauss_legendre``, -16.9 % on
 ``qmc_vectorized``, -17.0 % on ``qmc_scalar``.  On ``nquad`` the second
 point of a two-point sweep came out -90.0 %.  Without a spatial table the
 caller's ``direction`` was zeroed.  ``SpectralPropagatorCache.C_value``
-now counts as the package's own only while ``_c_matrix`` is.
+now counts as the package's own only while ``_c_matrix`` is.  On a direct
+call ``C_value`` itself handed ``_c_matrix`` the caller's positions and
+returned its array: a second call on the same ``x`` came out -90.0 %, and
+a ``_c_matrix`` filling one buffer changed the first result by -50.6 % at
+the next call.  It now hands an overridden ``_c_matrix`` copies and
+returns a copy.
 
 TD2: ``PropagatorCache.C_at_batch`` returns the array of ``_assemble_C``,
 ``_lazy_lookup`` or ``_closed_form_at_batch_diag``.  An override of one of
@@ -22,7 +27,11 @@ integrators keep the last factor's values: at order 2 +181.8 % (mixing κ²)
 and +179.9 % (diagonal κ²) on ``gauss_legendre`` and ``qmc_vectorized``,
 with and without the propagator lookup bank, and in
 ``integrate_two_point_qmc``.  The output is now copied unless all three are
-the package's own.
+the package's own.  A direct ``C_at_batch`` passed the caller's position
+arrays on to an overridden ``_lazy_lookup`` or ``_closed_form_at_batch_diag``:
+one forming ``x1 -= x2`` turned the caller's ``x`` into ``x - y``, and a
+second call on the same arrays came out up to 90 % off.  Those overrides
+now receive copies.
 
 TD3: the copy guard in front of ``_C_value_direct`` was a method that
 ``C_value``, the table builders and the closed-form lookup called on the
@@ -217,6 +226,38 @@ def test_TD1_the_trust_follows_c_matrix():
     np.testing.assert_array_equal(got[0], X3)
 
 
+class _Buffered(_Positional):
+    """``_Positional`` filling and returning one buffer."""
+
+    def _c_matrix(self, n1, t1, n2, t2):
+        buffer = self.__dict__.setdefault("buffer", np.empty((2, 2)))
+        buffer[...] = _Positional._c_matrix(self, n1, t1, n2, t2)
+        return buffer
+
+
+def test_TD1_a_direct_C_value_copies_for_an_overridden_c_matrix():
+    """A direct call has no integrator in front of it to make the copies:
+    ``C_value`` hands an overridden ``_c_matrix`` copies of the positions
+    and returns a copy of its array."""
+    density = SpectralDensity(NODES, DENSITY_WEIGHTS)
+    want = [np.diag(WEIGHTS_C) * _c_star_reference(t1, t2) * _env(X3 - Y3)
+            for t1, t2 in ((TX, TY), (1.7, 0.9))]
+    x, y = X3.copy(), Y3.copy()
+    writing = _positional(True, table=False)
+    got = [writing.C_value(x, TX, y, TY), writing.C_value(x, TX, y, TY)]
+    np.testing.assert_array_equal(x, X3)
+    np.testing.assert_array_equal(y, Y3)
+    np.testing.assert_allclose(got, [want[0]] * 2, rtol=1e-13, atol=0.0)
+    buffered = _Buffered(density, D_NOISE, n_components=2, t_min=T0)
+    first = buffered.C_value(x, TX, y, TY)
+    second = buffered.C_value(x, 1.7, y, 0.9)
+    assert not np.shares_memory(first, buffered.buffer)
+    np.testing.assert_allclose([first, second], want, rtol=1e-13, atol=0.0)
+    plain = SpectralPropagatorCache(density, D_NOISE, n_components=2, t_min=T0)
+    np.testing.assert_allclose(plain.C_value(x, TX, y, TY),
+                               np.eye(2) * _c_star_reference(TX, TY), rtol=1e-13)
+
+
 # ---------------------------------------------------------------------------
 # TD2: the methods whose output C_at_batch returns
 # ---------------------------------------------------------------------------
@@ -317,6 +358,40 @@ def test_TD2_C_at_batch_is_trusted_only_with_its_own_delegates(delegate):
                        "C_at_batch", out)
     assert got is not out
     np.testing.assert_array_equal(got, out)
+
+
+def _separation_in_place(delegate):
+    """The delegate's value, then ``x1 -= x2`` in its position arguments."""
+    where = {"_lazy_lookup": (3, 4), "_closed_form_at_batch_diag": (2, 3)}[delegate]
+
+    def body(cache, parent, *args):
+        value = parent(*args)
+        x1, x2 = (args[k] for k in where)
+        x1 -= x2
+        return value
+
+    return _subclass(delegate, body)
+
+
+@pytest.mark.parametrize("delegate", ["_lazy_lookup", "_closed_form_at_batch_diag"])
+def test_TD2_a_direct_C_at_batch_hands_its_delegates_copies_of_the_positions(delegate):
+    """The integrators pass ``C_at_batch`` copies (``_C_at_fixed_positions``);
+    a direct caller's ``(n, d)`` positions went on to an overridden
+    ``_lazy_lookup`` or ``_closed_form_at_batch_diag`` as they were."""
+    t1, t2 = np.array([TX, 1.3]), np.array([TY, 0.8])
+    xs, ys = np.array([X3, Y3]), np.array([Y3, 0.5 * X3])
+    plain = _build(PropagatorCache, "mix", delegate).C_at_batch(t1, t2, xs, ys)
+    cache = _build(_separation_in_place(delegate), "mix", delegate)
+    got = [cache.C_at_batch(t1, t2, xs, ys) for _ in range(2)]
+    np.testing.assert_array_equal(xs, [X3, Y3])
+    np.testing.assert_array_equal(ys, [Y3, 0.5 * X3])
+    np.testing.assert_array_equal(got[0], plain)
+    np.testing.assert_array_equal(got[1], plain)
+    cache.C_at_batch(t1, t2, xs, xs)
+    np.testing.assert_array_equal(xs, [X3, Y3])
+    want = [_c_reference(x, a, y, b, G_MIX) for x, a, y, b in zip(xs, t1, ys, t2)]
+    tol = 1e-12 if delegate == "_closed_form_at_batch_diag" else 2e-4
+    np.testing.assert_allclose(plain, want, rtol=tol, atol=0.0)
 
 
 # ---------------------------------------------------------------------------

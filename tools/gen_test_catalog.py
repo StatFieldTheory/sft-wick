@@ -487,7 +487,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "a 0-d array t_max with an R_time that writes into its time argument, "
         "in select_gl_node_count and the lazy general and translation tables; "
         "C_value with object-dtype positions and a C hook returning one "
-        "buffer, at L0 and L1; user-written caches (subclass, subclass with "
+        "buffer, at L0 and L1; legacy-table lookups returning one buffer; "
+        "user-written caches (subclass, subclass with "
         "the lookup bank, forwarding wrapper) whose C_diagonal_batch, "
         "C_matrix_batch, C_at_batch or R_matrix_batch return one buffer, on "
         "gauss_legendre and qmc_vectorized at order 2, in "
@@ -501,7 +502,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "read-only time arrays into every batch method on every path (C_value "
         "and C_diagonal, the zero-dimensional branch of three integrators, "
         "the translation fallback of C_at_batch) and into _lazy_lookup and "
-        "_on_diagonal overrides, with the caller's arrays left writable; an "
+        "_on_diagonal overrides, also from direct C_value and C_diagonal "
+        "calls with 0-d times, with the caller's arrays left writable; an "
         "R_product writing into its times dict, on five integrators, in a "
         "direct DiagramIntegrand.evaluate and in make_scipy_integrand",
         "erf inner and 48-node Gauss-Legendre outer time integral of the "
@@ -509,7 +511,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "dblquad; the same cache returning fresh arrays and reading its "
         "arguments only; the plain R with a float t_max",
         "1e-13 off the legacy grid; 1e-12; 1e-6 at table nodes; 2e-4 through "
-        "the 16 x 16 table; bit equality; ValueError on a write",
+        "the 16 x 16 table; 1e-4 through the 20 x 20 legacy table; bit "
+        "equality; ValueError on a write",
     ),
     "tests/test_trusted_cache_delegates.py": (
         "Integrators",
@@ -519,7 +522,9 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "qmc_scalar, an nquad sweep and without a table; _assemble_C, "
         "_lazy_lookup and _closed_form_at_batch_diag returning one buffer, "
         "with and without the lookup bank and in integrate_two_point_qmc; an "
-        "override in front of _C_value_direct writing into its positions",
+        "override in front of _C_value_direct writing into its positions; "
+        "direct C_value and C_at_batch calls with a writing or buffered "
+        "_c_matrix, _lazy_lookup or _closed_form_at_batch_diag",
         "closed-form spectral C of a two-node density; the erf and "
         "Gauss-Legendre C of test_custom_cache_aliasing; the same subclass "
         "without the write or the buffer; the plain cache",
