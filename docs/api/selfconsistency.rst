@@ -82,9 +82,15 @@ return buf``, the standard preallocated-output idiom) would have the next
 call overwrite the state in place *before* the residual was taken, comparing
 the buffer with itself.
 
+The loop also starts from a copy of ``initial``.  A ``step`` that fills and
+returns a buffer it owns is often started from that buffer (a solver that
+updates ``self.G`` in place and returns it, started from ``self.G``).  With
+the buffer itself as the first state, the first call overwrote the state
+before the residual was taken, and the run reported convergence after one
+iteration with a residual of 0.0.
+
 A user ``distance`` receives copies of both states, and ``callback`` a copy
-of the state, for the same reason: the loop reads them again, and on the
-first iteration the state is the caller's ``initial``.  Without the copies a
+of the state, because the loop reads them again.  Without the copies a
 distance that sorted its arguments in place reported convergence at a state
 2.8 away from the fixed point, and a callback that rounded the state in
 place stopped a convergent run from converging.  The default

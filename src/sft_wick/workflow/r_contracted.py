@@ -64,7 +64,9 @@ def build_R_contracted_callable(
             **not** apply ``δ(n − n')``; n_list is passed unchanged to
             ``raw_coupling_fn`` for every χ-sample.
         chi_grid: 1-D grid of inner times ``χ`` used for the
-            tensor-product trapezoid quadrature on each leg.
+            tensor-product trapezoid quadrature on each leg.  The wrapper
+            keeps its own copy, so editing the caller's array afterwards
+            does not change it.
         order: ``m``, the rank of the κ tensor. Defaults to 3 (the
             squeezed bispectrum case). The implementation is general
             in ``order``.
@@ -90,7 +92,10 @@ def build_R_contracted_callable(
         easy to debug. Vectorise over outer-time tuples upstream when
         a large `(λ_1', λ_2', λ_3')` table is needed.
     """
-    chi = np.asarray(chi_grid, dtype=float)
+    # A copy: the trapezoid weights below are fixed now, and the caller's own
+    # array, edited after the build (`chi += 0.25`), moved the nodes and not
+    # the weights (K changed by a relative 0.37).
+    chi = np.array(chi_grid, dtype=float)
     if chi.ndim != 1 or chi.size < 2:
         raise ValueError(
             "chi_grid must be a 1-D array of at least 2 points; "

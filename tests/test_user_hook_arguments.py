@@ -6,7 +6,11 @@ place (``h -= 0.2``) moved every node by 0.2; one that fills and returns its
 argument made the nodes equal to the density values.  At order 0 through
 ``propagators_from_cache`` and ``Expansion.evaluate`` the correlator came out
 51 % high for the shift and 12.8 times too large for the returned argument,
-with no error.  ``rho`` now receives a copy.
+with no error.  ``rho`` now receives a copy.  The copy changes the meaning
+of one write: a ``rho`` that reverses its argument in place and returns the
+density at the reversed points was right before and gave the order-0
+correlator 87 % high with the copy alone.  The package cannot tell which
+order the densities follow, so a ``rho`` that reorders its argument raises.
 
 UH2: ``SpectralDensity.average`` passed the density's own node array to
 ``f``.  An ``f`` that doubles its argument in place returned the right
@@ -42,7 +46,18 @@ that centres its positions in place gave a value too small by a relative
 0.997 and overwrote the caller's positions (``[0.1, -0.35, 0.6]`` became
 ``[-32.3, -32.75, -31.8]``); through L1 the order-1 three-point function
 came out 566 times too small.  The wrapper now keeps a private copy and
-passes each raw call its own.
+passes each raw call its own.  It also held the caller's ``chi_grid`` by
+reference while its trapezoid weights were fixed at build time, so a later
+``chi += 0.25`` by the caller changed K[0,0,0] by a relative 0.37; it now
+copies the grid when it is built.
+
+UH6: ``solve_self_consistency`` used the caller's ``initial`` as its
+iteration-1 state.  A step that fills and returns a buffer it owns, started
+from that buffer (a solver that updates ``self.G`` in place and returns it,
+started from ``self.G``), overwrote the state before the residual was
+taken: converged after one iteration with a residual of 0.0, at a state
+0.338 from the fixed point, at damping 0 and 0.35.  The loop now starts
+from a copy of ``initial``.
 
 References share no code with the package: scipy ``quad`` over the
 continuous density for R and C; the closed-form fixed point
@@ -93,9 +108,12 @@ def _rho_clean(h):
 
 
 def _rho_write(h):
-    """Shifts its argument in place and undoes the shift in the value."""
+    """Evaluates, then shifts its argument in place.  The value does not
+    depend on the write, so the weights compare exactly on any platform
+    (``(h - 0.2) + 0.2`` does not always round back to ``h``)."""
+    values = _rho(h)
     h -= H_OFFSET
-    return _rho(h + H_OFFSET)
+    return values
 
 
 def _rho_return(h):
@@ -166,6 +184,46 @@ def test_UH1_from_callable_is_independent_of_what_rho_does_to_its_argument(
     # The writing rho gave 0.0497 and the returning one 0.422 here.
     np.testing.assert_allclose(_order_zero_C(order_zero, dens),
                                _C_reference(T1, T2), rtol=1e-12, atol=0)
+
+
+def _rho_reverse(h):
+    """Reverses its argument in place and returns the density at the
+    reversed points."""
+    h[:] = h[::-1].copy()
+    return _rho(h)
+
+
+def _rho_reverse_after(h):
+    """Returns the density at the points as given, then reverses them."""
+    values = _rho(h)
+    h[:] = h[::-1].copy()
+    return values
+
+
+@pytest.mark.parametrize("rho", [_rho_reverse, _rho_reverse_after],
+                         ids=["reverse-then-evaluate", "evaluate-then-reverse"])
+def test_UH1_a_rho_that_reorders_its_argument_is_refused(rho):
+    """The copy fixes every write except a reordering: the densities may
+    follow either order, and nothing tells the package which.  Before the
+    copy the first of these was right and the second wrong; with the copy
+    and no check, the first gave the order-0 C 87 % high (0.0614 against
+    0.0329) and R 64 % high, with no error."""
+    with pytest.raises(ValueError, match="reordered"):
+        SpectralDensity.from_callable(rho, LO, HI, N_NODES, shift=SHIFT)
+
+
+def test_UH1_a_rho_that_sorts_its_ascending_argument_is_accepted():
+    """The nodes arrive in ascending order, so an in-place ascending sort
+    does not move them and is not a reordering."""
+    def rho(h):
+        h.sort()
+        return _rho(h)
+
+    dens = SpectralDensity.from_callable(rho, LO, HI, N_NODES, shift=SHIFT)
+    clean = SpectralDensity.from_callable(_rho_clean, LO, HI, N_NODES,
+                                          shift=SHIFT)
+    np.testing.assert_array_equal(dens.nodes, clean.nodes)
+    np.testing.assert_array_equal(dens.weights, clean.weights)
 
 
 def _f_clean(h):
@@ -411,6 +469,74 @@ def test_UH4_dict_state_and_a_recording_callback():
 
 
 # ---------------------------------------------------------------------------
+# UH6: an initial state that is the step's own output buffer
+# ---------------------------------------------------------------------------
+
+class _BufferStep:
+    """Fills and returns an output buffer it owns, as SC7's step does."""
+
+    def __init__(self):
+        self.out = X0.copy()
+
+    def __call__(self, x):
+        self.out[:] = A_MAP @ x + B_MAP
+        return self.out
+
+
+class _SolverObject:
+    """Updates its own ``G`` in place and returns it, the shape of a DMFT
+    solver started from its current Green's function."""
+
+    def __init__(self):
+        self.G = X0.copy()
+
+    def __call__(self, x):
+        np.matmul(A_MAP, x, out=self.G)
+        self.G += B_MAP
+        return self.G
+
+
+@pytest.mark.parametrize("damping", [0.0, 0.35])
+@pytest.mark.parametrize("make", [_BufferStep, _SolverObject],
+                         ids=["buffer", "solver"])
+def test_UH6_initial_that_is_the_steps_output_buffer(make, damping):
+    """Passed as is, ``initial`` was the iteration-1 state: the step wrote
+    its buffer, which was that state, so the residual compared the buffer
+    with itself.  Both steps reported converged after one iteration with a
+    residual of 0.0, at a state 0.338 from the fixed point, at either
+    damping."""
+    want = _run(X0.copy(), damping=damping, step=make())
+    assert want.converged and want.n_iter > 2, want.summary()
+    np.testing.assert_allclose(want.state, X_STAR, rtol=0, atol=1e-11)
+    step = make()
+    buf = step.out if isinstance(step, _BufferStep) else step.G
+    got = _run(buf, damping=damping, step=step)
+    _assert_same_run(got, want)
+    assert got.state is not buf
+
+
+def test_UH6_dict_state_whose_leaves_are_the_steps_buffers():
+    leaves = {"R": X0.copy(), "C": np.array([1.3, -0.2])}
+    target_c = np.array([-0.6, 0.45])
+
+    def step(s):
+        np.matmul(A_MAP, s["R"], out=leaves["R"])
+        leaves["R"] += B_MAP
+        leaves["C"][:] = -0.4 * s["C"] + target_c
+        return leaves
+
+    init = copy.deepcopy(leaves)
+    want = _run(copy.deepcopy(init), step=step)
+    assert want.converged and want.n_iter > 2, want.summary()
+    np.testing.assert_allclose(want.state["R"], X_STAR, rtol=0, atol=1e-11)
+    np.testing.assert_allclose(want.state["C"], target_c / 1.4, rtol=0,
+                               atol=1e-11)
+    for k in init:
+        leaves[k][:] = init[k]
+    _assert_same_run(_run(leaves, step=step), want)
+
+
+# ---------------------------------------------------------------------------
 # UH5: the brute-force R-contracted reference
 # ---------------------------------------------------------------------------
 
@@ -471,6 +597,22 @@ def test_UH5_a_raw_kernel_writing_its_positions_gives_the_reference(as_list):
     # The writer gave K[0,0,0] = 4.52e-5 against 1.58e-2.
     np.testing.assert_allclose(got, want, rtol=1e-12, atol=0)
     np.testing.assert_array_equal(np.asarray(n_in), N_PTS)
+
+
+def test_UH5_the_wrapper_keeps_its_own_chi_grid():
+    """The trapezoid weights are fixed when the wrapper is built.  Holding
+    the caller's grid by reference, a later ``chi += 0.25`` by the caller
+    moved the nodes and not the weights: K[0,0,0] went from 1.58e-2 to
+    1.00e-2."""
+    want = _contracted_reference(N_PTS, T_PTS)
+    chi_user = CHI.copy()
+    fn = build_R_contracted_callable(_raw_clean, _R_kernel, chi_user, order=3,
+                                     n_components=2)
+    np.testing.assert_allclose(fn(N_PTS.copy(), T_PTS), want, rtol=1e-12,
+                               atol=0)
+    chi_user += 0.25
+    np.testing.assert_allclose(fn(N_PTS.copy(), T_PTS), want, rtol=1e-12,
+                               atol=0)
 
 
 @pytest.mark.parametrize("method, kw", [

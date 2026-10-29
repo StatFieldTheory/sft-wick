@@ -306,7 +306,8 @@ def solve_self_consistency(
 
     Args:
         initial: the starting state.  Anything ``step`` accepts and
-            ``distance`` can compare.
+            ``distance`` can compare.  The loop starts from a copy, so
+            ``initial`` may be a buffer that ``step`` fills and returns.
         step: ``state -> next_state``.  For DMFT this is "build the diagrams
             with these propagators, extract the self-energy, solve Dyson".
             It is handed a **copy** of the state, so it may mutate its
@@ -316,8 +317,7 @@ def solve_self_consistency(
         distance: how far apart two states are; defaults to
             :func:`max_abs_distance`.  A user distance receives **copies**
             of both states, so it may write into its arguments: the loop
-            reads both again (mixing, the cycle test, the history), and on
-            the first iteration one of them is ``initial`` itself.
+            reads both again (mixing, the cycle test, the history).
         tol: converged when the residual ``||step(x) - x||`` drops below
             this.  Measured on the step, not on the damped movement, so the
             criterion does not loosen as ``damping`` rises.  It is an
@@ -370,14 +370,19 @@ def solve_self_consistency(
     if distance is None or distance is max_abs_distance:
         dist = max_abs_distance          # does not write its arguments
     else:
-        # The loop reads both arguments again, and the first `state` is the
-        # caller's `initial`.  Passed as is, a distance that subtracted in
-        # place (`a -= b`) made a convergent run diverge, and one that sorted
-        # its arguments in place reported convergence 2.8 away from the
-        # fixed point.
+        # The loop reads both arguments again.  Passed as is, a distance that
+        # subtracted in place (`a -= b`) made a convergent run diverge, and
+        # one that sorted its arguments in place reported convergence 2.8
+        # away from the fixed point.
         def dist(a, b):
             return distance(_copy_state(a), _copy_state(b))
-    state = initial
+    # A copy: a `step` that fills and returns a buffer it owns is often
+    # started from that buffer (a solver updating `self.G` in place, started
+    # from `self.G`).  With `state = initial` the first call overwrote the
+    # state before the residual was taken, so the residual was 0.0 and the
+    # run "converged" after one iteration, 0.338 from the fixed point in the
+    # regression test.
+    state = _copy_state(initial)
     history: deque = deque(maxlen=_CYCLE_HISTORY)   # states >= 2 steps back
     residuals: list[float] = []
     cycle_streak = 0

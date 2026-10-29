@@ -254,8 +254,11 @@ class SpectralDensity:
         """Gauss-Legendre reduction of an analytic density on ``[lo, hi]``.
 
         ``rho`` need not be normalised; the weights are renormalised anyway.
-        It receives a copy of the nodes, so it may write into its argument
-        or fill and return it.
+        It must return the density at the points it is given, in that
+        order.  It receives a copy of the nodes, in ascending order;
+        writing into the copy does not move the nodes.  A ``rho`` that
+        reorders the copy in place raises ``ValueError``: the returned
+        densities could follow either order.
         """
         if not hi > lo:
             raise ValueError(f"need hi > lo; got lo={lo}, hi={hi}.")
@@ -266,11 +269,24 @@ class SpectralDensity:
         # its argument in place moved every node (order-0 C 51 % high for a
         # shift of 0.2), and one that returned its filled argument made the
         # nodes equal to the density values.
-        dens = np.asarray(rho(h.copy()), dtype=float)
+        arg = h.copy()
+        dens = np.asarray(rho(arg), dtype=float)
         if dens.shape != h.shape:
             raise ValueError(
                 "rho must be vectorised: rho(array) should return an array of "
                 f"the same shape; got {dens.shape} for input {h.shape}."
+            )
+        if (not np.array_equal(arg, h)
+                and np.array_equal(np.sort(arg, axis=None), np.sort(h))):
+            # Before the copy a `rho` that reversed its argument and returned
+            # the density at the reversed points was right; with the copy it
+            # gave the order-0 C 87 % high.  One that evaluated first and
+            # reversed afterwards was wrong before the copy and right after.
+            raise ValueError(
+                "rho reordered the points it was given in place, so the "
+                "returned densities may follow either order.  Return the "
+                "density at the points in the order given, and sort a copy "
+                "if rho needs them in another order."
             )
         if np.any(dens < 0):
             raise ValueError("rho returned a negative value.")
