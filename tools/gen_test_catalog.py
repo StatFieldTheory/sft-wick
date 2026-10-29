@@ -1034,6 +1034,21 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "closed-form covariance of test_observable_operator_inputs",
         "1e-12; exact zeros",
     ),
+    "tests/test_user_hook_arguments.py": (
+        "Spectral propagators",
+        "user hooks that write into their arguments or fill and return them: "
+        "the density callable of SpectralDensity.from_callable and the f of "
+        "average, at L0 and at L1 order 0; read-only nodes and weights across "
+        "pickle, joblib and copy; a solve_self_consistency distance and "
+        "callback that write into the state, at damping 0 and 0.35, on array "
+        "and dict states; a build_R_contracted_callable raw kernel that "
+        "writes its positions, directly and at L1 order 1 on gauss_legendre "
+        "and qmc_vectorized",
+        "scipy quad over the continuous density; the closed-form fixed point "
+        "(I - A)^-1 b; the leg-factorised trapezoid sum; the same hook "
+        "without the write",
+        "1e-12; exact",
+    ),
     "tests/test_sweep_selectors.py": (
         "Workflow and YAML",
         "the sweep's diagram selectors: a string vertex_types is one label "

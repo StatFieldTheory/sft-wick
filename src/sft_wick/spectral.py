@@ -121,6 +121,10 @@ class SpectralDensity:
     Marchenko-Pastur eigenvalues), :meth:`from_callable` (an analytic density),
     or :meth:`delta` (a single relaxation rate, which reduces every formula
     here to the plain Ornstein-Uhlenbeck one).
+
+    ``nodes`` and ``weights`` are arrays the density owns, never the
+    caller's, and they are read-only: the density is frozen and hashed by
+    content, and every cache built on it reads them.  A write raises.
     """
 
     nodes: np.ndarray
@@ -173,9 +177,22 @@ class SpectralDensity:
         # equal and hash differently, which breaks every dict and set.
         nodes = nodes + 0.0
         weights = weights / total + 0.0
+        # `np.where` returns new arrays, so the flags below never touch an
+        # array the caller passed in.
         object.__setattr__(self, "nodes", np.where(nodes == 0.0, 0.0, nodes))
         object.__setattr__(
             self, "weights", np.where(weights == 0.0, 0.0, weights))
+        self._set_read_only()
+
+    def _set_read_only(self) -> None:
+        self.nodes.flags.writeable = False
+        self.weights.flags.writeable = False
+
+    def __setstate__(self, state: dict) -> None:
+        """Unpickling skips ``__post_init__``, and neither ``joblib`` nor
+        ``copy.deepcopy`` keeps the read-only flag, so set it again."""
+        self.__dict__.update(state)
+        self._set_read_only()
 
     # -- constructors ------------------------------------------------- #
 
@@ -237,13 +254,19 @@ class SpectralDensity:
         """Gauss-Legendre reduction of an analytic density on ``[lo, hi]``.
 
         ``rho`` need not be normalised; the weights are renormalised anyway.
+        It receives a copy of the nodes, so it may write into its argument
+        or fill and return it.
         """
         if not hi > lo:
             raise ValueError(f"need hi > lo; got lo={lo}, hi={hi}.")
         x, w = np.polynomial.legendre.leggauss(int(n_nodes))
         half = 0.5 * (hi - lo)
         h = lo + half * (x + 1.0)
-        dens = np.asarray(rho(h), dtype=float)
+        # `h` becomes the nodes below.  Passed as is, a `rho` that shifted
+        # its argument in place moved every node (order-0 C 51 % high for a
+        # shift of 0.2), and one that returned its filled argument made the
+        # nodes equal to the density values.
+        dens = np.asarray(rho(h.copy()), dtype=float)
         if dens.shape != h.shape:
             raise ValueError(
                 "rho must be vectorised: rho(array) should return an array of "
@@ -274,8 +297,11 @@ class SpectralDensity:
         ``node_axis`` returns a wrong NUMBER rather than raising: the
         parameter is a declaration by the caller, not something the array can
         confirm.
+
+        ``f`` receives a copy of the nodes, so it may write into its
+        argument; the density and every cache built on it are unchanged.
         """
-        vals = np.asarray(f(self.nodes), dtype=float)
+        vals = np.asarray(f(self.nodes.copy()), dtype=float)
         # Validate `node_axis` itself before indexing with it: an out-of-range
         # value would surface as a bare `IndexError: tuple index out of range`
         # from the shape lookup, and `node_axis=True` would sail past the

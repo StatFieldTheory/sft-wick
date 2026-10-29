@@ -56,7 +56,9 @@ def build_R_contracted_callable(
     Args:
         raw_coupling_fn: The raw ``κ^(m)(γ; χ_1, …, χ_m)`` callable.
             Must accept ``(n_list, t_list)`` with length-``order``
-            sequences and return a ``(N,)*order`` numpy array.
+            sequences and return a ``(N,)*order`` numpy array.  Each
+            call receives its own copy of the positions, so it may write
+            into them; the caller's ``n_list`` is never written.
         R_time: Causal scalar response propagator
             ``R_time(t_outer, t_inner) -> float``. The reference does
             **not** apply ``δ(n − n')``; n_list is passed unchanged to
@@ -109,7 +111,11 @@ def build_R_contracted_callable(
         # The R-contracted callable is per-sample; vectorising over
         # multiple outer tuples is the caller's job (see e.g. a
         # tabulator that builds an (Nλ, Nλ, Nλ, N, N, N) array offline).
-        n_arr = np.asarray(n_list)
+        # A private copy, and a copy of it per raw call below: one array
+        # shared by all |chi|^m calls let a raw kernel that centres its
+        # positions in place shift them again on every call (K too small by
+        # a relative 0.997), and it was the caller's own array.
+        n_arr = np.array(n_list)
         t_outer = np.asarray(t_list_outer, dtype=float)
         if t_outer.shape != (order_int,):
             raise ValueError(
@@ -143,7 +149,7 @@ def build_R_contracted_callable(
                 continue
             chi_tuple = tuple(chi[k] for k in multi_idx)
 
-            raw_val = raw_coupling_fn(n_arr, chi_tuple)
+            raw_val = raw_coupling_fn(n_arr.copy(), chi_tuple)
             raw_arr = np.asarray(raw_val)
             if result is None:
                 if n_components is not None:

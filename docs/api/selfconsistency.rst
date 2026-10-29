@@ -82,6 +82,15 @@ return buf``, the standard preallocated-output idiom) would have the next
 call overwrite the state in place *before* the residual was taken, comparing
 the buffer with itself.
 
+A user ``distance`` receives copies of both states, and ``callback`` a copy
+of the state, for the same reason: the loop reads them again, and on the
+first iteration the state is the caller's ``initial``.  Without the copies a
+distance that sorted its arguments in place reported convergence at a state
+2.8 away from the fixed point, and a callback that rounded the state in
+place stopped a convergent run from converging.  The default
+:func:`~sft_wick.max_abs_distance` does not write and is called without
+copies.
+
 **A cycle is a statement about the state, not the residual.** A two-cycle has
 a *constant* residual, indistinguishable from a stall by residual shape alone;
 a *growing* residual is divergence, not oscillation. Cycles are found by
