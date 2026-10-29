@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **5490 tests** in 120 files (parametrised
+The suite has **5496 tests** in 120 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -157,7 +157,7 @@ Multiplicities and canonical forms
 Propagator numerics
 -------------------
 
-*919 tests in 17 files.*
+*924 tests in 17 files.*
 
 .. list-table::
    :header-rows: 1
@@ -214,10 +214,10 @@ Propagator numerics
      - recorded bounds
      - 4
    * - ``test_kernel_argument_copies.py``
-     - GeneralKappa2 and CustomImpulse callables that write into their position arguments, at 3-D, 1-vector and scalar positions, on gauss_legendre and dblquad, at L0, at L1 order 0 and in the transposition probe; a vectorised closed-form C that fills and returns one buffer, at order 2 under diag_C true and false on qmc_vectorized and gauss_legendre; an L0 coupling callable that returns one buffer, vectorised and per sample, on three integrators; a kappa2 that returns one buffer, in the cusp and transposition probes
+     - GeneralKappa2 and CustomImpulse callables that write into their position arguments, at 3-D, 1-vector and scalar positions, on gauss_legendre and dblquad, at L0, at L1 order 0 and in the transposition probe; a vectorised closed-form C that fills and returns one buffer, at order 2 under diag_C true and false on qmc_vectorized and gauss_legendre; an L0 coupling callable that returns one buffer, vectorised and per sample, on three integrators; a kappa2 that returns one buffer, in the cusp and transposition probes and in integrate_two_point_qmc; a dense ExplicitR that returns one buffer, in the Gauss-Legendre C quadrature with and without white noise and in the YAML R probe
      - erf inner and scipy quad outer time integral of the Gaussian temporal kernel plus a quad white-noise term; the same kernel without writes; the same hook, coupling or kernel with a fresh array, and per sample
      - 1e-12; 5e-4 through the 10 x 10 table; bit equality
-     - 48
+     - 53
    * - ``test_min_lag_boundaries.py``
      - min-time/lag tables retain the ordered spatial arguments of an explicit earlier-first covariance, call physical kernels only inside the requested horizon, converge at both temporal corners and the upper boundary, preserve positivity under steep decay with linear interpolation, and reject the previous cache schema
      - rank-one Gaussian covariance; exact matrix white-noise covariance; callbacks restricted to the declared time interval
@@ -542,7 +542,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*739 tests in 21 files.*
+*740 tests in 21 files.*
 
 .. list-table::
    :header-rows: 1
@@ -607,7 +607,7 @@ Workflow and YAML
      - FieldOperator observables in System.expand (order 0 at distinct times, the FK channel at order 2, the same expansion as the string spelling, one index per shared letter); literal labels and foreign fields refused; set and frozenset observables refused, a dict's keys view accepted in its insertion order; a physical field named psi refused
      - closed-form inner and scipy quad outer integral of the exponential covariance; the FK channel of a constant kappa^3 as a 1-D quad
      - 1e-12; 1e-9; bit equality between spellings
-     - 13
+     - 14
    * - ``test_repo_hygiene.py``
      - tracked files hold no agent working files, development records, local absolute paths or task IDs
      - git ls-files; positive and negative pattern controls

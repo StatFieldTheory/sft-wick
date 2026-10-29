@@ -2011,7 +2011,9 @@ def _C_value_direct_gl(
             lam2_pts = mid_inner + half_inner * nodes
             inner_w = half_inner * weights
 
-            r1m = _r_mat(t1, float(lam1))
+            # A copy: it is kept while R(t2, ·) is called, and an R may
+            # fill and return one buffer.
+            r1m = np.array(_r_mat(t1, float(lam1)))
             inner_acc = np.zeros((N, N))
             for j, lam2 in enumerate(lam2_pts):
                 kmat = _kappa(float(lam1), float(lam2))
@@ -2066,7 +2068,7 @@ def _C_value_direct_gl(
             tau_w = half * weights
             for k, tau in enumerate(tau_pts):
                 tau_f = float(tau)
-                r1m = _r_mat(t1, tau_f)
+                r1m = np.array(_r_mat(t1, tau_f))  # kept; see above
                 r2m = _r_mat(t2, tau_f)
                 sig = np.asarray(_sigma2_at(model, n1, tau_f, n2), dtype=float)
                 C_mat += tau_w[k] * _integrand_block(r1m, sig, r2m)
@@ -8914,8 +8916,13 @@ def integrate_two_point_qmc(
         # Pre-compute spatial factors for each C propagator
         # factor = kappa2(n1, t_ref, n2, t_ref) / kappa2(0, t_ref, 0, t_ref)
         t_ref = max(t_min + 0.1, t_f * 0.5)
+        # A copy: it is kept while κ² is called at each separation below,
+        # and a κ² may fill and return one buffer.
         kappa_00 = (
-            model.kappa2(np.array([0.0]), t_ref, np.array([0.0]), t_ref)
+            np.array(
+                _kappa2_at(model, np.array([0.0]), t_ref, np.array([0.0]), t_ref),
+                dtype=float,
+            )
             if not spatial_aware
             else None
         )  # (N, N)
@@ -8937,7 +8944,9 @@ def integrate_two_point_qmc(
                 # _lookup_C when it would be used.
                 c_spatial_factors.append(None)
             else:
-                kappa_sep = model.kappa2(np.array([n_l]), t_ref, np.array([n_r]), t_ref)
+                kappa_sep = _kappa2_at(
+                    model, np.array([n_l]), t_ref, np.array([n_r]), t_ref
+                )
                 # Diagonal ratio per component
                 diag_00 = np.diag(kappa_00)
                 diag_sep = np.diag(kappa_sep)

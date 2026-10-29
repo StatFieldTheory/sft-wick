@@ -473,7 +473,9 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "qmc_vectorized and gauss_legendre; an L0 coupling callable that "
         "returns one buffer, vectorised and per sample, on three integrators; "
         "a kappa2 that returns one buffer, in the cusp and transposition "
-        "probes",
+        "probes and in integrate_two_point_qmc; a dense ExplicitR that "
+        "returns one buffer, in the Gauss-Legendre C quadrature with and "
+        "without white noise and in the YAML R probe",
         "erf inner and scipy quad outer time integral of the Gaussian "
         "temporal kernel plus a quad white-noise term; the same kernel "
         "without writes; the same hook, coupling or kernel with a fresh "

@@ -26,6 +26,7 @@ external times.  References share no code with the package:
 """
 from __future__ import annotations
 
+import collections.abc
 import os
 
 import numpy as np
@@ -198,10 +199,30 @@ def test_OO1_operators_the_string_form_cannot_spell_are_refused(system, make,
 # OO2: a set has no order
 # ---------------------------------------------------------------------------
 
+class _SetBackedMapping(collections.abc.Mapping):
+    """A mapping whose keys come in hash order: its ``keys()`` is a
+    ``KeysView`` but not a dict's."""
+
+    def __init__(self, keys):
+        self._keys = set(keys)
+
+    def __getitem__(self, key):
+        if key in self._keys:
+            return 0
+        raise KeyError(key)
+
+    def __iter__(self):
+        return iter(self._keys)
+
+    def __len__(self):
+        return len(self._keys)
+
+
 @pytest.mark.parametrize("make", [
     lambda: {"phi_a(x)", "phi_b(y)"},
     lambda: frozenset({"phi_a(x)", "phi_b(y)"}),
-], ids=["set", "frozenset"])
+    lambda: _SetBackedMapping(["phi_a(x)", "phi_b(y)"]).keys(),
+], ids=["set", "frozenset", "set_backed_keys"])
 def test_OO2_a_set_observable_is_refused(system, make):
     with pytest.raises(ValueError, match="set, which has no order"):
         system.expand(make(), orders=[0, 2], progress=False)

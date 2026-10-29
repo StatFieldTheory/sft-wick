@@ -975,7 +975,7 @@ def _probe_R_time_vectorized(R, t_min: float, t_max: Any) -> None:
     t1 = t_min + span * np.array([0.7, 0.9, 0.5])
     t2 = t_min + span * np.array([0.2, 0.1, 0.4])
     try:
-        arr = np.asarray(R(t1, t2), dtype=float)
+        arr = np.array(R(t1, t2), dtype=float)  # kept across the calls below
     except Exception as e:  # noqa: BLE001 (a user callable)
         raise ValueError(
             f"{where}: true, but R_time raised {type(e).__name__} on arrays "
@@ -1019,7 +1019,9 @@ def _probe_R_time(
     span = _probe_span(t_min, t_max)
     t1, t2 = t_min + 0.7 * span, t_min + 0.2 * span
     try:
-        fwd = np.asarray(R(t1, t2), dtype=float)
+        # ``np.array`` copies: ``fwd`` is kept while R is called again,
+        # and an R may fill and return one buffer.
+        fwd = np.array(R(t1, t2), dtype=float)
         bwd = np.asarray(R(t2, t1), dtype=float)
     except Exception as e:  # noqa: BLE001 (a user callable)
         raise ValueError(
