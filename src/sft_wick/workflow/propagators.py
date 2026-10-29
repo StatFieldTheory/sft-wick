@@ -430,15 +430,33 @@ def propagators_from_cache(cache) -> "Propagators":
     A cache that overrides the batch methods, or a method whose array the
     package's ``C_at_batch`` returns (``_assemble_C``, ``_lazy_lookup``,
     ``_closed_form_at_batch_diag``), may return one reused buffer, because
-    the integrators copy the batches they keep.  Its batch methods must not
-    write into their time arguments: every time array the package passes to
-    a batch method, or on to ``_lazy_lookup``,
-    ``_closed_form_at_batch_diag`` and ``_on_diagonal``, is read-only, and a
-    write raises ``ValueError``.  Its ``C_at_batch``, ``C_value`` and
-    ``C_diagonal`` receive copies of array positions, as does ``C_value`` on
-    a ``SpectralPropagatorCache`` subclass that overrides ``_c_matrix``.  Its
-    ``R_product`` receives a copy of the times dict.  ``_C_value_direct``
-    receives copies of its array arguments.
+    the integrators copy the batches they keep.  ``C_value`` copies what an
+    overridden ``_C_value_from_table`` or
+    ``SpectralPropagatorCache._c_matrix`` returns, and ``C_diagonal`` what
+    an overridden ``_C_diagonal_from_table`` returns.  Its batch methods
+    must not write into their time arguments: every time array the package
+    passes to a batch method, or on to ``_lazy_lookup``,
+    ``_closed_form_at_batch_diag`` and ``_on_diagonal``, is read-only, and
+    a write raises ``ValueError``.  Its ``C_at_batch``,
+    ``C_value`` and ``C_diagonal`` receive copies of array positions from
+    the integrators.  On a direct call as well, the package's
+    ``C_at_batch`` passes copies on to an overridden ``_lazy_lookup`` or
+    ``_closed_form_at_batch_diag``, and ``SpectralPropagatorCache.C_value``
+    to an overridden ``_c_matrix``.  Its ``R_product`` receives a copy of
+    the times dict.  ``_C_value_direct`` receives copies of its array
+    arguments.
+
+    The scalar evaluation (a zero-dimensional diagram with static couplings
+    on every integrator, every diagram on ``qmc_scalar`` and ``nquad``)
+    reads R through ``R_product``, which calls ``R_time``, and C through
+    ``C_value`` and ``C_diagonal``.  The batched integrators evaluate every
+    other diagram through the batch methods, which call ``model.R_time``
+    and read the C tables, not ``R_time``, ``C_value`` or ``C_diagonal``.
+    A cache that changes R or C therefore overrides the scalar accessors
+    and the batch methods together.  An ``R_time`` override alone that
+    doubles R gives 4 times the order-2 value of ``phi_a(x) phi_b(y)`` on
+    ``qmc_scalar`` and ``nquad``, and the unchanged value on
+    ``gauss_legendre``, ``qmc_vectorized`` and ``integrate_two_point_qmc``.
     """
     return Propagators(cache=cache, homogeneity="translation", is_lazy=False)
 

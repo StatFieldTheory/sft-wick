@@ -2820,10 +2820,12 @@ def _read_only_view(times: Any) -> Any:
     The package's own batch methods (``C_at_batch``, ``C_diagonal_batch``,
     ``C_matrix_batch``) pass their time arguments on to methods a subclass
     can override: another batch method, ``_lazy_lookup``,
-    ``_closed_form_at_batch_diag``, ``_on_diagonal``.  Those arguments may
-    be the caller's own arrays, so they get a view whose flag is cleared:
-    a write raises ``ValueError``, as on every other path, and the caller's
-    array keeps its own flag.  Nothing is copied.
+    ``_closed_form_at_batch_diag``, ``_on_diagonal``.  The legacy-table
+    lookups behind ``C_value`` and ``C_diagonal`` pass theirs to
+    ``_on_diagonal``.  Those arguments may be the caller's own arrays, so
+    they get a view whose flag is cleared: a write raises ``ValueError``,
+    as on every other path, and the caller's array keeps its own flag.
+    Nothing is copied.
     """
     if isinstance(times, np.ndarray) and times.flags.writeable:
         view = times.view()
@@ -3261,7 +3263,11 @@ class PropagatorCache:
         if self._c_splines is not None and self._legacy_table_serves_model():
             lo, hi = self._c_table_range  # type: ignore[misc]
             if lo <= t1 <= hi and lo <= t2 <= hi:
-                return self._C_value_from_table(t1, t2)
+                return _owned_lookup(
+                    self,
+                    PropagatorCache._C_value_from_table,
+                    self._C_value_from_table(t1, t2),
+                )
 
         # Check the (n1, t1, n2, t2) memo
         # Key on CONTENTS, not id().  `id()` is unique only among LIVE
@@ -3363,7 +3369,11 @@ class PropagatorCache:
         ):
             lo, hi = self._c_table_range  # type: ignore[misc]
             if lo <= t1 <= hi and lo <= t2 <= hi:
-                return self._C_diagonal_from_table(t1, t2)
+                return _owned_lookup(
+                    self,
+                    PropagatorCache._C_diagonal_from_table,
+                    self._C_diagonal_from_table(t1, t2),
+                )
         # Copies for an overridden C_value (see _c_lookup_positions).
         n, n_prime = _c_lookup_positions(self, "C_value", n, n_prime)
         C_mat = self.C_value(n, t1, n_prime, t2)
@@ -3496,6 +3506,9 @@ class PropagatorCache:
         Routes equal times through the 1-D diagonal spline: the 2-D spline
         cannot represent the kink there (see ``precompute_C_table``).
         """
+        # Read-only views for _on_diagonal, which a subclass may override and
+        # after which the times are read again (see _read_only_view).
+        t1, t2 = _read_only_view(t1), _read_only_view(t2)
         ks = self._legacy_diag_ks()
         if self._c_diag_splines is not None and self._on_diagonal(t1, t2):
             t = 0.5 * (float(t1) + float(t2))
@@ -3519,6 +3532,8 @@ class PropagatorCache:
         Shares :meth:`_C_diagonal_from_table`'s diagonal-kink routing so the
         two accessors cannot disagree about C(t, t).
         """
+        # Read-only views for _on_diagonal (see _C_diagonal_from_table).
+        t1, t2 = _read_only_view(t1), _read_only_view(t2)
         N = self.model.n_components
         C_mat = np.zeros((N, N))
         entries = self._legacy_entries()
@@ -4773,6 +4788,17 @@ class PropagatorCache:
         # _closed_form_at_batch_diag (see _read_only_view).
         t1 = _read_only_view(np.atleast_1d(np.asarray(t1)))
         t2 = _read_only_view(np.atleast_1d(np.asarray(t2)))
+        # The positions reach _lazy_lookup or _closed_form_at_batch_diag as
+        # the caller's arrays (one object for both ends when the caller passed
+        # one).  An override of either may write into them, so it gets
+        # copies.  The integrators pass copies already (_C_at_fixed_positions)
+        # and the package's own delegates only read them.
+        if _overrides(
+            self,
+            PropagatorCache._lazy_lookup,
+            PropagatorCache._closed_form_at_batch_diag,
+        ):
+            x1, x2 = _own_copy(x1), _own_copy(x2)
         N = self.model.n_components
 
         # Closed-form-only: skip every spline and call the user's
@@ -8171,14 +8197,35 @@ def _trusted(method: Any, registry: dict) -> bool:
     copied as for any user-written method.
     """
     delegates = registry.get(getattr(method, "__func__", None))
-    if not delegates:
-        return delegates is not None
-    owner = method.__self__
-    for func in delegates:
-        attr = getattr(owner, func.__name__, None)
+    if delegates is None:
+        return False
+    return not _overrides(method.__self__, *delegates)
+
+
+def _overrides(obj: Any, *funcs: Any) -> bool:
+    """Whether ``obj`` resolves the name of any of ``funcs``, functions of
+    the package's own classes, to something else: a subclass's method or
+    an instance attribute."""
+    for func in funcs:
+        attr = getattr(obj, func.__name__, None)
         if getattr(attr, "__func__", attr) is not func:
-            return False
-    return True
+            return True
+    return False
+
+
+def _owned_lookup(cache: Any, func: Any, out: Any) -> Any:
+    """``out``, the array a package accessor got from ``cache.<func>``, or
+    a copy of it when ``cache`` overrides ``func``.
+
+    ``C_value`` and ``C_diagonal`` return fresh arrays or read-only memo
+    entries, so a caller may keep them.  A subclass's legacy-table lookup
+    (``_C_value_from_table``, ``_C_diagonal_from_table``) may fill and
+    return one buffer, which would change every result kept from an
+    earlier call.  The package's own lookups allocate and are not copied.
+    """
+    if _overrides(cache, func):
+        return np.array(out, copy=True)
+    return out
 
 
 def _owned_batch(cache: Any, name: str, out: Any) -> Any:
