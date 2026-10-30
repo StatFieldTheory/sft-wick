@@ -364,7 +364,8 @@ Internally the wrapper pre-computes
 :math:`t_c` = ``t_min_cache`` (default 0; ``System`` extends it down to
 its ``t_min``) to ``t_max_cache`` (default 100) and caches it as a cubic
 spline for O(1) R lookups; ``System.propagators`` refuses a ``t_max``
-above ``t_max_cache``.  Scalar closed-form
+above ``t_max_cache``, and an R read past either end of the spline is
+refused (:ref:`table-limits`).  Scalar closed-form
 ``R(t_1, t_2)`` callables that the spline-cache lowering cannot
 express are supported via :class:`~sft_wick.workflow.ExplicitR`.
 From YAML this is the ``linear.type: explicit`` route::
@@ -1290,11 +1291,11 @@ is the bare propagator ``exp(-gamma (t - t'))``:
    |     4 |     2 | 0.135335  |
    |     4 |     3 | 0.367879  |
 
-Three requests are rejected rather than silently mis-answered: a time beyond
-the propagator table's ``t_max`` (which would clamp to the table edge), an
-empty list in the grid (which would produce no rows), and a point whose
-``t_<point>`` column would collide with an existing one.  A response
-observable whose externals are all at the same time warns.
+Three requests are rejected rather than silently mis-answered: a time outside
+the propagator table (see :ref:`table-limits`), an empty list in the grid
+(which would produce no rows), and a point whose ``t_<point>`` column would
+collide with an existing one.  A response observable whose externals are all
+at the same time warns.
 
 .. _n-point-sweeps:
 
@@ -1358,7 +1359,7 @@ Section reference: ``propagators``
    * - ``r_max`` + ``n_grid_r``
      - ``float`` + ``int``
      - ``null``
-     - Translation full-grid mode; give both or neither.  One alone, or either under another homogeneity, is refused before the run, since it would be ignored
+     - Translation full-grid mode; give both or neither.  One alone, or either under another homogeneity, is refused before the run, since it would be ignored.  A separation past ``r_max`` is refused (:ref:`table-limits`)
    * - ``n_grid_cos``
      - ``int``
      - ``null``
@@ -1366,7 +1367,7 @@ Section reference: ``propagators``
    * - ``x_max`` + ``n_grid_x``
      - ``float`` + ``int``
      - ``null``
-     - General full-grid mode; give both or neither, refused under another homogeneity
+     - General full-grid mode; give both or neither, refused under another homogeneity.  A position past ``x_max`` is refused (:ref:`table-limits`)
    * - ``c_closed_form``
      - ``str``
      - ``"auto"``
@@ -1411,6 +1412,74 @@ Section reference: ``propagators``
      - ``str``
      - ``null``
      - Directory or file for caching the built propagator. A schema change invalidates older workflow caches automatically; upgrading to 0.6.1 recomputes cached propagators and expansions on first use. See :doc:`discretization`
+
+.. _table-limits:
+
+What a C table covers
+~~~~~~~~~~~~~~~~~~~~~
+
+A C table covers times from ``system.t_min`` to ``propagators.t_max``.  A
+full spatial grid also limits positions:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Table
+     - Position limit
+   * - Translation with ``r_max`` and ``n_grid_r``
+     - The distance between any two points is at most ``r_max``
+   * - General with ``x_max`` and ``n_grid_x``
+     - Every point is in ``[-x_max, x_max]``
+   * - Rotation
+     - None; :math:`\cos\theta` is in ``[-1, 1]`` by construction
+   * - Lazy translation or general
+     - None; a table is built for each position asked for
+
+Past these limits a lazy table would clamp to its edge and a full-grid table
+would extrapolate, so a request outside them is refused.  ``sft-wick validate``
+and ``sft-wick run`` stop before the expansion, with exit status 2 and one
+line that names the entry:
+
+.. code-block:: text
+
+   sft-wick: config error [invalid_value] sweep.t_final_grid[1]: time 5.0 is past propagators.t_max=2.0, where the C table ends; the table would return a clamped or extrapolated value
+
+:meth:`~sft_wick.workflow.Expansion.evaluate` and
+:meth:`~sft_wick.workflow.Expansion.sweep` raise ``ValueError``, a sweep before
+its first point.  ``PropagatorCache.C_at_batch`` refuses such a lookup too, so
+a caller at L0 is covered.
+
+A value within rounding of a limit is read at the limit, so ``t_final`` equal
+to ``t_max`` is valid.  ``t_final`` is compared only when a point of the
+observable is left free, and a point in ``integrate_over`` counts as free:
+with every point pinned by ``external_times_grid`` it is not read, and it can
+be anything.  With ``c_closed_form_only: true`` no table is built and none of
+these limits applies.
+
+A diagram with a closed R loop, which ``expand.ito: false`` keeps in the
+expression, is exactly 0 and reads no table, so these limits do not depend on
+``ito``.
+
+A callable ``gamma`` puts a second limit on time, which holds with or without
+a table: R reads a spline that covers ``t_min_cache`` to ``t_max_cache``, and
+would extrapolate past it.  With a table ``t_max`` already keeps every time
+inside, since ``propagators.t_max`` above ``t_max_cache`` is refused.  Under
+``c_closed_form_only`` nothing else does, so a time past the spline stops
+``sft-wick validate`` and ``sft-wick run`` the same way, and raises
+``ValueError`` from :meth:`~sft_wick.workflow.Expansion.evaluate`,
+:meth:`~sft_wick.workflow.Expansion.sweep` and the R callable itself.  A
+constant ``gamma`` or an ``ExplicitR`` has no spline.
+
+The R callable refuses only a read: an acausal pair is 0 wherever it sits.  The
+checks before a run go by the request, by one rule at every level, since
+``validate`` has no diagrams: the request reads R if a leg is a response field,
+or if it selects an order above 0 in a system with a vertex.  They then count
+every time it names.  So a pinned ``psi`` later than its ``phi``, a point in
+``integrate_over`` that a pinned point caps, and an order that holds no diagram
+are refused at a time no R reaches.  Lower ``t_final`` or raise
+``t_max_cache``.  Order 0 of ``phi`` legs holds no R and is not checked, so a
+closed form is read at any time there.
 
 Section reference: ``sweep``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1948,8 +2017,10 @@ the ``sweep.orders`` against ``expand.orders``, the spatial grid keys,
 one parallel layer, ``diag_R`` and ``diag_C`` against the system, the
 sweep axes (an empty axis, a repeated value, positions the run cannot
 combine, a point both pinned and integrated), the columns a ``plot`` names,
-the paths the run writes to, the nodes a C table needs, and the
-closed-form C flags, importing the closed-form C module as the run does.
+the paths the run writes to, the nodes a C table needs, the sweep's times and
+positions against the C table and its times against the spline behind R
+(:ref:`table-limits`), and the closed-form C flags, importing the
+closed-form C module as the run does.
 So it also reports what only the build checks (a kernel parameter that is
 not positive, a module without the attribute named).  A key the run does
 not read is not range-checked: ``sweep.seed`` under ``gauss_legendre``, or

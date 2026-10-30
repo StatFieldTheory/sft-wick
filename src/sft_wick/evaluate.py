@@ -1071,6 +1071,11 @@ _C_CACHE_MAXSIZE = 65536
 #: more than this, relatively.
 _DIAG_TOL = 1e-9
 
+#: Relative slack on the limits of a C table.  A sampled time or a computed
+#: separation can land a few ulps past a limit it equals; this is well above
+#: that and far below any distance a table resolves.
+_TABLE_EDGE_RTOL = 1e-12
+
 _REALITY_TOL = 1e-9
 #: Values below this magnitude are treated as an exact zero (a diagram that
 #: cancelled), so a denormal-scale imaginary residue never raises.
@@ -2472,6 +2477,20 @@ def _causal_reachability(time_orderings) -> dict:
     return succ
 
 
+def _closes_an_R_loop(spatial: "SpatialStructure") -> bool:
+    """Whether the R propagators of a diagram form a closed loop.
+
+    The numerical layer applies ``Θ(0) = 0`` at every R, so such a diagram,
+    which ``ito=False`` keeps in the expression, is exactly 0.  The vertices
+    of the loop have no causal parent and no external point in their group,
+    so their time and position are ones no request names.
+    """
+    later = _causal_reachability(
+        tuple((right, left) for left, right in spatial.r_propagators)
+    )
+    return any(node in after for node, after in later.items())
+
+
 def _swept_external_order(
     spatial,
     ext_integrated,
@@ -2879,6 +2898,63 @@ def _C_value_direct_on_copies(
     )
 
 
+def _outside_table(values: Any, lo: float, hi: float) -> Any:
+    """Where ``values`` lie outside ``[lo, hi]`` by more than rounding.
+
+    A NaN is not outside: it stays a NaN, which the integrators refuse.
+    """
+    lo, hi = float(lo), float(hi)
+    slack = _TABLE_EDGE_RTOL * max(abs(lo), abs(hi))
+    values = np.asarray(values, dtype=float)
+    return (values < lo - slack) | (values > hi + slack)
+
+
+def _refuse_past_table(
+    name: str, values: Any, lo: float, hi: float, remedy: str
+) -> None:
+    """Raise if any of ``values`` is outside a table's ``[lo, hi]``.
+
+    Past its limits a lazy table clamps to the edge and a full-grid table
+    extrapolates, so either would return a plausible number.
+
+    Raises:
+        ValueError: naming the first such value.
+    """
+    outside = _outside_table(values, lo, hi)
+    if np.any(outside):
+        first = np.asarray(values, dtype=float)[outside].flat[0]
+        raise ValueError(
+            f"C lookup at {name}={float(first)} is outside the propagator "
+            f"table, which covers [{float(lo)}, {float(hi)}]; the table would "
+            f"return a clamped or extrapolated value.  {remedy}"
+        )
+
+
+def _separation(x1: Any, x2: Any) -> float:
+    """``|x1 - x2|`` of two scalar or vector positions."""
+    diff = np.asarray(x1, dtype=float) - np.asarray(x2, dtype=float)
+    return float(abs(diff)) if diff.ndim == 0 else float(np.linalg.norm(diff))
+
+
+def _full_grid_limits(cache: Any) -> tuple[float | None, float | None]:
+    """``(r_max, x_max)`` of a cache's full spatial grid.
+
+    ``None`` for a limit the cache's lookups do not have: a lazy table builds
+    at whatever position it is asked for, cos is in ``[-1, 1]`` by
+    construction, and ``c_closed_form_only`` reads no table.
+    """
+    if getattr(cache, "_closed_form_only", False):
+        return None, None
+    r_max = x_max = None
+    r_range = getattr(cache, "_c_translation_r_range", None)
+    if getattr(cache, "_c_translation_splines", None) is not None and r_range:
+        r_max = float(r_range[1])
+    axes = getattr(cache, "_c_general_axes", None)
+    if getattr(cache, "_c_general_interpolators", None) is not None and axes:
+        x_max = float(axes[2][-1])
+    return r_max, x_max
+
+
 def _rotation_cos(x1, x2) -> float:
     """Cosine similarity ``x1·x2 / (|x1| |x2|)`` as a scalar.
 
@@ -3208,6 +3284,9 @@ class PropagatorCache:
             C_{ab} = ∫_{t_min}^{t1} dλ' ∫_{t_min}^{t2} dλ''
                      R_time(t1,λ') κ_{ab}(n1,λ'; n2,λ'') R_time(t2,λ'')
 
+        A spatial table takes precedence and has no such fallback: a point
+        outside it is refused, as in :meth:`C_at_batch`.
+
         Returns:
             ``(N, N)`` array.
         """
@@ -3399,7 +3478,9 @@ class PropagatorCache:
         self._c_splines = None
         self._c_splines_entries = None
         self._c_diag_splines = None
-        self._c_table_range = None
+        # A spatial table stays, and its reads are checked against this range.
+        if not _cache_has_spatial_table(self):
+            self._c_table_range = None
 
     def precompute_C_table(
         self,
@@ -3555,6 +3636,15 @@ class PropagatorCache:
 
     # --- Vectorized methods for batch evaluation ---
 
+    def _refuse_times_past_table(self, t1: np.ndarray, t2: np.ndarray) -> None:
+        """Raise if a time is outside ``_c_table_range``, if there is one."""
+        if self._c_table_range is None:
+            return
+        lo, hi = self._c_table_range
+        remedy = "Rebuild the propagators with a t_max that covers it."
+        _refuse_past_table("t1", t1, lo, hi, remedy)
+        _refuse_past_table("t2", t2, lo, hi, remedy)
+
     def C_diagonal_batch(
         self,
         t1: np.ndarray,
@@ -3571,6 +3661,9 @@ class PropagatorCache:
         Returns:
             Array of shape ``(n, N)`` where ``N`` is the number of
             field components.  ``result[s, a]`` is ``C_{aa}(t1[s], t2[s])``.
+
+        Raises:
+            ValueError: if a time is outside the table.
         """
         if self._c_splines is None:
             raise RuntimeError("C_diagonal_batch requires precompute_C_table()")
@@ -3578,6 +3671,7 @@ class PropagatorCache:
         # (see _read_only_view).
         t1 = _read_only_view(np.asarray(t1))
         t2 = _read_only_view(np.asarray(t2))
+        self._refuse_times_past_table(t1, t2)
         n = len(t1)
         N = self.model.n_components
         ks = self._legacy_diag_ks()
@@ -3615,6 +3709,7 @@ class PropagatorCache:
         # Read-only views for _on_diagonal (see _read_only_view).
         t1a = _read_only_view(np.atleast_1d(np.asarray(t1, dtype=float)))
         t2a = _read_only_view(np.atleast_1d(np.asarray(t2, dtype=float)))
+        self._refuse_times_past_table(t1a, t2a)
         n = len(t1a)
         N = self.model.n_components
         result = np.zeros((n, N, N))
@@ -4101,7 +4196,8 @@ class PropagatorCache:
             t_max: upper bound of the (t1, t2) time grid.
             n_grid_t: grid size along each time axis.
             r_max: upper bound of the r = ``|x1-x2|`` grid
-                (full-grid mode).  ``None`` ⇒ lazy mode.
+                (full-grid mode); :meth:`C_at_batch` refuses a separation
+                past it.  ``None`` ⇒ lazy mode.
             n_grid_r: grid size along r (full-grid mode).
                 ``None`` ⇒ lazy mode.
             n_jobs: parallel workers for grid-point ``_C_value_direct``
@@ -4417,7 +4513,8 @@ class PropagatorCache:
         - Full-grid: 4-D ``(t1, t2, x1, x2)`` interpolator over the
           pre-allocated grid.  Build cost is
           ``n_grid_t² · n_grid_x²`` independent ``_C_value_direct``
-          calls; strongly consider ``n_jobs=-1``.
+          calls; strongly consider ``n_jobs=-1``.  :meth:`C_at_batch`
+          refuses a position past ``x_max`` on either side.
 
         Args:
             n_jobs: parallel workers for ``_C_value_direct``
@@ -4781,6 +4878,12 @@ class PropagatorCache:
         Returns:
             ``(n, N)``, the diagonal C values per component, when
             ``model.diag_C``; ``(n, N, N)``, every entry, otherwise.
+
+        Raises:
+            ValueError: if a sample is outside the table it reads: a time
+                outside ``[t_min, t_max]``, a separation past ``r_max`` or a
+                position past ``x_max`` on a full spatial grid.  A value
+                within rounding of a limit is read at the limit.
         """
         # Read-only views: the time-table fallback hands these arrays to a
         # C_diagonal_batch or C_matrix_batch that a subclass may override,
@@ -4810,6 +4913,7 @@ class PropagatorCache:
         # is only practical for small sweeps.
         if self._closed_form_only:
             return self._closed_form_at_batch_diag(t1, t2, x1, x2)
+        self._refuse_times_past_table(t1, t2)
         n = len(t1)
 
         def _resolve_x(x):
@@ -4840,6 +4944,14 @@ class PropagatorCache:
             # Full-grid 3-D (t1, t2, r) spline takes precedence.
             if self._c_translation_splines is not None:
                 r = _r_batch(x1_b, x2_b)
+                if self._c_translation_r_range is not None:
+                    _refuse_past_table(
+                        "r",
+                        r,
+                        *self._c_translation_r_range,
+                        "Rebuild the propagators with a larger r_max, or "
+                        "leave r_max out for a lazy table.",
+                    )
                 pts = np.stack([t1, t2, r], axis=-1)
                 return self._assemble_C(
                     [itp(pts) for itp in self._c_translation_splines], n
@@ -4901,6 +5013,14 @@ class PropagatorCache:
                     "mode (omit x_max / n_grid_x in "
                     "precompute_C_table_general) for d-dim inputs."
                 )
+            if self._c_general_axes is not None:
+                xs = self._c_general_axes[2]
+                remedy = (
+                    "Rebuild the propagators with a larger x_max, or leave "
+                    "x_max out for a lazy table."
+                )
+                _refuse_past_table("x1", x1_b, xs[0], xs[-1], remedy)
+                _refuse_past_table("x2", x2_b, xs[0], xs[-1], remedy)
             pts = np.stack([t1, t2, x1_b, x2_b], axis=-1)
             return self._assemble_C(
                 [itp(pts) for itp in self._c_general_interpolators], n
@@ -8646,6 +8766,13 @@ def _integrate_moment_dispatch(
         if qmc_coupling_chunk_size is None
         else {"qmc_coupling_chunk_size": qmc_coupling_chunk_size}
     )
+    spatial = getattr(integrand, "spatial", None)
+    if (
+        method in INTEGRATION_METHODS
+        and spatial is not None
+        and _closes_an_R_loop(spatial)
+    ):
+        return 0.0, 0.0
     if method == "qmc":
         if _cache_supports_batch_c(cache):
             return integrand.integrate_moment_qmc_vectorized(

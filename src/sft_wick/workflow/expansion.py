@@ -21,7 +21,13 @@ import numpy as np
 
 from sft_wick._dense_contraction import DEFAULT_CONTRACTION_MAX_BYTES
 from sft_wick.evaluate import DEFAULT_GL_CHUNK_SIZE
-from sft_wick.evaluate import _cache_has_spatial_table, integrate_moment
+from sft_wick.evaluate import (
+    _cache_has_spatial_table,
+    _full_grid_limits,
+    _outside_table,
+    _separation,
+    integrate_moment,
+)
 from sft_wick.expressions import Expr, Product, Symbol, Sum, Rational
 
 from ._messages import shown
@@ -54,17 +60,14 @@ def _check_sweep_columns(pos_keys, et_keys, comp_cols) -> None:
         )
 
 
-def _guard_external_times(expansion, propagators, ext_times, label):
-    """Fail loudly on the three ways a two-time request goes quietly wrong.
+def _guard_external_times(expansion, ext_times, label):
+    """Warn when a response leg's externals share a time.
 
-    All three were found by adversarial review of this feature, and all three
-    previously produced a plausible-looking answer rather than an error.
+    Such an observable evaluates to EXACTLY 0 (Theta kills the R joining
+    them).  Before the response field was nameable this config could not be
+    written at all; now the natural first attempt returns a full table of
+    zeros with no hint why.
     """
-
-    # 1. A response leg with every external pinned together evaluates to
-    #    EXACTLY 0 (Theta kills the R joining them).  Before the response field
-    #    was nameable this config could not be written at all; now the natural
-    #    first attempt returns a full table of zeros with no hint why.
     has_psi = any(
         name == expansion.system.field.response_name
         for (name, _comp, _sp) in (expansion.observable_repr or ())
@@ -87,21 +90,137 @@ def _guard_external_times(expansion, propagators, ext_times, label):
                 stacklevel=3,
             )
 
-    # 2. A time past the propagator table's horizon silently CLAMPS to the
-    #    table edge, which is indistinguishable from a correct answer.
-    #    ``Propagators`` exposes only build/cache/homogeneity/is_lazy, so read
-    #    the horizon from the cache itself, which is the object that clamps.
-    t_range = getattr(getattr(propagators, "cache", None), "_c_table_range", None)
-    t_max = t_range[1] if t_range else None
-    if t_max is not None and ext_times:
-        over = {k: v for k, v in ext_times.items() if float(v) > float(t_max)}
-        if over:
-            raise ValueError(
-                f"{label}: external time(s) {over} exceed the propagator "
-                f"table horizon t_max={t_max}.  The C lookup would clamp to "
-                f"the table edge and return a plausible but wrong value; "
-                f"rebuild the propagators with a larger t_max."
-            )
+
+def _guard_table_times(cache, times, label) -> None:
+    """Refuse ``(name, time)`` pairs outside the table's ``[t_min, t_max]``.
+
+    A cache with only a time table is left to its accessors: ``C_value`` goes
+    to direct quadrature past the table, which is correct, and the batch
+    accessors refuse.
+    """
+    t_range = getattr(cache, "_c_table_range", None)
+    if not t_range or not _cache_has_spatial_table(cache):
+        return
+    t_min, t_max = t_range
+    outside = {k: v for k, v in times if _outside_table(float(v), t_min, t_max)}
+    late = {k: v for k, v in outside.items() if float(v) > float(t_max)}
+    if late:
+        raise ValueError(
+            f"{label}: time(s) {late} exceed the propagator table horizon "
+            f"t_max={t_max}.  A lazy table would clamp to its edge and a "
+            f"full-grid table extrapolate, either way a plausible but wrong "
+            f"value; rebuild the propagators with a larger t_max."
+        )
+    if outside:
+        raise ValueError(
+            f"{label}: time(s) {outside} precede the propagator table start "
+            f"t_min={t_min}.  The table would extrapolate below it; use times "
+            f"at or after the system's t_min."
+        )
+
+
+def _guard_rate_times(cache, times, label) -> None:
+    """Refuse ``(name, time)`` pairs outside the spline behind R, if R has
+    one.  A table bounds every time by ``t_max``, which
+    :meth:`System.propagators` keeps inside the spline; without one, as under
+    ``c_closed_form_only``, nothing else does."""
+    r_time = getattr(getattr(cache, "model", None), "R_time", None)
+    t_range = getattr(r_time, "time_range", None)
+    if not t_range:
+        return
+    lo, hi = t_range
+    outside = {k: v for k, v in times if _outside_table(float(v), lo, hi)}
+    late = {k: v for k, v in outside.items() if float(v) > hi}
+    if late:
+        raise ValueError(
+            f"{label}: time(s) {late} are past the cumulative-rate spline "
+            f"behind R, which ends at t_max_cache={hi}, and would be "
+            f"extrapolated.  Raise t_max_cache (and n_grid_cache with it)."
+        )
+    if outside:
+        raise ValueError(
+            f"{label}: time(s) {outside} are below the cumulative-rate spline "
+            f"behind R, which starts at t_min_cache={lo}, and would be "
+            f"extrapolated.  Use times at or after the system's t_min."
+        )
+
+
+def _guard_table_positions(cache, positions, label) -> None:
+    """Refuse positions past a full spatial grid; see
+    :func:`~sft_wick.evaluate._full_grid_limits` for which caches have one."""
+    r_max, x_max = _full_grid_limits(cache)
+    if r_max is not None:
+        for (p, a), (q, b) in itertools.combinations(positions.items(), 2):
+            r = _separation(a, b)
+            if _outside_table(r, 0.0, r_max):
+                raise ValueError(
+                    f"{label}: points {shown(p)} and {shown(q)} are {r} apart, past the "
+                    f"propagator table limit r_max={r_max}.  The table would "
+                    f"extrapolate; rebuild the propagators with a larger "
+                    f"r_max, or leave r_max out for a lazy table."
+                )
+    if x_max is not None:
+        for p, a in positions.items():
+            if np.any(_outside_table(a, -x_max, x_max)):
+                raise ValueError(
+                    f"{label}: point {shown(p)} at {shown(a)} is past the propagator "
+                    f"table limit x_max={x_max}.  The table would extrapolate; "
+                    f"rebuild the propagators with a larger x_max, or leave "
+                    f"x_max out for a lazy table."
+                )
+
+
+def _request_reads_R(system, orders, names) -> bool:
+    """Whether a request can read R: a response leg among the field ``names``
+    of its observable, or an order above 0 in a system with a vertex.
+
+    The diagrams could say more, but ``sft-wick validate`` runs without them
+    and must report what the run refuses and nothing else, so both go by
+    this rule.  An order that holds no diagram (order 1 of a cubic vertex
+    with two legs) therefore counts.
+    """
+    vertices = (
+        system.vertices or system.nonlocal_vertices or system.multiplicative_vertices
+    )
+    return system.field.response_name in names or (
+        bool(vertices) and any(order > 0 for order in orders)
+    )
+
+
+def _reads_R(expansion, orders) -> bool:
+    """:func:`_request_reads_R` for ``orders`` of ``expansion``."""
+    names = {name for (name, _comp, _sp) in expansion.observable_repr or ()}
+    return _request_reads_R(expansion.system, orders, names)
+
+
+def _guard_table_reach(
+    expansion, propagators, positions, t_final, ext_times, reads_R, label
+) -> None:
+    """Refuse a point that names a time or position outside its tables.
+
+    :meth:`~sft_wick.evaluate.PropagatorCache.C_at_batch` and the R callable
+    refuse a read, and only a read.  This check goes by the request, which
+    names the problem and stops a sweep before its first point, so it can
+    refuse a time nothing reaches: a pinned psi later than its phi, or an
+    integrated point that a pinned point caps.  ``t_final`` counts only when
+    a point is left free: with every external pinned it is not read.  A point
+    left out of ``positions`` is not checked: it sits at the default
+    coordinate unless it shares a group with a point that has a position, and
+    only the lookup can tell.
+
+    ``Propagators`` exposes only build/cache/homogeneity/is_lazy, so the
+    limits come from the cache itself.
+    """
+    cache = getattr(propagators, "cache", None)
+    points = {str(sp) for (_name, _comp, sp) in expansion.observable_repr or ()}
+    times = list((ext_times or {}).items())
+    if not points <= {str(k) for k in ext_times or ()}:
+        times.append(("t_final", t_final))
+    _guard_table_times(cache, times, label)
+    if reads_R:
+        _guard_rate_times(cache, times, label)
+    located = {k: v for k, v in (positions or {}).items() if str(k) in points}
+    _guard_table_positions(cache, located, label)
 
 
 def _guard_single_site(expansion, diagram_terms, positions) -> None:
@@ -310,7 +429,9 @@ class Expansion:
             positions: ``{spatial_arg: x_value}`` mapping, e.g.
                 ``{"x": 0.0, "y": 0.5}``.
             t_final: upper time bound for external-time integration
-                (``lambda_f``).
+                (``lambda_f``).  ``ValueError`` if a time read is outside
+                the propagator table or a position past its full spatial
+                grid; see :ref:`table-limits`.
             component_pair: component indices of the observable, one
                 per operator in order: ``(a, b)`` for
                 ``<phi_a(x) phi_b(y)>``, ``(a, b, c)`` for a 3-point
@@ -465,10 +586,14 @@ class Expansion:
                 f"but the expansion's system has t_min={t_min}."
             )
 
-        _guard_external_times(
+        _guard_external_times(self, external_times, "Expansion.evaluate")
+        _guard_table_reach(
             self,
             propagators,
+            positions,
+            t_final,
             external_times,
+            _reads_R(self, orders_list),
             "Expansion.evaluate",
         )
         _guard_single_site(self, diagram_terms, positions)
@@ -582,7 +707,9 @@ class Expansion:
                 joining them and any observable carrying a response leg is
                 identically 0.  Each named point adds a ``t_<point>`` column
                 to the result rows.  Omit to pin everything at ``t_final``,
-                which reproduces the pre-existing rows exactly.
+                which reproduces the pre-existing rows exactly.  Every grid
+                point is checked against the propagator table before the
+                first is integrated; see :ref:`table-limits`.
             component_pairs: the older name of ``component_tuples``,
                 kept for 2-point observables; give one or the other.
             component_tuples: list of component-index tuples, one index
@@ -832,12 +959,22 @@ class Expansion:
         _check_sweep_columns(pos_keys, et_keys, comp_cols)
 
         # Flatten the Cartesian product to a list of grid-point tasks.
+        reads_R = _reads_R(self, orders_list)
         grid_tasks: list[tuple[dict, Any, dict, tuple]] = []
         for pos_tuple in itertools.product(*pos_values):
             positions = dict(zip(pos_keys, pos_tuple))
             for t_f in t_final_grid:
                 for et_tuple in (itertools.product(*et_values) if et_keys else [()]):
                     ext_times = dict(zip(et_keys, et_tuple)) or None
+                    _guard_table_reach(
+                        self,
+                        propagators,
+                        positions,
+                        t_f,
+                        ext_times,
+                        reads_R,
+                        "Expansion.sweep",
+                    )
                     for comp in comp_tuples:
                         grid_tasks.append((positions, t_f, ext_times, comp))
 
@@ -846,12 +983,7 @@ class Expansion:
         for _et in {
             tuple(sorted((ext or {}).items())) for _p, _t, ext, _c in grid_tasks
         }:
-            _guard_external_times(
-                self,
-                propagators,
-                dict(_et) or None,
-                "Expansion.sweep",
-            )
+            _guard_external_times(self, dict(_et) or None, "Expansion.sweep")
 
         # A spatially structureless cache returns the same C at every
         # separation, so a positions sweep yields a column of identical

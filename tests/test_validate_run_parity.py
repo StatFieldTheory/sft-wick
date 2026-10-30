@@ -59,6 +59,15 @@ def C_fn(n1, t1, n2, t2):
 """
 
 
+RATE_MODULE = """
+import numpy as np
+
+
+def gamma(t):
+    return np.array([0.7 + 0.5 * np.sin(3.0 * t), 1.9])
+"""
+
+
 def _doc() -> dict:
     """The quick start at order 0, small enough to run in a test."""
     doc = yaml.safe_load((ROOT / "examples" / "quickstart.yaml").read_text())
@@ -104,6 +113,17 @@ def _dense_r(doc, tmp_path):
     doc["system"]["vertices"] = []
 
 
+def _rate_spline(doc, tmp_path):
+    """A callable rate on a spline ending at 4, and no C table to bound a
+    time."""
+    _file(tmp_path, "rate.py", RATE_MODULE)
+    _file(tmp_path, "c_fn.py", C_MODULE)
+    doc["system"]["linear"] = {"type": "diagonal", "gamma_module": "rate.py",
+                               "t_max_cache": 4.0, "n_grid_cache": 201}
+    doc["propagators"].update(c_closed_form_module="c_fn.py",
+                              c_closed_form_only=True)
+
+
 def _module(name: str, text: str, *steps):
     def apply(doc, tmp_path):
         _file(tmp_path, name, text)
@@ -124,8 +144,32 @@ def _no_stage(*args, **kwargs):
 _RESPONSE = _all(_set("expand", "observable", ["phi_a(x)", "psi_b(y)"]),
                  _set("sweep", "positions_grid", {"x": [0.0], "y": [0.5]}))
 
+_ONE_POSITION = _set("sweep", "positions_grid", {"x": [0.0], "y": [0.0]})
+
 #: name -> (change to the config, code, dotted path)
 REFUSED = {
+    "t_final_past_the_table": (_set("sweep", "t_final_grid", [1.0, 4.0]),
+                               "invalid_value", "sweep.t_final_grid[1]"),
+    "t_final_below_the_table": (
+        _all(_set("system", "t_min", 0.5),
+             _set("sweep", "t_final_grid", [0.25, 1.0])),
+        "invalid_value", "sweep.t_final_grid[0]"),
+    "pinned_time_past_the_table": (
+        _set("sweep", "external_times_grid", {"x": [4.0], "y": [1.0]}),
+        "invalid_value", "sweep.external_times_grid.x[0]"),
+    "separation_past_the_table": (
+        _all(_set("propagators", "r_max", 0.25),
+             _set("propagators", "n_grid_r", 4)),
+        "invalid_value", "sweep.positions_grid.y[1]"),
+    "position_past_the_table": (
+        _all(_set("propagators", "homogeneity", "general"),
+             _set("propagators", "x_max", 0.25),
+             _set("propagators", "n_grid_x", 4)),
+        "invalid_value", "sweep.positions_grid.y[1]"),
+    "pinned_time_past_the_rate_spline": (
+        _all(_rate_spline, _RESPONSE, _ONE_POSITION,
+             _set("sweep", "external_times_grid", {"x": [5.0], "y": [1.0]})),
+        "invalid_value", "sweep.external_times_grid.x[0]"),
     "dense_R_under_diag_R": (
         _all(_dense_r, _set("expand", "diag_C", False),
              _set("propagators", "diag_C", False)),
@@ -287,6 +331,21 @@ def test_VR1_every_command_refuses_before_any_stage(tmp_path, capsys,
 # ---------------------------------------------------------------------------
 
 ACCEPTED = {
+    "t_final_at_the_end_of_the_table": _set("sweep", "t_final_grid", [1.0, 3.0]),
+    "unread_t_final_past_the_table": _all(
+        _set("sweep", "t_final_grid", [9.0]),
+        _set("sweep", "external_times_grid", {"x": [2.0], "y": [1.0]})),
+    "separation_at_the_end_of_the_table": _all(
+        _set("propagators", "r_max", 0.5),
+        _set("propagators", "n_grid_r", 4)),
+    "no_table_past_t_max": _all(
+        _set("propagators", "c_closed_form_only", True),
+        _set("sweep", "t_final_grid", [9.0])),
+    "order_zero_of_phi_past_the_rate_spline": _all(
+        _rate_spline, _set("sweep", "t_final_grid", [9.0])),
+    "response_at_the_end_of_the_rate_spline": _all(
+        _rate_spline, _RESPONSE, _ONE_POSITION,
+        _set("sweep", "external_times_grid", {"x": [4.0], "y": [1.0]})),
     "dense_R_with_both_flags_off": _all(
         _dense_r, _set("expand", "diag_R", False),
         _set("expand", "diag_C", False), _set("propagators", "diag_C", False)),
