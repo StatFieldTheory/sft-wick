@@ -557,7 +557,7 @@ Pass `collect_topology=False` to keep all pairings expanded individually.
 
 - **No SymPy dependency**: Uses a custom lightweight expression tree with `fractions.Fraction` for exact rational arithmetic.
 - **Frozen dataclasses**: All expression types are immutable and hashable, safe for use in sets and dicts.
-- **Unique operator IDs**: Each `FieldOperator` carries a unique integer ID, so that two copies of φ\_a(x) in the same product are properly distinguished during contraction.
+- **Operator IDs**: Each `FieldOperator` carries an integer ID from a global counter, so two copies of φ\_a(x) in one product compare unequal. An ID need not be unique, since `reset_uid_counter()` restarts the counter: a contraction and a diagram work from positions in the operator list and read no ID.
 - **Optimized contraction**: Two engines are available. The operator-level engine (`generate_valid_pairings`) skips ψ-ψ pairings at construction time. The spatial-level engine (`wick_contract_spatial`, used by default when `collect_topology=True`) enumerates spatial topologies instead of operator-level pairings, computing a multiplicity for each. This avoids the combinatorial explosion from component-index routing and is orders of magnitude faster at high perturbative orders.
 - **Feynman diagrams**: Built on `networkx.MultiGraph` (supporting multiple edges between the same pair of nodes) with `matplotlib` rendering.
 
