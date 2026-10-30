@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+### Fixed: an R read past the cumulative-rate spline returned a number
+
+**Breaking (a time past the spline of a callable `gamma`).**
+`System.propagators` keeps `t_max` inside `[t_min_cache, t_max_cache]`, and a C
+table bounds every time by `t_max`.  Under `c_closed_form_only` nothing bounded
+a time, so R extrapolated the spline with no error.  With
+`gamma = 0.7 + 0.5 sin(3t)` and `t_max_cache = 3`, against `quad` of the rate:
+
+| read | returned | reference |
+|---|---|---|
+| `R(3, 1)` | 0.24986 | 0.24986 |
+| `R(4, 1)` | 0.16473 | 0.16623 |
+| `R(6, 1)` | 6.5e-14 | 0.03976 |
+
+A rate linear in `t` hides this: the spline of `Gamma` extrapolates a quadratic
+exactly.  A table built by hand on such a model past the spline was wrong in
+the same way.
+
+R now raises `ValueError` on a causal read past either end of the spline, at
+any level.  `Expansion.evaluate` and `Expansion.sweep` raise before anything is
+read, a sweep before its first point.  `sft-wick validate` and `run` stop before
+the expansion with status 2 and one line that names the entry.
+
+The R callable refuses only a read: an acausal pair is 0 wherever it sits, and a
+value within rounding of an end is read at that end.  The checks before a run
+go by the request, by one rule at every level, since `validate` has no diagrams:
+a request reads R if a leg is a response field, or if it selects an order above
+0 in a system with a vertex.  They then count every time it names, so a pinned
+`psi` later than its `phi`, an integrated point that a pinned point caps, and an
+order that holds no diagram are refused at a time no R reaches, and lowering
+`t_final` or raising `t_max_cache` clears it.  Order 0 of `phi` legs holds no R
+and is not checked, `t_final` with every external point pinned is not read, and
+a constant `gamma` or an `ExplicitR` has no spline.  The limits are the spline's
+own breakpoints, so propagators cached on disk carry them and `_CACHE_SCHEMA`
+does not change.
+
+The check costs about 0.6 us on a scalar R call of 6 to 12 us, and 3 to 11% on a
+batch of 8,192.  In-range numbers do not move: the 156 rows of the shipped
+configs and 3,030 in-range R values, ends included, are bit-identical to the
+previous commit.
+
 ### Fixed: a C lookup outside its table returned a number
 
 **Breaking (a time or position the table does not cover).**  A `t_final`

@@ -585,6 +585,18 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "under x -> -x",
         "1e-6 at table nodes / 1e-5 one DELTA from a coarse node",
     ),
+    "tests/test_rate_spline_limits.py": (
+        "Propagator numerics",
+        "an R read outside the cumulative-rate spline of a callable gamma is "
+        "refused at L0, L1 and L2, for a scalar and a matrix R, on both "
+        "sides, with extreme values and rounding at each end accepted; a "
+        "sweep and the CLI stopped before their first cost; a hand-built "
+        "table refused at its build or first read; no refusal of an acausal "
+        "pair, of order 0 of phi legs, of an unread t_final, of a constant "
+        "rate or of an ExplicitR",
+        "scipy quad of a nonlinear rate, sharing no code with the package",
+        "1e-7 (spline, 301 nodes) / exact (unread t_final)",
+    ),
     "tests/test_spectral.py": (
         "Spectral propagators",
         "disorder-averaged R*, C* from a spectral density; averaging; "

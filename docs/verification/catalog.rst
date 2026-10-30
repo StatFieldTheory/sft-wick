@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **7099 tests** in 130 files (parametrised
+The suite has **7223 tests** in 131 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -157,7 +157,7 @@ Multiplicities and canonical forms
 Propagator numerics
 -------------------
 
-*1335 tests in 18 files.*
+*1447 tests in 19 files.*
 
 .. list-table::
    :header-rows: 1
@@ -253,6 +253,11 @@ Propagator numerics
      - deterministic counting callbacks, stateful bypass witnesses, exact native byte/layout checks
      - exact outputs and retained raw-byte/4096-entry bounds; no RSS claim
      - 106
+   * - ``test_rate_spline_limits.py``
+     - an R read outside the cumulative-rate spline of a callable gamma is refused at L0, L1 and L2, for a scalar and a matrix R, on both sides, with extreme values and rounding at each end accepted; a sweep and the CLI stopped before their first cost; a hand-built table refused at its build or first read; no refusal of an acausal pair, of order 0 of phi legs, of an unread t_final, of a constant rate or of an ExplicitR
+     - scipy quad of a nonlinear rate, sharing no code with the package
+     - 1e-7 (spline, 301 nodes) / exact (unread t_final)
+     - 112
    * - ``test_table_limits.py``
      - a C lookup outside its table is refused at L0, L1 and L2 on every table kind: times on both sides, t_final only where it is read, separation past r_max, position past x_max on both sides, extreme values, rounding at a limit accepted, a sweep and the CLI stopped before their first cost; no limit on cos, on lazy positions or under c_closed_form_only; a diagram with a closed R loop reads no table and clear_cache keeps the limits of a spatial table
      - scipy dblquad of the defining integral, sharing no code with the package, with asymmetric rates, t_min != 0 and a kernel that changes under x -> -x
@@ -557,7 +562,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*1725 tests in 27 files.*
+*1737 tests in 27 files.*
 
 .. list-table::
    :header-rows: 1
@@ -672,7 +677,7 @@ Workflow and YAML
      - sft-wick validate reports what run refuses, in one line with status 2 before any stage: diag_R and diag_C, empty and repeated axes, pinned and integrated points, joined points at two positions, plot columns, output paths, the closed-form C module and flags; the neighbour of each refusal runs; what only the diagrams decide stops the run after the expansion
      - the refusal of the integrators, compared directly over observables, targets, integrators and table kinds; a run with the closed form passed on
      - exact
-     - 99
+     - 111
    * - ``test_workflow.py``
      - System / Expansion / Propagators / SweepResult surface; end-to-end vs the raw API; two-time sweeps
      - raw L0 pipeline (validate_phase5); closed forms

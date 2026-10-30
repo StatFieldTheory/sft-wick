@@ -364,7 +364,8 @@ Internally the wrapper pre-computes
 :math:`t_c` = ``t_min_cache`` (default 0; ``System`` extends it down to
 its ``t_min``) to ``t_max_cache`` (default 100) and caches it as a cubic
 spline for O(1) R lookups; ``System.propagators`` refuses a ``t_max``
-above ``t_max_cache``.  Scalar closed-form
+above ``t_max_cache``, and an R read past either end of the spline is
+refused (:ref:`table-limits`).  Scalar closed-form
 ``R(t_1, t_2)`` callables that the spline-cache lowering cannot
 express are supported via :class:`~sft_wick.workflow.ExplicitR`.
 From YAML this is the ``linear.type: explicit`` route::
@@ -1460,6 +1461,26 @@ A diagram with a closed R loop, which ``expand.ito: false`` keeps in the
 expression, is exactly 0 and reads no table, so these limits do not depend on
 ``ito``.
 
+A callable ``gamma`` puts a second limit on time, which holds with or without
+a table: R reads a spline that covers ``t_min_cache`` to ``t_max_cache``, and
+would extrapolate past it.  With a table ``t_max`` already keeps every time
+inside, since ``propagators.t_max`` above ``t_max_cache`` is refused.  Under
+``c_closed_form_only`` nothing else does, so a time past the spline stops
+``sft-wick validate`` and ``sft-wick run`` the same way, and raises
+``ValueError`` from :meth:`~sft_wick.workflow.Expansion.evaluate`,
+:meth:`~sft_wick.workflow.Expansion.sweep` and the R callable itself.  A
+constant ``gamma`` or an ``ExplicitR`` has no spline.
+
+The R callable refuses only a read: an acausal pair is 0 wherever it sits.  The
+checks before a run go by the request, by one rule at every level, since
+``validate`` has no diagrams: the request reads R if a leg is a response field,
+or if it selects an order above 0 in a system with a vertex.  They then count
+every time it names.  So a pinned ``psi`` later than its ``phi``, a point in
+``integrate_over`` that a pinned point caps, and an order that holds no diagram
+are refused at a time no R reaches.  Lower ``t_final`` or raise
+``t_max_cache``.  Order 0 of ``phi`` legs holds no R and is not checked, so a
+closed form is read at any time there.
+
 Section reference: ``sweep``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -1996,8 +2017,10 @@ the ``sweep.orders`` against ``expand.orders``, the spatial grid keys,
 one parallel layer, ``diag_R`` and ``diag_C`` against the system, the
 sweep axes (an empty axis, a repeated value, positions the run cannot
 combine, a point both pinned and integrated), the columns a ``plot`` names,
-the paths the run writes to, the nodes a C table needs, and the
-closed-form C flags, importing the closed-form C module as the run does.
+the paths the run writes to, the nodes a C table needs, the sweep's times and
+positions against the C table and its times against the spline behind R
+(:ref:`table-limits`), and the closed-form C flags, importing the
+closed-form C module as the run does.
 So it also reports what only the build checks (a kernel parameter that is
 not positive, a module without the attribute named).  A key the run does
 not read is not range-checked: ``sweep.seed`` under ``gauss_legendre``, or

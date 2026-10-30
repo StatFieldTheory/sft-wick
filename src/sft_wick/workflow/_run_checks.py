@@ -318,6 +318,7 @@ def _check_propagators(cfg: WorkflowConfig, system) -> None:
     props = cfg.propagators
     with _refused_at("propagators.t_max"):
         system._require_gamma_grid(props.t_max)
+    _check_rate_times(cfg, system)
     c_fn = cf._load_c_closed_form(props)
     only, vectorized = props.c_closed_form_only, props.c_closed_form_vectorized
     flag = "vectorized" if vectorized and not only else "only"
@@ -427,3 +428,38 @@ def _check_table_positions(cfg: WorkflowConfig, system) -> None:
                         f"  Raise x_max, or leave x_max and n_grid_x out for "
                         f"a lazy table",
                     )
+
+
+def _check_rate_times(cfg: WorkflowConfig, system) -> None:
+    """A time outside the cumulative-rate spline behind R, which matters when
+    no C table bounds the time, as under ``c_closed_form_only``.  Reads the
+    rule of :func:`~sft_wick.workflow.expansion._request_reads_R`, which the
+    run reads too."""
+    from .expansion import _request_reads_R
+    from .specs import DiagonalA
+    from .system import _OBS_PATTERN
+
+    lin = system._effective_linear
+    if (
+        system.explicit_R is not None
+        or not isinstance(lin, DiagonalA)
+        or not callable(lin.gamma)
+    ):
+        return
+    names = {_OBS_PATTERN.match(s).group("name") for s in cfg.expand.observable}
+    if not _request_reads_R(system, _selected_orders(cfg), names):
+        return
+    t_min, t_max = float(lin.t_min_cache), float(lin.t_max_cache)
+    for where, t in _read_times(cfg):
+        if not _outside_table(t, t_min, t_max):
+            continue
+        limit = (
+            f"system.linear.t_max_cache = {t_max}" if t > t_max else
+            f"system.linear.t_min_cache = {t_min}"
+        )
+        raise ConfigError(
+            "invalid_value",
+            where,
+            f"time {shown(t)} is past {limit}, where the cumulative-rate "
+            f"spline behind R ends; the spline would extrapolate",
+        )

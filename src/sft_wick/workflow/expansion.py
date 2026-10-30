@@ -119,6 +119,32 @@ def _guard_table_times(cache, times, label) -> None:
         )
 
 
+def _guard_rate_times(cache, times, label) -> None:
+    """Refuse ``(name, time)`` pairs outside the spline behind R, if R has
+    one.  A table bounds every time by ``t_max``, which
+    :meth:`System.propagators` keeps inside the spline; without one, as under
+    ``c_closed_form_only``, nothing else does."""
+    r_time = getattr(getattr(cache, "model", None), "R_time", None)
+    t_range = getattr(r_time, "time_range", None)
+    if not t_range:
+        return
+    lo, hi = t_range
+    outside = {k: v for k, v in times if _outside_table(float(v), lo, hi)}
+    late = {k: v for k, v in outside.items() if float(v) > hi}
+    if late:
+        raise ValueError(
+            f"{label}: time(s) {late} are past the cumulative-rate spline "
+            f"behind R, which ends at t_max_cache={hi}, and would be "
+            f"extrapolated.  Raise t_max_cache (and n_grid_cache with it)."
+        )
+    if outside:
+        raise ValueError(
+            f"{label}: time(s) {outside} are below the cumulative-rate spline "
+            f"behind R, which starts at t_min_cache={lo}, and would be "
+            f"extrapolated.  Use times at or after the system's t_min."
+        )
+
+
 def _guard_table_positions(cache, positions, label) -> None:
     """Refuse positions past a full spatial grid; see
     :func:`~sft_wick.evaluate._full_grid_limits` for which caches have one."""
@@ -144,17 +170,43 @@ def _guard_table_positions(cache, positions, label) -> None:
                 )
 
 
-def _guard_table_reach(
-    expansion, propagators, positions, t_final, ext_times, label
-) -> None:
-    """Refuse a point that reads C outside the table built for it.
+def _request_reads_R(system, orders, names) -> bool:
+    """Whether a request can read R: a response leg among the field ``names``
+    of its observable, or an order above 0 in a system with a vertex.
 
-    :meth:`~sft_wick.evaluate.PropagatorCache.C_at_batch` refuses such a read
-    too.  This check names the request, and stops a sweep before its first
-    point.  ``t_final`` counts only when a point is left free: with every
-    external pinned it is not read.  A point left out of ``positions`` is
-    not checked: it sits at the default coordinate unless it shares a group
-    with a point that has a position, and only the lookup can tell.
+    The diagrams could say more, but ``sft-wick validate`` runs without them
+    and must report what the run refuses and nothing else, so both go by
+    this rule.  An order that holds no diagram (order 1 of a cubic vertex
+    with two legs) therefore counts.
+    """
+    vertices = (
+        system.vertices or system.nonlocal_vertices or system.multiplicative_vertices
+    )
+    return system.field.response_name in names or (
+        bool(vertices) and any(order > 0 for order in orders)
+    )
+
+
+def _reads_R(expansion, orders) -> bool:
+    """:func:`_request_reads_R` for ``orders`` of ``expansion``."""
+    names = {name for (name, _comp, _sp) in expansion.observable_repr or ()}
+    return _request_reads_R(expansion.system, orders, names)
+
+
+def _guard_table_reach(
+    expansion, propagators, positions, t_final, ext_times, reads_R, label
+) -> None:
+    """Refuse a point that names a time or position outside its tables.
+
+    :meth:`~sft_wick.evaluate.PropagatorCache.C_at_batch` and the R callable
+    refuse a read, and only a read.  This check goes by the request, which
+    names the problem and stops a sweep before its first point, so it can
+    refuse a time nothing reaches: a pinned psi later than its phi, or an
+    integrated point that a pinned point caps.  ``t_final`` counts only when
+    a point is left free: with every external pinned it is not read.  A point
+    left out of ``positions`` is not checked: it sits at the default
+    coordinate unless it shares a group with a point that has a position, and
+    only the lookup can tell.
 
     ``Propagators`` exposes only build/cache/homogeneity/is_lazy, so the
     limits come from the cache itself.
@@ -165,6 +217,8 @@ def _guard_table_reach(
     if not points <= {str(k) for k in ext_times or ()}:
         times.append(("t_final", t_final))
     _guard_table_times(cache, times, label)
+    if reads_R:
+        _guard_rate_times(cache, times, label)
     located = {k: v for k, v in (positions or {}).items() if str(k) in points}
     _guard_table_positions(cache, located, label)
 
@@ -539,6 +593,7 @@ class Expansion:
             positions,
             t_final,
             external_times,
+            _reads_R(self, orders_list),
             "Expansion.evaluate",
         )
         _guard_single_site(self, diagram_terms, positions)
@@ -904,6 +959,7 @@ class Expansion:
         _check_sweep_columns(pos_keys, et_keys, comp_cols)
 
         # Flatten the Cartesian product to a list of grid-point tasks.
+        reads_R = _reads_R(self, orders_list)
         grid_tasks: list[tuple[dict, Any, dict, tuple]] = []
         for pos_tuple in itertools.product(*pos_values):
             positions = dict(zip(pos_keys, pos_tuple))
@@ -916,6 +972,7 @@ class Expansion:
                         positions,
                         t_f,
                         ext_times,
+                        reads_R,
                         "Expansion.sweep",
                     )
                     for comp in comp_tuples:

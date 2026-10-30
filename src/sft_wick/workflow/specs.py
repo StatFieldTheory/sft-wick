@@ -26,6 +26,7 @@ from typing import Any, Callable
 import numpy as np
 
 from .._util import require_bool
+from ..evaluate import _TABLE_EDGE_RTOL
 
 from ._messages import shown
 
@@ -152,11 +153,48 @@ class _StaticMatR:
         return out
 
 
+def _spline_range(spline) -> tuple[float, float]:
+    """The ``(first, last)`` time of a cumulative-rate spline, read from its
+    breakpoints, so that a wrapper pickled earlier has them too."""
+    return float(spline.x[0]), float(spline.x[-1])
+
+
+def _refuse_past_spline(spline, t1, t2, causal=True) -> None:
+    """Raise if a causal ``R(t1, t2)`` reads outside a cumulative-rate spline.
+
+    A causal pair has ``t2 <= t1``, so only ``t1`` can pass the end and only
+    ``t2`` the start.  An acausal pair is 0 whatever the spline says.  A value
+    within rounding of an end is read at that end.
+
+    Raises:
+        ValueError: naming the first such time.
+    """
+    lo, hi = _spline_range(spline)
+    slack = _TABLE_EDGE_RTOL * max(abs(lo), abs(hi))
+    late = (t1 > hi + slack) & causal
+    if np.any(late):
+        t = float(np.broadcast_to(t1, np.shape(late))[late].flat[0])
+        raise ValueError(
+            f"R lookup at t={t} is past the cumulative-rate spline, which "
+            f"ends at t_max_cache={hi}, and would be extrapolated.  Raise "
+            f"t_max_cache (and n_grid_cache with it)."
+        )
+    early = (t2 < lo - slack) & causal
+    if np.any(early):
+        t = float(np.broadcast_to(t2, np.shape(early))[early].flat[0])
+        raise ValueError(
+            f"R lookup at t={t} is below the cumulative-rate spline, which "
+            f"starts at t_min_cache={lo}, and would be extrapolated.  Use "
+            f"times at or after the system's t_min."
+        )
+
+
 class _TimeDepIsoR:
     """Time-dependent iso-R: ``R(t1, t2) = exp(-(Gamma(t1) - Gamma(t2)))``
     using a ``CubicSpline`` for the cumulative integral Gamma.
 
-    Vectorised: arrays of shape ``(n,)`` give shape ``(n,)``."""
+    Vectorised: arrays of shape ``(n,)`` give shape ``(n,)``.  A causal read
+    outside the spline raises ``ValueError``."""
 
     __slots__ = ("gamma_spline",)
     vectorized = True
@@ -164,13 +202,21 @@ class _TimeDepIsoR:
     def __init__(self, gamma_spline):
         self.gamma_spline = gamma_spline
 
+    @property
+    def time_range(self) -> tuple[float, float]:
+        return _spline_range(self.gamma_spline)
+
     def __call__(self, t1, t2):
         if _is_scalar_pair(t1, t2):
             if t1 < t2:
                 return 0.0
+            ends = self.gamma_spline.x
+            if not ends[0] <= t2 <= t1 <= ends[-1]:  # the check costs more
+                _refuse_past_spline(self.gamma_spline, t1, t2)
             return float(np.exp(-(self.gamma_spline(t1)
                                   - self.gamma_spline(t2))))
         t1, t2 = np.asarray(t1, dtype=float), np.asarray(t2, dtype=float)
+        _refuse_past_spline(self.gamma_spline, t1, t2, ~(t1 < t2))
         return np.where(t1 < t2, 0.0,
                         np.exp(-(self.gamma_spline(t1)
                                  - self.gamma_spline(t2))))
@@ -179,7 +225,8 @@ class _TimeDepIsoR:
 class _TimeDepMatR:
     """Time-dependent diagonal R from per-component cumulative-Gamma splines.
 
-    Vectorised: arrays of shape ``(n,)`` give shape ``(n, N, N)``."""
+    Vectorised: arrays of shape ``(n,)`` give shape ``(n, N, N)``.  A causal
+    read outside the splines, which share a grid, raises ``ValueError``."""
 
     __slots__ = ("splines", "_n")
     vectorized = True
@@ -188,10 +235,17 @@ class _TimeDepMatR:
         self.splines = list(splines)
         self._n = len(self.splines)
 
+    @property
+    def time_range(self) -> tuple[float, float]:
+        return _spline_range(self.splines[0])
+
     def __call__(self, t1, t2):
         if _is_scalar_pair(t1, t2):
             if t1 < t2:
                 return np.zeros((self._n, self._n))
+            ends = self.splines[0].x
+            if not ends[0] <= t2 <= t1 <= ends[-1]:  # the check costs more
+                _refuse_past_spline(self.splines[0], t1, t2)
             diag = np.array([
                 np.exp(-(s(t1) - s(t2))) for s in self.splines
             ])
@@ -199,6 +253,7 @@ class _TimeDepMatR:
         t1, t2 = np.asarray(t1, dtype=float), np.asarray(t2, dtype=float)
         out = np.zeros(t1.shape + (self._n, self._n))
         causal = ~(t1 < t2)
+        _refuse_past_spline(self.splines[0], t1, t2, causal)
         for a, s in enumerate(self.splines):
             out[:, a, a] = np.where(causal, np.exp(-(s(t1) - s(t2))), 0.0)
         return out
@@ -401,7 +456,8 @@ class DiagonalA(LinearOp):
         t_max_cache: Upper bound of the Γ-spline grid, **only used
             in the callable case**.  Beyond it the spline would
             extrapolate, so :meth:`System.propagators` refuses a
-            ``t_max`` above it.
+            ``t_max`` above it and R refuses a causal read past either
+            end of the grid; see :ref:`table-limits`.
         n_grid_cache: Number of grid points for the Γ-spline build.
         t_min_cache: Lower bound of the Γ-spline grid (callable case
             only).  :class:`System` extends the grid down to its own
