@@ -36,8 +36,8 @@ method :meth:`~sft_wick.diagrams.FeynmanDiagram.from_pairing`:
    for d_info in result.diagrams_by_order[1]:
        fd = d_info.to_feynman_diagram()
 
-This maps each operator UID to a graph node, creates all external and
-vertex nodes, and adds propagator edges for each contracted pair.
+This creates all external and vertex nodes and adds propagator edges for
+each contracted pair.
 
 You can also build diagrams manually:
 

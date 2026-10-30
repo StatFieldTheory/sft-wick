@@ -1939,13 +1939,16 @@ Checking a config
 ``sft-wick validate`` parses the config, applies any ``--override``,
 builds the :class:`~sft_wick.workflow.System` and makes the checks
 :func:`~sft_wick.workflow.config.run_workflow` makes before the
-expansion: the component tuples against the observable, the
-``sweep.orders`` against ``expand.orders``, one parallel layer, and the
-closed-form C module on disk.  So it also reports what only the build
-checks (a kernel parameter that is not positive, a module without the
-attribute named).  It runs no expansion.  ``sft-wick run`` makes the
-same checks first.  A ``sweep.vertex_types`` label is checked against
-the diagrams, so only after the expansion.
+expansion: the observable against the system (its field, component
+index and, at interacting orders, spatial labels), the component tuples
+against the observable, the point names against the sweep's columns,
+the ``sweep.orders`` against ``expand.orders``, the spatial grid keys,
+one parallel layer, and the closed-form C module on disk (the run imports
+it).  So it also
+reports what only the build checks (a kernel parameter that is not
+positive, a module without the attribute named).  It runs no expansion.
+``sft-wick run`` makes the same checks first.  A ``sweep.vertex_types``
+label is checked against the diagrams, so only after the expansion.
 
 ``--print-resolved`` prints the config in the layout of the file with
 the value the run uses for every key: defaults filled in, derived
@@ -1973,15 +1976,29 @@ The code in brackets is one of ``unknown_key``, ``unknown_point`` (a
 ``sweep.positions_grid`` name the observable does not use),
 ``duplicate_key`` (a key written twice in one mapping, or in a
 mapping merged in with ``<<:``, which YAML would read as the last
-value), ``invalid_value``, ``override_syntax``,
+value; to merge two mappings write one ``<<`` with a list, in which the
+earlier wins a key they share, so ``<<: *a`` and then ``<<: *b`` is
+``<<: [*b, *a]``), ``invalid_value``, ``override_syntax``,
 ``override_path`` (an override through a value or past the end of a
-list) and ``read_error`` (the file, or a module it names, cannot be
-read).  The suggestion lists
-every valid name at the smallest edit distance, so a single
-misspelling always lists the name meant.  In Python,
+list) and ``read_error`` (the file or a file it names cannot be read, or
+a module it names is missing or lacks the attribute; the reasons for the
+file include a syntax error, its encoding, a value YAML cannot read such
+as ``!!int x`` and nesting too deep, and these give a line with a code
+and no path).  The closed-form C module is the exception: ``validate``
+checks only that the file exists, and ``sft-wick run``, with or without
+``--dry-run``, imports it, so a module that cannot be imported or lacks
+``propagators.c_closed_form_attr`` ends there in a plain exception.  The
+suggestion lists every valid name at the smallest edit
+distance, so a single misspelling always lists the name meant.  In Python,
 :func:`~sft_wick.workflow.config.load_workflow_config` raises
 :class:`~sft_wick.workflow.config.ConfigError` with the same ``code``,
 ``path`` and ``suggestions``; an override error is also a ``KeyError``.
+A file that cannot be opened raises ``OSError`` and a file YAML cannot
+read raises ``yaml.YAMLError``, which is no ``ConfigError``.  A value the
+parser refuses can raise a plain ``ValueError``, ``TypeError``,
+``ImportError`` or ``OverflowError``, with no code or path; ``sft-wick``
+prints these with ``invalid_value`` or ``read_error``.  A ``ConfigError``
+is a ``ValueError`` too.
 
 A flag is read from the words ``true`` and ``false`` (also ``yes`` and
 ``no``, ``on`` and ``off``, ``1`` and ``0``); any other value is

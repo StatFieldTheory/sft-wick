@@ -1296,3 +1296,224 @@ def test_YC14_merge_overrides_still_apply(tmp_path, merge, t_min):
     text = _QUICKSTART.read_text().replace("system:\n", "system:\n" + merge)
     loaded = load_workflow_config(_write(tmp_path, "c.yaml", text))
     assert loaded.system.t_min == t_min
+
+
+# ---------------------------------------------------------------------------
+# YC18 -- each observable entry is checked before anything runs
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("entry", [
+    [], {}, 3, 1.5, None, True, ["phi_a(x)"], "phi_a", "phi_a(x", "(x)", "",
+], ids=repr)
+def test_YC18_an_entry_that_is_no_operator_is_refused_at_load(tmp_path, entry):
+    """Entries of another type reached the component check, which indexed
+    them: ``[]`` and ``{}`` ended in ``IndexError`` and ``KeyError``, ``3`` in
+    ``'int' object is not subscriptable`` without a path.  A string that
+    does not parse passed the load and ``sft-wick validate``, and stopped
+    the run at the expansion."""
+    from sft_wick.workflow.config import ConfigError
+
+    doc = yaml.safe_load(_QUICKSTART.read_text())
+    doc["expand"]["observable"][0] = entry
+    with pytest.raises(ConfigError) as info:
+        load_workflow_config(_write(tmp_path, "c.yaml", yaml.safe_dump(doc)))
+    err = info.value
+    assert (err.code, err.path) == ("invalid_value", "expand.observable[0]")
+    assert "\n" not in str(err)
+    assert repr(entry) in str(err)
+
+
+@pytest.mark.parametrize("observable,fragment", [
+    (["wrong_a(x)", "phi_b(y)"], "matches neither"),
+    (["phi(x)", "phi_b(y)"], "omits a component index"),
+    (["phi_a(x)", "phi_b(x)"], "share the same spatial label"),
+])
+def test_YC18_an_operator_the_system_refuses_stops_before_the_run(
+        tmp_path, observable, fragment):
+    """``System.expand`` parses the observable first; these used to pass
+    ``sft-wick validate`` and stop the run with a traceback."""
+    from sft_wick.workflow.config import ConfigError, check_before_run
+
+    doc = yaml.safe_load(_QUICKSTART.read_text())
+    doc["expand"]["observable"] = observable
+    doc["sweep"]["positions_grid"] = {
+        label: [0.0] for label in {"x", observable[1][-2]}}
+    with pytest.raises(ConfigError) as info:
+        check_before_run(load_workflow_config(
+            _write(tmp_path, "c.yaml", yaml.safe_dump(doc))))
+    err = info.value
+    assert (err.code, err.path) == ("invalid_value", "expand.observable")
+    assert fragment in str(err) and "\n" not in str(err)
+
+
+@pytest.mark.parametrize("observable,orders,n_components", [
+    (["phi_a(x)", "psi_b(y)"], [0, 2], 2),    # the response field is nameable
+    (["phi_a(x)", "phi_b(x)"], [0], 2),       # order 0 keeps every routing
+    (["phi(x)", "phi(y)"], [0], 1),           # one component needs no index
+])
+def test_YC18_operators_the_system_accepts_pass(tmp_path, observable, orders,
+                                                n_components):
+    from sft_wick.workflow.config import check_before_run
+
+    doc = yaml.safe_load(_QUICKSTART.read_text())
+    doc["expand"].update(observable=observable, orders=orders)
+    doc["system"]["field"]["n_components"] = n_components
+    if n_components == 1:
+        doc["system"]["linear"]["gamma"] = [1.0]
+        doc["system"]["vertices"] = []
+        doc["sweep"]["component_pairs"] = [[0, 0]]
+    doc["sweep"]["positions_grid"] = {
+        label: [0.0] for label in {op[-2] for op in observable}}
+    check_before_run(load_workflow_config(
+        _write(tmp_path, "c.yaml", yaml.safe_dump(doc))))
+
+
+def test_YC18_field_operators_are_refused_at_l2(tmp_path):
+    """L2 observables are strings.  A :class:`FieldOperator` from a Python
+    override loaded and then failed in the component check; ``System.expand``
+    takes them at L1."""
+    from sft_wick.workflow.config import ConfigError
+
+    path = _write(tmp_path, "c.yaml", _QUICKSTART.read_text())
+    phi, _psi = build_system(load_workflow_config(path).system).build_fields()
+    with pytest.raises(ConfigError) as info:
+        load_workflow_config(path, overrides={
+            "expand.observable": [phi("a", "x"), phi("b", "y")]})
+    assert info.value.path == "expand.observable[0]"
+    assert "FieldOperator" in str(info.value)
+
+
+def test_YC18_each_entry_is_checked_and_named(tmp_path):
+    from sft_wick.workflow.config import ConfigError
+
+    doc = yaml.safe_load(_QUICKSTART.read_text())
+    doc["expand"]["observable"][1] = "phi_b"
+    with pytest.raises(ConfigError) as info:
+        load_workflow_config(_write(tmp_path, "c.yaml", yaml.safe_dump(doc)))
+    assert info.value.path == "expand.observable[1]"
+
+
+def test_YC18_an_empty_observable_is_refused(tmp_path):
+    """The moment of the identity is 1 at order 0, and the run printed 0."""
+    from sft_wick.workflow.config import ConfigError
+
+    doc = yaml.safe_load(_QUICKSTART.read_text())
+    doc["expand"].update(observable=[], orders=[0])
+    doc["sweep"].update(positions_grid={}, component_tuples=[[]])
+    doc["sweep"].pop("component_pairs")
+    with pytest.raises(ConfigError) as info:
+        load_workflow_config(_write(tmp_path, "c.yaml", yaml.safe_dump(doc)))
+    assert (info.value.code, info.value.path) == (
+        "invalid_value", "expand.observable")
+
+
+@pytest.mark.parametrize("route", ["newline-in-an-entry", "array-of-operators"])
+def test_YC18_a_refusal_is_one_line_whatever_the_entry_holds(tmp_path, route):
+    from sft_wick.workflow.config import ConfigError, check_before_run
+
+    doc = yaml.safe_load(_QUICKSTART.read_text())
+    overrides = None
+    if route == "newline-in-an-entry":
+        doc["expand"]["observable"] = ["phi(x)\n", "phi_b(y)"]
+    else:
+        overrides = {"expand.observable": np.array(
+            [[["phi_a(x)", "phi_b(y)"]] * 4] * 4)}
+    path = _write(tmp_path, "c.yaml", yaml.safe_dump(doc))
+    with pytest.raises(ConfigError) as info:
+        check_before_run(load_workflow_config(path, overrides=overrides))
+    assert "\n" not in str(info.value)
+
+
+def test_YC18_a_refusal_prints_a_bounded_part_of_the_entry():
+    """Aliases can make a short file hold an entry far larger than itself."""
+    from sft_wick.workflow.config import ConfigError, _check_observable_entries
+
+    entry = [1]
+    for _ in range(20):
+        entry = [entry, entry]
+    with pytest.raises(ConfigError) as info:
+        _check_observable_entries(["phi_a(x)", entry])
+    assert info.value.path == "expand.observable[1]"
+    assert len(str(info.value)) < 1000
+
+
+def test_YC18_config_error_text_is_one_line_and_its_fields_are_not_changed():
+    import pickle
+
+    from sft_wick.workflow.config import ConfigError
+
+    err = ConfigError("invalid_value", "a.b", "first\nsecond\r\nthird")
+    assert str(err) == "a.b: first second third"
+    assert err.detail == "first\nsecond\r\nthird"
+    assert str(pickle.loads(pickle.dumps(err))) == str(err)
+
+
+# ---------------------------------------------------------------------------
+# YC19 -- a point named like a sweep column stops before the run
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("observable,grids,fragment", [
+    (["phi_a(a)", "phi_b(y)"], {"positions_grid": {"a": [0.0], "y": [0.5]}},
+     "positions_grid key(s) ['a']"),
+    (["phi_a(x)", "phi_b(order)"],
+     {"positions_grid": {"x": [0.0], "order": [0.5]}},
+     "positions_grid key(s) ['order']"),
+    (["phi_a(x)", "phi_b(final)"],
+     {"positions_grid": {"x": [0.0], "final": [0.5]},
+      "external_times_grid": {"x": [0.5], "final": [0.5]}},
+     "external_times_grid would emit column(s) ['t_final']"),
+    (["phi_a(x)", "phi_b(t_x)"],
+     {"positions_grid": {"x": [0.0], "t_x": [0.5]},
+      "external_times_grid": {"x": [0.5], "t_x": [0.5]}},
+     "external_times_grid would emit column(s) ['t_x']"),
+    (["phi_a(x)", "phi_b(y)", "phi_a(c)"],
+     {"positions_grid": {"x": [0.0], "y": [0.5], "c": [1.0]},
+      "component_tuples": [[0, 1, 0]], "component_pairs": None},
+     "positions_grid key(s) ['c']"),
+], ids=["component", "per-diagram", "t_final", "another-point",
+        "third-component"])
+def test_YC19_a_point_named_like_a_column_stops_before_the_run(
+        tmp_path, observable, grids, fragment):
+    """``Expansion.sweep`` refuses these, after the expansion and the
+    propagators; ``sft-wick validate`` used to pass them."""
+    from sft_wick.workflow.config import check_before_run
+
+    doc = yaml.safe_load(_QUICKSTART.read_text())
+    doc["expand"]["observable"] = observable
+    doc["sweep"].update(grids)
+    cfg = load_workflow_config(_write(tmp_path, "c.yaml", yaml.safe_dump(doc)))
+    with pytest.raises(ValueError) as info:
+        check_before_run(cfg)
+    assert fragment in str(info.value)
+
+
+# ---------------------------------------------------------------------------
+# YC20 -- the checks before a run leave an expansion drawable
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("coupling,order", [
+    (None, 2),
+    (np.ones((2, 2, 2, 2)).tolist(), 1),
+    (np.ones((2, 2, 2, 2)).tolist(), 2),
+], ids=["cubic", "quartic-first-order", "quartic-second-order"])
+def test_YC20_each_diagram_draws_after_the_checks(tmp_path, coupling, order):
+    """``to_feynman_diagram`` refused a vertex on the uids of the observable.
+    The reset in ``System.expand`` put a quartic vertex there at order 1, and
+    with it a parse before the expansion, as ``check_before_run`` makes, put
+    the observable in the uids of the next order."""
+    from sft_wick.workflow.config import check_before_run
+
+    doc = yaml.safe_load(_QUICKSTART.read_text())
+    if coupling is not None:
+        doc["system"]["vertices"] = [{"name": "G", "coupling": coupling}]
+    doc["expand"]["orders"] = [order]
+    doc["sweep"]["orders"] = [order]
+    cfg = load_workflow_config(_write(tmp_path, "c.yaml", yaml.safe_dump(doc)))
+    sw.reset_uid_counter()
+    system = check_before_run(cfg)
+    check_before_run(cfg, system)
+    expansion = system.expand(cfg.expand.observable, orders=[order])
+    records = expansion.raw_result.diagrams_by_order[order]
+    assert records
+    for record in records:
+        record.to_feynman_diagram()

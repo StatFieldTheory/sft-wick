@@ -27,6 +27,7 @@ import importlib.util
 import math
 import os
 import re
+import reprlib
 import sys
 import warnings
 from dataclasses import dataclass, field
@@ -195,7 +196,7 @@ class _ConfigMessage:
         text = f"{self.path}: {self.detail}" if self.path else self.detail
         if self.suggestions:
             text += f"; did you mean {_or_list(self.suggestions)}?"
-        return text
+        return " ".join(text.splitlines())
 
     def __reduce__(self):
         return (type(self), (self.code, self.path, self.detail, self.suggestions))
@@ -221,15 +222,20 @@ class ConfigError(_ConfigMessage, ValueError):
         A key written twice in one mapping of the file.
     ``invalid_value``
         Any other refusal of the parser (``sft-wick`` also prints a plain
-        ``ValueError`` or ``TypeError`` of the parser with this code).
+        ``ValueError``, ``TypeError`` or ``OverflowError`` of the parser
+        with this code).
     ``override_syntax``
         An override that is not ``KEY=VALUE`` with a readable key.
     ``override_path``
         An override path through a value, past the end of a list, or into
         a list the file leaves out.
     ``read_error``
-        The file, or a module it names, cannot be read (``sft-wick`` only;
-        the Python API raises the ``OSError`` or ``yaml.YAMLError``).
+        A file the config names cannot be read, or a module it names lacks
+        the attribute.  Of the closed-form C module only the file is
+        checked: the run imports it and raises a plain exception if that
+        fails.  ``sft-wick`` also prints with this code the ``OSError``,
+        ``ImportError`` or ``yaml.YAMLError`` that
+        :func:`load_workflow_config` raises.
     """
 
 
@@ -377,6 +383,15 @@ def load_workflow_config(
     Raises:
         ConfigError: the file or an override is refused; an override error
             is an :class:`OverrideError`, also a ``KeyError``.
+        ValueError: a value the parser refuses with no code or path.  A
+            :class:`ConfigError` is a ``ValueError`` too.
+        TypeError: as ``ValueError``.
+        OverflowError: as ``ValueError``.
+        ImportError: a path the parser reads as a module that Python cannot
+            load, or an import inside that module.
+        OSError: the file, or a ``.py`` module the parser reads, cannot be
+            opened.
+        yaml.YAMLError: YAML cannot read the file.
     """
     try:
         import yaml  # noqa: F401  (read by _load_yaml; checked here first)
@@ -399,6 +414,19 @@ def load_workflow_config(
 
 
 _MERGE_TAG = "tag:yaml.org,2002:merge"
+#: Stands among the keys of a mapping for ``<<``; no key in a file equals it.
+_MERGE_KEY = object()
+#: A path shows this much of a key: it repeats every alias on the way.
+_MAX_KEY_TEXT = 40
+#: What PyYAML's constructors raise on a value they cannot read, besides
+#: ``yaml.YAMLError``.
+_CONSTRUCTOR_ERRORS = (
+    LookupError,
+    AttributeError,
+    TypeError,
+    ValueError,
+    ArithmeticError,
+)
 
 
 def _load_yaml(stream):
@@ -411,65 +439,177 @@ def _load_yaml(stream):
     mapping merged in with ``<<:`` is checked too, also when it is written
     in place.  A key that overrides one brought in by the merge, or the
     earlier of two merged mappings, is YAML's merge, not a duplicate.
+
+    What YAML cannot read is a ``yaml.YAMLError``, also where PyYAML raises
+    something else, and comes before any repeat in the file.
     """
     import yaml
 
-    loader = yaml.SafeLoader(stream)
     try:
-        node = loader.get_single_node()
-        if node is None:
-            return None
-        _refuse_duplicate_keys(loader, node, "", set())
-        return loader.construct_document(node)
-    finally:
-        loader.dispose()
+        return _load_checked(stream)
+    except ConfigError:
+        raise
+    except RecursionError:
+        raise yaml.YAMLError("nested too deeply to read") from None
+    except _CONSTRUCTOR_ERRORS as exc:
+        raise yaml.YAMLError(f"the file cannot be read: {exc}") from None
 
 
-def _refuse_duplicate_keys(loader, node, where: str, seen: set) -> None:
-    """Walk the composed YAML ``node``; ``where`` is its dotted path."""
+def _load_checked(stream):
+    """Read the document as ``yaml.safe_load`` does, then compare its keys.
+
+    The document is read once, by ``SafeLoader``, and the comparison uses
+    the keys that read gave.  A key read apart from the document can differ
+    from them (``flatten_mapping`` retags a shared key, a constructor added
+    to ``SafeLoader`` is not seen, ``!!float nan`` by alias is one object).
+    """
     import yaml
 
-    if id(node) in seen:  # an alias of a node already walked
+    written: dict = {}
+
+    class Loader(yaml.SafeLoader):
+        def construct_mapping(self, node, deep=False):
+            _keep_as_written(node, written)
+            return super().construct_mapping(node, deep=deep)
+
+    loader = Loader(stream)
+    read = loader.constructed_objects  # construct_document starts a new one
+    try:
+        root = loader.get_single_node()
+        if root is None:
+            return None
+        document = loader.construct_document(root)
+    finally:
+        loader.dispose()
+    _refuse_repeated_keys(root, written, read)
+    return document
+
+
+def _keep_as_written(node, written: dict) -> None:
+    """Keep ``node`` and the mappings merged into it, before they are merged.
+
+    These are the mappings where a repeat loses a value.  ``flatten_mapping``
+    rewrites them, and it recurses: an override of it would add a frame per
+    link and halve the merge chain YAML can read.
+    """
+    import yaml
+
+    pending = [node]
+    while pending:
+        mapping = pending.pop()
+        if isinstance(mapping, yaml.MappingNode) and mapping not in written:
+            written[mapping] = list(mapping.value)
+            for key_node, value_node in mapping.value:
+                if key_node.tag == _MERGE_TAG:
+                    pending.extend(_merge_sources(value_node))
+
+
+def _merge_sources(value_node) -> list:
+    """The nodes a ``<<`` key merges in."""
+    import yaml
+
+    if isinstance(value_node, yaml.SequenceNode):
+        return value_node.value
+    return [value_node]
+
+
+def _refuse_repeated_keys(root, written: dict, read: dict) -> None:
+    """Refuse the first key in the file that repeats a key of its mapping.
+
+    ``written`` holds the mappings as written and ``read`` the value of
+    each key, so ``1`` repeats ``1.0`` and a key of a merged mapping is
+    compared within that mapping: one overriding it is YAML's merge.  A key
+    written as an alias has the place and the line of its anchor, since
+    PyYAML keeps none for the alias, so such a repeat sorts at its anchor,
+    and of two such repeats of one anchor the mapping that starts first is
+    named.
+    """
+    repeats = []
+    for mapping, entries in written.items():
+        lines: dict = {}
+        for key_node, _ in entries:
+            key = _MERGE_KEY if key_node.tag == _MERGE_TAG else read[key_node]
+            if key in lines:
+                repeats.append((key_node, lines[key], mapping))
+            else:
+                lines[key] = key_node.start_mark.line + 1
+    if not repeats:
         return
-    seen.add(id(node))
+    key_node, first, mapping = min(
+        repeats,
+        key=lambda repeat: (repeat[0].start_mark.index,
+                            repeat[2].start_mark.index),
+    )
+    fate = (
+        "YAML merges both and the later wins a key they share; "
+        "in one << list the earlier wins"
+        if key_node.tag == _MERGE_TAG
+        else "YAML would keep only the last"
+    )
+    raise ConfigError(
+        "duplicate_key",
+        _join(_path_of(root, mapping, written), _key_text(key_node)),
+        f"written twice in one mapping, on lines {first} and "
+        f"{key_node.start_mark.line + 1}; {fate}",
+    )
+
+
+def _key_text(key_node) -> str:
+    """A key as written, cut short.  ``str`` of the value it reads as can be
+    far larger than the file."""
+    import yaml
+
+    if key_node.tag == _MERGE_TAG:
+        return "<<"
+    if not isinstance(key_node, yaml.ScalarNode):
+        return "<key>"
+    text = key_node.value
+    return text if len(text) <= _MAX_KEY_TEXT else f"{text[:_MAX_KEY_TEXT]}..."
+
+
+def _path_of(root, target, written: dict) -> str:
+    """The dotted path of the mapping ``target``, by its first route in the
+    file.  With a stack, for a long alias chain."""
+    seen = set()
+    stack = [(root, None)]
+    while True:
+        node, route = stack.pop()
+        if node is target:
+            break
+        if node not in seen:
+            seen.add(node)
+            stack.extend(reversed(_children(node, route, written)))
+    parts = []
+    while route is not None:
+        route, part = route
+        parts.append(part)
+    return "".join(reversed(parts)).removeprefix(".")
+
+
+def _children(node, route, written: dict) -> list:
+    """The nodes in ``node``, each with its route.  A route links back to
+    the one before it, so the routes of a search share their parts.
+
+    A mapping merged in has the path of the mapping it lands in, and so
+    does a key that is no scalar.
+    """
+    import yaml
+
     if isinstance(node, yaml.SequenceNode):
-        for i, item in enumerate(node.value):
-            _refuse_duplicate_keys(loader, item, f"{where}[{i}]", seen)
-        return
+        return [(item, (route, f"[{i}]")) for i, item in enumerate(node.value)]
     if not isinstance(node, yaml.MappingNode):
-        return
-    lines: dict = {}
-    for key_node, value_node in node.value:
+        return []
+    children = []
+    for key_node, value_node in written.get(node, node.value):
         if key_node.tag == _MERGE_TAG:
-            # The mapping, or each mapping of a list, merged in here: its
-            # keys land in this mapping, so it is walked with this path.
-            # Each source is checked on its own; a key of this mapping or
-            # of an earlier source overriding it is YAML's merge.
-            sources = (
-                value_node.value
-                if isinstance(value_node, yaml.SequenceNode)
-                else [value_node]
+            children.extend(
+                (source, route) for source in _merge_sources(value_node)
             )
-            for source in sources:
-                _refuse_duplicate_keys(loader, source, where, seen)
             continue
-        key = loader.construct_object(key_node, deep=True)
-        try:
-            hash(key)
-        except TypeError:
-            key = None
-        here = _join(where, key)
-        line = key_node.start_mark.line + 1
-        if key is not None and key in lines:
-            raise ConfigError(
-                "duplicate_key",
-                here,
-                f"written twice in one mapping, on lines {lines[key]} and "
-                f"{line}; YAML would keep only the last",
-            )
-        if key is not None:
-            lines[key] = line
-        _refuse_duplicate_keys(loader, value_node, here, seen)
+        if not isinstance(key_node, yaml.ScalarNode):
+            children.append((key_node, route))
+        children.append((value_node, (route, f".{_key_text(key_node)}")))
+    return children
 
 
 _OVERRIDE_SEGMENT = re.compile(r"^(?P<name>[^.\[\]]+)(?P<idx>(?:\[\d+\])*)$")
@@ -610,8 +750,6 @@ def _check_position_labels(expand_cfg, sweep_cfg) -> None:
     point at the default coordinate.
     """
     labels = _observable_points(expand_cfg)
-    if labels is None:
-        return  # System.expand reports the malformed observable
     unknown = sorted(str(k) for k in sweep_cfg.positions_grid if k not in labels)
     if unknown:
         also = (
@@ -647,18 +785,12 @@ def _check_position_labels(expand_cfg, sweep_cfg) -> None:
         )
 
 
-def _observable_points(expand_cfg) -> set | None:
-    """The point names of ``expand.observable`` (``x`` in ``phi_a(x)``), or
-    ``None`` when an operator does not parse."""
+def _observable_points(expand_cfg) -> set:
+    """The point names of ``expand.observable`` (``x`` in ``phi_a(x)``);
+    :func:`_check_observable_entries` checked that each entry parses."""
     from .system import _OBS_PATTERN
 
-    labels = set()
-    for spec in expand_cfg.observable:
-        m = _OBS_PATTERN.match(spec) if isinstance(spec, str) else None
-        if m is None:
-            return None
-        labels.add(m.group("spatial"))
-    return labels
+    return {_OBS_PATTERN.match(s).group("spatial") for s in expand_cfg.observable}
 
 
 def _check_integrate_over(expand_cfg, sweep_cfg) -> None:
@@ -668,9 +800,9 @@ def _check_integrate_over(expand_cfg, sweep_cfg) -> None:
     propagators are built.
     """
     names = sweep_cfg.integrate_over
-    labels = _observable_points(expand_cfg)
-    if names is None or names == "all" or labels is None:
+    if names is None or names == "all":
         return
+    labels = _observable_points(expand_cfg)
     unknown = sorted(set(names) - labels)
     if unknown:
         raise ValueError(
@@ -1497,6 +1629,37 @@ def _register_module_by_value(module) -> None:
         pass
 
 
+def _check_observable_entries(obs: list) -> None:
+    """Each ``expand.observable`` entry is an operator string that parses.
+
+    The other entry types used to reach the component check, which indexed
+    them (``IndexError``, ``KeyError``, or a ``TypeError`` without a path),
+    and a string that does not parse stopped the run at the expansion.  An
+    empty list printed 0 for the moment of the identity, which is 1.
+    Whether a field and component suit the system is
+    :func:`check_before_run`'s to check.
+    """
+    from .system import _OBS_PATTERN
+
+    if not obs:
+        raise ConfigError(
+            "invalid_value",
+            "expand.observable",
+            "must list at least one operator, e.g. ['phi_a(x)', 'phi_b(y)']",
+        )
+    for i, op in enumerate(obs):
+        if not isinstance(op, str) or _OBS_PATTERN.match(op) is None:
+            got = reprlib.repr(op)
+            if not isinstance(op, str):
+                got = f"{got} ({type(op).__name__})"
+            raise ConfigError(
+                "invalid_value",
+                f"expand.observable[{i}]",
+                f"must be an operator string of the form "
+                f"'name_component(spatial)', like 'phi_a(x)'; got {got}",
+            )
+
+
 def _parse_expand(d: dict) -> ExpandConfig:
     from .expansion import _order_selection
 
@@ -1518,6 +1681,7 @@ def _parse_expand(d: dict) -> ExpandConfig:
     )
     # A NumPy array of operators gives np.str_ entries.
     obs = [str(o) if isinstance(o, str) else o for o in obs]
+    _check_observable_entries(obs)
     # One integer is one order, as for sweep.orders.
     orders = _order_selection(d.get("orders"), "expand.orders", required=True)
     if orders is None:
@@ -2208,24 +2372,42 @@ def _build_kernel(d: dict, axis: str, base_dir: Path | None = None):
 
 def check_before_run(cfg: WorkflowConfig, system=None):
     """The checks :func:`run_workflow` makes before the expansion, on
-    ``cfg`` alone: the component tuples against the observable and
-    ``n_components``, ``sweep.orders`` against ``expand.orders``, one
-    parallel layer, and the closed-form C module on disk.  Builds the
-    System unless ``system`` is given, and returns it.
+    ``cfg`` alone: the observable against the system (the parse
+    :meth:`System.expand` makes), the component tuples against the
+    observable and ``n_components``, the point names against the sweep's
+    columns, ``sweep.orders`` against ``expand.orders``, the spatial grid
+    keys, one parallel layer, and the closed-form C module on disk.  Builds
+    the System unless ``system`` is given, and returns it.
 
     ``sft-wick validate`` and ``sft-wick run`` call it before anything is
     computed.  A ``sweep.vertex_types`` label is checked only against the
     diagrams, after the expansion.
     """
-    from .expansion import _resolve_component_tuples
+    from .expansion import (
+        _check_sweep_columns,
+        _resolve_component_tuples,
+        component_columns,
+    )
+    from .system import _parse_observable
 
     system = build_system(cfg.system) if system is None else system
+    try:
+        _parse_observable(
+            cfg.expand.observable, system, max(cfg.expand.orders, default=0)
+        )
+    except (ValueError, TypeError) as exc:
+        raise ConfigError("invalid_value", "expand.observable", str(exc)) from None
     _resolve_component_tuples(
         None,
         cfg.sweep.component_tuples,
         tuple(cfg.expand.observable),
         system.n_components,
         "sweep.component_tuples",
+    )
+    _check_sweep_columns(
+        cfg.sweep.positions_grid,
+        cfg.sweep.external_times_grid or (),
+        component_columns(len(cfg.expand.observable)),
     )
     if cfg.sweep.orders is not None:
         absent = [o for o in cfg.sweep.orders if o not in cfg.expand.orders]

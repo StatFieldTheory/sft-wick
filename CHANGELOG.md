@@ -7,7 +7,10 @@
 `sft-wick compare-resources` refuses a key written twice in its config and
 variants files, but a mapping merged in with `<<:` and written in place
 was flattened without the check, so `case: {<<: {a: 1, a: 2}}` gave
-`a: 2`.  It is refused now; overrides that the merge defines stay.
+`a: 2`.  It now reads both files with the loader of the workflow, so the
+error gives the dotted path of the key, and overrides that the merge
+defines stay.  A value that holds itself through aliases is refused with
+`invalid YAML`; one that did so through a list ended in a `RecursionError`.
 
 ### Fixed: a quoted `"false"` switched a flag on
 
@@ -27,13 +30,17 @@ used to reach `System.expand` as written.
 does not read).**
 
 * A key written twice in one mapping is refused with the code
-  `duplicate_key`, its dotted path and both line numbers.  YAML keeps the
+  `duplicate_key`, its dotted path and both line numbers (a key written as
+  an alias gives the line of its anchor).  YAML keeps the
   last, so a second `n_samples`, or a misspelling that gives a key the
   block already holds (`y` for `x`), replaced the first without a message.
   A mapping merged in with `<<:` is checked as well, also when it is
   written in place (`<<: {t_min: 0.5, t_min: 0.0}`, a list of such
-  mappings, or `<<: &anchor {...}`).  A key that overrides one brought in
-  by the merge, or the earlier of two merged mappings, is not a duplicate.
+  mappings, or `<<: &anchor {...}`), and so is `<<` itself.  YAML merges
+  two `<<` keys and the later wins a key they share; in one list the
+  earlier wins, so `<<: *a` and then `<<: *b` is `<<: [*b, *a]`.  A key
+  that overrides one brought in by the merge, or the earlier of two merged
+  mappings, is not a duplicate.
 * A spatial grid key of `propagators` that the run would not read is
   refused before the run: one for another homogeneity, or `r_max` without
   `n_grid_r` (`x_max` without `n_grid_x`, and the reverse).  `n_grid_t`
@@ -102,17 +109,49 @@ Also when the file is loaded:
 * `output[].format` and `propagators.homogeneity` are checked, with a
   suggestion.  A misspelt table format used to fail after the whole sweep
   had run.
-* A value that does not convert to the number a key takes (`n_samples:
-  .inf`, `dt` too small for a finite grid), a `type` that is a list, a
-  module without the attribute named and an unreadable `.npy` file are
-  refused with the dotted path; they used to end in an `OverflowError`,
-  a `TypeError` without a path, an `AttributeError` or an `EOFError`.  The
-  missing attribute is still an `AttributeError`.
+* Each entry of `expand.observable` must be an operator string that
+  parses, like `phi_a(x)`; the error names `expand.observable[i]`.  `[]`
+  and `{}` used to end in an `IndexError` and a `KeyError`, a number in a
+  message without a path, and `phi_a` passed `sft-wick validate`.  A
+  `FieldOperator` given through a Python override is refused too: it failed
+  in the component check of the run; `System.expand` takes them at L1.
+  An empty `expand.observable` is refused; the run printed 0 for the moment
+  of the identity, which is 1.
+* A value YAML cannot read (`!!bool x`, `!!int ""`, `!!int x`, `!!timestamp
+  x`, the date `2001-13-45`, a sexagesimal float too large for a float), a
+  file that is not in the encoding it is read with, and a file nested too
+  deeply are a `read_error` with status 2.  They ended in a `KeyError`, an
+  `IndexError`, an `AttributeError`, a `RecursionError`, or a one-line
+  `invalid_value`; in `sft-wick compare-resources` the float ended in an
+  `OverflowError`.  In Python all of them raise `yaml.YAMLError`.
+* `n_samples: .inf`, a `dt` too small for a finite grid, a `kappa2` `type`
+  that is a list and an empty `.npy` file are refused with a dotted path;
+  they used to end in an `OverflowError`, a `TypeError` without a path
+  or an `EOFError`.  A module without the attribute named is a `read_error`
+  with no path, apart from `propagators.c_closed_form_attr`; it used to end
+  in an `AttributeError`, and the `ConfigError` it raises now is one too.
 * `run_workflow` checks the order selection, the parallel layers and the
   closed-form C module before the expansion, with the messages it gave
-  after it.
+  after it, and parses the observable as `System.expand` does.  A field
+  the system lacks (`wrong_a(x)`), a missing component index (`phi(x)`
+  with two components) or, at interacting orders, two operators at one
+  spatial label stop `sft-wick validate` and `sft-wick run` with
+  `expand.observable` in the error.  A point named like a column of the
+  sweep (`phi_a(a)`) stops them too, with the refusal `Expansion.sweep`
+  makes after the expansion.
 * An `--override` without `=` is a config error with status 2; it was a
   `SystemExit` with status 1.
+* A diagram no longer reads operator uids, and `System.expand` no longer
+  resets them.  The reset ran after the observable was built or parsed, so
+  the vertices took uids it held and `Expansion.plot` raised `UID collision`
+  on the records holding such a vertex, for example each record at order 1
+  of a first expansion with one quartic vertex, and records of order n + 1
+  after an expansion to order n.  `FeynmanDiagram.from_pairing` now finds
+  each node by its position in the pairing, since a uid need not be
+  unique.  Operators pickled in another process and expansions
+  cached by an earlier version draw, and two observable operators with one
+  uid, which drew a wrong graph without an error, draw two points.  Numbers
+  never depended on uids.
 
 ### Changed: `--override` sets a key the file leaves out
 

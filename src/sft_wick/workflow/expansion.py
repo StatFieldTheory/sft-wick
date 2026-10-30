@@ -25,6 +25,33 @@ from sft_wick.evaluate import _cache_has_spatial_table, integrate_moment
 from sft_wick.expressions import Expr, Product, Symbol, Sum, Rational
 
 
+def _check_sweep_columns(pos_keys, et_keys, comp_cols) -> None:
+    """Refuse a point whose column coincides with another.
+
+    The row dict is flat, so such a column would silently OVERWRITE the
+    other: an external named `final` shadowing the sweep's own `t_final`, a
+    spatial point literally named `t_x`, or a spatial label `c` in a 3-point
+    sweep, whose third component column is `c`.
+    """
+    fixed = {"t_final", *comp_cols, *_DIAGRAM_COLUMNS}
+    clash = {f"t_{k}" for k in et_keys} & (set(pos_keys) | fixed)
+    if clash:
+        raise ValueError(
+            f"external_times_grid would emit column(s) {sorted(clash)}, "
+            f"which collide with existing sweep columns and would "
+            f"silently overwrite them.  Rename the affected point(s)."
+        )
+    clash = set(pos_keys) & fixed
+    if clash:
+        raise ValueError(
+            f"positions_grid key(s) {sorted(clash)} coincide with sweep "
+            f"column(s) of the same name (t_final, the component columns "
+            f"{list(comp_cols)}, or a per-diagram column) and would be "
+            f"silently overwritten in the result rows.  Rename the "
+            f"spatial label(s) in the observable."
+        )
+
+
 def _guard_external_times(expansion, propagators, ext_times, label):
     """Fail loudly on the three ways a two-time request goes quietly wrong.
 
@@ -800,28 +827,7 @@ class Expansion:
         for k, v in zip(et_keys, et_values):
             _check_axis(f"external_times_grid[{k!r}]", v)
 
-        # The row dict is flat, so a column that coincides with another
-        # would silently OVERWRITE it: an external named `final`
-        # shadowing the sweep's own `t_final`, a spatial point literally
-        # named `t_x`, or a spatial label `c` in a 3-point sweep, whose
-        # third component column is `c`.
-        _fixed = {"t_final", *comp_cols, *_DIAGRAM_COLUMNS}
-        _clash = {f"t_{k}" for k in et_keys} & (set(pos_keys) | _fixed)
-        if _clash:
-            raise ValueError(
-                f"external_times_grid would emit column(s) {sorted(_clash)}, "
-                f"which collide with existing sweep columns and would "
-                f"silently overwrite them.  Rename the affected point(s)."
-            )
-        _clash = set(pos_keys) & _fixed
-        if _clash:
-            raise ValueError(
-                f"positions_grid key(s) {sorted(_clash)} coincide with sweep "
-                f"column(s) of the same name (t_final, the component columns "
-                f"{list(comp_cols)}, or a per-diagram column) and would be "
-                f"silently overwritten in the result rows.  Rename the "
-                f"spatial label(s) in the observable."
-            )
+        _check_sweep_columns(pos_keys, et_keys, comp_cols)
 
         # Flatten the Cartesian product to a list of grid-point tasks.
         grid_tasks: list[tuple[dict, Any, dict, tuple]] = []

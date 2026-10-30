@@ -188,25 +188,11 @@ def diagrams():
     written = []
 
     def dump(expansion, order, prefix, keep=None):
-        """Render the unique diagrams of one order to TikZ.
-
-        ``to_feynman_diagram`` raises a UID collision on the base commit
-        (``ac7f201``) whenever a *non-local* vertex instance is allocated
-        the same operator UIDs as the observable operators --- which is
-        exactly what happens for level A's 3-point / order-1 / K3-only
-        expansion (all 6 raw pairings fail).  The level-B F+K3 expansion
-        is unaffected (42/42 render).  Numerics are untouched either way;
-        only the *drawing* path needs the graph.  Skip and report rather
-        than abort.
-        """
+        """Render the unique diagrams of one order to TikZ."""
         infos = expansion.raw_result.diagrams_by_order[order]
-        groups, skipped = OrderedDict(), 0
+        groups = OrderedDict()
         for info in infos:
-            try:
-                fd = info.to_feynman_diagram()
-            except ValueError:
-                skipped += 1
-                continue
+            fd = info.to_feynman_diagram()
             groups.setdefault(fd.canonical_form(), []).append(fd)
         unique = [g[0] for g in groups.values()]
         k = 0
@@ -219,9 +205,6 @@ def diagrams():
             (out / f"{prefix}_{k}_standalone.tex").write_text(
                 tikz.to_string(fd, standalone=True))
             written.append(f"{prefix}_{k}.tex  [{label}]  {dt.to_latex()}")
-        if skipped:
-            written.append(f"({skipped} pairing(s) under `{prefix}` could not be "
-                           f"rendered: UID collision in to_feynman_diagram)")
         return k
 
     p = sn.PARAMS
@@ -236,11 +219,9 @@ def diagrams():
         f"* `level_b_FK3_*.tex`: the {n_b} order-2 F.kappa^(3) diagrams that\n"
         "  give the leading non-Gaussian signal in xi_01.\n"
         f"* `level_a_kappa3_*.tex`: the level-A diagram ({n_a} rendered).\n"
-        "  On the base commit ac7f201 the 3-point / order-1 / K3-only\n"
-        "  expansion hits a UID collision inside `to_feynman_diagram`, so\n"
-        "  the drawing is unavailable there. It affects rendering only;\n"
-        "  the level-A numbers agree with the closed form to 1e-16.\n\n"
-        "Each has a `_standalone` twin that compiles on its own.\n\n"
+        "  The level-A numbers agree with the closed form to 1e-16.\n\n"
+        + "Each has a `_standalone` twin that compiles on its own.\n"
+        "This file and the sources are written by `make_figures.py`.\n\n"
         + "\n".join(f"* `{w}`" for w in written) + "\n")
     return n_a, n_b
 

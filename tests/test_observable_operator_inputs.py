@@ -30,6 +30,8 @@ from __future__ import annotations
 import collections.abc
 import os
 import types
+from collections import Counter
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -282,3 +284,189 @@ def test_OO3_a_physical_field_named_psi_is_refused():
     with pytest.raises(ValueError, match="response field"):
         sp.FieldSpec("psi", n_components=2)
     assert sp.FieldSpec("chi", n_components=2).response_name == "psi"
+
+
+# ---------------------------------------------------------------------------
+# OO4: a drawing reads no uid, and System.expand leaves the uids alone
+# ---------------------------------------------------------------------------
+
+G_TENSOR = np.arange(1.0, 17.0).reshape(2, 2, 2, 2)
+LOCAL_F = (sp.LocalVertex("F", F_TENSOR),)
+LOCAL_G = (sp.LocalVertex("G", G_TENSOR),)
+NONLOCAL_K = (sp.NonLocalVertex("K", order=3, coupling=K_TENSOR),)
+TWO_POINT = ("phi_a(x)", "phi_b(y)")
+
+
+def _model(vertices=LOCAL_G, nonlocal_vertices=()):
+    return sw.System(
+        field=sp.FieldSpec("phi", n_components=2),
+        linear=sp.DiagonalA(gamma=list(GAMMAS)),
+        noise=sp.GaussianNoise(kappa2=sp.SeparableTranslation(
+            temporal=sp.ExponentialTemporal(lam=LAM, sigma_t=SIGMA_T),
+            spatial=sp.GaussianSpatial(sigma_x=SIGMA_X))),
+        vertices=vertices,
+        nonlocal_vertices=nonlocal_vertices,
+        t_min=T_MIN,
+    )
+
+
+def _draw_each(expansion, order):
+    """Every record of ``order``: a collision fails all those of one vertex."""
+    records = expansion.raw_result.diagrams_by_order[order]
+    assert records
+    for record in records:
+        record.to_feynman_diagram()
+
+
+@pytest.mark.parametrize("vertices,nonlocal_vertices,labels", [
+    (LOCAL_G, (), "ab"),
+    (LOCAL_F, (), "abc"),
+    ((), NONLOCAL_K, "abc"),
+], ids=["quartic-two-point", "cubic-three-point", "kappa3-three-point"])
+def test_OO4_field_operators_at_the_first_uids_draw(vertices, nonlocal_vertices,
+                                                    labels):
+    """The reset in ``System.expand`` put the vertices on the uids of the
+    operators the caller built before it."""
+    system = _model(vertices, nonlocal_vertices)
+    sw.reset_uid_counter()
+    phi, _ = system.build_fields()
+    operators = [phi(a, x) for a, x in zip(labels, "xyz")]
+    _draw_each(system.expand(operators, orders=[1], progress=False), 1)
+
+
+def test_OO4_each_expansion_draws_after_the_one_before():
+    """The observable kept the uids it took after the last expansion, and
+    the reset then gave them to the vertices of the next order."""
+    system = _model()
+    sw.reset_uid_counter()
+    for order in (1, 2):
+        _draw_each(system.expand(TWO_POINT, orders=[order], progress=False),
+                   order)
+
+
+def test_OO4_a_cached_expansion_draws_by_either_spelling(tmp_path):
+    system = _model()
+    sw.reset_uid_counter()
+    phi, _ = system.build_fields()
+    operators = [phi("a", "x"), phi("b", "y")]
+    system.expand(operators, orders=[1], cache_path=tmp_path, progress=False)
+    _draw_each(system.expand(TWO_POINT, orders=[1], cache_path=tmp_path,
+                             progress=False), 1)
+
+
+def _cache_hit(system, cache_path):
+    system.expand(TWO_POINT, orders=[1], cache_path=cache_path, progress=False)
+
+
+def _refused_call(system, cache_path):
+    with pytest.raises(ValueError):
+        system.expand(("nope_a(x)",), orders=[1], cache_path=cache_path)
+
+
+def test_OO4_no_call_rewinds_the_uids(tmp_path):
+    """The reset gave operators the caller still held to the next vertices.
+    The first uids are taken here so that the test sees a reset run alone:
+    a reset and one expansion stop short of them."""
+    system = _model()
+    phi, _ = system.build_fields()
+    last = max(phi("a", "x").uid for _ in range(32))
+    for call in (_cache_hit, _cache_hit, _refused_call):  # miss, hit, refused
+        call(system, tmp_path)
+        uid = phi("a", "x").uid
+        assert uid > last
+        last = uid
+
+
+def _forms(operators):
+    sw.reset_uid_counter()
+    action = _model().build_action()
+    records = sw.compute_moment(operators, action, order=1).diagrams_by_order[1]
+    return Counter(r.to_feynman_diagram().canonical_form() for r in records)
+
+
+@pytest.mark.parametrize("uids", [(0, 1), (2, 3), (9, 9), (0, 0)],
+                         ids=["vertices", "shifted", "each-other", "both"])
+def test_OO4_a_drawing_reads_no_uid(uids):
+    """A uid need not be unique: operators pickled in another process or
+    read from a cache can hold the uids of the vertices, or share one."""
+    phi, _ = _model().build_fields()
+    operators = (phi("a", "x"), phi("b", "y"))
+    shifted = tuple(replace(op, uid=uid) for op, uid in zip(operators, uids))
+    assert _forms(shifted) == _forms(operators)
+
+
+def test_OO4_one_operator_twice_draws_two_points():
+    phi, _ = _model().build_fields()
+    operator = phi("a", "x")
+    result = sw.compute_moment((operator, operator), _model().build_action(),
+                               order=0)
+    diagram = result.diagrams_by_order[0][0].to_feynman_diagram()
+    assert [diagram.graph.degree(n) for n in diagram.external_nodes] == [1, 1]
+
+
+def _edges_of_pairing(record, diagram):
+    """The edges of ``record`` from its operators, with no ``from_pairing``.
+    An external is found by its point and a vertex by its copy, so a slip in
+    the map from positions to nodes shows whatever the order of the nodes."""
+    graph = diagram.graph
+    externals = {graph.nodes[n]["spatial"]: n for n in diagram.external_nodes}
+    vertices = {graph.nodes[n]["copy_id"]: n for n in diagram.vertex_nodes}
+    operators = [(op, externals[op.spatial_arg]) for op in record.observable_ops]
+    for vertex in record.vertex_instances:
+        operators += [(op, vertices[vertex.copy_id])
+                      for op in vertex.field_operators]
+    edges = Counter()
+    for i, j in record.pairing:
+        (left, a), (right, b) = operators[i], operators[j]
+        if left.is_physical and right.is_physical:
+            edges["C", frozenset((a, b)), None, None] += 1
+        else:
+            phi_end, psi_end = (a, b) if left.is_physical else (b, a)
+            edges["R", frozenset((a, b)), phi_end, psi_end] += 1
+    return edges
+
+
+def _two_phi(phi, psi):
+    return phi("a", "x"), phi("b", "y")
+
+
+def _phi_psi(phi, psi):
+    return phi("a", "x"), psi("b", "y")
+
+
+def _psi_phi(phi, psi):
+    return psi("a", "x"), phi("b", "y")
+
+
+def _three_phi(phi, psi):
+    return phi("a", "x"), phi("b", "y"), phi("c", "z")
+
+
+@pytest.mark.parametrize("vertices,nonlocal_vertices,observable,order", [
+    (LOCAL_G, (), _two_phi, 1),
+    (LOCAL_G, (), _two_phi, 2),
+    (LOCAL_F, (), _two_phi, 2),
+    (LOCAL_F, NONLOCAL_K, _two_phi, 2),
+    (LOCAL_G, (), _phi_psi, 1),
+    (LOCAL_F, (), _psi_phi, 2),
+    (LOCAL_F + LOCAL_G, (), _three_phi, 2),
+], ids=["quartic-first-order", "quartic-second-order", "cubic",
+        "cubic-and-kappa3", "response-external-last", "response-external-first",
+        "vertices-of-two-leg-counts"])
+def test_OO4_each_edge_joins_the_operators_of_its_pair(vertices,
+                                                       nonlocal_vertices,
+                                                       observable, order):
+    """The arrow of an R and the point of each external, which the two sides
+    of ``_forms`` share and the records of this model hide."""
+    sw.reset_uid_counter()
+    system = _model(vertices, nonlocal_vertices)
+    operators = observable(*system.build_fields())
+    records = sw.compute_moment(operators, system.build_action(),
+                                order=order).diagrams_by_order[order]
+    assert records
+    for record in records:
+        diagram = record.to_feynman_diagram()
+        drawn = Counter((data["kind"], frozenset((u, v)), data.get("phi_end"),
+                         data.get("psi_end"))
+                        for u, v, data in diagram.graph.edges(data=True))
+        assert drawn == _edges_of_pairing(record, diagram)

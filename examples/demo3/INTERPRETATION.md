@@ -202,11 +202,13 @@ behaviour, so nothing needs editing at the rebase.
    index per observable operator, and
    `tests/test_yaml_spec_coverage.py::test_YC2_custom_spatial_kernel_runs_demo3_level_a_from_yaml`
    runs level A from a YAML config.
-4. **`to_feynman_diagram()` UID collision** for the 3-point / order-1 /
-   `K3`-only expansion: observable operators and the vertex instance are
-   both allocated uids 0,1,2.  Affects rendering only: the level-A
-   diagram cannot be drawn, while its numbers are exact.  Level B renders
-   42/42.
+4. **`to_feynman_diagram()` UID collision, closed after 0.7.0** for the
+   3-point / order-1 / `K3`-only expansion: observable operators and the
+   vertex instance were both allocated uids 0,1,2, because `System.expand`
+   reset the counter.  This affected rendering only: the level-A diagram
+   could not be drawn, while its numbers were exact.  `System.expand` no
+   longer resets the counter, `from_pairing` no longer reads uids, and the
+   diagram is in `diagrams/`.  Level B renders 42/42.
 5. **L2 spatial-kernel gap, closed in 0.6.0.**
    `config.py::_build_kernel(axis="space")` used to accept only
    `exponential` and `gaussian`, and demo 3's envelope

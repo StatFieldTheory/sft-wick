@@ -194,8 +194,9 @@ class FeynmanDiagram:
         for vi in vertex_instances:
             all_ops.extend(vi.field_operators)
 
-        # Map operator UID -> graph node ID
-        uid_to_node: dict[int, str] = {}
+        # Graph node ID of each entry of all_ops.  The pairing holds positions
+        # in that list, and a uid need not be unique.
+        op_nodes: list[str] = []
 
         # Add external nodes.  The displayed label is *compact* by
         # default ($\phi_a$); the full form ($\phi_a(x_1)$) is stashed
@@ -217,7 +218,7 @@ class FeynmanDiagram:
                 spatial=op.spatial_arg,
                 full_label=full_label,
             )
-            uid_to_node[op.uid] = node_id
+            op_nodes.append(node_id)
 
         # Add vertex nodes (one per vertex instance, not per operator)
         vi_to_node: dict[int, str] = {}
@@ -228,23 +229,15 @@ class FeynmanDiagram:
                 spatial_vars=vi.spatial_variables,
             )
             vi_to_node[vi.copy_id] = node_id
-            for op in vi.field_operators:
-                if op.uid in uid_to_node:
-                    raise ValueError(
-                        f"UID collision: vertex operator {op} has the same "
-                        f"uid={op.uid} as a previously registered operator. "
-                        f"Call reset_uid_counter() before creating fields, "
-                        f"not between field creation and compute_moment()."
-                    )
-                uid_to_node[op.uid] = node_id
+            op_nodes.extend(node_id for _ in vi.field_operators)
 
         # Add edges for each contraction pair
         for i, j in pairing:
             op_i, op_j = all_ops[i], all_ops[j]
             prop = contract_pair(op_i, op_j)
             if prop is not None:
-                node_a = uid_to_node[op_i.uid]
-                node_b = uid_to_node[op_j.uid]
+                node_a = op_nodes[i]
+                node_b = op_nodes[j]
 
                 # Track R-propagator direction (which end is φ, which is ψ)
                 phi_end = None
