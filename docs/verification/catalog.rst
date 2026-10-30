@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **6297 tests** in 127 files (parametrised
+The suite has **6569 tests** in 128 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -552,7 +552,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*1334 tests in 25 files.*
+*1606 tests in 26 files.*
 
 .. list-table::
    :header-rows: 1
@@ -573,6 +573,11 @@ Workflow and YAML
      - tools/gen_test_catalog.py
      - exact
      - 4
+   * - ``test_config_error_paths.py``
+     - every refusal of the parser is a ConfigError with a code and a dotted path: module files Python cannot import, .npy files numpy cannot read, values the run cannot read; the exception type a caller caught before is kept; a message shows a value at a bounded size; a value that holds itself; a census of 39 wrong values on every key of two shipped configs
+     - the dotted path of the changed key; the census of the commit before
+     - exact
+     - 272
    * - ``test_demo3_levels.py``
      - demo 3 level A: the free-field m-point function through the package, and the R-contracted vertex against the raw one
      - closed form (level A is a single diagram, hence exact); QMC on the raw-vertex path

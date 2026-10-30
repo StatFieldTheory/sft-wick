@@ -455,7 +455,7 @@ def test_target_validation_and_config_default():
         ).target
         == "connected"
     )
-    with pytest.raises(ValueError, match="target must"):
+    with pytest.raises(ValueError, match="expand.target: must"):
         _parse_expand({"observable": ["phi(x)"], "orders": [0], "target": "cumulant"})
 
 

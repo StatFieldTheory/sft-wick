@@ -1982,25 +1982,28 @@ value; to merge two mappings write one ``<<`` with a list, in which the
 earlier wins a key they share, so ``<<: *a`` and then ``<<: *b`` is
 ``<<: [*b, *a]``), ``invalid_value``, ``override_syntax``,
 ``override_path`` (an override through a value or past the end of a
-list) and ``read_error`` (the file or a file it names cannot be read, or
-a module it names is missing or lacks the attribute; the reasons for the
-file include a syntax error, its encoding, a value YAML cannot read such
-as ``!!int x`` and nesting too deep, and these give a line with a code
-and no path).  The closed-form C module is the exception: ``validate``
-checks only that the file exists, and ``sft-wick run``, with or without
-``--dry-run``, imports it, so a module that cannot be imported or lacks
-``propagators.c_closed_form_attr`` ends there in a plain exception.  The
-suggestion lists every valid name at the smallest edit
-distance, so a single misspelling always lists the name meant.  In Python,
-:func:`~sft_wick.workflow.config.load_workflow_config` raises
-:class:`~sft_wick.workflow.config.ConfigError` with the same ``code``,
-``path`` and ``suggestions``; an override error is also a ``KeyError``.
-A file that cannot be opened raises ``OSError`` and a file YAML cannot
-read raises ``yaml.YAMLError``, which is no ``ConfigError``.  A value the
-parser refuses can raise a plain ``ValueError``, ``TypeError``,
-``ImportError`` or ``OverflowError``, with no code or path; ``sft-wick``
-prints these with ``invalid_value`` or ``read_error``.  A ``ConfigError``
-is a ``ValueError`` too.
+list) and ``read_error`` (a file the config names cannot be read, or a
+module it names cannot be imported or lacks the attribute).  The
+closed-form C module is the exception: ``validate`` checks only that the
+file exists, and ``sft-wick run``, with or without ``--dry-run``, imports
+it, so a module that cannot be imported or lacks
+``propagators.c_closed_form_attr`` ends there in a traceback.  Every other
+error about a value names its key.  The config file itself has no key: one that
+cannot be opened or that YAML cannot read gives ``read_error`` and the
+reason, which can be a syntax error, its encoding, a value YAML cannot
+read such as ``!!int x``, or nesting too deep.  The suggestion lists
+every valid name at the smallest edit distance, so a single misspelling
+always lists the name meant.
+
+In Python, :func:`~sft_wick.workflow.config.load_workflow_config` and
+:func:`~sft_wick.workflow.config.check_before_run` raise
+:class:`~sft_wick.workflow.config.ConfigError`, a ``ValueError``, with the
+same ``code``, ``path`` and ``suggestions``.  It keeps the type the error
+had before it had a code: an override error is also a ``KeyError``, a
+value of the wrong type a ``TypeError``, a module that cannot be read an
+``ImportError`` or an ``OSError``, and a module without the attribute an
+``AttributeError``.  A config file that cannot be opened raises
+``OSError`` and one YAML cannot read raises ``yaml.YAMLError``.
 
 A flag is read from the words ``true`` and ``false`` (also ``yes`` and
 ``no``, ``on`` and ``off``, ``1`` and ``0``); any other value is

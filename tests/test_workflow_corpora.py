@@ -734,19 +734,23 @@ def test_CO5_an_override_value_that_holds_itself_is_refused(tmp_path):
     assert info.value.path == "sweep.positions_grid.x[1]"
 
 
-def test_CO5_a_node_shared_without_a_cycle_stays_accepted(tmp_path):
+def test_CO5_a_node_shared_without_a_cycle_is_no_cycle(tmp_path):
     """Each list holds the one before it twice, so the last expands to
     2**24 pairs from one line of YAML.  A check that entered a list once per
-    path to it would take seconds here and never end at twice the depth."""
+    path to it would take seconds here and never end at twice the depth.
+    The grid is refused for what it is, a position that is no vector of
+    numbers."""
     depth = 24
     levels = ", ".join(f"&g{i} [*g{i - 1}, *g{i - 1}]"
                        for i in range(1, depth + 1))
     grids = f"  positions_grid: {{x: [&g0 [0.0, 1.0], {levels}], y: [0.5]}}"
     path = _shared_file(tmp_path, "shared", {"grids": grids})
     start = time.perf_counter()
-    cfg = load_workflow_config(path)
+    with pytest.raises(ConfigError) as info:
+        load_workflow_config(path)
     assert time.perf_counter() - start < 2.0
-    assert cfg.sweep.positions_grid["y"] == [0.5]
+    assert info.value.path == "sweep.positions_grid.x[1][0]"
+    assert "must be a number" in info.value.detail
 
 
 def test_CO5_a_chain_past_the_recursion_limit_is_walked():

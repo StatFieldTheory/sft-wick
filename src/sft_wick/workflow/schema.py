@@ -372,6 +372,7 @@ def _propagators() -> _Block:
         "c_closed_form_module": _null(_STRING),
         "cache_path": _null(_STRING),
         "c_method": _enum(cf._C_METHODS),
+        "interp_method": _enum(cf._INTERP_METHODS),
     }
     return _Block(_dataclass_keys(cf.PropagatorsConfig, nodes))
 

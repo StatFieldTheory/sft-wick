@@ -518,7 +518,7 @@ def test_NT12_yaml_component_pairs_spelling_takes_tuples_too(tmp_path):
 @pytest.mark.parametrize("edit,match", [
     (lambda c: c["sweep"].update(component_pairs=[[0, 1, 1]]), "not both"),
     (lambda c: c["sweep"].pop("component_tuples"),
-     "component_tuples is required"),
+     "component_tuples: is required"),
     (lambda c: c["sweep"].update(component_tuples=[[0, 1]]),
      r"has 2 entries, but the observable <phi_a\(x\) phi_b\(y\) "
      r"phi_c\(z\)> has 3"),

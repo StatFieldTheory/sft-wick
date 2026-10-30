@@ -213,7 +213,7 @@ def test_CL2_validate_runs_the_build_checks(tmp_path, capsys):
     assert main(["validate", str(path)]) == 2
     line = _one_line(capsys.readouterr().err)
     assert line.startswith("sft-wick: config error [invalid_value] ")
-    assert "system.noise.kappa2.temporal.sigma_t must be positive" in line
+    assert "system.noise.kappa2.temporal.sigma_t: must be positive" in line
 
 
 # ---------------------------------------------------------------------------
@@ -495,7 +495,7 @@ def _bad_inputs(tmp_path: Path) -> dict:
     out = {}
     doc = _quickstart()
     doc["system"]["noise"]["kappa2"]["temporal"]["sigma_t"] = 0.0
-    out["kernel_value"] = (doc, "sigma_t must be positive")
+    out["kernel_value"] = (doc, "sigma_t: must be positive")
     doc = _quickstart()
     doc["system"]["noise"]["kappa2"]["type"] = "separable_translaton"
     out["kappa2_type"] = (doc, "kappa2.type")
@@ -513,7 +513,7 @@ def _bad_inputs(tmp_path: Path) -> dict:
     out["empty_npy"] = (doc, "empty.npy")
     doc = _quickstart()
     doc["sweep"]["orders"] = [4]
-    out["sweep_order"] = (doc, "sweep: order(s) [4] are not in the expansion")
+    out["sweep_order"] = (doc, "sweep.orders: order(s) [4] are not in the expansion")
     doc = _quickstart()
     doc["sweep"]["component_pairs"] = [[0, 7]]
     out["component_index"] = (doc, "sweep.component_tuples")

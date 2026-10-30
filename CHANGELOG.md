@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### Changed: every refusal of the parser has a code and a dotted path
+
+`load_workflow_config` and `check_before_run` raise `ConfigError` for every
+refused value, so `except ConfigError` covers them and `sft-wick` prints the
+path.  Over 39 wrong values for each key of the 11 shipped configs, 42,880
+cases, 29,363 raised a plain exception with no code or path and 284 a
+`ConfigError` with no path; none does now.  A config file that cannot be
+opened still raises `OSError` and one YAML cannot read `yaml.YAMLError`,
+which have no key to name.
+
+* A message is `path: reason`, so the text of many changed:
+  `sweep.t_final_grid must be a list` is `sweep.t_final_grid: must be a
+  list`.  An error keeps the type a caller caught: a value of the wrong type
+  is a `TypeError` as well, a module that cannot be read an `ImportError` or
+  an `OSError`, and a module without the attribute an `AttributeError`.
+* `system.linear.type`, `output[].type`, `sweep.gl_chunk_size`,
+  `qmc_coupling_chunk_size`, `propagator_cache_bytes`,
+  `propagator_cache_contract`, `contraction_backend`,
+  `contraction_max_bytes`, `expand.target` and the sections of the file
+  name their key.  A misspelt `system.linear.type` or `output[].type` lists
+  the type meant.
+* The path of a vertex is a dotted path, `system.vertices[0].coupling`,
+  with the name of the vertex in the reason.
+* A module a config names is a `read_error` at the key that names it,
+  whatever stops the import: a syntax error (a traceback, since `SyntaxError`
+  was not caught), any exception it raises, and `sys.exit`, which ended the
+  process.  It no longer stays in `sys.modules` half loaded.  A path or an
+  attribute that is no string is refused at its key.
+* An `.npy` file on which `np.load` raises `zipfile.BadZipFile` or
+  `MemoryError` is a `read_error`; both ended in a traceback.
+* An integer past the digit limit of `str`, as a value or as a key, is shown
+  as a stand-in.  It replaced the message with that limit's own.
+
 ### Fixed: `compare-resources` walked a shared node once per path
 
 `_known_files` recursed, so a long chain of aliases ended in a
@@ -179,9 +212,9 @@ Also when the file is loaded:
 * `n_samples: .inf`, a `dt` too small for a finite grid, a `kappa2` `type`
   that is a list and an empty `.npy` file are refused with a dotted path;
   they used to end in an `OverflowError`, a `TypeError` without a path
-  or an `EOFError`.  A module without the attribute named is a `read_error`
-  with no path, apart from `propagators.c_closed_form_attr`; it used to end
-  in an `AttributeError`, and the `ConfigError` it raises now is one too.
+  or an `EOFError`.  A module without the attribute named is a `read_error`;
+  it used to end in an `AttributeError`, and the `ConfigError` it raises now
+  is one too.
 * `run_workflow` checks the order selection, the parallel layers and the
   closed-form C module before the expansion, with the messages it gave
   after it, and parses the observable as `System.expand` does.  A field
