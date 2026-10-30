@@ -72,54 +72,43 @@ def _source_files(source_root):
 def _safe_mapping(text, label):
     import yaml
 
+    from .config import ConfigError, _load_yaml
+
     # PyYAML otherwise silently replaces repeated keys, including variant
     # names. Reject them before a potentially expensive experiment starts.
-    class UniqueLoader(yaml.SafeLoader):
-        pass
-
-    merge = "tag:yaml.org,2002:merge"
-
-    def refuse_repeats(loader, node, deep):
-        """Refuse a key written twice in ``node`` or in a mapping it merges
-        in with ``<<:``, which flatten_mapping reads without constructing it.
-        Each merged mapping is checked on its own, so a key overriding a
-        merged one, or the earlier of two merged mappings, stays legal."""
-        explicit = set()
-        for key_node, value_node in node.value:
-            if key_node.tag == merge:
-                sources = (
-                    value_node.value
-                    if isinstance(value_node, yaml.SequenceNode)
-                    else [value_node]
-                )
-                for source in sources:
-                    if isinstance(source, yaml.MappingNode):
-                        refuse_repeats(loader, source, deep)
-                continue
-            key = loader.construct_object(key_node, deep=deep)
-            if key in explicit:
-                raise ValueError(f"{label}: duplicate mapping key {key!r}")
-            explicit.add(key)
-
-    def construct(loader, node, deep=False):
-        refuse_repeats(loader, node, deep)
-        loader.flatten_mapping(node)
-        mapping = {}
-        for key_node, value_node in node.value:
-            key = loader.construct_object(key_node, deep=deep)
-            mapping[key] = loader.construct_object(value_node, deep=deep)
-        return mapping
-
-    UniqueLoader.add_constructor(
-        yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, construct
-    )
     try:
-        raw = yaml.load(text, Loader=UniqueLoader)
-    except (yaml.YAMLError, TypeError) as exc:
+        raw = _load_yaml(text)
+    except ConfigError as exc:
+        raise ValueError(
+            f"{label}: duplicate mapping key {exc.path!r}: {exc.detail}"
+        ) from None
+    except yaml.YAMLError as exc:
         raise ValueError(f"{label}: invalid YAML: {exc}") from exc
     if not isinstance(raw, dict):
         raise ValueError(f"{label} must be a mapping")
+    if _holds_itself(raw):
+        raise ValueError(f"{label}: invalid YAML: a value holds itself")
     return raw
+
+
+def _holds_itself(raw):
+    """Whether aliases made a mapping or list part of itself, which the
+    walks over a config cannot finish.  With a stack, for a long alias
+    chain."""
+    open_nodes, finished = set(), set()
+    stack = [(raw, False)]
+    while stack:
+        item, leaving = stack.pop()
+        if leaving:
+            finished.add(id(item))
+        elif isinstance(item, (dict, list, tuple)) and id(item) not in finished:
+            if id(item) in open_nodes:
+                return True
+            open_nodes.add(id(item))
+            stack.append((item, True))
+            values = item.values() if isinstance(item, dict) else item
+            stack.extend((value, False) for value in values)
+    return False
 
 
 def _validate_variants(raw):

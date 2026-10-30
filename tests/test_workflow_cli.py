@@ -507,3 +507,76 @@ def test_CL8_strict_off_leaves_ignored_keys_out_of_the_record(
     assert "gamma_" not in system["linear"]
     assert "lamm" not in system["noise"]["kappa2"]["temporal"]
     assert not {"ranc", "equal_time"} & set(system["vertices"][0])
+
+
+# ---------------------------------------------------------------------------
+# CL9 -- a malformed observable is a config error, in validate and in run
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("command", [["validate"], ["run", "--dry-run", "-q"]],
+                         ids=["validate", "run"])
+@pytest.mark.parametrize("entry,path,fragment", [
+    ([], "expand.observable[0]", "[]"),
+    ({}, "expand.observable[0]", "{}"),
+    (3, "expand.observable[0]", "3"),
+    (None, "expand.observable[0]", "None"),
+    ("phi_a", "expand.observable[0]", "'phi_a'"),
+    ("phi_a(x", "expand.observable[0]", "'phi_a(x'"),
+    ("wrong_a(x)", "expand.observable", "matches neither"),
+    ("phi(x)", "expand.observable", "omits a component index"),
+], ids=repr)
+def test_CL9_malformed_observable_exits_2_with_one_line(tmp_path, capsys,
+                                                        monkeypatch, command,
+                                                        entry, path, fragment):
+    from sft_wick.workflow import estimate
+
+    def no_estimate(cfg):  # the estimate must not be reached
+        raise AssertionError("the config passed the checks")
+
+    monkeypatch.setattr(estimate, "estimate_cost", no_estimate)
+    doc = _quickstart()
+    doc["expand"]["observable"][0] = entry
+    status = main([command[0], str(_write(tmp_path, doc)), *command[1:]])
+    out = capsys.readouterr()
+    assert status == 2, out
+    line = _one_line(out.err)
+    assert line.startswith(f"sft-wick: config error [invalid_value] {path}: ")
+    assert fragment in line, line
+
+
+@pytest.mark.parametrize("command", [("validate",), ("run", "--dry-run")],
+                         ids=lambda c: "-".join(c))
+@pytest.mark.parametrize("text,reason", [
+    ('observable: [!!bool "x", "phi_b(y)"]', "the file cannot be read: 'x'"),
+    ('observable: [!!int "", "phi_b(y)"]', "the file cannot be read: "),
+    ('observable: [!!timestamp "x", "phi_b(y)"]', "the file cannot be read: "),
+    ('observable: [!!int "x", "phi_b(y)"]', "invalid literal for int()"),
+    ('observable: [2001-13-45, "phi_b(y)"]', "month must be in 1..12"),
+    ('observable: [!!timestamp {=: x}, "phi_b(y)"]', "the file cannot be read: "),
+    ("observable: [1" + ":0" * 180 + '.0, "phi_b(y)"]', "too large"),
+    ("observable: " + "[" * 600 + "1" + "]" * 600, "nested too deeply to read"),
+], ids=["bool-tag", "int-tag", "timestamp-tag", "int-word", "bad-date",
+        "timestamp-mapping", "sexagesimal-overflow", "too-deep"])
+def test_CL10_a_value_yaml_cannot_read_exits_2_with_one_line(
+        tmp_path, capsys, command, text, reason):
+    """PyYAML's constructors raise ``KeyError``, ``IndexError``,
+    ``AttributeError``, ``TypeError``, ``ValueError`` or ``OverflowError``
+    on such a value, and none of them is a ``yaml.YAMLError``."""
+    path = tmp_path / "c.yaml"
+    path.write_text(QUICKSTART.read_text().replace(
+        'observable: ["phi_a(x)", "phi_b(y)"]', text))
+    status = main([command[0], str(path), *command[1:]])
+    out = capsys.readouterr()
+    assert status == 2, out
+    line = _one_line(out.err)
+    assert line.startswith("sft-wick: config error [read_error] "), line
+    assert reason in line, line
+
+
+def test_CL10_a_file_of_another_encoding_exits_2_with_one_line(tmp_path, capsys):
+    path = tmp_path / "c.yaml"
+    path.write_bytes(QUICKSTART.read_bytes() + b"# caf\xe9\n")
+    status = main(["validate", str(path)])
+    out = capsys.readouterr()
+    assert status == 2, out
+    assert "config error [read_error] " in _one_line(out.err)

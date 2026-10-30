@@ -61,9 +61,10 @@ field with a bound component index and spatial argument.  Create one by
    # Multi-component: two arguments (component, spatial)
    op = phi('a', 'x')        # phi_a(x)
 
-Each call produces an operator with a **globally unique integer UID**.
-The contraction engine uses it to distinguish two copies of the same
-field in the same product (e.g. :math:`\phi(x)\,\phi(x)`).
+Each call produces an operator with the next **integer UID** of a global
+counter, so two copies of the same field in the same product (e.g.
+:math:`\phi(x)\,\phi(x)`) do not compare equal unless
+:func:`~sft_wick.fields.reset_uid_counter` runs between them.
 
 A letter component label such as ``'a'`` is a free label: its component
 is given at evaluation time through ``fixed_indices`` (values count from
@@ -108,6 +109,7 @@ A ``FieldOperator`` exposes the following attributes:
 - ``field``: the parent :class:`~sft_wick.fields.Field` declaration
 - ``component_index``: component label (``None`` for scalars)
 - ``spatial_arg``: spatial argument string
-- ``uid``: unique integer ID
+- ``uid``: integer ID, from the global counter for an operator a field
+  call or a vertex instance builds
 - ``field_type`` / ``is_physical`` / ``is_response``: delegated from
   the parent field

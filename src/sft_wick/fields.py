@@ -98,8 +98,9 @@ class Field:
 class FieldOperator:
     """A field at a specific point with a specific component index.
 
-    Each instance has a unique uid to distinguish identical-looking operators
-    (e.g., two phi_a(x) in the same product).
+    A ``Field`` call or a vertex instance gives each operator a uid from a
+    global counter, to distinguish identical-looking operators (e.g., two
+    phi_a(x) in the same product).
     """
 
     field: Field

@@ -151,7 +151,9 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     "tests/test_resource_compare.py": (
         "Workflow and YAML",
         "strict resource variants, complete ordered result/stability gates, input protection "
-        "(duplicate keys, also in merged mappings), fresh serial measurement and failure receipts",
+        "(duplicate keys, also in merged mappings, compared as the document read them; "
+        "a document read as plain YAML reads it, each key once; a value holding itself), "
+        "fresh serial measurement and failure receipts",
         "adversarial metadata/error/cancellation/nonfinite/overflow probes; true GL/QMC subprocesses and stale-bytecode witness",
         "exact repeat/QMC gates; explicit 1e-12 relative and 1e-14 absolute GL budget",
     ),
@@ -1071,7 +1073,9 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "fields refused; set and frozenset observables refused, a dict's "
         "keys view accepted in its insertion order, the keys view of another "
         "mapping (a ChainMap's included) refused; a physical field named "
-        "psi refused",
+        "psi refused; each record draws for operators the caller built or "
+        "cached, each edge joins the operators of its pair, a drawing reads "
+        "no uid, and no call moves the uids back",
         "closed-form inner and scipy quad outer integral of the exponential "
         "covariance; the FK channel of a constant kappa^3 as a 1-D quad",
         "1e-12; 1e-9; bit equality between spellings",
@@ -1139,7 +1143,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "blocks; a misspelt key refused in every block; overrides into "
         "list entries; flags read from true/false words; a key written "
         "twice; spatial grid keys the run ignores; output requirements at "
-        "load; isotropy flags refused when their condition fails",
+        "load; isotropy flags refused when their condition fails; "
+        "observable entries and point names checked before the run",
         "the equivalent L1 System; scipy quadrature of the defining C "
         "integrals; demo 3's Campbell closed form",
         "exact (YAML vs L1) / 1e-9 - 1e-6",
@@ -1170,7 +1175,9 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     "tests/test_workflow_cli.py": (
         "Workflow and YAML",
         "sft-wick config errors: exit status 2 and one stderr line with code, "
-        "dotted path and suggestion; validate, schema and --print-resolved; "
+        "dotted path and suggestion, malformed observables included; a line "
+        "with a code and a reason for a file YAML cannot read; "
+        "validate, schema and --print-resolved; "
         "overrides of keys the file leaves out; SFT_WICK_STRICT=0; the "
         "ConfigError / OverrideError types",
         "the parsed config; an edited copy of the file; a real subprocess "

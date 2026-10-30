@@ -15,7 +15,7 @@ import numpy as np
 
 from sft_wick.action import Action
 from sft_wick.evaluate import PropagatorModel
-from sft_wick.fields import Field, FieldOperator, reset_uid_counter
+from sft_wick.fields import Field, FieldOperator
 from sft_wick.indices import (
     is_generated_name,
     literal_component,
@@ -561,7 +561,6 @@ class System:
             spec_key["labels_reserved"] = True
 
         def _compute():
-            reset_uid_counter()
             action = self.build_action()
             result = compute_moment(
                 obs_ops,

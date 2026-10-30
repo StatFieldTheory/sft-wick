@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **5973 tests** in 127 files (parametrised
+The suite has **6215 tests** in 127 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -552,7 +552,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*1010 tests in 25 files.*
+*1252 tests in 25 files.*
 
 .. list-table::
    :header-rows: 1
@@ -614,20 +614,20 @@ Workflow and YAML
      - 1e-9 (GL) / 2e-3 (qmc_scalar)
      - 46
    * - ``test_observable_operator_inputs.py``
-     - FieldOperator observables in System.expand (order 0 at distinct times, the FK channel at order 2, the same expansion as the string spelling, one index per shared letter); literal labels and foreign fields refused; set and frozenset observables refused, a dict's keys view accepted in its insertion order, the keys view of another mapping (a ChainMap's included) refused; a physical field named psi refused
+     - FieldOperator observables in System.expand (order 0 at distinct times, the FK channel at order 2, the same expansion as the string spelling, one index per shared letter); literal labels and foreign fields refused; set and frozenset observables refused, a dict's keys view accepted in its insertion order, the keys view of another mapping (a ChainMap's included) refused; a physical field named psi refused; each record draws for operators the caller built or cached, each edge joins the operators of its pair, a drawing reads no uid, and no call moves the uids back
      - closed-form inner and scipy quad outer integral of the exponential covariance; the FK channel of a constant kappa^3 as a 1-D quad
      - 1e-12; 1e-9; bit equality between spellings
-     - 15
+     - 33
    * - ``test_repo_hygiene.py``
      - tracked files hold no agent working files, development records, local absolute paths or task IDs; file names and commit messages hold no task IDs
      - git ls-files and git log; positive and negative pattern controls; a scratch repository whose flagged commits sit behind a merge's second parent and are deleted again
      - exact
      - 45
    * - ``test_resource_compare.py``
-     - strict resource variants, complete ordered result/stability gates, input protection (duplicate keys, also in merged mappings), fresh serial measurement and failure receipts
+     - strict resource variants, complete ordered result/stability gates, input protection (duplicate keys, also in merged mappings, compared as the document read them; a document read as plain YAML reads it, each key once; a value holding itself), fresh serial measurement and failure receipts
      - adversarial metadata/error/cancellation/nonfinite/overflow probes; true GL/QMC subprocesses and stale-bytecode witness
      - exact repeat/QMC gates; explicit 1e-12 relative and 1e-14 absolute GL budget
-     - 50
+     - 209
    * - ``test_resource_controls.py``
      - pure configuration resource scopes and conditional/bypass statuses; connected dry-run target
      - callback nonexecution witnesses, grid cardinality and connected Gaussian zero coefficients
@@ -664,10 +664,10 @@ Workflow and YAML
      - 1e-6
      - 15
    * - ``test_workflow_cli.py``
-     - sft-wick config errors: exit status 2 and one stderr line with code, dotted path and suggestion; validate, schema and --print-resolved; overrides of keys the file leaves out; SFT_WICK_STRICT=0; the ConfigError / OverrideError types
+     - sft-wick config errors: exit status 2 and one stderr line with code, dotted path and suggestion, malformed observables included; a line with a code and a reason for a file YAML cannot read; validate, schema and --print-resolved; overrides of keys the file leaves out; SFT_WICK_STRICT=0; the ConfigError / OverrideError types
      - the parsed config; an edited copy of the file; a real subprocess for the exit status
      - exact
-     - 93
+     - 126
    * - ``test_workflow_config.py``
      - YAML → System lowering, run_workflow, overrides, dt, parallel layers, closed-form-only path, explicit R, callable modules and by-value hook transport to an existing worker pool
      - L1 flow on the same physics; isolated hook unavailable to workers
@@ -684,10 +684,10 @@ Workflow and YAML
      - exact
      - 62
    * - ``test_yaml_spec_coverage.py``
-     - the L1 specs YAML could not express: custom temporal / spatial / angular kernels, a matrix-valued explicit R, a matrix ConstantImpulse; validation of the vertex, kernel and sigma2 blocks; a misspelt key refused in every block; overrides into list entries; flags read from true/false words; a key written twice; spatial grid keys the run ignores; output requirements at load; isotropy flags refused when their condition fails
+     - the L1 specs YAML could not express: custom temporal / spatial / angular kernels, a matrix-valued explicit R, a matrix ConstantImpulse; validation of the vertex, kernel and sigma2 blocks; a misspelt key refused in every block; overrides into list entries; flags read from true/false words; a key written twice; spatial grid keys the run ignores; output requirements at load; isotropy flags refused when their condition fails; observable entries and point names checked before the run
      - the equivalent L1 System; scipy quadrature of the defining C integrals; demo 3's Campbell closed form
      - exact (YAML vs L1) / 1e-9 - 1e-6
-     - 109
+     - 141
 
 Drawing and LaTeX
 -----------------
