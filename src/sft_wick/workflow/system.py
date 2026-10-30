@@ -331,6 +331,22 @@ class System:
     # Lowering to raw API objects
     # --------------------------------------------------------------- #
 
+    def _require_gamma_grid(self, t_max: float) -> None:
+        """Refuse a ``t_max`` past the cumulative-rate spline behind R."""
+        lin = self._effective_linear
+        if (
+            self.explicit_R is None
+            and isinstance(lin, DiagonalA)
+            and callable(lin.gamma)
+            and t_max > lin.t_max_cache
+        ):
+            raise ValueError(
+                f"t_max={t_max} exceeds DiagonalA.t_max_cache="
+                f"{lin.t_max_cache}: the cumulative-rate spline behind R "
+                f"would be extrapolated.  Raise t_max_cache (and "
+                f"n_grid_cache with it)."
+            )
+
     def build_propagator_model(self, diag_C: bool = True) -> PropagatorModel:
         """Lower the spec to a :class:`PropagatorModel`.
 
@@ -496,9 +512,9 @@ class System:
                 and position pairs, and one that cannot be evaluated
                 there is not refused.  Also raised when two external
                 operators share a spatial label at an interacting order,
-                for an empty ``orders``, for a set observable, and for a
-                ``FieldOperator`` of another field or with a numeric
-                literal component label.
+                for an empty ``orders``, for an empty or a set observable,
+                and for a ``FieldOperator`` of another field or with a
+                numeric literal component label.
             TypeError: when ``orders`` is missing, or is or holds
                 something other than an integer.
         """
@@ -724,19 +740,7 @@ class System:
 
         from .propagators import Propagators
 
-        lin = self._effective_linear
-        if (
-            self.explicit_R is None
-            and isinstance(lin, DiagonalA)
-            and callable(lin.gamma)
-            and t_max > lin.t_max_cache
-        ):
-            raise ValueError(
-                f"t_max={t_max} exceeds DiagonalA.t_max_cache="
-                f"{lin.t_max_cache}: the cumulative-rate spline behind R "
-                f"would be extrapolated.  Raise t_max_cache (and "
-                f"n_grid_cache with it)."
-            )
+        self._require_gamma_grid(t_max)
         if diag_C and self._c_offdiagonal():
             raise ValueError(_DIAG_C_REFUSAL)
 
@@ -808,6 +812,12 @@ def _parse_observable(observable, system: System, _max_order: int = 1):
             f"['phi_a(x)', 'phi_b(y)']; got {shown(observable)}."
         )
     ops = list(observable)
+    if not ops:
+        raise ValueError(
+            "System.expand: observable is empty.  The moment of the identity "
+            "is 1 at order 0, which no diagram computes; name at least one "
+            "operator, e.g. ['phi_a(x)']."
+        )
     if all(isinstance(o, str) for o in ops):
         phi, _psi = system.build_fields()
         out = []

@@ -1106,3 +1106,18 @@ def test_variants_with_alias_overrides_pass_validation():
         "large: {<<: *s, gl_chunk_size: 8}\n", "variants")
     rc._validate_variants(raw)
     assert raw == {"small": {"gl_chunk_size": 4}, "large": {"gl_chunk_size": 8}}
+
+
+def test_known_files_walks_a_long_chain(tmp_path):
+    node = {"coupling_module": "m.py"}
+    for _ in range(5000):
+        node = {"a": [node]}
+    assert rc._known_files(node, tmp_path) == {(tmp_path / "m.py").absolute()}
+
+
+def test_known_files_walks_a_shared_node_once(tmp_path):
+    """Aliases used twice per level: 2**60 paths to one node."""
+    node = {"module": "m.py"}
+    for _ in range(60):
+        node = {"a": node, "b": [node]}
+    assert rc._known_files(node, tmp_path) == {(tmp_path / "m.py").absolute()}

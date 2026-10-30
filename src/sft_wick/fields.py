@@ -17,7 +17,8 @@ class FieldType(Enum):
     RESPONSE = "response"  # psi
 
 
-# Global counter for unique FieldOperator IDs
+# Global counter for FieldOperator IDs.  reset_uid_counter restarts it, so an
+# ID need not be unique.
 _uid_counter = itertools.count()
 
 

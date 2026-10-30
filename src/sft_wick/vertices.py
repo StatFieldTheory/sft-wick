@@ -177,7 +177,7 @@ class VertexInstance:
                     )
                 operators.append(op)
 
-        # Assign unique UIDs
+        # Assign UIDs from the global counter
         from .fields import _uid_counter
 
         final_operators: list[FieldOperator] = []

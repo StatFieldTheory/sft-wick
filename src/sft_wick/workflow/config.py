@@ -23,12 +23,17 @@ keys as a JSON Schema.
 from __future__ import annotations
 
 import collections.abc
+import decimal
+import functools
 import importlib.util
 import math
+import numbers
 import os
 import re
 import sys
 import warnings
+import zipfile
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from dataclasses import fields as _dc_fields
 from pathlib import Path
@@ -39,7 +44,7 @@ import numpy as np
 from sft_wick._dense_contraction import DEFAULT_CONTRACTION_MAX_BYTES
 from sft_wick.evaluate import DEFAULT_GL_CHUNK_SIZE, INTEGRATION_METHODS
 
-from ._messages import shown, text_of
+from ._messages import MAX_INT_BITS, shown, text_of
 
 # =========================================================================
 # Internal dataclasses: a thin typed mirror of the L1 ``System`` spec
@@ -192,6 +197,7 @@ class _ConfigMessage:
         self.detail = detail
         self.suggestions = tuple(suggestions)
         super().__init__(str(self))
+        self.path = path  # ImportError.__init__ sets a ``path`` of its own
 
     def __str__(self) -> str:
         text = f"{self.path}: {self.detail}" if self.path else self.detail
@@ -208,11 +214,16 @@ class ConfigError(_ConfigMessage, ValueError):
 
     ``str(error)`` is one line.  ``code`` is one of the codes below,
     ``path`` the dotted path of the key or block (``system.t_mni``,
-    ``output[0].format``; empty for the file as a whole), ``detail`` the
-    reason, and ``suggestions`` the nearest valid names: every name at the
-    smallest edit distance, so a single misspelling always lists the name
-    meant.  ``sft-wick`` prints ``sft-wick: config error [code] <str>``
-    and exits with status 2.
+    ``output[0].format``; ``config`` for a file that holds no mapping),
+    ``detail`` the reason, and ``suggestions`` the nearest valid names:
+    every name at the smallest edit distance, so a single misspelling
+    always lists the name meant.  ``sft-wick`` prints
+    ``sft-wick: config error [code] <str>`` and exits with status 2.
+
+    A refused value of the wrong type is a ``TypeError`` as well, a module
+    that cannot be read an ``ImportError`` or an ``OSError``, and a module
+    without the attribute named an ``AttributeError``, as they were before
+    they had a code and a path.
 
     ``unknown_key``
         A key the block does not read, in the file or in an override.
@@ -222,27 +233,28 @@ class ConfigError(_ConfigMessage, ValueError):
     ``duplicate_key``
         A key written twice in one mapping of the file.
     ``invalid_value``
-        Any other refusal of the parser (``sft-wick`` also prints a plain
-        ``ValueError``, ``TypeError`` or ``OverflowError`` of the parser
-        with this code).
+        Any other refusal of the parser or of :func:`check_before_run`.
     ``override_syntax``
         An override that is not ``KEY=VALUE`` with a readable key.
     ``override_path``
         An override path through a value, past the end of a list, or into
         a list the file leaves out.
     ``read_error``
-        A file the config names cannot be read, or a module it names lacks
-        the attribute.  Of the closed-form C module only the file is
-        checked: the run imports it and raises a plain exception if that
-        fails.  ``sft-wick`` also prints with this code the ``OSError``,
-        ``ImportError`` or ``yaml.YAMLError`` that
-        :func:`load_workflow_config` raises.
+        A file the config names cannot be read, or a module it names cannot
+        be imported or lacks the attribute.  ``sft-wick`` also prints with
+        this code, and no path, the ``OSError`` or ``yaml.YAMLError`` that
+        :func:`load_workflow_config` raises for the config file itself.
     """
 
 
 class OverrideError(ConfigError, KeyError):
     """A refused override.  Also a ``KeyError``, which overrides raised
     before :class:`ConfigError` existed."""
+
+
+class _ConfigTypeError(ConfigError, TypeError):
+    """A value of the wrong type.  Also a ``TypeError``, which the parser
+    raised before."""
 
 
 class ConfigWarning(_ConfigMessage, UserWarning):
@@ -317,7 +329,36 @@ def _nearest(name: Any, candidates) -> tuple:
 
 def _join(where: str, key: Any) -> str:
     """The dotted path of ``key`` in the block at ``where``."""
-    return f"{where}.{key}" if where else str(key)
+    text = _cut_key(text_of(key))
+    return f"{where}.{text}" if where else text
+
+
+def _reason(exc: Exception, where: str) -> str:
+    """The text of ``exc`` without the name it opens with, which the path
+    of the error gives: ``where``, its last part or its section."""
+    text = str(exc)
+    for name in (where, where.rpartition(".")[2], where.partition(".")[0]):
+        if name and re.match(rf"{re.escape(name)}[: ]", text):
+            return text[len(name):].lstrip(": ")
+    return text
+
+
+@contextmanager
+def _refused_at(where: str):
+    """Give a refusal raised in the block the dotted path ``where``.
+
+    The checks the parser shares with L1 raise plain exceptions, which name
+    the argument in their text.  This also catches what no check foresaw,
+    so no refusal of a value leaves the parser without a path.
+    """
+    try:
+        yield
+    except ConfigError:
+        raise
+    except TypeError as exc:
+        raise _ConfigTypeError("invalid_value", where, _reason(exc, where)) from None
+    except (ValueError, ArithmeticError) as exc:
+        raise ConfigError("invalid_value", where, _reason(exc, where)) from None
 
 
 def _converted(convert, value: Any, where: str):
@@ -325,12 +366,95 @@ def _converted(convert, value: Any, where: str):
     read the key), raising a :class:`ConfigError` that names ``where``
     when the value does not convert (``.inf`` for an integer, a word for a
     number)."""
+    kind = "an integer" if convert is int else "a number"
     try:
-        return convert(value)
+        out = convert(value)
     except (TypeError, ValueError, OverflowError):
-        kind = "an integer" if convert is int else "a number"
         detail = f"must be {kind}; got {shown(value)}"
         raise ConfigError("invalid_value", where, detail) from None
+    if convert is int and out.bit_length() > MAX_INT_BITS:
+        detail = f"is too large for {kind}; got {shown(value)}"
+        raise ConfigError("invalid_value", where, detail)
+    return out
+
+
+def _converted_int(value: Any, where: str) -> int:
+    """An integer the chosen method does not read: only converted."""
+    return _converted(int, value, where)
+
+
+def _size(value: Any, where: str, least: int = 1) -> int:
+    """A count the run allocates by, read as :func:`_converted` reads an
+    integer: at least ``least``, and small enough for an array."""
+    size = _converted(int, value, where)
+    if size < least:
+        detail = f"must be at least {least}; got {shown(value)}"
+        raise ConfigError("invalid_value", where, detail)
+    if size > sys.maxsize:
+        detail = f"is too large for an array; got {shown(value)}"
+        raise ConfigError("invalid_value", where, detail)
+    return size
+
+
+def _table_size(value: Any, where: str):
+    """``n_grid_r``, ``n_grid_cos`` or ``n_grid_x``: ``None``, or an integer
+    the spatial table has that many nodes of."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
+        detail = f"must be an integer; got {shown(value)}"
+        raise ConfigError("invalid_value", where, detail)
+    _size(value, where)
+    return value
+
+
+def _table_bound(value: Any, where: str):
+    """``r_max`` or ``x_max``: ``None``, or a positive finite number."""
+    if value is None:
+        return None
+    bound = _yaml_number(value, where)
+    if not float(bound) > 0.0:
+        detail = f"must be positive; got {shown(value)}"
+        raise ConfigError("invalid_value", where, detail)
+    return bound
+
+
+def _jobs(value: Any, where: str) -> int:
+    """An ``n_jobs``: joblib gives 0 no meaning."""
+    jobs = _converted(int, value, where)
+    if jobs == 0 or abs(jobs) > sys.maxsize:
+        detail = (
+            f"must be a process count, 1 for one process or -1 for one per "
+            f"core; got {shown(value)}"
+        )
+        raise ConfigError("invalid_value", where, detail)
+    return jobs
+
+
+def _finite(value: float, where: str) -> float:
+    """A number read with :func:`_converted`, refused unless finite."""
+    if not math.isfinite(value):
+        raise ConfigError("invalid_value", where, f"must be finite; got {shown(value)}")
+    return value
+
+
+def _path_value(value: Any, where: str):
+    """A path a config names, as it was given."""
+    text = os.fspath(value) if isinstance(value, (str, os.PathLike)) else None
+    if not isinstance(text, str) or not text or "\0" in text:
+        detail = f"must be a path; got {shown(value)}"
+        raise ConfigError("invalid_value", where, detail)
+    return value
+
+
+def _cache_path(value: Any, where: str):
+    """A ``cache_path``: ``None``, or a path."""
+    return None if value is None else _path_value(value, where)
+
+
+def _named_file(base_dir: Path, value: Any, where: str) -> Path:
+    """The file a key names, relative to the YAML file."""
+    return (base_dir / _path_value(value, where)).resolve()
 
 
 def _grid_points(span: float, dt: float, where: str) -> int:
@@ -359,6 +483,21 @@ class _ModuleAttributeError(ConfigError, AttributeError):
     ``AttributeError``, which the loader raised before."""
 
 
+class _ModuleImportError(ConfigError, ImportError):
+    """A module the config names cannot be imported.  Also an
+    ``ImportError``, which the loader raised for a file it could not read
+    as a module."""
+
+
+class _ModuleFileError(ConfigError, OSError):
+    """A module the config names cannot be read from disk, or reads a file
+    that cannot.  Also an ``OSError``, which the loader raised before."""
+
+
+class _ModuleMissingError(_ModuleFileError, FileNotFoundError):
+    """As :class:`_ModuleFileError`, for a file that does not exist."""
+
+
 # =========================================================================
 # YAML → WorkflowConfig
 # =========================================================================
@@ -382,16 +521,10 @@ def load_workflow_config(
         A :class:`WorkflowConfig` ready to pass to :func:`run_workflow`.
 
     Raises:
-        ConfigError: the file or an override is refused; an override error
-            is an :class:`OverrideError`, also a ``KeyError``.
-        ValueError: a value the parser refuses with no code or path.  A
-            :class:`ConfigError` is a ``ValueError`` too.
-        TypeError: as ``ValueError``.
-        OverflowError: as ``ValueError``.
-        ImportError: a path the parser reads as a module that Python cannot
-            load, or an import inside that module.
-        OSError: the file, or a ``.py`` module the parser reads, cannot be
-            opened.
+        ConfigError: the file or an override is refused, with a code and a
+            dotted path.  It is a ``ValueError``; an override error is an
+            :class:`OverrideError`, also a ``KeyError``.
+        OSError: the file cannot be opened.
         yaml.YAMLError: YAML cannot read the file.
     """
     try:
@@ -730,7 +863,7 @@ def _refuse_cycles(data: dict) -> None:
         stack.append((item, route, True))
         if isinstance(item, dict):
             steps = [
-                (v, f".{_cut_key(str(k))}")
+                (v, f".{_cut_key(text_of(k))}")
                 for k, v in item.items()
                 if isinstance(v, containers)
             ]
@@ -792,6 +925,8 @@ _OUTPUT_KEYS = frozenset({"type", "path", "format", "x", "y", "hue", "facet_col"
 #: Accepted values of ``propagators.c_method``, ``output[].type`` and
 #: ``output[].format``; :mod:`.schema` lists the same.
 _C_METHODS = ("auto", "dblquad", "gauss_legendre")
+#: The methods of ``scipy.interpolate.RegularGridInterpolator``.
+_INTERP_METHODS = ("linear", "nearest", "slinear", "cubic", "quintic", "pchip")
 _OUTPUT_TYPES = ("table", "npz", "plot")
 _TABLE_FORMATS = ("markdown", "csv", "plain")
 #: Accepted values of ``propagators.homogeneity`` besides null.
@@ -836,11 +971,12 @@ def _check_position_labels(expand_cfg, sweep_cfg) -> None:
         )
     missing = sorted(labels - set(sweep_cfg.positions_grid))
     if missing:
-        raise ValueError(
-            f"sweep.positions_grid: no position for {missing}, which "
-            f"expand.observable names; a point without a position would sit "
-            f"at the default coordinate 0.  Give every point a list, e.g. "
-            f"{missing[0]}: [0.0]."
+        raise ConfigError(
+            "invalid_value",
+            "sweep.positions_grid",
+            f"no position for {missing}, which expand.observable names; a "
+            f"point without a position would sit at the default coordinate "
+            f"0.  Give every point a list, e.g. {missing[0]}: [0.0]",
         )
 
 
@@ -864,10 +1000,11 @@ def _check_integrate_over(expand_cfg, sweep_cfg) -> None:
     labels = _observable_points(expand_cfg)
     unknown = sorted(set(names) - labels)
     if unknown:
-        raise ValueError(
-            f"sweep.integrate_over: names {unknown}, which expand.observable "
-            f"does not use; its points are {sorted(labels)}.  Write all for "
-            f"every point."
+        raise ConfigError(
+            "invalid_value",
+            "sweep.integrate_over",
+            f"names {unknown}, which expand.observable does not use; its "
+            f"points are {sorted(labels)}.  Write all for every point",
         )
 
 
@@ -879,65 +1016,94 @@ def _integrate_over_selection(raw: Any):
         return None
     if isinstance(raw, str):
         return "all" if raw == "all" else [str(raw)]
+    where = "sweep.integrate_over"
     usage = (
-        f"sweep.integrate_over must be null, all, a point name or a list of "
-        f"point names, e.g. [x]; got {shown(raw)}."
+        f"must be null, all, a point name or a list of point names, e.g. [x]; "
+        f"got {shown(raw)}"
     )
     if isinstance(raw, (bytes, bytearray, collections.abc.Mapping)):
-        raise TypeError(usage)
+        raise _ConfigTypeError("invalid_value", where, usage)
     try:
         names = list(raw)
     except TypeError:  # a number, a boolean, a 0-d array
-        raise TypeError(usage) from None
+        raise _ConfigTypeError("invalid_value", where, usage) from None
     for name in names:
         if not isinstance(name, str):
-            raise TypeError(
-                f"sweep.integrate_over: the entry {shown(name)} in {shown(raw)} is not "
-                f"a point name; quote a name YAML would read as a number or "
-                f"a boolean, e.g. '1'."
+            raise _ConfigTypeError(
+                "invalid_value",
+                where,
+                f"the entry {shown(name)} in {shown(raw)} is not a "
+                f"point name; quote a name YAML would read as a number or a "
+                f"boolean, e.g. '1'",
             )
     return [str(name) for name in names]
 
 
-def _as_list(value: Any, usage: str) -> list:
+def _as_list(value: Any, where: str, usage: str) -> list:
     """A field YAML writes as a list, as a list.
 
     A Python override (``load_workflow_config(path, overrides=...)``) may
     pass a tuple or a NumPy array, converted with ``list()``.  A string,
-    bytes, a mapping and a scalar raise ``ValueError(usage)``: ``list()``
-    would split the first two into characters and keep a mapping's keys.
+    bytes, a mapping and a scalar are refused at ``where`` with the reason
+    ``usage``: ``list()`` would split the first two into characters and
+    keep a mapping's keys.
     """
     if isinstance(value, (str, bytes, bytearray, collections.abc.Mapping)):
-        raise ValueError(usage)
+        raise ConfigError("invalid_value", where, usage)
     try:
         return list(value)
     except TypeError:  # a number, a boolean, a 0-d array
-        raise ValueError(usage) from None
+        raise ConfigError("invalid_value", where, usage) from None
 
 
-def _parse_point_grid(raw: Any, where: str) -> dict:
+def _position(value: Any, where: str):
+    """One position of a grid: a finite number, or a non-empty vector of
+    them.  A vector other than a list comes from Python and is returned as
+    it was given; only a list can hold a number YAML read as a string."""
+    if isinstance(value, np.ndarray) and value.ndim == 0:
+        return _yaml_number(value, where)
+    if not isinstance(value, (list, tuple, np.ndarray)):
+        return _yaml_number(value, where)
+    if not len(value):
+        detail = "is an empty vector; give a number or a vector of numbers"
+        raise ConfigError("invalid_value", where, detail)
+    entries = [_yaml_number(v, f"{where}[{i}]") for i, v in enumerate(value)]
+    return entries if isinstance(value, list) else value
+
+
+def _parse_point_grid(raw: Any, where: str, read=_position) -> dict:
     """``positions_grid`` / ``external_times_grid``: a mapping from point
-    names (strings) to lists of values."""
+    names (strings) to lists of values, each read with ``read(value, path)``."""
     if not isinstance(raw, collections.abc.Mapping):
-        raise ValueError(
-            f"{where} must be a mapping from point names to lists of values, "
-            f"e.g. {{x: [0.0], y: [0.5]}}; got {shown(raw)}."
+        raise ConfigError(
+            "invalid_value",
+            where,
+            f"must be a mapping from point names to lists of values, e.g. "
+            f"{{x: [0.0], y: [0.5]}}; got {shown(raw)}",
         )
     out = {}
     for key, values in raw.items():
         if not isinstance(key, str):
-            raise ValueError(
-                f"{where}: the point name {shown(key)} is a {type(key).__name__}, "
-                f"not a string.  YAML reads an unquoted 1, 2.5, on, off, yes, "
-                f"no, true, false or null as a number, a boolean or null; "
-                f"quote the name as expand.observable spells it, e.g. "
-                f"'1': [0.0]."
+            raise ConfigError(
+                "invalid_value",
+                _join(where, key),
+                f"the point name is a {type(key).__name__}, not a string.  "
+                f"YAML reads an unquoted 1, 2.5, on, off, yes, no, true, false "
+                f"or null as a number, a boolean or null; quote the name as "
+                f"expand.observable spells it, e.g. '1': [0.0]",
             )
-        out[key] = _as_list(
-            values,
-            f"{where}[{shown(key)}] must be a list of values, e.g. [0.0, 0.5]; "
-            f"got {shown(values)}.",
-        )
+        axis = f"{where}.{key}"
+        out[key] = [
+            read(value, f"{axis}[{i}]")
+            for i, value in enumerate(
+                _as_list(
+                    values,
+                    axis,
+                    f"must be a list of values, e.g. [0.0, 0.5]; got "
+                    f"{shown(values)}",
+                )
+            )
+        ]
     return out
 
 
@@ -954,10 +1120,12 @@ def _parse_workflow(data: dict, base_dir: Path) -> WorkflowConfig:
     if output_d is None:
         output_d = []
     if not isinstance(output_d, list):
-        raise ValueError(
-            f"output must be a list of entries, each a mapping with a "
-            f"'type', e.g. [{{type: table}}]; got {shown(output_d)}.  Write a "
-            f"single entry as a one-entry list."
+        raise ConfigError(
+            "invalid_value",
+            "output",
+            f"must be a list of entries, each a mapping with a 'type', e.g. "
+            f"[{{type: table}}]; got {shown(output_d)}.  Write a single "
+            f"entry as a one-entry list",
         )
 
     # Extract the top-level dt before parsing system so the linear gamma-spline
@@ -966,15 +1134,22 @@ def _parse_workflow(data: dict, base_dir: Path) -> WorkflowConfig:
     if default_dt is not None:
         default_dt = _converted(float, default_dt, "propagators.dt")
 
-    sweep_cfg = _parse_sweep(sweep_d)
-    system_cfg = _parse_system(
-        system_d, base_dir, default_dt=default_dt, t_max=props_d.get("t_max")
-    )
-    expand_cfg = _parse_expand(expand_d)
+    with _refused_at("sweep"):
+        sweep_cfg = _parse_sweep(sweep_d)
+    with _refused_at("system"):
+        system_cfg = _parse_system(
+            system_d, base_dir, default_dt=default_dt, t_max=props_d.get("t_max")
+        )
+    with _refused_at("expand"):
+        expand_cfg = _parse_expand(expand_d)
     _check_position_labels(expand_cfg, sweep_cfg)
     _check_integrate_over(expand_cfg, sweep_cfg)
-    props_cfg = _parse_propagators(props_d, base_dir)
-    output_cfgs = [_parse_output(o, i) for i, o in enumerate(output_d)]
+    with _refused_at("propagators"):
+        props_cfg = _parse_propagators(props_d, base_dir)
+    output_cfgs = []
+    for i, entry in enumerate(output_d):
+        with _refused_at(f"output[{i}]"):
+            output_cfgs.append(_parse_output(entry, i))
 
     return WorkflowConfig(
         system=system_cfg,
@@ -999,9 +1174,10 @@ def _require_mapping(data: Any) -> None:
 
 def _require_dict(d: dict, key: str) -> dict:
     if key not in d:
-        raise ValueError(f"config missing required top-level section '{key}'")
+        detail = "this top-level section is required"
+        raise ConfigError("invalid_value", key, detail)
     if not isinstance(d[key], dict):
-        raise ValueError(f"config section '{key}' must be a mapping")
+        raise ConfigError("invalid_value", key, "must be a mapping")
     return d[key]
 
 
@@ -1017,27 +1193,37 @@ def _parse_system(
     if fld is None:
         fld = {}
     if not isinstance(fld, dict):
-        raise ValueError(
-            f"system.field must be a mapping with 'name' and 'n_components', "
-            f"e.g. {{name: phi, n_components: 2}}; got {shown(fld)}."
+        raise ConfigError(
+            "invalid_value",
+            "system.field",
+            f"must be a mapping with 'name' and 'n_components', e.g. "
+            f"{{name: phi, n_components: 2}}; got {shown(fld)}",
         )
     _reject_unknown_keys(fld, _FIELD_KEYS, "system.field")
     for key in ("vertices", "nonlocal_vertices"):
         blocks = d.get(key)
         if blocks is not None and not isinstance(blocks, list):
-            raise ValueError(
-                f"system.{key} must be a list of vertex blocks; got "
-                f"{shown(blocks)}.  Write a single vertex as a one-entry list."
+            raise ConfigError(
+                "invalid_value",
+                f"system.{key}",
+                f"must be a list of vertex blocks; got {shown(blocks)}.  "
+                f"Write a single vertex as a one-entry list",
             )
     name = fld.get("name", "phi")
-    nc = _converted(int, fld.get("n_components", 1), "system.field.n_components")
-    t_min = _converted(float, d.get("t_min", 0.0), "system.t_min")
+    nc = _size(fld.get("n_components", 1), "system.field.n_components")
+    t_min = _finite(
+        _converted(float, d.get("t_min", 0.0), "system.t_min"), "system.t_min"
+    )
 
     linear = d.get("linear")
     if linear is None:
-        raise ValueError("system.linear is required")
+        raise ConfigError("invalid_value", "system.linear", "is required")
     if not isinstance(linear, dict):
-        raise ValueError(f"system.linear must be a mapping; got {shown(linear)}.")
+        raise ConfigError(
+            "invalid_value",
+            "system.linear",
+            f"must be a mapping; got {shown(linear)}",
+        )
     linear = _resolve_linear(
         dict(linear),
         base_dir,
@@ -1049,7 +1235,7 @@ def _parse_system(
 
     noise = d.get("noise")
     if noise is None:
-        raise ValueError("system.noise is required")
+        raise ConfigError("invalid_value", "system.noise", "is required")
     if isinstance(noise, dict):
         _reject_unknown_keys(noise, _NOISE_KEYS, "system.noise")
         _check_noise_keys(noise)
@@ -1067,10 +1253,12 @@ def _parse_system(
     names = [v["name"] for v in vertices + nonlocal_vertices]
     repeated = sorted({n for n in names if names.count(n) > 1})
     if repeated:
-        raise ValueError(
-            f"system: vertex name(s) {repeated} used more than once.  The "
-            f"coupling values are keyed by vertex name, so names must be "
-            f"unique across vertices and nonlocal_vertices."
+        raise ConfigError(
+            "invalid_value",
+            "system.vertices",
+            f"vertex name(s) {repeated} used more than once.  The coupling "
+            f"values are keyed by vertex name, so names must be unique across "
+            f"vertices and nonlocal_vertices",
         )
 
     return SystemConfig(
@@ -1188,8 +1376,10 @@ def _parse_vertex(
     cls = sp.LocalVertex if kind == "local" else sp.NonLocalVertex
     where = f"system.{block}[{index}]"
     if not isinstance(v, dict):
-        raise ValueError(
-            f"{where} must be a mapping with 'name' and a coupling; " f"got {shown(v)}."
+        raise ConfigError(
+            "invalid_value",
+            where,
+            f"must be a mapping with 'name' and a coupling; got {shown(v)}",
         )
     allowed = _vertex_keys(cls)
     _reject_unknown_keys(v, allowed, where)
@@ -1198,18 +1388,23 @@ def _parse_vertex(
     out = {k: val for k, val in v.items() if k in allowed}
     name = out.get("name")
     if not isinstance(name, str) or not name:
-        raise ValueError(f"{where}: 'name' (a non-empty string) is required.")
-    where = f"{where} ({shown(name)})"
+        detail = "'name' (a non-empty string) is required"
+        raise ConfigError("invalid_value", f"{where}.name", detail)
+    label = f"vertex {shown(name)}"
     sources = [k for k in _COUPLING_SOURCES if k in out]
     if len(sources) != 1:
-        raise ValueError(
-            f"{where}: give exactly one of {list(_COUPLING_SOURCES)}; "
-            f"got {sources or 'none'}."
+        raise ConfigError(
+            "invalid_value",
+            where,
+            f"{label}: give exactly one of {list(_COUPLING_SOURCES)}; got "
+            f"{sources or 'none'}",
         )
     if "coupling_attr" in out and sources[0] != "coupling_module":
-        raise ValueError(
-            f"{where}: 'coupling_attr' names the callable in "
-            f"'coupling_module' and does nothing with {shown(sources[0])}."
+        raise ConfigError(
+            "invalid_value",
+            f"{where}.coupling_attr",
+            f"{label}: 'coupling_attr' names the callable in 'coupling_module' "
+            f"and does nothing with {shown(sources[0])}",
         )
     if kind == "nonlocal":
         order = out.get("order")
@@ -1218,55 +1413,69 @@ def _parse_vertex(
             or not isinstance(order, (int, np.integer))
             or order < 1
         ):
-            raise ValueError(
-                f"{where}: 'order' (m, the number of psi legs, an integer "
-                f">= 1) is required; got {shown(order)}."
+            raise ConfigError(
+                "invalid_value",
+                f"{where}.order",
+                f"{label}: 'order' (m, the number of psi legs, an integer "
+                f">= 1) is required; got {shown(order)}",
             )
-        out["order"] = int(order)
+        out["order"] = _size(order, f"{where}.order")
     for flag in _VERTEX_FLAGS:
         if flag in out:
             out[flag] = _as_bool(out[flag], f"{where}.{flag}")
 
     if sources[0] == "coupling_path":
-        npy = (base_dir / text_of(out.pop("coupling_path"))).resolve()
+        npy = _named_file(
+            base_dir, out.pop("coupling_path"), f"{where}.coupling_path"
+        )
         try:
             out["coupling"] = np.load(npy)
-        except (OSError, ValueError, EOFError) as exc:
+        except (OSError, ValueError, EOFError, MemoryError, zipfile.BadZipFile) as exc:
             raise ConfigError(
                 "read_error", f"{where}.coupling_path", f"cannot read {npy}: {exc}"
             ) from None
     elif sources[0] == "coupling_module":
-        mod_path = (base_dir / text_of(out.pop("coupling_module"))).resolve()
-        attr = text_of(out.pop("coupling_attr", "coupling_fn"))
-        out["coupling"] = _load_callable_from_module(mod_path, attr)
+        out["coupling"] = _load_named(
+            out, base_dir, where, "coupling_module", "coupling_attr", "coupling_fn"
+        )
+        del out["coupling_module"]
+        out.pop("coupling_attr", None)
     if callable(out["coupling"]):
         return out
 
     if out.get("coupling_vectorized"):
-        raise ValueError(
-            f"{where}: coupling_vectorized applies to a callable coupling "
-            f"(coupling_module), not to a tensor."
+        raise ConfigError(
+            "invalid_value",
+            f"{where}.coupling_vectorized",
+            f"{label}: coupling_vectorized applies to a callable coupling "
+            f"(coupling_module), not to a tensor",
         )
+    coupling = f"{where}.coupling"
     try:
         arr = np.asarray(out["coupling"])
-    except ValueError:
+    except (ValueError, OverflowError):
         arr = np.asarray(None)
     if not (np.issubdtype(arr.dtype, np.number) and np.all(np.isfinite(arr))):
-        raise ValueError(f"{where}: the coupling must be a tensor of finite numbers.")
+        detail = f"the coupling of {label} must be a tensor of finite numbers"
+        raise ConfigError("invalid_value", coupling, detail)
     n = int(n_components)
     if kind == "nonlocal":
         want = (n,) * out["order"]
     else:
         if arr.ndim == 0:
-            raise ValueError(
-                f"{where}: a local coupling F^(n) is a tensor with n >= 1 "
-                f"axes, the first the psi leg; got a scalar."
+            raise ConfigError(
+                "invalid_value",
+                coupling,
+                f"{label}: a local coupling F^(n) is a tensor with n >= 1 axes, "
+                f"the first the psi leg; got a scalar",
             )
         want = (n,) * arr.ndim
     if arr.shape != want:
-        raise ValueError(
-            f"{where}: the coupling has shape {arr.shape}; with "
-            f"n_components = {n} it must be {want}."
+        raise ConfigError(
+            "invalid_value",
+            coupling,
+            f"{label}: the coupling has shape {arr.shape}; with n_components = "
+            f"{n} it must be {want}",
         )
     out["coupling"] = arr
     return out
@@ -1300,6 +1509,7 @@ _LINEAR_DIAGONAL_KEYS = (
     "t_max_cache",
     "t_min_cache",
 )
+_LINEAR_TYPES = ("diagonal", "explicit")
 _LINEAR_EXPLICIT_KEYS = (
     "type",
     "R_time_module",
@@ -1378,9 +1588,16 @@ def _resolve_linear(
         return _resolve_linear_diagonal(
             lin, base_dir, default_dt=default_dt, n_components=n_components
         )
-    raise ValueError(
-        f"Unsupported linear operator type {shown(lt)}.  "
-        f"Supported: 'diagonal', 'explicit'."
+    raise _unsupported_linear(lt)
+
+
+def _unsupported_linear(lt: Any) -> ConfigError:
+    return ConfigError(
+        "invalid_value",
+        "system.linear.type",
+        f"unsupported linear operator type {shown(lt)}; supported: "
+        f"{_or_list(_LINEAR_TYPES)}",
+        _nearest(lt, _LINEAR_TYPES),
     )
 
 
@@ -1392,12 +1609,14 @@ def _decay_rates(gamma: Any, n_components: int | None) -> list:
     if not isinstance(gamma, list):
         return [_yaml_number(gamma, where)]
     if not gamma:
-        raise ValueError(f"{where} is an empty list.")
+        raise ConfigError("invalid_value", where, "is an empty list")
     rates = [_yaml_number(g, f"{where}[{i}]") for i, g in enumerate(gamma)]
     if n_components is not None and len(rates) not in (1, int(n_components)):
-        raise ValueError(
-            f"{where} has {len(rates)} rates; with n_components = "
-            f"{n_components} give {n_components}, or one for all."
+        raise ConfigError(
+            "invalid_value",
+            where,
+            f"has {len(rates)} rates; with n_components = {n_components} give "
+            f"{n_components}, or one for all",
         )
     return rates
 
@@ -1411,24 +1630,33 @@ def _resolve_linear_diagonal(
 ) -> dict:
     """Parse-time resolver for ``type: diagonal``."""
     _reject_unknown_keys(lin, _LINEAR_DIAGONAL_KEYS, "system.linear", "type 'diagonal'")
+    where = "system.linear"
     if "gamma" in lin and "gamma_module" in lin:
-        raise ValueError(
-            "system.linear: provide exactly one of {'gamma', 'gamma_module'}"
+        raise ConfigError(
+            "invalid_value",
+            f"{where}.gamma_module",
+            "provide exactly one of {'gamma', 'gamma_module'}",
         )
     if "gamma_module" in lin:
-        mod_path = (base_dir / lin.pop("gamma_module")).resolve()
-        attr = lin.pop("gamma_attr", "gamma")
-        lin["gamma"] = _load_callable_from_module(mod_path, attr)
+        lin["gamma"] = _load_named(
+            lin, base_dir, where, "gamma_module", "gamma_attr", "gamma"
+        )
+        del lin["gamma_module"]
+        lin.pop("gamma_attr", None)
     elif "gamma" not in lin:
-        raise ValueError(
-            "system.linear (type 'diagonal') requires 'gamma', a list of "
-            "decay rates (one per component, or one for all), or "
-            "'gamma_module' for a time-dependent rate."
+        raise ConfigError(
+            "invalid_value",
+            f"{where}.gamma",
+            "type 'diagonal' requires 'gamma', a list of decay rates (one per "
+            "component, or one for all), or 'gamma_module' for a "
+            "time-dependent rate",
         )
     elif "gamma_attr" in lin:
-        raise ValueError(
-            "system.linear: 'gamma_attr' names the callable in "
-            "'gamma_module' and does nothing with 'gamma'."
+        raise ConfigError(
+            "invalid_value",
+            f"{where}.gamma_attr",
+            "'gamma_attr' names the callable in 'gamma_module' and does "
+            "nothing with 'gamma'",
         )
     else:
         lin["gamma"] = _decay_rates(lin["gamma"], n_components)
@@ -1441,15 +1669,19 @@ def _resolve_linear_diagonal(
         else default_dt
     )
     if effective_dt is not None:
+        dt_key = "system.linear.dt" if linear_dt is not None else "propagators.dt"
         if effective_dt <= 0.0:
-            raise ValueError(
-                f"system.linear.dt (or propagators.dt) must be positive, "
-                f"got {effective_dt}"
+            raise ConfigError(
+                "invalid_value",
+                dt_key,
+                f"must be positive, got {effective_dt}",
             )
         if "n_grid_cache" in lin:
-            raise ValueError(
-                "system.linear: specify exactly one of {'dt' (here or in "
-                "propagators), 'n_grid_cache'}; got both."
+            raise ConfigError(
+                "invalid_value",
+                "system.linear.n_grid_cache",
+                "specify exactly one of {'dt' (here or in propagators), "
+                "'n_grid_cache'}; got both",
             )
         t_max_cache = _converted(
             float, lin.get("t_max_cache", 100.0), "system.linear.t_max_cache"
@@ -1492,30 +1724,39 @@ def _resolve_linear_explicit(
         "t_max_cache",
         "t_min_cache",
     )
+    where = "system.linear"
     present = [k for k in forbidden if k in lin]
     if present:
-        raise ValueError(
-            f"system.linear.type='explicit' does not accept "
-            f"gamma-spline fields {shown(present)}.  Use 'type: diagonal' for "
-            f"those, or remove them under 'type: explicit'."
+        raise ConfigError(
+            "invalid_value",
+            f"{where}.{present[0]}",
+            f"type 'explicit' does not accept gamma-spline fields {shown(present)}.  "
+            f"Use 'type: diagonal' for those, or remove them under "
+            f"'type: explicit'",
         )
     if "R_time" in lin:
-        raise ValueError(
-            "system.linear.type='explicit' does not support an inline "
-            "'R_time' (a callable cannot be expressed in YAML).  Use "
-            "'R_time_module' + 'R_time_attr' instead."
+        raise ConfigError(
+            "invalid_value",
+            f"{where}.R_time",
+            "type 'explicit' does not support an inline 'R_time' (a callable "
+            "cannot be expressed in YAML).  Use 'R_time_module' + "
+            "'R_time_attr' instead",
         )
-    _reject_unknown_keys(lin, _LINEAR_EXPLICIT_KEYS, "system.linear", "type 'explicit'")
+    _reject_unknown_keys(lin, _LINEAR_EXPLICIT_KEYS, where, "type 'explicit'")
     if "R_time_module" not in lin:
-        raise ValueError(
-            "system.linear.type='explicit' requires "
-            "'R_time_module: <relative path to .py file>'."
+        raise ConfigError(
+            "invalid_value",
+            f"{where}.R_time_module",
+            "type 'explicit' requires 'R_time_module: <relative path to .py "
+            "file>'",
         )
     iso_r = _as_bool(lin.get("iso_R", True), "system.linear.iso_R")
     lin["iso_R"] = iso_r
-    mod_path = (base_dir / lin.pop("R_time_module")).resolve()
-    attr = lin.pop("R_time_attr", "R_time")
-    lin["R_time"] = _load_callable_from_module(mod_path, attr)
+    lin["R_time"] = _load_named(
+        lin, base_dir, where, "R_time_module", "R_time_attr", "R_time"
+    )
+    del lin["R_time_module"]
+    lin.pop("R_time_attr", None)
     vectorized = _as_bool(
         lin.get("R_time_vectorized", False), "system.linear.R_time_vectorized"
     )
@@ -1545,19 +1786,25 @@ def _probe_R_time_vectorized(R, t_min: float, t_max: Any) -> None:
     try:
         arr = np.asarray(R(t1, t2), dtype=float)
     except Exception as e:  # noqa: BLE001 (a user callable)
-        raise ValueError(
-            f"{where}: true, but R_time raised {type(e).__name__} on arrays "
-            f"of shape (3,): {e}"
+        raise ConfigError(
+            "invalid_value",
+            where,
+            f"true, but R_time raised {type(e).__name__} on arrays of shape "
+            f"(3,): {e}",
         ) from e
     if arr.shape != ref.shape:
-        raise ValueError(
-            f"{where}: true, but R_time on arrays of shape (3,) returned "
-            f"shape {arr.shape}; the scalar calls give {ref.shape}."
+        raise ConfigError(
+            "invalid_value",
+            where,
+            f"true, but R_time on arrays of shape (3,) returned shape "
+            f"{arr.shape}; the scalar calls give {ref.shape}",
         )
     if not np.allclose(arr, ref, rtol=1e-12, atol=0.0):
-        raise ValueError(
-            f"{where}: true, but R_time on arrays differs from its scalar "
-            f"calls: {arr.tolist()} against {ref.tolist()}."
+        raise ConfigError(
+            "invalid_value",
+            where,
+            f"true, but R_time on arrays differs from its scalar calls: "
+            f"{arr.tolist()} against {ref.tolist()}",
         )
 
 
@@ -1589,8 +1836,10 @@ def _probe_R_time(
         fwd = np.array(R(t1, t2), dtype=float)
         bwd = np.asarray(R(t2, t1), dtype=float)
     except Exception as e:  # noqa: BLE001 (a user callable)
-        raise ValueError(
-            f"{where}: R_time({t1:g}, {t2:g}) raised " f"{type(e).__name__}: {e}"
+        raise ConfigError(
+            "invalid_value",
+            where,
+            f"R_time({t1:g}, {t2:g}) raised {type(e).__name__}: {e}",
         ) from e
     if iso_R:
         ok, want = fwd.shape == (), "a scalar"
@@ -1601,22 +1850,55 @@ def _probe_R_time(
         n = int(n_components)
         ok, want = fwd.shape == (n, n), f"an ({n}, {n}) matrix"
     if not ok:
-        raise ValueError(
-            f"{where}: R_time({t1:g}, {t2:g}) has shape {fwd.shape}, but "
-            f"iso_R: {str(iso_R).lower()} declares {want}."
+        raise ConfigError(
+            "invalid_value",
+            where,
+            f"R_time({t1:g}, {t2:g}) has shape {fwd.shape}, but iso_R: "
+            f"{str(iso_R).lower()} declares {want}",
         )
     if not np.all(np.isfinite(fwd)):
-        raise ValueError(
-            f"{where}: R_time({t1:g}, {t2:g}) is not finite: {fwd.tolist()}."
+        raise ConfigError(
+            "invalid_value",
+            where,
+            f"R_time({t1:g}, {t2:g}) is not finite: {fwd.tolist()}",
         )
     if bwd.shape != fwd.shape or np.any(bwd != 0.0):
-        raise ValueError(
-            f"{where}: R_time({t2:g}, {t1:g}) = {bwd.tolist()}, but the "
-            f"response function is causal: R(t1, t2) = 0 for t1 < t2."
+        raise ConfigError(
+            "invalid_value",
+            where,
+            f"R_time({t2:g}, {t1:g}) = {bwd.tolist()}, but the response "
+            f"function is causal: R(t1, t2) = 0 for t1 < t2",
         )
 
 
-def _load_callable_from_module(path: Path, attr: str):
+def _load_named(
+    block: dict,
+    base_dir: Path,
+    where: str,
+    module_key: str,
+    attr_key: str,
+    default_attr: str,
+):
+    """The callable a block names: the module ``block[module_key]``, a path
+    relative to the YAML file, and in it ``block[attr_key]`` (``default_attr``
+    when the block leaves it out).  ``where`` is the dotted path of the
+    block."""
+    module_where = _join(where, module_key)
+    path = _named_file(base_dir, block[module_key], module_where)
+    attr = block.get(attr_key, default_attr)
+    if not isinstance(attr, str) or not attr:
+        raise ConfigError(
+            "invalid_value",
+            _join(where, attr_key),
+            f"must be the name of a callable; got {shown(attr)}",
+        )
+    attr_where = _join(where, attr_key) if attr_key in block else None
+    return _load_callable_from_module(path, attr, module_where, attr_where)
+
+
+def _load_callable_from_module(
+    path: Path, attr: str, where: str = "", attr_where: str | None = None
+):
     """Import ``path`` as a standalone module and return
     ``getattr(module, attr)``.
 
@@ -1627,6 +1909,12 @@ def _load_callable_from_module(path: Path, attr: str):
     this call cannot re-import the module by name, and unpickling a cache
     that holds the loaded callable raises ``BrokenProcessPool`` /
     ``ModuleNotFoundError``.
+
+    A module that cannot be imported is refused at the key ``where`` names,
+    a missing attribute at ``attr_where`` (by default the same key), and
+    either leaves ``sys.modules`` as it was.  The module is code the config
+    names, so anything it raises is a reason it cannot be imported; a
+    ``sys.exit`` inside it would end the process without a message.
     """
     parent_dir = str(path.parent.resolve())
     if parent_dir not in sys.path:
@@ -1640,22 +1928,43 @@ def _load_callable_from_module(path: Path, attr: str):
     if parent_dir not in pp_parts:
         os.environ["PYTHONPATH"] = os.pathsep.join([parent_dir, *pp_parts])
 
-    module_name = path.stem
-    spec_obj = importlib.util.spec_from_file_location(module_name, path)
+    name = path.stem
+    spec_obj = importlib.util.spec_from_file_location(name, path)
     if spec_obj is None or spec_obj.loader is None:
-        raise ImportError(f"Cannot load coupling module {shown(path)}.")
+        detail = f"cannot load {shown(str(path))} as a Python module"
+        raise _ModuleImportError("read_error", where, detail)
     module = importlib.util.module_from_spec(spec_obj)
-    sys.modules[module_name] = module
-    spec_obj.loader.exec_module(module)
-    fn = getattr(module, attr, None)
-    if fn is None or not callable(fn):
-        raise _ModuleAttributeError(
-            "read_error",
-            "",
-            f"module {shown(str(path))} has no callable attribute {shown(attr)}",
-        )
+    previous = sys.modules.get(name)
+    sys.modules[name] = module
+    try:
+        spec_obj.loader.exec_module(module)
+        fn = getattr(module, attr, None)
+        if not callable(fn):
+            raise _ModuleAttributeError(
+                "read_error",
+                attr_where or where,
+                f"module {shown(str(path))} has no callable attribute "
+                f"{shown(attr)}",
+            )
+    except (Exception, SystemExit) as exc:
+        if previous is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = previous
+        if isinstance(exc, ConfigError):
+            raise
+        detail = f"cannot import {shown(str(path))}: {type(exc).__name__}: {exc}"
+        raise _module_error(exc)("read_error", where, detail) from exc
     _register_module_by_value(module)
     return fn
+
+
+def _module_error(exc: BaseException) -> type:
+    """The class of the error for what stopped an import."""
+    if isinstance(exc, FileNotFoundError):
+        return _ModuleMissingError
+    return _ModuleFileError if isinstance(exc, OSError) else _ModuleImportError
+
 
 
 def _register_module_by_value(module) -> None:
@@ -1725,35 +2034,49 @@ def _check_observable_entries(obs: list) -> None:
             )
 
 
-def _parse_expand(d: dict) -> ExpandConfig:
+def _orders(raw: Any, where: str, required: bool = False):
+    """:func:`~.expansion._order_selection` at the key ``where``, with an
+    order small enough to count to."""
     from .expansion import _order_selection
 
+    with _refused_at(where):
+        orders = _order_selection(raw, where, required=required)
+    if orders and orders[-1] > sys.maxsize:
+        detail = f"the order {shown(orders[-1])} is too large"
+        raise ConfigError("invalid_value", where, detail)
+    return orders
+
+
+def _parse_expand(d: dict) -> ExpandConfig:
     _reject_unknown_keys(d, _EXPAND_KEYS, "expand")
     obs = d.get("observable")
     if obs is None:
-        raise ValueError("expand.observable is required")
+        raise ConfigError("invalid_value", "expand.observable", "is required")
     if isinstance(obs, collections.abc.Set):
-        raise ValueError(
-            f"expand.observable: a set has no order, and the order of the "
-            f"operators fixes which component index belongs to which; give "
-            f"a list, e.g. ['phi_a(x)', 'phi_b(y)']; got {shown(obs)}."
+        raise ConfigError(
+            "invalid_value",
+            "expand.observable",
+            f"a set has no order, and the order of the operators fixes which "
+            f"component index belongs to which; give a list, e.g. "
+            f"['phi_a(x)', 'phi_b(y)']; got {shown(obs)}",
         )
     obs = _as_list(
         obs,
-        f"expand.observable must be a list of operators, e.g. "
-        f"['phi_a(x)', 'phi_b(y)']; got {shown(obs)}.  A string is not split "
-        f"into operators.",
+        "expand.observable",
+        f"must be a list of operators, e.g. ['phi_a(x)', 'phi_b(y)']; got "
+        f"{shown(obs)}.  A string is not split into operators",
     )
     # A NumPy array of operators gives np.str_ entries.
     obs = [str(o) if isinstance(o, str) else o for o in obs]
     _check_observable_entries(obs)
     # One integer is one order, as for sweep.orders.
-    orders = _order_selection(d.get("orders"), "expand.orders", required=True)
+    orders = _orders(d.get("orders"), "expand.orders", required=True)
     if orders is None:
-        raise ValueError("expand.orders is required")
+        raise ConfigError("invalid_value", "expand.orders", "is required")
     from sft_wick._connected import validate_target
 
-    validate_target(d.get("target", "moment"), obs)
+    with _refused_at("expand.target"):
+        validate_target(d.get("target", "moment"), obs)
     return ExpandConfig(
         observable=tuple(obs),
         orders=orders,
@@ -1764,8 +2087,8 @@ def _parse_expand(d: dict) -> ExpandConfig:
         diag_R=_flag(d, "diag_R", True, "expand"),
         diag_C=_flag(d, "diag_C", True, "expand"),
         iso_C=_flag(d, "iso_C", False, "expand"),
-        cache_path=d.get("cache_path"),
-        n_jobs=_converted(int, d.get("n_jobs", 1), "expand.n_jobs"),
+        cache_path=_cache_path(d.get("cache_path"), "expand.cache_path"),
+        n_jobs=_jobs(d.get("n_jobs", 1), "expand.n_jobs"),
         target=d.get("target", "moment"),
     )
 
@@ -1773,25 +2096,37 @@ def _parse_expand(d: dict) -> ExpandConfig:
 def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
     _reject_unknown_keys(d, _PROPAGATORS_KEYS, "propagators")
     if "t_max" not in d:
-        raise ValueError("propagators.t_max is required")
+        raise ConfigError("invalid_value", "propagators.t_max", "is required")
     module_spec = d.get("c_closed_form_module")
     if module_spec is not None:
-        module_spec = str((base_dir / module_spec).resolve())
+        module_spec = str(
+            _named_file(base_dir, module_spec, "propagators.c_closed_form_module")
+        )
 
+    # c_closed_form_only builds no table, so it reads neither of these.
+    only = _flag(d, "c_closed_form_only", False, "propagators")
     t_max = _converted(float, d["t_max"], "propagators.t_max")
+    if not only:
+        _finite(t_max, "propagators.t_max")
     dt = d.get("dt")
     has_n_grid_t = "n_grid_t" in d
     if dt is not None:
         dt = _converted(float, dt, "propagators.dt")
         if dt <= 0.0:
-            raise ValueError(f"propagators.dt must be positive, got {dt}")
+            raise ConfigError(
+                "invalid_value", "propagators.dt", f"must be positive, got {dt}"
+            )
         if has_n_grid_t:
-            raise ValueError(
-                "propagators: specify exactly one of {'dt', 'n_grid_t'}; " "got both."
+            raise ConfigError(
+                "invalid_value",
+                "propagators.n_grid_t",
+                "specify exactly one of {'dt', 'n_grid_t'}; got both",
             )
         n_grid_t = _grid_points(t_max, dt, "propagators.dt")
-    else:
+    elif only:
         n_grid_t = _converted(int, d.get("n_grid_t", 60), "propagators.n_grid_t")
+    else:
+        n_grid_t = _size(d.get("n_grid_t", 60), "propagators.n_grid_t", least=2)
 
     c_closed_form = d.get("c_closed_form", "auto")
     if c_closed_form in (False, None, "none", "null", "off"):
@@ -1799,25 +2134,37 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
     elif c_closed_form is True or text_of(c_closed_form).lower() == "auto":
         c_closed_form = "auto"
     else:
-        raise ValueError(
-            f"propagators.c_closed_form must be 'auto' or null/false; got "
-            f"{shown(c_closed_form)}.  To supply your own closed form use "
-            f"c_closed_form_module / c_closed_form_attr."
+        raise ConfigError(
+            "invalid_value",
+            "propagators.c_closed_form",
+            f"must be 'auto' or null/false; got {shown(c_closed_form)}.  "
+            f"To supply your own closed form use c_closed_form_module / "
+            f"c_closed_form_attr",
         )
     homogeneity = d.get("homogeneity")
     if homogeneity is not None and homogeneity not in _HOMOGENEITIES:
         raise ConfigError(
             "invalid_value",
             "propagators.homogeneity",
-            f"must be null or one of {_or_list(_HOMOGENEITIES)}; "
-            f"got {shown(homogeneity)}",
+            f"must be null or one of {_or_list(_HOMOGENEITIES)}; got "
+            f"{shown(homogeneity)}",
             _nearest(homogeneity, _HOMOGENEITIES),
         )
     c_method = text_of(d.get("c_method", "auto"))
     if c_method not in _C_METHODS:
-        raise ValueError(
-            f"propagators.c_method must be 'auto', 'dblquad' or "
-            f"'gauss_legendre'; got {shown(c_method)}."
+        raise ConfigError(
+            "invalid_value",
+            "propagators.c_method",
+            f"must be 'auto', 'dblquad' or 'gauss_legendre'; got {shown(c_method)}",
+            _nearest(c_method, _C_METHODS),
+        )
+    interp_method = text_of(d.get("interp_method", "linear"))
+    if interp_method not in _INTERP_METHODS:
+        raise ConfigError(
+            "invalid_value",
+            "propagators.interp_method",
+            f"must be one of {_or_list(_INTERP_METHODS)}; got {shown(interp_method)}",
+            _nearest(interp_method, _INTERP_METHODS),
         )
 
     return PropagatorsConfig(
@@ -1825,23 +2172,23 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
         n_grid_t=n_grid_t,
         dt=dt,
         homogeneity=d.get("homogeneity"),
-        r_max=d.get("r_max"),
-        n_grid_r=d.get("n_grid_r"),
-        n_grid_cos=d.get("n_grid_cos"),
-        x_max=d.get("x_max"),
-        n_grid_x=d.get("n_grid_x"),
-        n_jobs=_converted(int, d.get("n_jobs", 1), "propagators.n_jobs"),
+        r_max=_table_bound(d.get("r_max"), "propagators.r_max"),
+        n_grid_r=_table_size(d.get("n_grid_r"), "propagators.n_grid_r"),
+        n_grid_cos=_table_size(d.get("n_grid_cos"), "propagators.n_grid_cos"),
+        x_max=_table_bound(d.get("x_max"), "propagators.x_max"),
+        n_grid_x=_table_size(d.get("n_grid_x"), "propagators.n_grid_x"),
+        n_jobs=_jobs(d.get("n_jobs", 1), "propagators.n_jobs"),
         c_closed_form=c_closed_form,
         c_closed_form_module=module_spec,
         c_closed_form_attr=text_of(d.get("c_closed_form_attr", "C_fn")),
-        c_closed_form_only=_flag(d, "c_closed_form_only", False, "propagators"),
+        c_closed_form_only=only,
         c_closed_form_vectorized=_flag(
             d, "c_closed_form_vectorized", False, "propagators"
         ),
-        cache_path=d.get("cache_path"),
-        interp_method=text_of(d.get("interp_method", "linear")),
+        cache_path=_cache_path(d.get("cache_path"), "propagators.cache_path"),
+        interp_method=interp_method,
         c_method=c_method,
-        c_n_gauss=_converted(int, d.get("c_n_gauss", 20), "propagators.c_n_gauss"),
+        c_n_gauss=_size(d.get("c_n_gauss", 20), "propagators.c_n_gauss", least=2),
         diag_C=_flag(d, "diag_C", True, "propagators"),
     )
 
@@ -1857,37 +2204,73 @@ def _parse_component_axis(d: dict) -> list:
     """
     given = [k for k in ("component_tuples", "component_pairs") if d.get(k) is not None]
     if len(given) == 2:
-        raise ValueError(
-            "sweep: give component_tuples or component_pairs, not both "
-            "(component_pairs is the older name of the same axis)."
+        raise ConfigError(
+            "invalid_value",
+            "sweep.component_pairs",
+            "give component_tuples or component_pairs, not both "
+            "(component_pairs is the older name of the same axis)",
         )
     if not given:
-        raise ValueError(
-            "sweep.component_tuples is required: a list of component-index "
-            "tuples, one index per observable operator, e.g. [[0, 1, 1]] "
-            "for a 3-point observable (component_pairs, e.g. [[0, 1]], is "
-            "the older 2-point spelling)."
+        raise ConfigError(
+            "invalid_value",
+            "sweep.component_tuples",
+            "is required: a list of component-index tuples, one index per "
+            "observable operator, e.g. [[0, 1, 1]] for a 3-point observable "
+            "(component_pairs, e.g. [[0, 1]], is the older 2-point spelling)",
         )
     key = given[0]
     raw = d[key]
+    where = f"sweep.{key}"
     usage = (
-        f"sweep.{key} must be a non-empty list of component tuples, "
-        f"e.g. [[0, 1]]; got {shown(raw)}."
+        f"must be a non-empty list of component tuples, e.g. [[0, 1]]; got "
+        f"{shown(raw)}"
     )
-    entries = _as_list(raw, usage)
+    entries = _as_list(raw, where, usage)
     if not entries:
-        raise ValueError(usage)
+        raise ConfigError("invalid_value", where, usage)
     tuples = []
-    for entry in entries:
+    for i, entry in enumerate(entries):
         if isinstance(entry, (str, bytes, bytearray)) or not isinstance(
             entry, (collections.abc.Sequence, np.ndarray)
         ):
-            raise ValueError(
-                f"sweep.{key}: each entry is a list of component indices, "
-                f"one per observable operator, e.g. [0, 1]; got {shown(entry)}."
+            raise ConfigError(
+                "invalid_value",
+                f"{where}[{i}]",
+                f"each entry is a list of component indices, one per "
+                f"observable operator, e.g. [0, 1]; got {shown(entry)}",
             )
         tuples.append(tuple(entry))
     return tuples
+
+
+#: Keys of ``sweep`` that :func:`~sft_wick.evaluate._execution_options` reads.
+_EXECUTION_KEYS = (
+    "propagator_cache_bytes",
+    "propagator_cache_contract",
+    "contraction_backend",
+    "contraction_max_bytes",
+)
+
+
+def _check_execution_keys(d: dict) -> None:
+    """The execution options, each refusal at the key it names.  Only the
+    rule tying a cache budget to its contract opens with no key."""
+    from sft_wick.evaluate import _execution_options
+
+    try:
+        _execution_options(
+            d.get("propagator_cache_bytes"),
+            d.get("propagator_cache_contract"),
+            d.get("contraction_backend", "ordered"),
+            d.get("contraction_max_bytes", DEFAULT_CONTRACTION_MAX_BYTES),
+        )
+    except (TypeError, ValueError) as exc:
+        key = next(
+            (k for k in _EXECUTION_KEYS if str(exc).startswith(k)),
+            "propagator_cache_contract",
+        )
+        with _refused_at(f"sweep.{key}"):
+            raise
 
 
 def _parse_sweep(d: dict) -> SweepConfig:
@@ -1896,37 +2279,41 @@ def _parse_sweep(d: dict) -> SweepConfig:
         _validate_qmc_coupling_chunk_size,
     )
 
-    from sft_wick.evaluate import _execution_options
-
     _reject_unknown_keys(d, _SWEEP_KEYS, "sweep")
-    _execution_options(
-        d.get("propagator_cache_bytes"),
-        d.get("propagator_cache_contract"),
-        d.get("contraction_backend", "ordered"),
-        d.get("contraction_max_bytes", DEFAULT_CONTRACTION_MAX_BYTES),
-    )
-    from .expansion import _order_selection, _vertex_type_selection
+    _check_execution_keys(d)
+    from .expansion import _vertex_type_selection
 
     if "positions_grid" not in d:
-        raise ValueError("sweep.positions_grid is required")
+        raise ConfigError("invalid_value", "sweep.positions_grid", "is required")
     if "t_final_grid" not in d:
-        raise ValueError("sweep.t_final_grid is required")
+        raise ConfigError("invalid_value", "sweep.t_final_grid", "is required")
     positions_grid = _parse_point_grid(d["positions_grid"], "sweep.positions_grid")
-    t_final_grid = _as_list(
-        d["t_final_grid"],
-        f"sweep.t_final_grid must be a list of times, e.g. [1.0, 2.0]; "
-        f"got {shown(d['t_final_grid'])}.",
-    )
+    t_final_grid = [
+        _yaml_number(t, f"sweep.t_final_grid[{i}]")
+        for i, t in enumerate(
+            _as_list(
+                d["t_final_grid"],
+                "sweep.t_final_grid",
+                f"must be a list of times, e.g. [1.0, 2.0]; got "
+                f"{shown(d['t_final_grid'])}",
+            )
+        )
+    ]
     external_times_grid = d.get("external_times_grid")
     if external_times_grid is not None:
         external_times_grid = (
-            _parse_point_grid(external_times_grid, "sweep.external_times_grid")
+            _parse_point_grid(
+                external_times_grid, "sweep.external_times_grid", _yaml_number
+            )
             or None
         )
     # A single string is one label and a single integer one order; a
     # string used to be iterated character by character.
-    orders = _order_selection(d.get("orders"), "sweep.orders")
-    vertex_types = _vertex_type_selection(d.get("vertex_types"), "sweep.vertex_types")
+    orders = _orders(d.get("orders"), "sweep.orders")
+    with _refused_at("sweep.vertex_types"):
+        vertex_types = _vertex_type_selection(
+            d.get("vertex_types"), "sweep.vertex_types"
+        )
     cps = _parse_component_axis(d)
     seed = d.get("seed", 42)
     method = text_of(d.get("method", "qmc_vectorized"))
@@ -1938,6 +2325,15 @@ def _parse_sweep(d: dict) -> SweepConfig:
             "sweep.method",
             f"must be one of {_or_list(INTEGRATION_METHODS)}; got {shown(method)}",
             _nearest(method, INTEGRATION_METHODS),
+        )
+    qmc = method.startswith("qmc")
+    with _refused_at("sweep.gl_chunk_size"):
+        gl_chunk_size = _validate_gl_chunk_size(
+            d.get("gl_chunk_size", DEFAULT_GL_CHUNK_SIZE)
+        )
+    with _refused_at("sweep.qmc_coupling_chunk_size"):
+        qmc_coupling_chunk_size = _validate_qmc_coupling_chunk_size(
+            d.get("qmc_coupling_chunk_size")
         )
     return SweepConfig(
         propagator_cache_bytes=d.get("propagator_cache_bytes"),
@@ -1952,35 +2348,51 @@ def _parse_sweep(d: dict) -> SweepConfig:
         vertex_types=None if vertex_types is None else sorted(vertex_types),
         integrate_over=_integrate_over_selection(d.get("integrate_over")),
         method=method,
-        n_samples=_converted(int, d.get("n_samples", 2**13), "sweep.n_samples"),
-        seed=None if seed is None else _converted(int, seed, "sweep.seed"),
-        n_jobs=_converted(int, d.get("n_jobs", 1), "sweep.n_jobs"),
-        n_gauss=_converted(int, d.get("n_gauss", 8), "sweep.n_gauss"),
+        n_samples=(_size if qmc else _converted_int)(
+            d.get("n_samples", 2**13), "sweep.n_samples"
+        ),
+        seed=None if seed is None else _seed(seed, qmc),
+        n_jobs=_jobs(d.get("n_jobs", 1), "sweep.n_jobs"),
+        n_gauss=(_size if method == "gauss_legendre" else _converted_int)(
+            d.get("n_gauss", 8), "sweep.n_gauss"
+        ),
         reuse_integrands=_as_bool(
             d.get("reuse_integrands", False), "sweep.reuse_integrands"
         ),
-        gl_chunk_size=_validate_gl_chunk_size(
-            d.get("gl_chunk_size", DEFAULT_GL_CHUNK_SIZE)
-        ),
-        qmc_coupling_chunk_size=_validate_qmc_coupling_chunk_size(
-            d.get("qmc_coupling_chunk_size")
-        ),
+        gl_chunk_size=gl_chunk_size,
+        qmc_coupling_chunk_size=qmc_coupling_chunk_size,
     )
+
+
+def _seed(value: Any, qmc: bool) -> int:
+    """``sweep.seed``: the QMC methods read it, and NumPy takes no negative
+    seed."""
+    seed = _converted(int, value, "sweep.seed")
+    if qmc and seed < 0:
+        detail = f"must not be negative; got {shown(value)}"
+        raise ConfigError("invalid_value", "sweep.seed", detail)
+    return seed
 
 
 def _parse_output(d: dict, index: int = 0) -> OutputConfig:
     if not isinstance(d, dict):
-        raise ValueError(
-            f"output[{index}] must be a mapping with a 'type', e.g. "
-            f"{{type: table}}; got {shown(d)}."
+        raise ConfigError(
+            "invalid_value",
+            f"output[{index}]",
+            f"must be a mapping with a 'type', e.g. {{type: table}}; got "
+            f"{shown(d)}",
         )
     _reject_unknown_keys(d, _OUTPUT_KEYS, f"output[{index}]")
     if "type" not in d:
-        raise ValueError("each output entry must specify a 'type'")
+        detail = "each output entry must specify a 'type'"
+        raise ConfigError("invalid_value", f"output[{index}].type", detail)
     t = d["type"]
     if t not in _OUTPUT_TYPES:
-        raise ValueError(
-            f"output type must be one of 'table', 'npz', 'plot'; " f"got {shown(t)}."
+        raise ConfigError(
+            "invalid_value",
+            f"output[{index}].type",
+            f"must be one of {_or_list(_OUTPUT_TYPES)}; got {shown(t)}",
+            _nearest(t, _OUTPUT_TYPES),
         )
     needs = {"npz": ("path",), "plot": ("path", "x")}.get(t, ())
     for key in needs:
@@ -2000,9 +2412,10 @@ def _parse_output(d: dict, index: int = 0) -> OutputConfig:
             f"must be one of {_or_list(_TABLE_FORMATS)}; got {shown(fmt)}",
             _nearest(fmt, _TABLE_FORMATS),
         )
+    path = d.get("path")
     return OutputConfig(
         type=t,
-        path=d.get("path"),
+        path=None if path is None else _path_value(path, f"output[{index}].path"),
         format=fmt,
         x=d.get("x"),
         y=text_of(d.get("y", "value")),
@@ -2045,10 +2458,7 @@ def build_system(cfg: SystemConfig):
             ),
         )
     else:
-        raise ValueError(
-            f"Unsupported linear operator type {shown(lt)}.  "
-            f"Supported: 'diagonal', 'explicit'."
-        )
+        raise _unsupported_linear(lt)
 
     # Noise
     noise = _build_noise(
@@ -2098,9 +2508,12 @@ def _build_noise(
     from . import specs as sp
 
     if not isinstance(d, dict) or not isinstance(d.get("kappa2"), dict):
-        raise ValueError(
-            "system.noise must be a mapping with a 'kappa2' block and an "
-            "optional 'sigma2' block."
+        where = "system.noise" if not isinstance(d, dict) else "system.noise.kappa2"
+        raise ConfigError(
+            "invalid_value",
+            where,
+            "the noise must be a mapping with a 'kappa2' block and an optional "
+            "'sigma2' block",
         )
     k2_d = dict(d["kappa2"])
     kt = _tag(k2_d)
@@ -2112,9 +2525,10 @@ def _build_noise(
         )
         missing = [b for b, _ in blocks if b not in k2_d]
         if missing:
-            raise ValueError(
-                f"system.noise.kappa2 of type {shown(kt)} requires the kernel "
-                f"block(s) {missing}."
+            raise ConfigError(
+                "invalid_value",
+                f"system.noise.kappa2.{missing[0]}",
+                f"type {shown(kt)} requires the kernel block(s) {missing}",
             )
         kernels = [
             _build_kernel(k2_d[b], axis=ax, base_dir=base_dir) for b, ax in blocks
@@ -2130,19 +2544,22 @@ def _build_noise(
             "system.noise.kappa2",
             "type 'callable_module'",
         )
+        where = "system.noise.kappa2"
         if base_dir is None:
-            raise ValueError(
-                "noise.kappa2.type='callable_module' requires base_dir; "
-                "the workflow loader should pass it through."
+            raise ConfigError(
+                "invalid_value",
+                f"{where}.module",
+                "type 'callable_module' requires base_dir; the workflow loader "
+                "should pass it through",
             )
         if "module" not in k2_d:
-            raise ValueError(
-                "noise.kappa2.type='callable_module' requires "
-                "'module: <relative path to .py file>'."
+            raise ConfigError(
+                "invalid_value",
+                f"{where}.module",
+                "type 'callable_module' requires 'module: <relative path to "
+                ".py file>'",
             )
-        mod_path = (base_dir / k2_d.pop("module")).resolve()
-        attr = k2_d.pop("attr", "kappa2")
-        fn = _load_callable_from_module(mod_path, attr)
+        fn = _load_named(k2_d, base_dir, where, "module", "attr", "kappa2")
         kappa2 = sp.GeneralKappa2(fn=fn)
     else:
         supported = (*_SEPARABLE_KAPPA2, "callable_module")
@@ -2168,18 +2585,22 @@ def _build_sigma2(sig_d: Any, base_dir: Path | None, n_components: int | None):
         return None
     where = "system.noise.sigma2"
     if not isinstance(sig_d, dict):
-        raise ValueError(
-            f"{where} must be null or a mapping such as "
-            f"{{type: constant, amplitude: 0.01}}; got {shown(sig_d)}."
+        raise ConfigError(
+            "invalid_value",
+            where,
+            f"must be null or a mapping such as {{type: constant, amplitude: "
+            f"0.01}}; got {shown(sig_d)}",
         )
     st = _tag(sig_d, "constant")
     if st in _SIGMA2_KEYS:
         _reject_unknown_keys(sig_d, _SIGMA2_KEYS[st], where, f"type {shown(st)}")
     if st == "constant":
         if "amplitude" not in sig_d:
-            raise ValueError(
-                f"{where}: type 'constant' requires 'amplitude': a number "
-                f"(amplitude * I_N) or an N x N matrix as nested lists."
+            raise ConfigError(
+                "invalid_value",
+                f"{where}.amplitude",
+                "type 'constant' requires 'amplitude': a number (amplitude * "
+                "I_N) or an N x N matrix as nested lists",
             )
         return sp.ConstantImpulse(
             amplitude=_sigma2_amplitude(
@@ -2188,18 +2609,20 @@ def _build_sigma2(sig_d: Any, base_dir: Path | None, n_components: int | None):
         )
     if st == "callable_module":
         if base_dir is None:
-            raise ValueError(
-                "noise.sigma2.type='callable_module' requires base_dir; "
-                "the workflow loader should pass it through."
+            raise ConfigError(
+                "invalid_value",
+                f"{where}.module",
+                "type 'callable_module' requires base_dir; the workflow loader "
+                "should pass it through",
             )
         if "module" not in sig_d:
-            raise ValueError(
-                "noise.sigma2.type='callable_module' requires "
-                "'module: <relative path to .py file>'."
+            raise ConfigError(
+                "invalid_value",
+                f"{where}.module",
+                "type 'callable_module' requires 'module: <relative path to "
+                ".py file>'",
             )
-        mod_path = (base_dir / sig_d["module"]).resolve()
-        attr = sig_d.get("attr", "sigma2")
-        fn = _load_callable_from_module(mod_path, attr)
+        fn = _load_named(sig_d, base_dir, where, "module", "attr", "sigma2")
         return sp.CustomImpulse(fn=fn)
     if st == "multiplicative":
         # White noise with amplitude g(phi) = g0 + g1 phi; see
@@ -2207,24 +2630,29 @@ def _build_sigma2(sig_d: Any, base_dir: Path | None, n_components: int | None):
         # local vertices.
         missing = [k for k in ("g0", "g1") if k not in sig_d]
         if missing:
-            raise ValueError(
-                f"{where}: type 'multiplicative' requires {missing}: "
-                f"g0 as an N x M nested list, g1 as N x M x N."
+            raise ConfigError(
+                "invalid_value",
+                f"{where}.{missing[0]}",
+                f"type 'multiplicative' requires {missing}: g0 as an N x M "
+                f"nested list, g1 as N x M x N",
             )
-        names = {
-            k: tuple(sig_d[k]) for k in ("vertex_names", "drift_names") if k in sig_d
-        }
-        return sp.MultiplicativeImpulse(
-            g0=np.asarray(sig_d["g0"], dtype=float),
-            g1=np.asarray(sig_d["g1"], dtype=float),
-            interpretation=text_of(sig_d.get("interpretation", "ito")),
-            **names,
-        )
+        with _refused_at(where):
+            names = {
+                k: tuple(sig_d[k])
+                for k in ("vertex_names", "drift_names")
+                if k in sig_d
+            }
+            return sp.MultiplicativeImpulse(
+                g0=np.asarray(sig_d["g0"], dtype=float),
+                g1=np.asarray(sig_d["g1"], dtype=float),
+                interpretation=text_of(sig_d.get("interpretation", "ito")),
+                **names,
+            )
     raise ConfigError(
         "invalid_value",
         f"{where}.type",
-        f"unsupported type {shown(sig_d.get('type'))}; "
-        f"supported: {_or_list(_SIGMA2_KEYS)}",
+        f"unsupported type {shown(sig_d.get('type'))}; supported: "
+        f"{_or_list(_SIGMA2_KEYS)}",
         _nearest(st, _SIGMA2_KEYS) if isinstance(st, str) else (),
     )
 
@@ -2234,10 +2662,12 @@ def _sigma2_amplitude(raw: Any, n_components: int | None, where: str):
     if isinstance(raw, list):
         try:
             amp = np.asarray(raw, dtype=float)
-        except (TypeError, ValueError):
-            raise ValueError(
-                f"{where} must be a number or an N x N matrix of numbers; "
-                f"got {shown(raw)}."
+        except (TypeError, ValueError, OverflowError):
+            raise ConfigError(
+                "invalid_value",
+                where,
+                f"must be a number or an N x N matrix of numbers; got "
+                f"{shown(raw)}",
             ) from None
     else:
         return _yaml_number(raw, where)
@@ -2248,18 +2678,23 @@ def _sigma2_amplitude(raw: Any, n_components: int | None, where: str):
         or (n is not None and amp.shape != (n, n))
     ):
         size = f"{n} x {n}" if n is not None else "N x N"
-        raise ValueError(
-            f"{where} has shape {amp.shape}; a matrix amplitude must be "
-            f"{size} (n_components = {n})."
+        raise ConfigError(
+            "invalid_value",
+            where,
+            f"has shape {amp.shape}; a matrix amplitude must be {size} "
+            f"(n_components = {n})",
         )
     if not np.all(np.isfinite(amp)):
-        raise ValueError(f"{where} has a non-finite entry: {shown(raw)}.")
+        detail = f"has a non-finite entry: {shown(raw)}"
+        raise ConfigError("invalid_value", where, detail)
     scale = float(np.abs(amp).max())
     if float(np.abs(amp - amp.T).max()) > 1e-12 * scale:
-        raise ValueError(
-            f"{where} must be symmetric: it is the covariance of the white "
-            f"noise, and the action term psi sigma2 psi / 2 reads only its "
-            f"symmetric part.  Got {shown(raw)}."
+        raise ConfigError(
+            "invalid_value",
+            where,
+            f"must be symmetric: it is the covariance of the white noise, and "
+            f"the action term psi sigma2 psi / 2 reads only its symmetric "
+            f"part.  Got {shown(raw)}",
         )
     return amp
 
@@ -2290,7 +2725,7 @@ def _reject_unknown_keys(d: dict, allowed, where: str, note: str = "") -> None:
     instead, and the block is read as if the key were absent.
     """
     allowed = set(allowed)
-    unknown = sorted((k for k in d if k not in allowed), key=str)
+    unknown = sorted((k for k in d if k not in allowed), key=text_of)
     if not unknown:
         return
     detail = "unknown key" + (f" for {note}" if note else "")
@@ -2321,17 +2756,26 @@ def _yaml_number(value: Any, where: str):
     string is converted; any other non-number raises.  A number is
     returned unchanged, so existing specs keep their ``repr``.
     """
-    if isinstance(value, bool):
-        raise ValueError(f"{where} must be a number; got {shown(value)}.")
+    written = value
+    if isinstance(value, np.ndarray) and value.ndim == 0:
+        value = value[()]
     if isinstance(value, str):
         try:
             value = float(value)
         except ValueError:
-            raise ValueError(f"{where} must be a number; got {shown(value)}.") from None
-    if not isinstance(value, (int, float, np.integer, np.floating)):
-        raise ValueError(f"{where} must be a number; got {shown(value)}.")
-    if not math.isfinite(float(value)):
-        raise ValueError(f"{where} must be finite; got {shown(value)}.")
+            value = None
+    if isinstance(value, bool) or not isinstance(
+        value, (numbers.Real, decimal.Decimal)
+    ):
+        detail = f"must be a number; got {shown(written)}"
+        raise ConfigError("invalid_value", where, detail)
+    try:
+        finite = math.isfinite(float(value))
+    except OverflowError:
+        finite = False
+    if not finite:
+        detail = f"must be finite; got {shown(value)}"
+        raise ConfigError("invalid_value", where, detail)
     return value
 
 
@@ -2361,7 +2805,8 @@ def _as_bool(value: Any, where: str) -> bool:
             return True
         if word in _FALSE_WORDS:
             return False
-    raise ValueError(f"{where} must be true or false; got {shown(value)}.")
+    detail = f"must be true or false; got {shown(value)}"
+    raise ConfigError("invalid_value", where, detail)
 
 
 def _build_kernel(d: dict, axis: str, base_dir: Path | None = None):
@@ -2372,47 +2817,56 @@ def _build_kernel(d: dict, axis: str, base_dir: Path | None = None):
 
     where = f"system.noise.kappa2.{_KERNEL_BLOCK[axis]}"
     if not isinstance(d, dict):
-        raise ValueError(
-            f"{where} must be a mapping such as {{type: exponential, ...}}; "
-            f"got {shown(d)}."
+        raise ConfigError(
+            "invalid_value",
+            where,
+            f"must be a mapping such as {{type: exponential, ...}}; got "
+            f"{shown(d)}",
         )
     kt = _tag(d, "exponential")
     if kt == "custom":
         _reject_unknown_keys(d, _CUSTOM_KERNEL_KEYS, where, "type 'custom'")
         if "module" not in d:
-            raise ValueError(
-                f"{where}: type 'custom' requires 'module: <path to a .py "
-                f"file, relative to the YAML file>' exporting the kernel "
-                f"callable as 'attr' (default {shown(_KERNEL_BLOCK[axis])})."
+            raise ConfigError(
+                "invalid_value",
+                f"{where}.module",
+                f"type 'custom' requires 'module: <path to a .py file, relative "
+                f"to the YAML file>' exporting the kernel callable as 'attr' "
+                f"(default {shown(_KERNEL_BLOCK[axis])})",
             )
         if base_dir is None:
-            raise ValueError(
-                f"{where}: type 'custom' needs the YAML file's directory to "
-                f"resolve 'module'; the workflow loader passes it."
+            raise ConfigError(
+                "invalid_value",
+                f"{where}.module",
+                "type 'custom' needs the YAML file's directory to resolve "
+                "'module'; the workflow loader passes it",
             )
-        fn = _load_callable_from_module(
-            (base_dir / text_of(d["module"])).resolve(),
-            text_of(d.get("attr", _KERNEL_BLOCK[axis])),
-        )
+        fn = _load_named(d, base_dir, where, "module", "attr", _KERNEL_BLOCK[axis])
         return sp.CustomKernel(fn=fn)
 
     params = _KERNEL_PARAMS.get((axis, kt))
     if params is None:
         supported = sorted(t for (a, t) in _KERNEL_PARAMS if a == axis)
-        raise ValueError(
-            f"Unsupported {axis}-kernel type {shown(kt)} at {where}.  "
-            f"Supported: {supported + ['custom']}."
+        raise ConfigError(
+            "invalid_value",
+            f"{where}.type",
+            f"unsupported {axis}-kernel type {shown(d.get('type'))}; "
+            f"supported: {supported + ['custom']}",
+            _nearest(kt, supported + ["custom"]) if isinstance(kt, str) else (),
         )
     _reject_unknown_keys(d, ("type",) + params, where, f"type {shown(kt)}")
     missing = [p for p in params if p not in d]
     if missing:
-        raise ValueError(f"{where}: type {shown(kt)} requires {missing}.")
+        detail = f"type {shown(kt)} requires {missing}"
+        raise ConfigError("invalid_value", f"{where}.{missing[0]}", detail)
     if kt == "legendre":
         coeffs = d["coeffs"]
         if not isinstance(coeffs, list) or not coeffs:
-            raise ValueError(
-                f"{where}.coeffs must be a non-empty list [C_0, C_1, ...]; "
-                f"got {shown(coeffs)}."
+            raise ConfigError(
+                "invalid_value",
+                f"{where}.coeffs",
+                f"must be a non-empty list [C_0, C_1, ...]; got "
+                f"{shown(coeffs)}",
             )
         return sp.LegendreAngular(
             coeffs=[
@@ -2422,7 +2876,8 @@ def _build_kernel(d: dict, axis: str, base_dir: Path | None = None):
     vals = {p: _yaml_number(d[p], f"{where}.{p}") for p in params}
     for p in ("sigma_t", "sigma_x"):
         if p in vals and not float(vals[p]) > 0.0:
-            raise ValueError(f"{where}.{p} must be positive; got {shown(vals[p])}.")
+            detail = f"must be positive; got {shown(vals[p])}"
+            raise ConfigError("invalid_value", f"{where}.{p}", detail)
     cls = {
         ("time", "exponential"): sp.ExponentialTemporal,
         ("time", "gaussian"): sp.GaussianTemporal,
@@ -2443,13 +2898,18 @@ def check_before_run(cfg: WorkflowConfig, system=None):
     :meth:`System.expand` makes), the component tuples against the
     observable and ``n_components``, the point names against the sweep's
     columns, ``sweep.orders`` against ``expand.orders``, the spatial grid
-    keys, one parallel layer, and the closed-form C module on disk.  Builds
-    the System unless ``system`` is given, and returns it.
+    keys, one parallel layer, and the refusals of the run that the config
+    decides (``_run_checks.check_run_refusals``).  Builds the System unless
+    ``system`` is given, and returns it.
 
     ``sft-wick validate`` and ``sft-wick run`` call it before anything is
-    computed.  A ``sweep.vertex_types`` label is checked only against the
-    diagrams, after the expansion.
+    computed.  What only the diagrams of the interacting orders decide is
+    checked after the expansion (``_run_checks.check_after_expansion``).
+
+    Raises:
+        ConfigError: every refusal, with a code and a dotted path.
     """
+    from ._run_checks import check_run_refusals
     from .expansion import (
         _check_sweep_columns,
         _resolve_component_tuples,
@@ -2457,47 +2917,48 @@ def check_before_run(cfg: WorkflowConfig, system=None):
     )
     from .system import _parse_observable
 
-    system = build_system(cfg.system) if system is None else system
-    try:
+    with _refused_at("system"):
+        system = build_system(cfg.system) if system is None else system
+    with _refused_at("expand.observable"):
         _parse_observable(
             cfg.expand.observable, system, max(cfg.expand.orders, default=0)
         )
-    except (ValueError, TypeError) as exc:
-        raise ConfigError("invalid_value", "expand.observable", str(exc)) from None
-    _resolve_component_tuples(
-        None,
-        cfg.sweep.component_tuples,
-        tuple(cfg.expand.observable),
-        system.n_components,
-        "sweep.component_tuples",
-    )
-    _check_sweep_columns(
-        cfg.sweep.positions_grid,
-        cfg.sweep.external_times_grid or (),
-        component_columns(len(cfg.expand.observable)),
-    )
+        columns = component_columns(len(cfg.expand.observable))
+    with _refused_at("sweep.component_tuples"):
+        _resolve_component_tuples(
+            None,
+            cfg.sweep.component_tuples,
+            tuple(cfg.expand.observable),
+            system.n_components,
+            "sweep.component_tuples",
+        )
+    with _refused_at("sweep.positions_grid"):
+        _check_sweep_columns(cfg.sweep.positions_grid, (), columns)
+    with _refused_at("sweep.external_times_grid"):
+        _check_sweep_columns(
+            cfg.sweep.positions_grid, cfg.sweep.external_times_grid or (), columns
+        )
     if cfg.sweep.orders is not None:
         absent = [o for o in cfg.sweep.orders if o not in cfg.expand.orders]
         if absent:
-            # The message Expansion._orders_list gives after the expansion.
-            raise ValueError(
-                f"sweep: order(s) {absent} are not in the expansion; it holds "
-                f"orders {list(cfg.expand.orders)}."
+            raise ConfigError(
+                "invalid_value",
+                "sweep.orders",
+                f"order(s) {absent} are not in the expansion; it holds orders "
+                f"{list(cfg.expand.orders)}",
             )
     # Parallelism layers cannot nest because joblib's loky backend does not
     # support nested process pools: ``sweep.n_jobs`` (over grid points) and
     # ``expand.n_jobs`` (over diagrams within a grid point).
     if int(cfg.expand.n_jobs) != 1 and int(cfg.sweep.n_jobs) != 1:
-        raise ValueError(
-            "Specify exactly one of {expand.n_jobs > 1, sweep.n_jobs > 1}; "
-            "nested joblib loky pools are not supported."
+        raise ConfigError(
+            "invalid_value",
+            "sweep.n_jobs",
+            "specify exactly one of {expand.n_jobs > 1, sweep.n_jobs > 1}; "
+            "nested joblib loky pools are not supported",
         )
     _check_spatial_grid(cfg, system)
-    module = cfg.propagators.c_closed_form_module
-    if module is not None and not Path(module).is_file():
-        raise FileNotFoundError(
-            f"propagators.c_closed_form_module: no such file {module}"
-        )
+    check_run_refusals(cfg, system)
     return system
 
 
@@ -2573,6 +3034,8 @@ def run_workflow(cfg: WorkflowConfig, progress: Any = None):
 def _run_workflow(cfg: WorkflowConfig, stage):
     from sft_wick.evaluate import _execution_options
 
+    from ._run_checks import check_after_expansion
+
     execution = _execution_options(
         cfg.sweep.propagator_cache_bytes,
         cfg.sweep.propagator_cache_contract,
@@ -2616,9 +3079,9 @@ def _run_workflow(cfg: WorkflowConfig, stage):
         f"order {o}: {len(expansion.diagrams(o))}" for o in expansion.orders
     )
     _log(f"[sft-wick] diagrams -- {counts}")
-    # An order or a vertex type the expansion does not hold is refused here,
-    # before the propagator table is built.
-    expansion._selection(cfg.sweep.orders, cfg.sweep.vertex_types, "sweep")
+    # What only the diagrams decide is refused here, before the propagator
+    # table is built.
+    check_after_expansion(cfg, expansion)
 
     c_fn = _load_c_closed_form(cfg.propagators)
     # User-supplied C_fn modules are loaded via
@@ -2713,35 +3176,26 @@ def _load_c_closed_form(cfg: PropagatorsConfig):
     if cfg.c_closed_form_module is None:
         return cfg.c_closed_form
     path = Path(cfg.c_closed_form_module).resolve()
+    try:
+        stat = path.stat()
+    except OSError:  # the import reports it
+        return _closed_form_of_file(path, cfg.c_closed_form_attr, None)
+    return _closed_form_of_file(
+        path, cfg.c_closed_form_attr, (stat.st_mtime_ns, stat.st_size)
+    )
 
-    # Register the module under its file basename and put the parent on
-    # sys.path AND PYTHONPATH so that joblib loky workers can re-import
-    # it when receiving tasks during parallel C-table builds, integration,
-    # or sweep dispatch. See ``_load_callable_from_module`` for the same
-    # pattern applied to coupling / gamma callables.
-    parent_dir = str(path.parent)
-    if parent_dir not in sys.path:
-        sys.path.append(parent_dir)
-    pp = os.environ.get("PYTHONPATH", "")
-    pp_parts = pp.split(os.pathsep) if pp else []
-    if parent_dir not in pp_parts:
-        os.environ["PYTHONPATH"] = os.pathsep.join([parent_dir, *pp_parts])
-    module_name = path.stem
 
-    spec_obj = importlib.util.spec_from_file_location(module_name, path)
-    if spec_obj is None or spec_obj.loader is None:
-        raise ImportError(f"Cannot load c_closed_form_module {shown(path)}.")
-    module = importlib.util.module_from_spec(spec_obj)
-    sys.modules[module_name] = module
-    spec_obj.loader.exec_module(module)
-    fn = getattr(module, cfg.c_closed_form_attr, None)
-    if fn is None:
-        raise AttributeError(
-            f"Module {shown(path)} has no attribute "
-            f"{shown(cfg.c_closed_form_attr)}."
-        )
-    _register_module_by_value(module)
-    return fn
+@functools.lru_cache(maxsize=8)
+def _closed_form_of_file(path: Path, attr: str, stamp: tuple | None):
+    """The callable of a closed-form C module, imported once per content of
+    the file: ``sft-wick run`` needs it in two checks and in the run, and a
+    module can do heavy work at import.  A failed import is not kept."""
+    return _load_callable_from_module(
+        path,
+        attr,
+        "propagators.c_closed_form_module",
+        "propagators.c_closed_form_attr",
+    )
 
 
 def _emit_output(out: OutputConfig, sweep, totals) -> None:

@@ -756,7 +756,7 @@ def test_YC6_every_vertex_field_is_reachable_from_yaml(tmp_path):
     ({"type": "exponential", "lam": 0.2}, r"requires \['sigma_t'\]"),
     ({"type": "exponential", "lam": 0.2, "sigma_t": 0.0}, "must be positive"),
     ({"type": "exponential", "lam": "x", "sigma_t": 0.4}, "must be a number"),
-    ({"type": "ornstein"}, "Unsupported time-kernel type"),
+    ({"type": "ornstein"}, "unsupported time-kernel type"),
     ({"type": "custom", "attr": "temporal"}, "requires 'module"),
 ])
 def test_YC7_bad_kernel_block_is_refused(tmp_path, temporal, match):
@@ -1102,7 +1102,7 @@ def test_YC13_a_flag_reads_the_words_true_and_false(tmp_path, block, key):
     for raw in ["maybe", 2, None]:
         cfg = _base_config()
         cfg[block][key] = raw
-        with pytest.raises(ValueError, match=f"{block}.{key} must be true "
+        with pytest.raises(ValueError, match=f"{block}.{key}: must be true "
                                              f"or false"):
             load_workflow_config(_write(tmp_path, "c.yaml",
                                         yaml.safe_dump(cfg)))
@@ -1117,7 +1117,7 @@ def test_YC13_expand_iso_R_is_null_or_a_flag(tmp_path):
         loaded = load_workflow_config(_write(tmp_path, "c.yaml",
                                              yaml.safe_dump(cfg)))
         assert loaded.expand.iso_R is read, raw
-    with pytest.raises(ValueError, match="expand.iso_R must be true or false"):
+    with pytest.raises(ValueError, match="expand.iso_R: must be true or false"):
         load_workflow_config(_write(tmp_path, "c.yaml", yaml.safe_dump(
             _base_config(expand__iso_R="maybe"))))
 
@@ -1454,22 +1454,22 @@ def test_YC18_config_error_text_is_one_line_and_its_fields_are_not_changed():
 
 @pytest.mark.parametrize("observable,grids,fragment", [
     (["phi_a(a)", "phi_b(y)"], {"positions_grid": {"a": [0.0], "y": [0.5]}},
-     "positions_grid key(s) ['a']"),
+     "positions_grid: key(s) ['a']"),
     (["phi_a(x)", "phi_b(order)"],
      {"positions_grid": {"x": [0.0], "order": [0.5]}},
-     "positions_grid key(s) ['order']"),
+     "positions_grid: key(s) ['order']"),
     (["phi_a(x)", "phi_b(final)"],
      {"positions_grid": {"x": [0.0], "final": [0.5]},
       "external_times_grid": {"x": [0.5], "final": [0.5]}},
-     "external_times_grid would emit column(s) ['t_final']"),
+     "external_times_grid: would emit column(s) ['t_final']"),
     (["phi_a(x)", "phi_b(t_x)"],
      {"positions_grid": {"x": [0.0], "t_x": [0.5]},
       "external_times_grid": {"x": [0.5], "t_x": [0.5]}},
-     "external_times_grid would emit column(s) ['t_x']"),
+     "external_times_grid: would emit column(s) ['t_x']"),
     (["phi_a(x)", "phi_b(y)", "phi_a(c)"],
      {"positions_grid": {"x": [0.0], "y": [0.5], "c": [1.0]},
       "component_tuples": [[0, 1, 0]], "component_pairs": None},
-     "positions_grid key(s) ['c']"),
+     "positions_grid: key(s) ['c']"),
 ], ids=["component", "per-diagram", "t_final", "another-point",
         "third-component"])
 def test_YC19_a_point_named_like_a_column_stops_before_the_run(

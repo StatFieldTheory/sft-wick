@@ -330,7 +330,7 @@ def test_SS4_yaml_absent_label_is_refused_before_the_propagators(
     monkeypatch.setattr(System, "propagators", boom)
     cfg = load_workflow_config(_write(tmp_path, _config()),
                                overrides={"sweep.vertex_types": "KF"})
-    with pytest.raises(ValueError, match=r"^sweep: .*\['KF'\]"):
+    with pytest.raises(ValueError, match=r"^sweep\.vertex_types: .*\['KF'\]"):
         run_workflow(cfg, progress=False)
 
 
@@ -422,7 +422,7 @@ def test_SS5_yaml_absent_order_is_refused_before_the_propagators(
 
     monkeypatch.setattr(System, "propagators", boom)
     cfg = load_workflow_config(_write(tmp_path, _config(orders=[4])))
-    with pytest.raises(ValueError, match=r"^sweep: order\(s\) \[4\]"):
+    with pytest.raises(ValueError, match=r"^sweep\.orders: order\(s\) \[4\]"):
         run_workflow(cfg, progress=False)
 
 
@@ -465,7 +465,7 @@ def test_SS7_unquoted_number_or_boolean_label_is_explained(tmp_path, a, b):
     "given for ['1', '2'] ... its points are ['1', '2']"."""
     path = tmp_path / "c.yaml"
     path.write_text(_relabelled(a, b, quoted=False))
-    with pytest.raises(ValueError, match=r"^sweep\.positions_grid: .*quote"):
+    with pytest.raises(ValueError, match=r"^sweep\.positions_grid\.\w+: .*quote"):
         load_workflow_config(path)
 
 
@@ -490,24 +490,24 @@ def _set(cfg, path, value):
 
 @pytest.mark.parametrize("path,value,match", [
     (("output",), {"type": "table", "format": "csv"},
-     r"^output must be a list"),
-    (("output",), "table", r"^output must be a list"),
-    (("output",), ["table"], r"^output\[0\] must be a mapping"),
-    (("system", "field"), "phi", r"^system\.field must be a mapping"),
+     r"^output: must be a list"),
+    (("output",), "table", r"^output: must be a list"),
+    (("output",), ["table"], r"^output\[0\]: must be a mapping"),
+    (("system", "field"), "phi", r"^system\.field: must be a mapping"),
     (("system", "vertices"), {"name": "F", "coupling": F_TENSOR.tolist()},
-     r"^system\.vertices must be a list"),
+     r"^system\.vertices: must be a list"),
     (("system", "nonlocal_vertices"), {"name": "K", "order": 3},
-     r"^system\.nonlocal_vertices must be a list"),
-    (("expand", "observable"), "phi_a(x)", r"^expand\.observable must be a list"),
+     r"^system\.nonlocal_vertices: must be a list"),
+    (("expand", "observable"), "phi_a(x)", r"^expand\.observable: must be a list"),
     (("sweep", "positions_grid"), [X, Y],
-     r"^sweep\.positions_grid must be a mapping"),
+     r"^sweep\.positions_grid: must be a mapping"),
     (("sweep", "positions_grid"), {"x": X, "y": [Y]},
-     r"^sweep\.positions_grid\['x'\] must be a list"),
-    (("sweep", "t_final_grid"), T_FINAL, r"^sweep\.t_final_grid must be a list"),
+     r"^sweep\.positions_grid\.x: must be a list"),
+    (("sweep", "t_final_grid"), T_FINAL, r"^sweep\.t_final_grid: must be a list"),
     (("sweep", "external_times_grid"), [1.0],
-     r"^sweep\.external_times_grid must be a mapping"),
+     r"^sweep\.external_times_grid: must be a mapping"),
     (("sweep", "external_times_grid"), {"x": 1.0},
-     r"^sweep\.external_times_grid\['x'\] must be a list"),
+     r"^sweep\.external_times_grid\.x: must be a list"),
 ])
 def test_SS8_block_of_the_wrong_shape_is_refused(tmp_path, path, value,
                                                  match):
@@ -581,18 +581,18 @@ def test_SS9_python_override_of_external_times_takes_an_array(fk_dir):
 
 @pytest.mark.parametrize("overrides,match", [
     ({"sweep.t_final_grid": np.array(T_FINAL)},
-     r"^sweep\.t_final_grid must be a list"),
+     r"^sweep\.t_final_grid: must be a list"),
     ({"sweep.t_final_grid": {"t": T_FINAL}},
-     r"^sweep\.t_final_grid must be a list"),
-    ({"sweep.t_final_grid": "1.7"}, r"^sweep\.t_final_grid must be a list"),
+     r"^sweep\.t_final_grid: must be a list"),
+    ({"sweep.t_final_grid": "1.7"}, r"^sweep\.t_final_grid: must be a list"),
     ({"sweep.positions_grid.y": b"0.55"},
-     r"^sweep\.positions_grid\['y'\] must be a list"),
+     r"^sweep\.positions_grid\.y: must be a list"),
     ({"expand.observable": {"phi_a(x)", "phi_b(y)"}},
      r"^expand\.observable: .*set"),
     ({"sweep.component_tuples": "01"},
-     r"^sweep\.component_tuples must be a non-empty list"),
+     r"^sweep\.component_tuples: must be a non-empty list"),
     ({"sweep.component_tuples": np.zeros((0, 2), dtype=int)},
-     r"^sweep\.component_tuples must be a non-empty list"),
+     r"^sweep\.component_tuples: must be a non-empty list"),
 ], ids=repr)
 def test_SS9_override_of_another_shape_is_refused(fk_dir, overrides, match):
     """A string, bytes, a mapping, a scalar (a 0-d array too) and an
@@ -640,7 +640,7 @@ def test_SS10_empty_orders_are_refused_with_the_right_advice(system, tmp_path):
         system.expand(("phi_a(x)", "phi_b(y)"), orders=[], progress=False)
     cfg = _config()
     cfg["expand"]["orders"] = []
-    with pytest.raises(ValueError, match=r"^expand\.orders is empty(?!.*None)"):
+    with pytest.raises(ValueError, match=r"^expand\.orders: is empty(?!.*None)"):
         load_workflow_config(_write(tmp_path, cfg))
 
 
@@ -667,7 +667,7 @@ def test_SS10_empty_sweep_orders_in_yaml_get_yaml_advice(tmp_path):
     """YAML writes ``null`` or leaves the key out; it has no ``None``."""
     cfg = _config()
     cfg["sweep"]["orders"] = []
-    with pytest.raises(ValueError, match=r"^sweep\.orders is empty.*omit the "
+    with pytest.raises(ValueError, match=r"^sweep\.orders: is empty.*omit the "
                                          r"key or write null(?!.*None)"):
         load_workflow_config(_write(tmp_path, cfg))
 

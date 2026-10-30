@@ -1190,6 +1190,30 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "for the exit status",
         "exact",
     ),
+    "tests/test_validate_run_parity.py": (
+        "Workflow and YAML",
+        "sft-wick validate reports what run refuses, in one line with status "
+        "2 before any stage: diag_R and diag_C, empty and repeated axes, "
+        "pinned and integrated points, joined points at two positions, plot "
+        "columns, output paths, the closed-form C module and flags; the "
+        "neighbour of each refusal runs; what only the diagrams decide stops "
+        "the run after the expansion",
+        "the refusal of the integrators, compared directly over observables, "
+        "targets, integrators and table kinds; a run with the closed form "
+        "passed on",
+        "exact",
+    ),
+    "tests/test_config_error_paths.py": (
+        "Workflow and YAML",
+        "every refusal of the parser is a ConfigError with a code and a "
+        "dotted path: module files Python cannot import, .npy files numpy "
+        "cannot read, values the run cannot read; the exception type a "
+        "caller caught before is kept; a message shows a value at a bounded "
+        "size; a value that holds itself; a census of 39 wrong values on "
+        "every key of two shipped configs",
+        "the dotted path of the changed key; the census of the commit before",
+        "exact",
+    ),
     "tests/test_workflow_config.py": (
         "Workflow and YAML",
         "YAML → System lowering, run_workflow, overrides, dt, parallel "

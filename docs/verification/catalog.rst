@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **6291 tests** in 127 files (parametrised
+The suite has **6688 tests** in 129 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -552,7 +552,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*1328 tests in 25 files.*
+*1725 tests in 27 files.*
 
 .. list-table::
    :header-rows: 1
@@ -573,6 +573,11 @@ Workflow and YAML
      - tools/gen_test_catalog.py
      - exact
      - 4
+   * - ``test_config_error_paths.py``
+     - every refusal of the parser is a ConfigError with a code and a dotted path: module files Python cannot import, .npy files numpy cannot read, values the run cannot read; the exception type a caller caught before is kept; a message shows a value at a bounded size; a value that holds itself; a census of 39 wrong values on every key of two shipped configs
+     - the dotted path of the changed key; the census of the commit before
+     - exact
+     - 292
    * - ``test_demo3_levels.py``
      - demo 3 level A: the free-field m-point function through the package, and the R-contracted vertex against the raw one
      - closed form (level A is a single diagram, hence exact); QMC on the raw-vertex path
@@ -617,7 +622,7 @@ Workflow and YAML
      - FieldOperator observables in System.expand (order 0 at distinct times, the FK channel at order 2, the same expansion as the string spelling, one index per shared letter); literal labels and foreign fields refused; set and frozenset observables refused, a dict's keys view accepted in its insertion order, the keys view of another mapping (a ChainMap's included) refused; a physical field named psi refused; each record draws for operators the caller built or cached, each edge joins the operators of its pair, a drawing reads no uid, and no call moves the uids back
      - closed-form inner and scipy quad outer integral of the exponential covariance; the FK channel of a constant kappa^3 as a 1-D quad
      - 1e-12; 1e-9; bit equality between spellings
-     - 33
+     - 37
    * - ``test_repo_hygiene.py``
      - tracked files hold no agent working files, development records, local absolute paths or task IDs; file names and commit messages hold no task IDs
      - git ls-files and git log; positive and negative pattern controls; a scratch repository whose flagged commits sit behind a merge's second parent and are deleted again
@@ -627,7 +632,7 @@ Workflow and YAML
      - strict resource variants, complete ordered result/stability gates, input protection (duplicate keys, also in merged mappings, compared as the document read them; a document read as plain YAML reads it, each key once; a value holding itself), fresh serial measurement and failure receipts
      - adversarial metadata/error/cancellation/nonfinite/overflow probes; true GL/QMC subprocesses and stale-bytecode witness
      - exact repeat/QMC gates; explicit 1e-12 relative and 1e-14 absolute GL budget
-     - 209
+     - 211
    * - ``test_resource_controls.py``
      - pure configuration resource scopes and conditional/bypass statuses; connected dry-run target
      - callback nonexecution witnesses, grid cardinality and connected Gaussian zero coefficients
@@ -658,6 +663,11 @@ Workflow and YAML
      - time-translation invariance (stationary noise, constant drift)
      - 1e-10
      - 10
+   * - ``test_validate_run_parity.py``
+     - sft-wick validate reports what run refuses, in one line with status 2 before any stage: diag_R and diag_C, empty and repeated axes, pinned and integrated points, joined points at two positions, plot columns, output paths, the closed-form C module and flags; the neighbour of each refusal runs; what only the diagrams decide stops the run after the expansion
+     - the refusal of the integrators, compared directly over observables, targets, integrators and table kinds; a run with the closed form passed on
+     - exact
+     - 99
    * - ``test_workflow.py``
      - System / Expansion / Propagators / SweepResult surface; end-to-end vs the raw API; two-time sweeps
      - raw L0 pipeline (validate_phase5); closed forms

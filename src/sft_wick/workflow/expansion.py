@@ -1552,25 +1552,34 @@ def _axis_key(value):
     return tuple(arr.ravel().tolist()) if arr.ndim else float(arr)
 
 
-def _check_axis(name, values) -> None:
-    """Refuse an empty sweep axis (no rows) and a repeated value (the same
-    grid point twice, which ``totals()`` adds together)."""
+def _axis_problem(values) -> str | None:
+    """Why a sweep axis cannot be swept, or ``None``: an empty axis gives no
+    rows, and a repeated value the same grid point twice, which ``totals()``
+    adds together."""
     values = list(values)
     if not values:
-        raise ValueError(
-            f"Expansion.sweep: {name} is an empty list; the Cartesian "
-            f"product would be empty and the sweep would return no rows."
+        return (
+            "is an empty list; the Cartesian product would be empty and the "
+            "sweep would return no rows"
         )
     seen = set()
     for v in values:
         key = _axis_key(v)
         if key in seen:
-            raise ValueError(
-                f"Expansion.sweep: {name} lists the value {shown(v)} twice; the "
-                f"sweep would evaluate that grid point twice and totals() "
-                f"would add the two copies together."
+            return (
+                f"lists the value {shown(v)} twice; the sweep would evaluate "
+                f"that grid point twice and totals() would add the two copies "
+                f"together"
             )
         seen.add(key)
+    return None
+
+
+def _check_axis(name, values) -> None:
+    """Refuse an axis :func:`_axis_problem` finds a problem with."""
+    problem = _axis_problem(values)
+    if problem is not None:
+        raise ValueError(f"Expansion.sweep: {name} {problem}.")
 
 
 def _hashable_position(value):
