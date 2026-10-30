@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **6295 tests** in 127 files (parametrised
+The suite has **6297 tests** in 127 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -552,7 +552,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*1332 tests in 25 files.*
+*1334 tests in 25 files.*
 
 .. list-table::
    :header-rows: 1
@@ -627,7 +627,7 @@ Workflow and YAML
      - strict resource variants, complete ordered result/stability gates, input protection (duplicate keys, also in merged mappings, compared as the document read them; a document read as plain YAML reads it, each key once; a value holding itself), fresh serial measurement and failure receipts
      - adversarial metadata/error/cancellation/nonfinite/overflow probes; true GL/QMC subprocesses and stale-bytecode witness
      - exact repeat/QMC gates; explicit 1e-12 relative and 1e-14 absolute GL budget
-     - 209
+     - 211
    * - ``test_resource_controls.py``
      - pure configuration resource scopes and conditional/bypass statuses; connected dry-run target
      - callback nonexecution witnesses, grid cardinality and connected Gaussian zero coefficients

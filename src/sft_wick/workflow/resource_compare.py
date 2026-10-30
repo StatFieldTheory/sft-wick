@@ -182,27 +182,32 @@ def _validate_lookup_contract(sw):
 
 
 def _known_files(raw, base_dir):
+    """The files ``raw`` names.  With a stack and each node once: a chain of
+    aliases can be deep, and aliases used twice per level give a number of
+    paths exponential in the depth of a short file."""
     files = set()
-
-    def visit(item):
-        if isinstance(item, dict):
-            for key, value in item.items():
-                if isinstance(key, str) and (
-                    key.endswith("_module") or key == "module" or key == "coupling_path"
-                ):
-                    if value is None and key != "coupling_path":
-                        continue
-                    if not isinstance(value, str) or not value.strip():
-                        raise ValueError(
-                            f"declared {key} must be a nonempty path string for comparison"
-                        )
-                    files.add((base_dir / value).absolute())
-                visit(value)
-        elif isinstance(item, list):
-            for value in item:
-                visit(value)
-
-    visit(raw)
+    seen = set()
+    stack = [raw]
+    while stack:
+        item = stack.pop()
+        if not isinstance(item, (dict, list)) or id(item) in seen:
+            continue
+        seen.add(id(item))
+        if isinstance(item, list):
+            stack.extend(item)
+            continue
+        for key, value in item.items():
+            if isinstance(key, str) and (
+                key.endswith("_module") or key == "module" or key == "coupling_path"
+            ):
+                if value is None and key != "coupling_path":
+                    continue
+                if not isinstance(value, str) or not value.strip():
+                    raise ValueError(
+                        f"declared {key} must be a nonempty path string for comparison"
+                    )
+                files.add((base_dir / value).absolute())
+            stack.append(value)
     return files
 
 

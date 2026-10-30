@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed: `compare-resources` walked a shared node once per path
+
+`_known_files` recursed, so a long chain of aliases ended in a
+`RecursionError`, and it walked every path to a shared node, so aliases used
+twice per level took time exponential in their depth.  It uses a stack and
+visits each node once.
+
 ### Fixed: an empty observable returned 0 at L1
 
 `System.expand([], orders=[0])` gave an expansion that evaluated to 0, where
