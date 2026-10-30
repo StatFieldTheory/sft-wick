@@ -19,6 +19,12 @@ CE7 -- values the file can hold and the run cannot read are refused when the
        file is loaded: grid entries, grid sizes and table bounds.  A value
        that passes is returned as it was, so a config keeps its identity,
        and a key the method or the table does not read is not checked.
+CE8 -- a nested list at a tensor key is measured before NumPy reads it.  A
+       short file whose aliases expand past the limit is refused at once
+       with the dotted path of the key; a tensor at the limit keeps its
+       value, and a tensor in a ``.npy`` file has no limit.  A diamond past
+       the first entry stays cheap, which lets the measure follow first
+       entries only.  Text in a coupling is refused before NumPy stores it.
 """
 
 from __future__ import annotations
@@ -28,8 +34,10 @@ import decimal
 import fractions
 import functools
 import pickle
+import signal
 import sys
 import time
+import tracemalloc
 import warnings
 import zipfile
 from pathlib import Path
@@ -40,7 +48,7 @@ import yaml
 
 from sft_wick.workflow import config as cf
 from sft_wick.workflow.cli import main
-from sft_wick.workflow.config import (ConfigError, _parse_workflow,
+from sft_wick.workflow.config import (ConfigError, _parse_workflow, build_system,
                                       check_before_run, load_workflow_config)
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -715,3 +723,261 @@ def test_CE7_a_grid_of_the_python_api_is_read_as_before(tmp_path):
         "sweep.positions_grid.y": np.eye(3)})
     assert all(np.array_equal(a, b)
                for a, b in zip(cfg.sweep.positions_grid["y"], np.eye(3)))
+
+
+# ---------------------------------------------------------------------------
+# CE8 -- the size of a tensor, before NumPy reads it
+# ---------------------------------------------------------------------------
+
+G0 = [[1.0, 0.0], [0.0, 1.0]]
+G1 = [[[0.0, 0.25], [0.5, 0.0]], [[0.0, 0.0], [0.75, 0.0]]]
+#: ``dotted key: (the value in a valid file, what places a value there)``
+TENSOR_KEYS = {
+    "system.vertices[0].coupling": (
+        [[[0.0, 0.0], [0.0, 1.0]], [[0.0, 0.5], [0.5, 0.0]]],
+        lambda system, v: system["vertices"][0].update(coupling=v)),
+    "system.nonlocal_vertices[0].coupling": (
+        [[1.0, 0.5], [0.5, 0.0]],
+        lambda system, v: system.update(nonlocal_vertices=[
+            {"name": "K", "order": 2, "coupling": v}])),
+    "system.noise.sigma2.amplitude": (
+        [[1.0, 0.25], [0.25, 2.0]],
+        lambda system, v: system["noise"].update(
+            sigma2={"type": "constant", "amplitude": v})),
+    "system.noise.sigma2.g0": (
+        G0,
+        lambda system, v: system["noise"].update(
+            sigma2={"type": "multiplicative", "g0": v, "g1": G1})),
+    "system.noise.sigma2.g1": (
+        G1,
+        lambda system, v: system["noise"].update(
+            sigma2={"type": "multiplicative", "g0": G0, "g1": v})),
+}
+#: Reads each key back from the built system.
+BUILT = {
+    "system.vertices[0].coupling": lambda s: s.vertices[0].coupling,
+    "system.nonlocal_vertices[0].coupling":
+        lambda s: s.nonlocal_vertices[0].coupling,
+    "system.noise.sigma2.amplitude": lambda s: s.noise.sigma2.amplitude,
+    "system.noise.sigma2.g0": lambda s: s.noise.sigma2.g0,
+    "system.noise.sigma2.g1": lambda s: s.noise.sigma2.g1,
+}
+
+
+@pytest.fixture
+def hang_fails():
+    """A walk of a diamond would not end.  NumPy polls for signals between
+    the lists it reads, so an alarm turns the walk into a failure.  The
+    failure is a ``BaseException``, which no handler in the parser catches."""
+
+    def expired(signum, frame):
+        pytest.fail("still walking the value")
+
+    previous = signal.signal(signal.SIGALRM, expired)
+    signal.alarm(5)
+    yield
+    signal.alarm(0)
+    signal.signal(signal.SIGALRM, previous)
+
+
+def _doubling(depth: int, leaves: tuple = (1.0, 1.0)) -> list:
+    """Each list holds the one before it twice: ``2 ** depth`` leaves.  A
+    dump writes the shared lists as aliases nested inside the value, as a
+    file must, since a key at the top level for the anchors would be refused."""
+    node = list(leaves)
+    for _ in range(depth - 1):
+        node = [node, node]
+    return node
+
+
+def _shaped(shape: tuple) -> list:
+    """Nested lists of ``shape``, built without writing the entries out."""
+    node = 0.0
+    for size in reversed(shape):
+        node = [node] * size
+    return node
+
+
+def _with_tensor(tmp_path: Path, key: str, value) -> Path:
+    doc = _doc()
+    TENSOR_KEYS[key][1](doc["system"], value)
+    return _write(tmp_path, doc)
+
+
+def _built(path: Path, key: str) -> np.ndarray:
+    return BUILT[key](build_system(load_workflow_config(path).system))
+
+
+@pytest.mark.parametrize("key", TENSOR_KEYS)
+def test_CE8_validate_refuses_a_diamond_at_once(tmp_path, capsys, hang_fails,
+                                                key):
+    path = _with_tensor(tmp_path, key, _doubling(40))
+    assert path.stat().st_size < 8000
+    started = time.perf_counter()
+    assert main(["validate", str(path)]) == 2
+    assert time.perf_counter() - started < 1.0
+    lines = capsys.readouterr().err.strip().splitlines()
+    assert len(lines) == 1
+    assert lines[0].startswith(f"sft-wick: config error [invalid_value] {key}: ")
+
+
+@pytest.mark.parametrize("key", TENSOR_KEYS)
+def test_CE8_the_error_has_the_code_and_the_path(tmp_path, hang_fails, key):
+    path = _with_tensor(tmp_path, key, _doubling(40))
+    with pytest.raises(ConfigError) as info:
+        check_before_run(load_workflow_config(path))
+    assert (info.value.code, info.value.path) == ("invalid_value", key)
+    assert len(str(info.value)) < 300
+
+
+@pytest.mark.parametrize("key", TENSOR_KEYS)
+def test_CE8_a_tensor_keeps_its_value(tmp_path, key):
+    tensor = TENSOR_KEYS[key][0]
+    path = _with_tensor(tmp_path, key, tensor)
+    assert np.array_equal(_built(path, key), np.array(tensor))
+
+
+def test_CE8_a_tensor_with_aliased_rows_reads_as_the_one_written_out(tmp_path):
+    row = [0.25, 0.25]
+    key = "system.noise.sigma2.amplitude"
+    path = _with_tensor(tmp_path, key, [row, row])
+    assert "*id" in path.read_text()
+    assert np.array_equal(_built(path, key), np.full((2, 2), 0.25))
+
+
+def test_CE8_a_tensor_at_the_limit_passes_and_one_past_it_is_refused(
+        tmp_path, monkeypatch):
+    """The quick start holds one tensor, of 8 entries."""
+    key = "system.vertices[0].coupling"
+    tensor = TENSOR_KEYS[key][0]
+    path = _with_tensor(tmp_path, key, tensor)
+    monkeypatch.setattr(cf, "_MAX_TENSOR_ENTRIES", 8)
+    assert np.array_equal(_built(path, key), np.array(tensor))
+    monkeypatch.setattr(cf, "_MAX_TENSOR_ENTRIES", 7)
+    with pytest.raises(ConfigError) as info:
+        load_workflow_config(path)
+    assert (info.value.code, info.value.path) == ("invalid_value", key)
+
+
+def test_CE8_a_tensor_in_a_file_has_no_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(cf, "_MAX_TENSOR_ENTRIES", 1)
+    tensor = np.array(TENSOR_KEYS["system.vertices[0].coupling"][0])
+    np.save(tmp_path / "coupling.npy", tensor)
+    doc = _doc()
+    doc["system"]["vertices"][0] = {"name": "F", "coupling_path": "coupling.npy"}
+    path = _write(tmp_path, doc)
+    built = build_system(load_workflow_config(path).system).vertices[0].coupling
+    assert np.array_equal(built, tensor)
+
+
+@pytest.mark.parametrize("shape", [
+    (1,), (1,) * 64, (10_000_000,), (3162, 3162), (215, 215, 215),
+    (100, 100, 100), (10,) * 7, (3,) * 14, (2,) * 23,
+], ids=lambda shape: f"{shape[0]}^{len(shape)}")
+def test_CE8_the_shapes_a_system_can_ask_for_pass(shape):
+    cf._refuse_oversized_tensor(_shaped(shape), "key")
+
+
+@pytest.mark.parametrize("shape", [
+    (10_000_001,), (3163, 3163), (216, 216, 216), (10,) * 8, (3,) * 15,
+    (2,) * 24, (1,) * 40 + (2,) * 24,
+], ids=lambda shape: f"{shape[-1]}^{len(shape)}")
+def test_CE8_the_next_size_up_is_refused(shape):
+    with pytest.raises(ConfigError) as info:
+        cf._refuse_oversized_tensor(_shaped(shape), "key")
+    assert info.value.path == "key"
+
+
+@pytest.mark.parametrize("value", [
+    [1.0, _doubling(40)],
+    [[1.0], _doubling(40)],
+    [[1.0, 1.0], _doubling(40)],
+    [[[1.0, 1.0], [1.0, 1.0]], _doubling(40)],
+    [[], _doubling(40)],
+    [None, _doubling(40)],
+    ["a", _doubling(40)],
+    [{}, _doubling(40)],
+    [{"k": _doubling(40)}, _doubling(40)],
+], ids=["number", "short", "row", "matrix", "empty", "null", "text", "mapping",
+        "mapping_holding_it"])
+@pytest.mark.parametrize("key", TENSOR_KEYS)
+def test_CE8_a_diamond_past_the_first_entry_stays_cheap(tmp_path, capsys,
+                                                        hang_fails, key, value):
+    """The measure follows first entries.  That bounds the walk because the
+    first number ends NumPy's descent: a list below that depth is ragged and
+    is not entered.  ``g0`` and ``g1`` report such a list at their block."""
+    path = _with_tensor(tmp_path, key, value)
+    started = time.perf_counter()
+    assert main(["validate", str(path)]) == 2
+    assert time.perf_counter() - started < 1.0
+    lines = capsys.readouterr().err.strip().splitlines()
+    assert len(lines) == 1
+    assert "[invalid_value] system." in lines[0]
+
+
+@pytest.mark.parametrize("axes", [10, 60, 70])
+def test_CE8_a_diamond_behind_axes_of_length_one_is_refused(tmp_path, hang_fails,
+                                                            axes):
+    """Past the axes the measure follows, NumPy refuses the list by itself."""
+    value = _doubling(40)
+    for _ in range(axes):
+        value = [value]
+    key = "system.vertices[0].coupling"
+    with pytest.raises(ConfigError) as info:
+        check_before_run(load_workflow_config(_with_tensor(tmp_path, key, value)))
+    assert info.value.path == key
+
+
+@pytest.mark.parametrize("leaves", [
+    ("x" * 8, "x" * 8), (1.0, "x" * 8), (b"x" * 8, b"x" * 8),
+], ids=["text", "text_after_a_number", "bytes"])
+@pytest.mark.parametrize("key", [
+    "system.vertices[0].coupling", "system.nonlocal_vertices[0].coupling",
+])
+def test_CE8_text_in_a_coupling_is_refused_before_numpy_stores_it(
+        tmp_path, hang_fails, key, leaves):
+    """NumPy stores every entry at the width of the longest string, so 4 kB
+    of aliases around a long string asked for tens of GB.  Eight characters
+    keep a failure of this test to a few hundred MB."""
+    path = _with_tensor(tmp_path, key, _doubling(23, leaves))
+    tracemalloc.start()
+    try:
+        with pytest.raises(ConfigError) as info:
+            load_workflow_config(path)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert (info.value.code, info.value.path) == ("invalid_value", key)
+    assert "must be a tensor of finite numbers" in str(info.value)
+    assert peak < 20 * 2 ** 20
+
+
+def test_CE8_the_search_for_text_enters_each_list_once(hang_fails):
+    assert not cf._holds_text(_doubling(400))
+    assert cf._holds_text(_doubling(400, (1.0, "x")))
+    assert cf._holds_text(((1.0, "x"),))
+    loop: list = []
+    loop.append(loop)
+    assert not cf._holds_text(loop)
+
+
+def test_CE8_a_tuple_is_measured_as_a_list_is():
+    """A Python caller can pass tuples, which NumPy walks as it walks lists."""
+    node = (1.0, 1.0)
+    for _ in range(39):
+        node = (node, node)
+    with pytest.raises(ConfigError):
+        cf._refuse_oversized_tensor(node, "key")
+
+
+def test_CE8_a_list_holding_itself_ends_the_measure(hang_fails):
+    """A Python caller reaches this without the check for cycles; NumPy
+    refuses such a list by itself."""
+    loop: list = []
+    loop.append(loop)
+    cf._refuse_oversized_tensor(loop, "key")
+
+
+def test_CE8_an_array_is_not_measured(monkeypatch):
+    monkeypatch.setattr(cf, "_MAX_TENSOR_ENTRIES", 1)
+    cf._refuse_oversized_tensor(np.zeros((4, 4)), "key")
