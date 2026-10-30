@@ -12,7 +12,9 @@ at ``component_pair=(0, 1)`` depending on the seed, with no error (OO2).
 A dict's keys view iterates in insertion order and is accepted; the keys
 view of another mapping, a ``ChainMap`` included, is refused, since its
 order cannot be checked.  A physical field named ``psi`` shared its name with the response field, so a
-``phi`` and a ``psi`` operator of one label shared a cache key (OO3).
+``phi`` and a ``psi`` operator of one label shared a cache key (OO3).  An
+empty observable returned 0 at order 0, where the moment of the identity
+is 1, and is refused, as the YAML loader refuses it (OO5).
 
 The model is generic: two components with distinct rates, a local cubic
 ``F`` and a constant non-local ``κ³`` vertex ``K`` with entries of both
@@ -470,3 +472,10 @@ def test_OO4_each_edge_joins_the_operators_of_its_pair(vertices,
                          data.get("psi_end"))
                         for u, v, data in diagram.graph.edges(data=True))
         assert drawn == _edges_of_pairing(record, diagram)
+
+
+@pytest.mark.parametrize("empty", [[], (), {}.keys(), iter(())],
+                         ids=["list", "tuple", "keys", "iterator"])
+def test_OO5_an_empty_observable_is_refused(system, empty):
+    with pytest.raises(ValueError, match="observable is empty"):
+        system.expand(empty, orders=[0])

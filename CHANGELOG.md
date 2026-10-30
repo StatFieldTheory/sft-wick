@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed: an empty observable returned 0 at L1
+
+`System.expand([], orders=[0])` gave an expansion that evaluated to 0, where
+the moment of the identity is 1.  It raises `ValueError`, as the YAML loader
+refuses `expand.observable: []`.
+
 ### Fixed: an error message could hold the expanded size of a value
 
 A message showing a value printed its `repr`, which expands every path to

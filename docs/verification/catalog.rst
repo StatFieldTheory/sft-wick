@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **6291 tests** in 127 files (parametrised
+The suite has **6295 tests** in 127 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -552,7 +552,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*1328 tests in 25 files.*
+*1332 tests in 25 files.*
 
 .. list-table::
    :header-rows: 1
@@ -617,7 +617,7 @@ Workflow and YAML
      - FieldOperator observables in System.expand (order 0 at distinct times, the FK channel at order 2, the same expansion as the string spelling, one index per shared letter); literal labels and foreign fields refused; set and frozenset observables refused, a dict's keys view accepted in its insertion order, the keys view of another mapping (a ChainMap's included) refused; a physical field named psi refused; each record draws for operators the caller built or cached, each edge joins the operators of its pair, a drawing reads no uid, and no call moves the uids back
      - closed-form inner and scipy quad outer integral of the exponential covariance; the FK channel of a constant kappa^3 as a 1-D quad
      - 1e-12; 1e-9; bit equality between spellings
-     - 33
+     - 37
    * - ``test_repo_hygiene.py``
      - tracked files hold no agent working files, development records, local absolute paths or task IDs; file names and commit messages hold no task IDs
      - git ls-files and git log; positive and negative pattern controls; a scratch repository whose flagged commits sit behind a merge's second parent and are deleted again
