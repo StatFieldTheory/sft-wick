@@ -10,11 +10,14 @@ only the diagrams can decide.
 
 from __future__ import annotations
 
+import itertools
 import os
 import stat
 from typing import Any
 
 import numpy as np
+
+from sft_wick.evaluate import _outside_table, _separation
 
 from . import config as cf
 from ._messages import shown
@@ -322,6 +325,8 @@ def _check_propagators(cfg: WorkflowConfig, system) -> None:
         _resolve_closed_form_flags(system, c_fn, only, vectorized)
     if not only:
         _check_table(cfg, system)
+        _check_table_times(cfg, system)
+        _check_table_positions(cfg, system)
 
 
 def _check_table(cfg: WorkflowConfig, system) -> None:
@@ -354,3 +359,71 @@ def _check_table(cfg: WorkflowConfig, system) -> None:
                 f"must be at least {need} for interp_method "
                 f"{shown(props.interp_method)}; got {getattr(props, key)}",
             )
+
+
+def _read_times(cfg: WorkflowConfig):
+    """``(dotted path, time)`` of each time the sweep reads.
+
+    ``sweep.t_final_grid`` counts only when a point is left free: with every
+    external pinned it is not read.
+    """
+    pinned = cfg.sweep.external_times_grid or {}
+    axes = [(f"sweep.external_times_grid.{p}", v) for p, v in pinned.items()]
+    if not cf._observable_points(cfg.expand) <= set(pinned):
+        axes.insert(0, ("sweep.t_final_grid", cfg.sweep.t_final_grid))
+    for axis, values in axes:
+        for i, value in enumerate(values):
+            yield f"{axis}[{i}]", float(value)
+
+
+def _check_table_times(cfg: WorkflowConfig, system) -> None:
+    """A time outside the C table, which would be clamped or extrapolated;
+    see :func:`~sft_wick.workflow.expansion._guard_table_reach`."""
+    t_min, t_max = float(system.t_min), float(cfg.propagators.t_max)
+    for where, t in _read_times(cfg):
+        if not _outside_table(t, t_min, t_max):
+            continue
+        limit = (
+            f"propagators.t_max = {t_max}" if t > t_max else
+            f"system.t_min = {t_min}"
+        )
+        raise ConfigError(
+            "invalid_value",
+            where,
+            f"time {shown(t)} is past {limit}, where the C table ends; the "
+            f"table would return a clamped or extrapolated value",
+        )
+
+
+def _check_table_positions(cfg: WorkflowConfig, system) -> None:
+    """A position past a full spatial grid, which would be extrapolated.  A
+    lazy table builds at any position, and a rotation table's cos is in
+    ``[-1, 1]`` by construction."""
+    table, grid = _full_table(cfg, system), cfg.sweep.positions_grid
+    if table == "translation":
+        r_max = float(cfg.propagators.r_max)
+        for (p, at_p), (q, at_q) in itertools.combinations(grid.items(), 2):
+            for a, (j, b) in itertools.product(at_p, enumerate(at_q)):
+                r = _separation(a, b)
+                if _outside_table(r, 0.0, r_max):
+                    raise ConfigError(
+                        "invalid_value",
+                        f"sweep.positions_grid.{q}[{j}]",
+                        f"{shown(q)} is {shown(r)} from {shown(p)}, past "
+                        f"propagators.r_max = {r_max}, where the C table "
+                        f"ends; the table would extrapolate.  Raise r_max, or "
+                        f"leave r_max and n_grid_r out for a lazy table",
+                    )
+    if table == "general":
+        x_max = float(cfg.propagators.x_max)
+        for p, values in grid.items():
+            for i, value in enumerate(values):
+                if np.any(_outside_table(value, -x_max, x_max)):
+                    raise ConfigError(
+                        "invalid_value",
+                        f"sweep.positions_grid.{p}[{i}]",
+                        f"{shown(value)} is past propagators.x_max = {x_max}, "
+                        f"where the C table ends; the table would extrapolate."
+                        f"  Raise x_max, or leave x_max and n_grid_x out for "
+                        f"a lazy table",
+                    )

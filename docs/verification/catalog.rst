@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **6688 tests** in 129 files (parametrised
+The suite has **7099 tests** in 130 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -157,7 +157,7 @@ Multiplicities and canonical forms
 Propagator numerics
 -------------------
 
-*924 tests in 17 files.*
+*1335 tests in 18 files.*
 
 .. list-table::
    :header-rows: 1
@@ -253,6 +253,11 @@ Propagator numerics
      - deterministic counting callbacks, stateful bypass witnesses, exact native byte/layout checks
      - exact outputs and retained raw-byte/4096-entry bounds; no RSS claim
      - 106
+   * - ``test_table_limits.py``
+     - a C lookup outside its table is refused at L0, L1 and L2 on every table kind: times on both sides, t_final only where it is read, separation past r_max, position past x_max on both sides, extreme values, rounding at a limit accepted, a sweep and the CLI stopped before their first cost; no limit on cos, on lazy positions or under c_closed_form_only; a diagram with a closed R loop reads no table and clear_cache keeps the limits of a spatial table
+     - scipy dblquad of the defining integral, sharing no code with the package, with asymmetric rates, t_min != 0 and a kernel that changes under x -> -x
+     - 1e-6 at table nodes / 1e-5 one DELTA from a coarse node
+     - 411
 
 Integrators
 -----------

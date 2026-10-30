@@ -24,7 +24,9 @@ discretization gets dense enough that cubic no longer breaks), the
 
 The interpolator construction here mirrors evaluate.py's call sites
 exactly: ``bounds_error=False, fill_value=None`` (so out-of-range
-queries extrapolate rather than raise).
+queries extrapolate rather than raise).  ``PropagatorCache.C_at_batch``
+refuses a query outside the table before it reaches them, so that only
+rounding at a limit gets this far; see ``test_table_limits.py``.
 """
 from __future__ import annotations
 

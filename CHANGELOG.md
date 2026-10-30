@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+### Fixed: a C lookup outside its table returned a number
+
+**Breaking (a time or position the table does not cover).**  A `t_final`
+above `t_max` was never compared with the table, a time below `t_min` was not
+checked at all, and the limits of a full spatial grid were never read.  A lazy
+table clamped to its edge and a full-grid table extrapolated, so each returned
+a value with no error, and `sft-wick validate` and `run` both exited 0.
+Measured against a `dblquad` of the integral that defines C, on tables with
+`t_max = 2`, `r_max = 1` and `x_max = 1`:
+
+| request | returned | reference |
+|---|---|---|
+| `t_final = 5`, lazy table | 0.15158 | 0.17080 |
+| `t_final = 5`, full grid | 0.23699 | 0.17080 |
+| `t_final = -0.5`, `t_min = 0`, full grid | -0.01518 | 0 |
+| `r = 3` | -0.04423 | 0.002318 |
+| `r = 50` | -1.747 | 7.1e-29 |
+| `x = y = -3` | 2.819 | 0.00986 |
+
+`sft-wick validate` and `run` now stop before the expansion with status 2 and
+one line that names the entry, such as `sweep.t_final_grid[1]` or
+`sweep.positions_grid.y[0]`.  `Expansion.evaluate` and `Expansion.sweep` raise
+`ValueError`, a sweep before its first point.  `PropagatorCache.C_at_batch`,
+`C_diagonal_batch` and `C_matrix_batch` refuse such a read too, and so does
+`C_value` on a spatial table.  A hand-built cache with only a time table
+stays with its accessors at L1, since `C_value` goes to direct quadrature past
+the table, which is correct.
+
+A value within rounding of a limit is read at the limit.  `t_final` is compared
+only when a point is left free: with every external point pinned it is not
+read, and such a run is unchanged.  There is no limit on cos on a rotation
+table, on the position on a lazy table, or on anything under
+`c_closed_form_only`, which reads no table.
+
+A diagram with a closed R loop, which `ito=False` keeps in the expression, is
+now 0 without being integrated.  It was 0 before; its vertices have no causal
+parent and no external point, so it looked up C at a time and a position no
+request named.  At orders 2 and 4 of a cubic vertex this skips 8 of 14 and 136
+of 200 diagrams, and those are exactly the diagrams that evaluated to 0.
+
+In-range numbers do not move.  All 10 shipped YAML configs and the quickstart
+with `ito: false` (156 rows, with the grids trimmed to their first and last
+values and at most 512 samples, so the limits stay in) and 3,464 lookups on four
+table kinds are bit-identical to the previous commit.
+`test_S3_translation_vs_general_agree_on_invariant_input` read one point past
+its own table; it now samples inside it.
+
 ### Changed: `sft-wick validate` reports what `sft-wick run` would refuse
 
 **Breaking (a value the run could not use, and some it used by accident).**

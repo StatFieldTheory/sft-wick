@@ -1720,8 +1720,9 @@ class TestSpatialAwareCache:
         rng = np.random.default_rng(1)
         t1 = rng.uniform(0.3, self.T_MAX - 0.3, size=20)
         t2 = rng.uniform(0.3, self.T_MAX - 0.3, size=20)
-        x1 = rng.uniform(-1.5, 1.5, size=20)
-        x2 = rng.uniform(-1.5, 1.5, size=20)
+        # |x1 - x2| stays within the translation table's r_max = 2.5.
+        x1 = rng.uniform(-1.25, 1.25, size=20)
+        x2 = rng.uniform(-1.25, 1.25, size=20)
 
         got_sep = cache_sep.C_at_batch(t1, t2, x1, x2).ravel()
         got_gen = cache_gen.C_at_batch(t1, t2, x1, x2).ravel()

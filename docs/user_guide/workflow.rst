@@ -1290,11 +1290,11 @@ is the bare propagator ``exp(-gamma (t - t'))``:
    |     4 |     2 | 0.135335  |
    |     4 |     3 | 0.367879  |
 
-Three requests are rejected rather than silently mis-answered: a time beyond
-the propagator table's ``t_max`` (which would clamp to the table edge), an
-empty list in the grid (which would produce no rows), and a point whose
-``t_<point>`` column would collide with an existing one.  A response
-observable whose externals are all at the same time warns.
+Three requests are rejected rather than silently mis-answered: a time outside
+the propagator table (see :ref:`table-limits`), an empty list in the grid
+(which would produce no rows), and a point whose ``t_<point>`` column would
+collide with an existing one.  A response observable whose externals are all
+at the same time warns.
 
 .. _n-point-sweeps:
 
@@ -1358,7 +1358,7 @@ Section reference: ``propagators``
    * - ``r_max`` + ``n_grid_r``
      - ``float`` + ``int``
      - ``null``
-     - Translation full-grid mode; give both or neither.  One alone, or either under another homogeneity, is refused before the run, since it would be ignored
+     - Translation full-grid mode; give both or neither.  One alone, or either under another homogeneity, is refused before the run, since it would be ignored.  A separation past ``r_max`` is refused (:ref:`table-limits`)
    * - ``n_grid_cos``
      - ``int``
      - ``null``
@@ -1366,7 +1366,7 @@ Section reference: ``propagators``
    * - ``x_max`` + ``n_grid_x``
      - ``float`` + ``int``
      - ``null``
-     - General full-grid mode; give both or neither, refused under another homogeneity
+     - General full-grid mode; give both or neither, refused under another homogeneity.  A position past ``x_max`` is refused (:ref:`table-limits`)
    * - ``c_closed_form``
      - ``str``
      - ``"auto"``
@@ -1411,6 +1411,54 @@ Section reference: ``propagators``
      - ``str``
      - ``null``
      - Directory or file for caching the built propagator. A schema change invalidates older workflow caches automatically; upgrading to 0.6.1 recomputes cached propagators and expansions on first use. See :doc:`discretization`
+
+.. _table-limits:
+
+What a C table covers
+~~~~~~~~~~~~~~~~~~~~~
+
+A C table covers times from ``system.t_min`` to ``propagators.t_max``.  A
+full spatial grid also limits positions:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Table
+     - Position limit
+   * - Translation with ``r_max`` and ``n_grid_r``
+     - The distance between any two points is at most ``r_max``
+   * - General with ``x_max`` and ``n_grid_x``
+     - Every point is in ``[-x_max, x_max]``
+   * - Rotation
+     - None; :math:`\cos\theta` is in ``[-1, 1]`` by construction
+   * - Lazy translation or general
+     - None; a table is built for each position asked for
+
+Past these limits a lazy table would clamp to its edge and a full-grid table
+would extrapolate, so a request outside them is refused.  ``sft-wick validate``
+and ``sft-wick run`` stop before the expansion, with exit status 2 and one
+line that names the entry:
+
+.. code-block:: text
+
+   sft-wick: config error [invalid_value] sweep.t_final_grid[1]: time 5.0 is past propagators.t_max=2.0, where the C table ends; the table would return a clamped or extrapolated value
+
+:meth:`~sft_wick.workflow.Expansion.evaluate` and
+:meth:`~sft_wick.workflow.Expansion.sweep` raise ``ValueError``, a sweep before
+its first point.  ``PropagatorCache.C_at_batch`` refuses such a lookup too, so
+a caller at L0 is covered.
+
+A value within rounding of a limit is read at the limit, so ``t_final`` equal
+to ``t_max`` is valid.  ``t_final`` is compared only when a point of the
+observable is left free, and a point in ``integrate_over`` counts as free:
+with every point pinned by ``external_times_grid`` it is not read, and it can
+be anything.  With ``c_closed_form_only: true`` no table is built and none of
+these limits applies.
+
+A diagram with a closed R loop, which ``expand.ito: false`` keeps in the
+expression, is exactly 0 and reads no table, so these limits do not depend on
+``ito``.
 
 Section reference: ``sweep``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
