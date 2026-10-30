@@ -1347,6 +1347,60 @@ def _vertex_keys(cls) -> set:
     )
 
 
+#: Most entries of a tensor written in a config.  PyYAML reads about 70,000
+#: numbers a second, so a file written out reaches this after minutes and
+#: one with aliases in a few lines.  A ``.npy`` file has no limit.
+_MAX_TENSOR_ENTRIES = 10**7
+#: NumPy reads a nested list to at most this many axes.
+_MAX_TENSOR_AXES = 64
+
+
+def _refuse_oversized_tensor(value: Any, where: str) -> None:
+    """Refuse nested lists past :data:`_MAX_TENSOR_ENTRIES`, before NumPy
+    reads them.
+
+    A list can hold the one before it twice through YAML aliases, so a few
+    lines expand to ``2 ** depth`` numbers and ``np.asarray`` visits each.
+    Its first number ends its descent, since a list below that depth is
+    ragged and is not entered, so the lengths along the first entries bound
+    the entries it visits.  Reading them takes one step per axis; the steps
+    are counted because a Python caller can pass a list that holds itself.
+    """
+    entries, item = 1, value
+    for _ in range(_MAX_TENSOR_AXES):
+        if not isinstance(item, (list, tuple)) or not item:
+            return
+        entries *= len(item)
+        if entries > _MAX_TENSOR_ENTRIES:
+            raise ConfigError(
+                "invalid_value",
+                where,
+                f"would be a tensor of more than {_MAX_TENSOR_ENTRIES} entries, "
+                f"the most a config can write; a list repeated through an "
+                f"alias counts each time",
+            )
+        item = item[0]
+
+
+def _holds_text(value: Any) -> bool:
+    """Whether nested lists hold a string or bytes.
+
+    NumPy stores every entry at the width of the longest string, so a few
+    lines of aliases around one long string ask for tens of GB, under
+    :data:`_MAX_TENSOR_ENTRIES`.  Each list is entered once, as in
+    :func:`_refuse_cycles`, so the cost is what the file holds.
+    """
+    seen, pending = set(), [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, (str, bytes)):
+            return True
+        if isinstance(item, (list, tuple)) and id(item) not in seen:
+            seen.add(id(item))
+            pending.extend(item)
+    return False
+
+
 def _parse_vertex(
     v: Any, base_dir: Path, *, kind: str, index: int, n_components: int
 ) -> dict:
@@ -1451,8 +1505,9 @@ def _parse_vertex(
             f"(coupling_module), not to a tensor",
         )
     coupling = f"{where}.coupling"
+    _refuse_oversized_tensor(out["coupling"], coupling)
     try:
-        arr = np.asarray(out["coupling"])
+        arr = np.asarray(None if _holds_text(out["coupling"]) else out["coupling"])
     except (ValueError, OverflowError):
         arr = np.asarray(None)
     if not (np.issubdtype(arr.dtype, np.number) and np.all(np.isfinite(arr))):
@@ -2636,6 +2691,8 @@ def _build_sigma2(sig_d: Any, base_dir: Path | None, n_components: int | None):
                 f"type 'multiplicative' requires {missing}: g0 as an N x M "
                 f"nested list, g1 as N x M x N",
             )
+        for key in ("g0", "g1"):
+            _refuse_oversized_tensor(sig_d[key], f"{where}.{key}")
         with _refused_at(where):
             names = {
                 k: tuple(sig_d[k])
@@ -2660,6 +2717,7 @@ def _build_sigma2(sig_d: Any, base_dir: Path | None, n_components: int | None):
 def _sigma2_amplitude(raw: Any, n_components: int | None, where: str):
     """A white-noise amplitude: a number, or a symmetric N x N matrix."""
     if isinstance(raw, list):
+        _refuse_oversized_tensor(raw, where)
         try:
             amp = np.asarray(raw, dtype=float)
         except (TypeError, ValueError, OverflowError):

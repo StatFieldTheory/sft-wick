@@ -1236,7 +1236,9 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "cannot read, values the run cannot read; the exception type a "
         "caller caught before is kept; a message shows a value at a bounded "
         "size; a value that holds itself; a census of 39 wrong values on "
-        "every key of two shipped configs",
+        "every key of two shipped configs; a tensor key whose aliases expand "
+        "past the limit refused before NumPy reads it, at both sides of the "
+        "limit",
         "the dotted path of the changed key; the census of the commit before",
         "exact",
     ),

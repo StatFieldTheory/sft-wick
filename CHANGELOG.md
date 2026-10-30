@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Fixed: an alias diamond at a tensor key hung `sft-wick validate`
+
+**Breaking (a tensor of more than 10^7 entries written in a config).**
+`np.asarray` visits every path of a nested list, so a file of a few lines
+whose lists each hold the one before twice took 1.8 s at 24 levels, and the
+time doubled with each level.  `coupling` of a local or
+non-local vertex and `amplitude`, `g0` and `g1` of `system.noise.sigma2` are
+now measured along their first entries before NumPy reads them, and a tensor
+of more than 10^7 entries is refused with `invalid_value` and the dotted path
+of the key.  The first entries bound the entries NumPy visits, since it does
+not descend past the depth of the first number.  A tensor in a `.npy` file
+(`coupling_path`) has no limit.  PyYAML reads about 70,000 numbers a second,
+so a tensor written out at the limit takes over two minutes to read.
+
+A `coupling` holding text kept its refusal and its message, and is now
+refused before NumPy stores it.  NumPy gives every entry the width of the
+longest string, so a 3.8 kB file of aliases around a string of 1000
+characters peaked at 1.1 GB at 18 levels, a factor of 4 for every two levels.
+
 ### Fixed: an R read past the cumulative-rate spline returned a number
 
 **Breaking (a time past the spline of a callable `gamma`).**
@@ -226,7 +245,7 @@ cost the same without showing it.  A value up to 1000 characters prints as
 before, and a longer one as a stand-in such as `<list of length 2>`; the
 grid of 24 levels loads in 2.5 ms, and one of 400 levels in 15 ms.  A
 tensor key such as `coupling` still builds the array the file describes, at
-its expanded size.
+its expanded size, up to 10^7 entries.
 
 ### Fixed: a file whose aliases form a cycle passed `validate`
 
