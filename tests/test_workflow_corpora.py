@@ -933,7 +933,7 @@ def test_CO6_the_parser_shows_values_through_shown():
     """A new ``{value!r}`` in these modules would bring the expansion back,
     and only a file that reaches that line would show it."""
     for module in ("config.py", "schema.py", "expansion.py", "specs.py",
-                   "system.py", "propagators.py"):
+                   "system.py", "propagators.py", "_run_checks.py"):
         tree = ast.parse((ROOT / "src" / "sft_wick" / "workflow" / module)
                          .read_text())
         lines = [node.lineno for node in ast.walk(tree)

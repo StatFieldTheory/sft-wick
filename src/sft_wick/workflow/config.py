@@ -241,11 +241,9 @@ class ConfigError(_ConfigMessage, ValueError):
         a list the file leaves out.
     ``read_error``
         A file the config names cannot be read, or a module it names cannot
-        be imported or lacks the attribute.  Of the closed-form C module
-        only the file is checked: the run imports it.  ``sft-wick`` also
-        prints with this code, and no path, the ``OSError`` or
-        ``yaml.YAMLError`` that :func:`load_workflow_config` raises for the
-        config file itself.
+        be imported or lacks the attribute.  ``sft-wick`` also prints with
+        this code, and no path, the ``OSError`` or ``yaml.YAMLError`` that
+        :func:`load_workflow_config` raises for the config file itself.
     """
 
 
@@ -2900,16 +2898,18 @@ def check_before_run(cfg: WorkflowConfig, system=None):
     :meth:`System.expand` makes), the component tuples against the
     observable and ``n_components``, the point names against the sweep's
     columns, ``sweep.orders`` against ``expand.orders``, the spatial grid
-    keys, one parallel layer, and the closed-form C module on disk.  Builds
-    the System unless ``system`` is given, and returns it.
+    keys, one parallel layer, and the refusals of the run that the config
+    decides (``_run_checks.check_run_refusals``).  Builds the System unless
+    ``system`` is given, and returns it.
 
     ``sft-wick validate`` and ``sft-wick run`` call it before anything is
-    computed.  A ``sweep.vertex_types`` label is checked only against the
-    diagrams, after the expansion.
+    computed.  What only the diagrams of the interacting orders decide is
+    checked after the expansion (``_run_checks.check_after_expansion``).
 
     Raises:
         ConfigError: every refusal, with a code and a dotted path.
     """
+    from ._run_checks import check_run_refusals
     from .expansion import (
         _check_sweep_columns,
         _resolve_component_tuples,
@@ -2958,13 +2958,7 @@ def check_before_run(cfg: WorkflowConfig, system=None):
             "nested joblib loky pools are not supported",
         )
     _check_spatial_grid(cfg, system)
-    module = cfg.propagators.c_closed_form_module
-    if module is not None and not Path(module).is_file():
-        raise ConfigError(
-            "read_error",
-            "propagators.c_closed_form_module",
-            f"no such file {module}",
-        )
+    check_run_refusals(cfg, system)
     return system
 
 
@@ -3040,6 +3034,8 @@ def run_workflow(cfg: WorkflowConfig, progress: Any = None):
 def _run_workflow(cfg: WorkflowConfig, stage):
     from sft_wick.evaluate import _execution_options
 
+    from ._run_checks import check_after_expansion
+
     execution = _execution_options(
         cfg.sweep.propagator_cache_bytes,
         cfg.sweep.propagator_cache_contract,
@@ -3083,9 +3079,9 @@ def _run_workflow(cfg: WorkflowConfig, stage):
         f"order {o}: {len(expansion.diagrams(o))}" for o in expansion.orders
     )
     _log(f"[sft-wick] diagrams -- {counts}")
-    # An order or a vertex type the expansion does not hold is refused here,
-    # before the propagator table is built.
-    expansion._selection(cfg.sweep.orders, cfg.sweep.vertex_types, "sweep")
+    # What only the diagrams decide is refused here, before the propagator
+    # table is built.
+    check_after_expansion(cfg, expansion)
 
     c_fn = _load_c_closed_form(cfg.propagators)
     # User-supplied C_fn modules are loaded via

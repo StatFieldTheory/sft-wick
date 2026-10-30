@@ -156,18 +156,9 @@ class Propagators:
                 :func:`~sft_wick.evaluate._probe_c_transpose`), half of
                 each table is filled by that relation.
         """
-        if c_closed_form_only and c_closed_form is None:
-            raise ValueError(
-                "c_closed_form_only=True requires c_closed_form to be "
-                "set (the no-spline path needs a closed-form callable "
-                "to use as the lookup function)."
-            )
-        if c_closed_form_vectorized and not c_closed_form_only:
-            raise ValueError(
-                "c_closed_form_vectorized=True only makes sense with "
-                "c_closed_form_only=True; the vectorised contract is "
-                "specific to the no-spline lookup path."
-            )
+        c_fn, c_fn_source = _resolve_closed_form_flags(
+            system, c_closed_form, c_closed_form_only, c_closed_form_vectorized
+        )
         from .cache import load_or_compute
 
         hom = homogeneity if homogeneity is not None else system.homogeneity
@@ -177,14 +168,6 @@ class Propagators:
                 f"'general'; got {shown(hom)}."
             )
 
-        c_fn, c_fn_source = _resolve_closed_form(system, c_closed_form)
-        if c_closed_form_only and c_fn is None:
-            raise ValueError(
-                "c_closed_form_only=True requires a closed form, but "
-                "c_closed_form=None was given and this system's kernel "
-                "family has no built-in one (see "
-                "sft_wick.workflow.closed_forms)."
-            )
         c_method_resolved = _resolve_c_method_family(system, c_method)
 
         system_identity = closed_identity = None
@@ -322,6 +305,34 @@ class Propagators:
             _build,
             operation_name="propagator table",
         )
+
+
+def _resolve_closed_form_flags(
+    system, c_closed_form, c_closed_form_only, c_closed_form_vectorized
+):
+    """:func:`_resolve_closed_form`, refusing a ``c_closed_form_only`` that
+    leaves no lookup function and a vectorised contract without it."""
+    if c_closed_form_only and c_closed_form is None:
+        raise ValueError(
+            "c_closed_form_only=True requires c_closed_form to be "
+            "set (the no-spline path needs a closed-form callable "
+            "to use as the lookup function)."
+        )
+    if c_closed_form_vectorized and not c_closed_form_only:
+        raise ValueError(
+            "c_closed_form_vectorized=True only makes sense with "
+            "c_closed_form_only=True; the vectorised contract is "
+            "specific to the no-spline lookup path."
+        )
+    c_fn, source = _resolve_closed_form(system, c_closed_form)
+    if c_closed_form_only and c_fn is None:
+        raise ValueError(
+            "c_closed_form_only=True requires a closed form, but "
+            "c_closed_form=None was given and this system's kernel "
+            "family has no built-in one (see "
+            "sft_wick.workflow.closed_forms)."
+        )
+    return c_fn, source
 
 
 def _resolve_closed_form(system, c_closed_form):

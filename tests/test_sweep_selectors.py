@@ -330,7 +330,7 @@ def test_SS4_yaml_absent_label_is_refused_before_the_propagators(
     monkeypatch.setattr(System, "propagators", boom)
     cfg = load_workflow_config(_write(tmp_path, _config()),
                                overrides={"sweep.vertex_types": "KF"})
-    with pytest.raises(ValueError, match=r"^sweep: .*\['KF'\]"):
+    with pytest.raises(ValueError, match=r"^sweep\.vertex_types: .*\['KF'\]"):
         run_workflow(cfg, progress=False)
 
 

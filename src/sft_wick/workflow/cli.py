@@ -22,7 +22,8 @@ Usage::
         the same from the environment).
 
     sft-wick validate CONFIG.yaml [--override ...] [--print-resolved]
-        Parse the config and build its System; run nothing.
+        Parse the config, build its System and make the checks of the run;
+        run nothing.
 
     sft-wick schema
         Print the JSON Schema of the config files.
@@ -321,7 +322,7 @@ def _cmd_quickstart(args) -> int:
 
 
 def _cmd_run(args) -> int:
-    from .config import run_workflow
+    from .config import ConfigError, run_workflow
 
     t0 = time.perf_counter()
     # Built here once for the checks, so a config error ends with status 2
@@ -343,20 +344,25 @@ def _cmd_run(args) -> int:
     _maybe_warn_blas_oversubscription(cfg)
     progress = _progress_setting(args)
 
-    if args.dry_run:
-        from .estimate import estimate_cost
+    # What only the diagrams decide is refused after the expansion.
+    try:
+        if args.dry_run:
+            from .estimate import estimate_cost
+
+            t0 = time.perf_counter()
+            est = estimate_cost(cfg)
+            print(est.summary())
+            print(
+                f"[sft-wick] dry run — exiting before execution "
+                f"(estimate took {time.perf_counter() - t0:.1f}s)"
+            )
+            return 0
 
         t0 = time.perf_counter()
-        est = estimate_cost(cfg)
-        print(est.summary())
-        print(
-            f"[sft-wick] dry run — exiting before execution "
-            f"(estimate took {time.perf_counter() - t0:.1f}s)"
-        )
-        return 0
-
-    t0 = time.perf_counter()
-    sweep, totals = run_workflow(cfg, progress=progress)
+        sweep, totals = run_workflow(cfg, progress=progress)
+    except ConfigError as exc:
+        print(_config_error_line(exc), file=sys.stderr)
+        return CONFIG_ERROR_STATUS
     print(
         f"[sft-wick] workflow done in "
         f"{time.perf_counter() - t0:.1f}s — "

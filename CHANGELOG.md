@@ -2,6 +2,83 @@
 
 ## Unreleased
 
+### Changed: `sft-wick validate` reports what `sft-wick run` would refuse
+
+**Breaking (a value the run could not use, and some it used by accident).**
+
+`sft-wick validate`, `sft-wick run` and `sft-wick run --dry-run` make these
+checks before any stage, each with exit status 2, one line, a code and the
+dotted path.  Each of these passed `validate` and ended in a traceback with
+status 1, in the expansion, the propagator table, the sweep or after it:
+
+* `expand.diag_R`, `expand.diag_C` and `propagators.diag_C` where R or C has
+  off-diagonal entries.
+* An empty axis, or a value listed twice, on `sweep.t_final_grid`,
+  `sweep.positions_grid` or `sweep.external_times_grid`.  Under `--dry-run`
+  an empty axis ended in an `IndexError`, and a repeated value passed.
+* A point that `sweep.external_times_grid` pins and `sweep.integrate_over`
+  names.
+* Points a response propagator joins at order 0, at two positions:
+  `['phi_a(x)', 'psi_b(y)']` with `x` and `y` apart.  `validate` contracts
+  the observable at order 0 for this, which takes milliseconds.
+* A `plot` output whose `x`, `y`, `hue` or `facet_col` is no column of the
+  sweep.
+* `propagators.c_closed_form_module`, now imported before the expansion: a
+  module Python cannot import, or without a callable
+  `c_closed_form_attr`, is a `read_error`.  An attribute that is not
+  callable used to fail when the table was built.
+* `c_closed_form_only` with no closed form and `c_closed_form_vectorized`
+  without it.  Where a C table is built: `propagators.t_max` not above
+  `system.t_min`, `n_grid_t` below 4 when no spatial grid is given (the
+  table of each separation is a cubic spline), and a full table with fewer
+  nodes on an axis than `interp_method` needs (2 for `slinear`, 4 for
+  `cubic` and `pchip`, 6 for `quintic`).  A run of `<phi psi>` alone, which
+  reads no C, passed with such an `n_grid_t` and is refused too.
+* Positions the run cannot combine: a number next to a vector on one axis,
+  shapes that do not broadcast, a vector on a `general` full table, and a
+  number next to a vector on a `translation` full table at an interacting
+  order.
+* An `output[].path` or a `cache_path` that cannot be written to: a name too
+  long, a parent that is a file, and for an output a directory where the
+  file would go (`np.savez` adds `.npz`, and `savefig` the default format
+  to a name with no suffix).  A `plot` path with a suffix `savefig` has no
+  format for.
+
+These values are refused when the file is loaded:
+
+* An entry of `sweep.t_final_grid` or `sweep.external_times_grid` that is no
+  finite number, and an entry of `sweep.positions_grid` that is neither a
+  finite number nor a non-empty vector of them.  Some of these ran: a NaN
+  time at an order that does not read it, a `null` or NaN position on a
+  closed-form path, `true` for 1.0.  A number as YAML reads `1e-3`, a
+  string, is read as a number; it used to fail in some runs.
+* `propagators.r_max` or `x_max` that is no positive finite number, and
+  `n_grid_r`, `n_grid_cos` or `n_grid_x` that is no integer from 1.  A
+  negative `r_max` built a table and read past it.
+* `sweep.n_samples` below 1 or a negative `sweep.seed` under a QMC method,
+  `sweep.n_gauss` below 1 under `gauss_legendre`, `propagators.n_grid_t`
+  below 2 or a `t_max` that is not finite unless `c_closed_form_only` builds
+  no table, `c_n_gauss` below 2, `system.field.n_components` below 1, a
+  `system.t_min` that is not finite, an `n_jobs` of 0, and an integer too
+  large for an array.  A key the method does not read stays unchecked.
+  `n_samples: 0` ran at an order with no sampled diagram.  `n_jobs: 0` ran
+  where a layer stayed serial, which depends on the grid and the diagrams;
+  it means nothing to joblib, so it is refused at every size.
+* `propagators.interp_method` that is no method of
+  `scipy.interpolate.RegularGridInterpolator`.
+* `output[].path`, `expand.cache_path` or `propagators.cache_path` that is
+  no path.
+
+A `sweep.vertex_types` label, and points a chain of response propagators
+joins through a vertex, need the diagrams.  `sft-wick run` makes these two
+checks after the expansion, before the propagator table, with status 2 and
+one line; they used to end in a traceback, the second in the sweep.
+`validate` runs no expansion past order 0 and passes them.
+
+Some failures still show only where they happen, such as a number that is
+finite in the file and overflows in an integrand, a directory the process
+may not write to, or a table too large for memory.
+
 ### Changed: every refusal of the parser has a code and a dotted path
 
 `load_workflow_config` and `check_before_run` raise `ConfigError` for every
@@ -216,8 +293,8 @@ Also when the file is loaded:
   it used to end in an `AttributeError`, and the `ConfigError` it raises now
   is one too.
 * `run_workflow` checks the order selection, the parallel layers and the
-  closed-form C module before the expansion, with the messages it gave
-  after it, and parses the observable as `System.expand` does.  A field
+  closed-form C module before the expansion, and parses the observable as
+  `System.expand` does.  A field
   the system lacks (`wrong_a(x)`), a missing component index (`phi(x)`
   with two components) or, at interacting orders, two operators at one
   spatial label stop `sft-wick validate` and `sft-wick run` with

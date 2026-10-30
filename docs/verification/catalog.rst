@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **6569 tests** in 128 files (parametrised
+The suite has **6688 tests** in 129 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -552,7 +552,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*1606 tests in 26 files.*
+*1725 tests in 27 files.*
 
 .. list-table::
    :header-rows: 1
@@ -577,7 +577,7 @@ Workflow and YAML
      - every refusal of the parser is a ConfigError with a code and a dotted path: module files Python cannot import, .npy files numpy cannot read, values the run cannot read; the exception type a caller caught before is kept; a message shows a value at a bounded size; a value that holds itself; a census of 39 wrong values on every key of two shipped configs
      - the dotted path of the changed key; the census of the commit before
      - exact
-     - 272
+     - 292
    * - ``test_demo3_levels.py``
      - demo 3 level A: the free-field m-point function through the package, and the R-contracted vertex against the raw one
      - closed form (level A is a single diagram, hence exact); QMC on the raw-vertex path
@@ -663,6 +663,11 @@ Workflow and YAML
      - time-translation invariance (stationary noise, constant drift)
      - 1e-10
      - 10
+   * - ``test_validate_run_parity.py``
+     - sft-wick validate reports what run refuses, in one line with status 2 before any stage: diag_R and diag_C, empty and repeated axes, pinned and integrated points, joined points at two positions, plot columns, output paths, the closed-form C module and flags; the neighbour of each refusal runs; what only the diagrams decide stops the run after the expansion
+     - the refusal of the integrators, compared directly over observables, targets, integrators and table kinds; a run with the closed form passed on
+     - exact
+     - 99
    * - ``test_workflow.py``
      - System / Expansion / Propagators / SweepResult surface; end-to-end vs the raw API; two-time sweeps
      - raw L0 pipeline (validate_phase5); closed forms

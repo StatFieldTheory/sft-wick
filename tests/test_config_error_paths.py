@@ -237,6 +237,12 @@ def _kernel(doc, name, attr=None):
         doc["system"]["noise"]["kappa2"]["temporal"]["attr"] = attr
 
 
+def _closed_form(doc, name, attr=None):
+    doc["propagators"]["c_closed_form_module"] = name
+    if attr is not None:
+        doc["propagators"]["c_closed_form_attr"] = attr
+
+
 #: how the config names a module -> (path of the key, path of its attribute)
 MODULE_KEYS = {
     "gamma": (_gamma, "system.linear.gamma_module", "system.linear.gamma_attr"),
@@ -248,6 +254,8 @@ MODULE_KEYS = {
     "sigma2": (_sigma2, "system.noise.sigma2.module", "system.noise.sigma2.attr"),
     "kernel": (_kernel, "system.noise.kappa2.temporal.module",
                "system.noise.kappa2.temporal.attr"),
+    "closed_form": (_closed_form, "propagators.c_closed_form_module",
+                    "propagators.c_closed_form_attr"),
 }
 
 BROKEN = {

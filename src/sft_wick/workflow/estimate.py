@@ -145,6 +145,8 @@ def estimate_cost(cfg, bench_seconds: float = 1.0) -> CostEstimate:
 
 
 def _estimate(cfg, bench_seconds, build_system, load_c) -> CostEstimate:
+    from ._run_checks import check_after_expansion
+
     system = build_system(cfg.system)
     expand_diag_C = cfg.expand.diag_C and cfg.propagators.diag_C
     expansion = system.expand(
@@ -162,7 +164,7 @@ def _estimate(cfg, bench_seconds, build_system, load_c) -> CostEstimate:
     )
     sw = cfg.sweep
     # The selection the sweep will make, refused as the run would refuse it.
-    orders, vt, tasks = expansion._selection(sw.orders, sw.vertex_types, "sweep")
+    orders, vt, tasks = check_after_expansion(cfg, expansion)
     diagrams_per_order = {o: sum(1 for task in tasks if task[0] == o) for o in orders}
     # The benchmark evaluates one order at a time, so it passes only the
     # labels that order carries; a label of another order would be refused.
