@@ -1905,7 +1905,9 @@ the file leaves out (``system.noise.sigma2`` in
 ``--override system.noise.sigma2.amplitude=0.01``) is created, as
 writing the key into the file would.  A key of a ``type`` variant
 follows the ``type`` in the file, or one set by an earlier override.
-An override cannot add a list entry.
+An override cannot add a list entry.  It changes only the path it
+names: a list or mapping the file shares through a YAML alias or a
+``<<:`` merge keeps its value at its other paths.
 
 .. code-block:: bash
 

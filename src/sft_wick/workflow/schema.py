@@ -38,6 +38,7 @@ from typing import Any
 
 from . import config as cf
 from . import specs as sp
+from ._messages import shown
 
 SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
 
@@ -455,7 +456,7 @@ def _render(node) -> dict:
         return {"type": "object", "additionalProperties": _render(node.value)}
     if isinstance(node, _ListOf):
         return {"type": "array", "items": _render(node.item)}
-    raise TypeError(f"not a schema node: {node!r}")
+    raise TypeError(f"not a schema node: {shown(node)}")
 
 
 def _render_key(key: _Key) -> dict:
@@ -513,7 +514,7 @@ def _variant(node: _Tagged, data: dict, walked: str) -> tuple:
         raise cf.OverrideError(
             "invalid_value",
             _label(walked, "type"),
-            f"{tag!r} is not one of {cf._or_list(node.variants)}; set "
+            f"{shown(tag)} is not one of {cf._or_list(node.variants)}; set "
             f"{_label(walked, 'type')} first",
             cf._nearest(tag, node.variants) if isinstance(tag, str) else (),
         )
@@ -548,7 +549,7 @@ def _child(node, data, step, walked: str):
         if step == "type":
             return _enum(node.variants)
         node, tag = _variant(node, data, walked)
-        note = f" for type {tag!r}"
+        note = f" for type {shown(tag)}"
     key = node.keys.get(step)
     if key is None:
         raise cf.OverrideError(
@@ -565,6 +566,12 @@ def override_target(data: dict, path: list) -> tuple:
     schema allows in a block is accepted whether or not ``data`` has it,
     and a mapping on the way that ``data`` leaves out (or sets to
     ``null``) is created.  A list entry is never created.
+
+    Each mapping and list on the way is replaced in ``data`` by a shallow
+    copy, so a write to the returned container changes this path alone: a
+    node ``data`` holds at several paths, through a YAML alias or a ``<<:``
+    merge, keeps its value at the others.  Everything off the path stays
+    shared, so the cost does not grow with what the aliases expand to.
     """
     node, cur, walked = _tree(), data, ""
     for i, step in enumerate(path):
@@ -582,6 +589,8 @@ def override_target(data: dict, path: list) -> tuple:
                     "a list or a value below it",
                 )
             nxt = cur[step] = {}
+        elif isinstance(nxt, (dict, list)):
+            nxt = cur[step] = copy.copy(nxt)
         cur, node, walked = nxt, child, here
     raise cf.OverrideError("override_syntax", "", "an override needs a key")
 

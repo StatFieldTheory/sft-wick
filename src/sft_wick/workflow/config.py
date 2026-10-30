@@ -27,7 +27,6 @@ import importlib.util
 import math
 import os
 import re
-import reprlib
 import sys
 import warnings
 from dataclasses import dataclass, field
@@ -39,6 +38,8 @@ import numpy as np
 
 from sft_wick._dense_contraction import DEFAULT_CONTRACTION_MAX_BYTES
 from sft_wick.evaluate import DEFAULT_GL_CHUNK_SIZE, INTEGRATION_METHODS
+
+from ._messages import shown, text_of
 
 # =========================================================================
 # Internal dataclasses: a thin typed mirror of the L1 ``System`` spec
@@ -299,7 +300,7 @@ def _nearest(name: Any, candidates) -> tuple:
     name meant, always lists it (``n_grid_q`` lists ``n_grid_r``,
     ``n_grid_t`` and ``n_grid_x``).
     """
-    name = str(name)
+    name = text_of(name)
     limit = max(2, len(name) // 3)
     best, found = limit + 1, []
     for cand in map(str, candidates):
@@ -328,7 +329,7 @@ def _converted(convert, value: Any, where: str):
         return convert(value)
     except (TypeError, ValueError, OverflowError):
         kind = "an integer" if convert is int else "a number"
-        detail = f"must be {kind}; got {value!r}"
+        detail = f"must be {kind}; got {shown(value)}"
         raise ConfigError("invalid_value", where, detail) from None
 
 
@@ -337,7 +338,7 @@ def _grid_points(span: float, dt: float, where: str) -> int:
     try:
         return max(2, int(math.ceil(span / dt)))
     except (OverflowError, ValueError):
-        detail = f"{dt!r} gives no finite grid over a span of {span!r}"
+        detail = f"{shown(dt)} gives no finite grid over a span of {shown(span)}"
         raise ConfigError("invalid_value", where, detail) from None
 
 
@@ -410,6 +411,7 @@ def load_workflow_config(
         for dotted_key, value in overrides.items():
             _apply_override(data, dotted_key, value)
 
+    _refuse_cycles(data)
     return _parse_workflow(data, base_dir=path.parent)
 
 
@@ -563,7 +565,11 @@ def _key_text(key_node) -> str:
         return "<<"
     if not isinstance(key_node, yaml.ScalarNode):
         return "<key>"
-    text = key_node.value
+    return _cut_key(key_node.value)
+
+
+def _cut_key(text: str) -> str:
+    """A key as an error shows it."""
     return text if len(text) <= _MAX_KEY_TEXT else f"{text[:_MAX_KEY_TEXT]}..."
 
 
@@ -579,6 +585,11 @@ def _path_of(root, target, written: dict) -> str:
         if node not in seen:
             seen.add(node)
             stack.extend(reversed(_children(node, route, written)))
+    return _route_text(route)
+
+
+def _route_text(route) -> str:
+    """The dotted path of a chain of ``(route, part)`` links."""
     parts = []
     while route is not None:
         route, part = route
@@ -629,7 +640,7 @@ def _override_path(dotted_key: str) -> list:
             raise OverrideError(
                 "override_syntax",
                 str(dotted_key),
-                f"cannot read the segment {part!r}; write name, or "
+                f"cannot read the segment {shown(part)}; write name, or "
                 f"name[index] for a list entry",
             )
         path.append(m.group("name"))
@@ -675,11 +686,59 @@ def _apply_override(data: dict, dotted_key: str, value: Any) -> None:
     switch it.  A key the schema does not allow raises ``unknown_key``; a
     step through a value, past the end of a list or into a list the file
     leaves out raises ``override_path``.
+
+    Only the named path changes.  A node the file shares through a YAML
+    alias or a ``<<:`` merge keeps its value at its other paths, as if the
+    alias were written out.
     """
     from .schema import override_target
 
     parent, leaf = override_target(data, _override_path(dotted_key))
     parent[leaf] = value
+
+
+def _refuse_cycles(data: dict) -> None:
+    """Refuse a mapping or list that holds itself through a YAML alias.
+
+    YAML allows ``x: &g [0.0, *g]``, and the parser reads such a value
+    without looking inside it, so the file passed ``sft-wick validate`` and
+    ended in a traceback later.  The dotted path of the alias that closes
+    the cycle is reported.
+
+    The walk uses a stack, since a chain of aliases can be as long as the
+    file, and enters each container once, so a node shared many times costs
+    one visit however far it expands.  An entry links to the one it was
+    reached from; the path is written out only for the error.
+    """
+    containers = (dict, list, tuple)
+    entered, finished = set(), set()
+    stack = [(data, None, False)]
+    while stack:
+        item, route, leaving = stack.pop()
+        if leaving:
+            finished.add(id(item))
+            continue
+        if id(item) in finished:
+            continue
+        if id(item) in entered:
+            raise ConfigError(
+                "invalid_value",
+                _route_text(route),
+                "an alias here makes a value hold itself",
+            )
+        entered.add(id(item))
+        stack.append((item, route, True))
+        if isinstance(item, dict):
+            steps = [
+                (v, f".{_cut_key(str(k))}")
+                for k, v in item.items()
+                if isinstance(v, containers)
+            ]
+        else:
+            steps = [
+                (v, f"[{i}]") for i, v in enumerate(item) if isinstance(v, containers)
+            ]
+        stack.extend((value, (route, part), False) for value, part in reversed(steps))
 
 
 #: Keys each block reads; a key outside its block's set raises.  The
@@ -822,7 +881,7 @@ def _integrate_over_selection(raw: Any):
         return "all" if raw == "all" else [str(raw)]
     usage = (
         f"sweep.integrate_over must be null, all, a point name or a list of "
-        f"point names, e.g. [x]; got {raw!r}."
+        f"point names, e.g. [x]; got {shown(raw)}."
     )
     if isinstance(raw, (bytes, bytearray, collections.abc.Mapping)):
         raise TypeError(usage)
@@ -833,7 +892,7 @@ def _integrate_over_selection(raw: Any):
     for name in names:
         if not isinstance(name, str):
             raise TypeError(
-                f"sweep.integrate_over: the entry {name!r} in {raw!r} is not "
+                f"sweep.integrate_over: the entry {shown(name)} in {shown(raw)} is not "
                 f"a point name; quote a name YAML would read as a number or "
                 f"a boolean, e.g. '1'."
             )
@@ -862,13 +921,13 @@ def _parse_point_grid(raw: Any, where: str) -> dict:
     if not isinstance(raw, collections.abc.Mapping):
         raise ValueError(
             f"{where} must be a mapping from point names to lists of values, "
-            f"e.g. {{x: [0.0], y: [0.5]}}; got {raw!r}."
+            f"e.g. {{x: [0.0], y: [0.5]}}; got {shown(raw)}."
         )
     out = {}
     for key, values in raw.items():
         if not isinstance(key, str):
             raise ValueError(
-                f"{where}: the point name {key!r} is a {type(key).__name__}, "
+                f"{where}: the point name {shown(key)} is a {type(key).__name__}, "
                 f"not a string.  YAML reads an unquoted 1, 2.5, on, off, yes, "
                 f"no, true, false or null as a number, a boolean or null; "
                 f"quote the name as expand.observable spells it, e.g. "
@@ -876,8 +935,8 @@ def _parse_point_grid(raw: Any, where: str) -> dict:
             )
         out[key] = _as_list(
             values,
-            f"{where}[{key!r}] must be a list of values, e.g. [0.0, 0.5]; "
-            f"got {values!r}.",
+            f"{where}[{shown(key)}] must be a list of values, e.g. [0.0, 0.5]; "
+            f"got {shown(values)}.",
         )
     return out
 
@@ -897,7 +956,7 @@ def _parse_workflow(data: dict, base_dir: Path) -> WorkflowConfig:
     if not isinstance(output_d, list):
         raise ValueError(
             f"output must be a list of entries, each a mapping with a "
-            f"'type', e.g. [{{type: table}}]; got {output_d!r}.  Write a "
+            f"'type', e.g. [{{type: table}}]; got {shown(output_d)}.  Write a "
             f"single entry as a one-entry list."
         )
 
@@ -960,7 +1019,7 @@ def _parse_system(
     if not isinstance(fld, dict):
         raise ValueError(
             f"system.field must be a mapping with 'name' and 'n_components', "
-            f"e.g. {{name: phi, n_components: 2}}; got {fld!r}."
+            f"e.g. {{name: phi, n_components: 2}}; got {shown(fld)}."
         )
     _reject_unknown_keys(fld, _FIELD_KEYS, "system.field")
     for key in ("vertices", "nonlocal_vertices"):
@@ -968,7 +1027,7 @@ def _parse_system(
         if blocks is not None and not isinstance(blocks, list):
             raise ValueError(
                 f"system.{key} must be a list of vertex blocks; got "
-                f"{blocks!r}.  Write a single vertex as a one-entry list."
+                f"{shown(blocks)}.  Write a single vertex as a one-entry list."
             )
     name = fld.get("name", "phi")
     nc = _converted(int, fld.get("n_components", 1), "system.field.n_components")
@@ -978,7 +1037,7 @@ def _parse_system(
     if linear is None:
         raise ValueError("system.linear is required")
     if not isinstance(linear, dict):
-        raise ValueError(f"system.linear must be a mapping; got {linear!r}.")
+        raise ValueError(f"system.linear must be a mapping; got {shown(linear)}.")
     linear = _resolve_linear(
         dict(linear),
         base_dir,
@@ -1043,12 +1102,14 @@ def _check_noise_keys(noise: dict) -> None:
         if kt in _SEPARABLE_KAPPA2:
             blocks = _SEPARABLE_KAPPA2[kt]
             allowed = ("type",) + tuple(b for b, _ in blocks)
-            _reject_unknown_keys(kappa2, allowed, where, f"type {kt!r}")
+            _reject_unknown_keys(kappa2, allowed, where, f"type {shown(kt)}")
             for block, axis in blocks:
                 if isinstance(kappa2.get(block), dict):
                     _check_kernel_keys(kappa2[block], axis)
         elif kt == "callable_module":
-            _reject_unknown_keys(kappa2, _KAPPA2_CALLABLE_KEYS, where, f"type {kt!r}")
+            _reject_unknown_keys(
+                kappa2, _KAPPA2_CALLABLE_KEYS, where, f"type {shown(kt)}"
+            )
         else:
             every = {"type", *_KAPPA2_CALLABLE_KEYS}
             for blocks in _SEPARABLE_KAPPA2.values():
@@ -1059,7 +1120,9 @@ def _check_noise_keys(noise: dict) -> None:
         st = _tag(sigma2, "constant")
         keys = _SIGMA2_KEYS.get(st)
         if keys is not None:
-            _reject_unknown_keys(sigma2, keys, "system.noise.sigma2", f"type {st!r}")
+            _reject_unknown_keys(
+                sigma2, keys, "system.noise.sigma2", f"type {shown(st)}"
+            )
         else:
             every = set().union(*_SIGMA2_KEYS.values())
             _reject_unknown_keys(sigma2, every, "system.noise.sigma2")
@@ -1073,7 +1136,7 @@ def _check_kernel_keys(d: dict, axis: str) -> None:
         _reject_unknown_keys(d, _CUSTOM_KERNEL_KEYS, where, "type 'custom'")
     elif (axis, kt) in _KERNEL_PARAMS:
         allowed = ("type",) + _KERNEL_PARAMS[(axis, kt)]
-        _reject_unknown_keys(d, allowed, where, f"type {kt!r}")
+        _reject_unknown_keys(d, allowed, where, f"type {shown(kt)}")
     else:
         every = set(_CUSTOM_KERNEL_KEYS)
         for (a, _), params in _KERNEL_PARAMS.items():
@@ -1126,7 +1189,7 @@ def _parse_vertex(
     where = f"system.{block}[{index}]"
     if not isinstance(v, dict):
         raise ValueError(
-            f"{where} must be a mapping with 'name' and a coupling; " f"got {v!r}."
+            f"{where} must be a mapping with 'name' and a coupling; " f"got {shown(v)}."
         )
     allowed = _vertex_keys(cls)
     _reject_unknown_keys(v, allowed, where)
@@ -1136,7 +1199,7 @@ def _parse_vertex(
     name = out.get("name")
     if not isinstance(name, str) or not name:
         raise ValueError(f"{where}: 'name' (a non-empty string) is required.")
-    where = f"{where} ({name!r})"
+    where = f"{where} ({shown(name)})"
     sources = [k for k in _COUPLING_SOURCES if k in out]
     if len(sources) != 1:
         raise ValueError(
@@ -1146,7 +1209,7 @@ def _parse_vertex(
     if "coupling_attr" in out and sources[0] != "coupling_module":
         raise ValueError(
             f"{where}: 'coupling_attr' names the callable in "
-            f"'coupling_module' and does nothing with {sources[0]!r}."
+            f"'coupling_module' and does nothing with {shown(sources[0])}."
         )
     if kind == "nonlocal":
         order = out.get("order")
@@ -1157,7 +1220,7 @@ def _parse_vertex(
         ):
             raise ValueError(
                 f"{where}: 'order' (m, the number of psi legs, an integer "
-                f">= 1) is required; got {order!r}."
+                f">= 1) is required; got {shown(order)}."
             )
         out["order"] = int(order)
     for flag in _VERTEX_FLAGS:
@@ -1165,7 +1228,7 @@ def _parse_vertex(
             out[flag] = _as_bool(out[flag], f"{where}.{flag}")
 
     if sources[0] == "coupling_path":
-        npy = (base_dir / str(out.pop("coupling_path"))).resolve()
+        npy = (base_dir / text_of(out.pop("coupling_path"))).resolve()
         try:
             out["coupling"] = np.load(npy)
         except (OSError, ValueError, EOFError) as exc:
@@ -1173,8 +1236,8 @@ def _parse_vertex(
                 "read_error", f"{where}.coupling_path", f"cannot read {npy}: {exc}"
             ) from None
     elif sources[0] == "coupling_module":
-        mod_path = (base_dir / str(out.pop("coupling_module"))).resolve()
-        attr = str(out.pop("coupling_attr", "coupling_fn"))
+        mod_path = (base_dir / text_of(out.pop("coupling_module"))).resolve()
+        attr = text_of(out.pop("coupling_attr", "coupling_fn"))
         out["coupling"] = _load_callable_from_module(mod_path, attr)
     if callable(out["coupling"]):
         return out
@@ -1316,7 +1379,7 @@ def _resolve_linear(
             lin, base_dir, default_dt=default_dt, n_components=n_components
         )
     raise ValueError(
-        f"Unsupported linear operator type {lt!r}.  "
+        f"Unsupported linear operator type {shown(lt)}.  "
         f"Supported: 'diagonal', 'explicit'."
     )
 
@@ -1433,7 +1496,7 @@ def _resolve_linear_explicit(
     if present:
         raise ValueError(
             f"system.linear.type='explicit' does not accept "
-            f"gamma-spline fields {present!r}.  Use 'type: diagonal' for "
+            f"gamma-spline fields {shown(present)}.  Use 'type: diagonal' for "
             f"those, or remove them under 'type: explicit'."
         )
     if "R_time" in lin:
@@ -1580,14 +1643,16 @@ def _load_callable_from_module(path: Path, attr: str):
     module_name = path.stem
     spec_obj = importlib.util.spec_from_file_location(module_name, path)
     if spec_obj is None or spec_obj.loader is None:
-        raise ImportError(f"Cannot load coupling module {path!r}.")
+        raise ImportError(f"Cannot load coupling module {shown(path)}.")
     module = importlib.util.module_from_spec(spec_obj)
     sys.modules[module_name] = module
     spec_obj.loader.exec_module(module)
     fn = getattr(module, attr, None)
     if fn is None or not callable(fn):
         raise _ModuleAttributeError(
-            "read_error", "", f"module {str(path)!r} has no callable attribute {attr!r}"
+            "read_error",
+            "",
+            f"module {shown(str(path))} has no callable attribute {shown(attr)}",
         )
     _register_module_by_value(module)
     return fn
@@ -1649,7 +1714,7 @@ def _check_observable_entries(obs: list) -> None:
         )
     for i, op in enumerate(obs):
         if not isinstance(op, str) or _OBS_PATTERN.match(op) is None:
-            got = reprlib.repr(op)
+            got = shown(op)
             if not isinstance(op, str):
                 got = f"{got} ({type(op).__name__})"
             raise ConfigError(
@@ -1671,12 +1736,12 @@ def _parse_expand(d: dict) -> ExpandConfig:
         raise ValueError(
             f"expand.observable: a set has no order, and the order of the "
             f"operators fixes which component index belongs to which; give "
-            f"a list, e.g. ['phi_a(x)', 'phi_b(y)']; got {obs!r}."
+            f"a list, e.g. ['phi_a(x)', 'phi_b(y)']; got {shown(obs)}."
         )
     obs = _as_list(
         obs,
         f"expand.observable must be a list of operators, e.g. "
-        f"['phi_a(x)', 'phi_b(y)']; got {obs!r}.  A string is not split "
+        f"['phi_a(x)', 'phi_b(y)']; got {shown(obs)}.  A string is not split "
         f"into operators.",
     )
     # A NumPy array of operators gives np.str_ entries.
@@ -1731,12 +1796,12 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
     c_closed_form = d.get("c_closed_form", "auto")
     if c_closed_form in (False, None, "none", "null", "off"):
         c_closed_form = None
-    elif c_closed_form is True or str(c_closed_form).lower() == "auto":
+    elif c_closed_form is True or text_of(c_closed_form).lower() == "auto":
         c_closed_form = "auto"
     else:
         raise ValueError(
             f"propagators.c_closed_form must be 'auto' or null/false; got "
-            f"{c_closed_form!r}.  To supply your own closed form use "
+            f"{shown(c_closed_form)}.  To supply your own closed form use "
             f"c_closed_form_module / c_closed_form_attr."
         )
     homogeneity = d.get("homogeneity")
@@ -1744,14 +1809,15 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
         raise ConfigError(
             "invalid_value",
             "propagators.homogeneity",
-            f"must be null or one of {_or_list(_HOMOGENEITIES)}; got {homogeneity!r}",
+            f"must be null or one of {_or_list(_HOMOGENEITIES)}; "
+            f"got {shown(homogeneity)}",
             _nearest(homogeneity, _HOMOGENEITIES),
         )
-    c_method = str(d.get("c_method", "auto"))
+    c_method = text_of(d.get("c_method", "auto"))
     if c_method not in _C_METHODS:
         raise ValueError(
             f"propagators.c_method must be 'auto', 'dblquad' or "
-            f"'gauss_legendre'; got {c_method!r}."
+            f"'gauss_legendre'; got {shown(c_method)}."
         )
 
     return PropagatorsConfig(
@@ -1767,13 +1833,13 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
         n_jobs=_converted(int, d.get("n_jobs", 1), "propagators.n_jobs"),
         c_closed_form=c_closed_form,
         c_closed_form_module=module_spec,
-        c_closed_form_attr=str(d.get("c_closed_form_attr", "C_fn")),
+        c_closed_form_attr=text_of(d.get("c_closed_form_attr", "C_fn")),
         c_closed_form_only=_flag(d, "c_closed_form_only", False, "propagators"),
         c_closed_form_vectorized=_flag(
             d, "c_closed_form_vectorized", False, "propagators"
         ),
         cache_path=d.get("cache_path"),
-        interp_method=str(d.get("interp_method", "linear")),
+        interp_method=text_of(d.get("interp_method", "linear")),
         c_method=c_method,
         c_n_gauss=_converted(int, d.get("c_n_gauss", 20), "propagators.c_n_gauss"),
         diag_C=_flag(d, "diag_C", True, "propagators"),
@@ -1806,7 +1872,7 @@ def _parse_component_axis(d: dict) -> list:
     raw = d[key]
     usage = (
         f"sweep.{key} must be a non-empty list of component tuples, "
-        f"e.g. [[0, 1]]; got {raw!r}."
+        f"e.g. [[0, 1]]; got {shown(raw)}."
     )
     entries = _as_list(raw, usage)
     if not entries:
@@ -1818,7 +1884,7 @@ def _parse_component_axis(d: dict) -> list:
         ):
             raise ValueError(
                 f"sweep.{key}: each entry is a list of component indices, "
-                f"one per observable operator, e.g. [0, 1]; got {entry!r}."
+                f"one per observable operator, e.g. [0, 1]; got {shown(entry)}."
             )
         tuples.append(tuple(entry))
     return tuples
@@ -1849,7 +1915,7 @@ def _parse_sweep(d: dict) -> SweepConfig:
     t_final_grid = _as_list(
         d["t_final_grid"],
         f"sweep.t_final_grid must be a list of times, e.g. [1.0, 2.0]; "
-        f"got {d['t_final_grid']!r}.",
+        f"got {shown(d['t_final_grid'])}.",
     )
     external_times_grid = d.get("external_times_grid")
     if external_times_grid is not None:
@@ -1863,14 +1929,14 @@ def _parse_sweep(d: dict) -> SweepConfig:
     vertex_types = _vertex_type_selection(d.get("vertex_types"), "sweep.vertex_types")
     cps = _parse_component_axis(d)
     seed = d.get("seed", 42)
-    method = str(d.get("method", "qmc_vectorized"))
+    method = text_of(d.get("method", "qmc_vectorized"))
     if method not in INTEGRATION_METHODS:
         # Checked here so that a misspelt method stops the load, not the
         # sweep after the expansion and the propagator table.
         raise ConfigError(
             "invalid_value",
             "sweep.method",
-            f"must be one of {_or_list(INTEGRATION_METHODS)}; got {method!r}",
+            f"must be one of {_or_list(INTEGRATION_METHODS)}; got {shown(method)}",
             _nearest(method, INTEGRATION_METHODS),
         )
     return SweepConfig(
@@ -1906,7 +1972,7 @@ def _parse_output(d: dict, index: int = 0) -> OutputConfig:
     if not isinstance(d, dict):
         raise ValueError(
             f"output[{index}] must be a mapping with a 'type', e.g. "
-            f"{{type: table}}; got {d!r}."
+            f"{{type: table}}; got {shown(d)}."
         )
     _reject_unknown_keys(d, _OUTPUT_KEYS, f"output[{index}]")
     if "type" not in d:
@@ -1914,7 +1980,7 @@ def _parse_output(d: dict, index: int = 0) -> OutputConfig:
     t = d["type"]
     if t not in _OUTPUT_TYPES:
         raise ValueError(
-            f"output type must be one of 'table', 'npz', 'plot'; " f"got {t!r}."
+            f"output type must be one of 'table', 'npz', 'plot'; " f"got {shown(t)}."
         )
     needs = {"npz": ("path",), "plot": ("path", "x")}.get(t, ())
     for key in needs:
@@ -1923,15 +1989,15 @@ def _parse_output(d: dict, index: int = 0) -> OutputConfig:
             raise ConfigError(
                 "invalid_value",
                 f"output[{index}].{key}",
-                f"output type {t!r} requires {key!r}",
+                f"output type {shown(t)} requires {shown(key)}",
             )
-    fmt = str(d.get("format", "markdown"))
+    fmt = text_of(d.get("format", "markdown"))
     if fmt not in _TABLE_FORMATS:
         # Checked here: the table is written only after the whole sweep.
         raise ConfigError(
             "invalid_value",
             f"output[{index}].format",
-            f"must be one of {_or_list(_TABLE_FORMATS)}; got {fmt!r}",
+            f"must be one of {_or_list(_TABLE_FORMATS)}; got {shown(fmt)}",
             _nearest(fmt, _TABLE_FORMATS),
         )
     return OutputConfig(
@@ -1939,7 +2005,7 @@ def _parse_output(d: dict, index: int = 0) -> OutputConfig:
         path=d.get("path"),
         format=fmt,
         x=d.get("x"),
-        y=str(d.get("y", "value")),
+        y=text_of(d.get("y", "value")),
         hue=d.get("hue", "order"),
         facet_col=d.get("facet_col"),
     )
@@ -1980,7 +2046,7 @@ def build_system(cfg: SystemConfig):
         )
     else:
         raise ValueError(
-            f"Unsupported linear operator type {lt!r}.  "
+            f"Unsupported linear operator type {shown(lt)}.  "
             f"Supported: 'diagonal', 'explicit'."
         )
 
@@ -2042,12 +2108,12 @@ def _build_noise(
     if kt in _SEPARABLE_KAPPA2:
         blocks = _SEPARABLE_KAPPA2[kt]
         _reject_unknown_keys(
-            k2_d, [b for b, _ in blocks], "system.noise.kappa2", f"type {kt!r}"
+            k2_d, [b for b, _ in blocks], "system.noise.kappa2", f"type {shown(kt)}"
         )
         missing = [b for b, _ in blocks if b not in k2_d]
         if missing:
             raise ValueError(
-                f"system.noise.kappa2 of type {kt!r} requires the kernel "
+                f"system.noise.kappa2 of type {shown(kt)} requires the kernel "
                 f"block(s) {missing}."
             )
         kernels = [
@@ -2083,7 +2149,7 @@ def _build_noise(
         raise ConfigError(
             "invalid_value",
             "system.noise.kappa2.type",
-            f"unsupported type {d['kappa2'].get('type')!r}; supported: "
+            f"unsupported type {shown(d['kappa2'].get('type'))}; supported: "
             f"{_or_list(supported)}",
             _nearest(kt, supported) if isinstance(kt, str) else (),
         )
@@ -2104,11 +2170,11 @@ def _build_sigma2(sig_d: Any, base_dir: Path | None, n_components: int | None):
     if not isinstance(sig_d, dict):
         raise ValueError(
             f"{where} must be null or a mapping such as "
-            f"{{type: constant, amplitude: 0.01}}; got {sig_d!r}."
+            f"{{type: constant, amplitude: 0.01}}; got {shown(sig_d)}."
         )
     st = _tag(sig_d, "constant")
     if st in _SIGMA2_KEYS:
-        _reject_unknown_keys(sig_d, _SIGMA2_KEYS[st], where, f"type {st!r}")
+        _reject_unknown_keys(sig_d, _SIGMA2_KEYS[st], where, f"type {shown(st)}")
     if st == "constant":
         if "amplitude" not in sig_d:
             raise ValueError(
@@ -2151,13 +2217,14 @@ def _build_sigma2(sig_d: Any, base_dir: Path | None, n_components: int | None):
         return sp.MultiplicativeImpulse(
             g0=np.asarray(sig_d["g0"], dtype=float),
             g1=np.asarray(sig_d["g1"], dtype=float),
-            interpretation=str(sig_d.get("interpretation", "ito")),
+            interpretation=text_of(sig_d.get("interpretation", "ito")),
             **names,
         )
     raise ConfigError(
         "invalid_value",
         f"{where}.type",
-        f"unsupported type {sig_d.get('type')!r}; supported: {_or_list(_SIGMA2_KEYS)}",
+        f"unsupported type {shown(sig_d.get('type'))}; "
+        f"supported: {_or_list(_SIGMA2_KEYS)}",
         _nearest(st, _SIGMA2_KEYS) if isinstance(st, str) else (),
     )
 
@@ -2170,7 +2237,7 @@ def _sigma2_amplitude(raw: Any, n_components: int | None, where: str):
         except (TypeError, ValueError):
             raise ValueError(
                 f"{where} must be a number or an N x N matrix of numbers; "
-                f"got {raw!r}."
+                f"got {shown(raw)}."
             ) from None
     else:
         return _yaml_number(raw, where)
@@ -2186,13 +2253,13 @@ def _sigma2_amplitude(raw: Any, n_components: int | None, where: str):
             f"{size} (n_components = {n})."
         )
     if not np.all(np.isfinite(amp)):
-        raise ValueError(f"{where} has a non-finite entry: {raw!r}.")
+        raise ValueError(f"{where} has a non-finite entry: {shown(raw)}.")
     scale = float(np.abs(amp).max())
     if float(np.abs(amp - amp.T).max()) > 1e-12 * scale:
         raise ValueError(
             f"{where} must be symmetric: it is the covariance of the white "
             f"noise, and the action term psi sigma2 psi / 2 reads only its "
-            f"symmetric part.  Got {raw!r}."
+            f"symmetric part.  Got {shown(raw)}."
         )
     return amp
 
@@ -2255,16 +2322,16 @@ def _yaml_number(value: Any, where: str):
     returned unchanged, so existing specs keep their ``repr``.
     """
     if isinstance(value, bool):
-        raise ValueError(f"{where} must be a number; got {value!r}.")
+        raise ValueError(f"{where} must be a number; got {shown(value)}.")
     if isinstance(value, str):
         try:
             value = float(value)
         except ValueError:
-            raise ValueError(f"{where} must be a number; got {value!r}.") from None
+            raise ValueError(f"{where} must be a number; got {shown(value)}.") from None
     if not isinstance(value, (int, float, np.integer, np.floating)):
-        raise ValueError(f"{where} must be a number; got {value!r}.")
+        raise ValueError(f"{where} must be a number; got {shown(value)}.")
     if not math.isfinite(float(value)):
-        raise ValueError(f"{where} must be finite; got {value!r}.")
+        raise ValueError(f"{where} must be finite; got {shown(value)}.")
     return value
 
 
@@ -2294,7 +2361,7 @@ def _as_bool(value: Any, where: str) -> bool:
             return True
         if word in _FALSE_WORDS:
             return False
-    raise ValueError(f"{where} must be true or false; got {value!r}.")
+    raise ValueError(f"{where} must be true or false; got {shown(value)}.")
 
 
 def _build_kernel(d: dict, axis: str, base_dir: Path | None = None):
@@ -2307,7 +2374,7 @@ def _build_kernel(d: dict, axis: str, base_dir: Path | None = None):
     if not isinstance(d, dict):
         raise ValueError(
             f"{where} must be a mapping such as {{type: exponential, ...}}; "
-            f"got {d!r}."
+            f"got {shown(d)}."
         )
     kt = _tag(d, "exponential")
     if kt == "custom":
@@ -2316,7 +2383,7 @@ def _build_kernel(d: dict, axis: str, base_dir: Path | None = None):
             raise ValueError(
                 f"{where}: type 'custom' requires 'module: <path to a .py "
                 f"file, relative to the YAML file>' exporting the kernel "
-                f"callable as 'attr' (default {_KERNEL_BLOCK[axis]!r})."
+                f"callable as 'attr' (default {shown(_KERNEL_BLOCK[axis])})."
             )
         if base_dir is None:
             raise ValueError(
@@ -2324,8 +2391,8 @@ def _build_kernel(d: dict, axis: str, base_dir: Path | None = None):
                 f"resolve 'module'; the workflow loader passes it."
             )
         fn = _load_callable_from_module(
-            (base_dir / str(d["module"])).resolve(),
-            str(d.get("attr", _KERNEL_BLOCK[axis])),
+            (base_dir / text_of(d["module"])).resolve(),
+            text_of(d.get("attr", _KERNEL_BLOCK[axis])),
         )
         return sp.CustomKernel(fn=fn)
 
@@ -2333,19 +2400,19 @@ def _build_kernel(d: dict, axis: str, base_dir: Path | None = None):
     if params is None:
         supported = sorted(t for (a, t) in _KERNEL_PARAMS if a == axis)
         raise ValueError(
-            f"Unsupported {axis}-kernel type {kt!r} at {where}.  "
+            f"Unsupported {axis}-kernel type {shown(kt)} at {where}.  "
             f"Supported: {supported + ['custom']}."
         )
-    _reject_unknown_keys(d, ("type",) + params, where, f"type {kt!r}")
+    _reject_unknown_keys(d, ("type",) + params, where, f"type {shown(kt)}")
     missing = [p for p in params if p not in d]
     if missing:
-        raise ValueError(f"{where}: type {kt!r} requires {missing}.")
+        raise ValueError(f"{where}: type {shown(kt)} requires {missing}.")
     if kt == "legendre":
         coeffs = d["coeffs"]
         if not isinstance(coeffs, list) or not coeffs:
             raise ValueError(
                 f"{where}.coeffs must be a non-empty list [C_0, C_1, ...]; "
-                f"got {coeffs!r}."
+                f"got {shown(coeffs)}."
             )
         return sp.LegendreAngular(
             coeffs=[
@@ -2355,7 +2422,7 @@ def _build_kernel(d: dict, axis: str, base_dir: Path | None = None):
     vals = {p: _yaml_number(d[p], f"{where}.{p}") for p in params}
     for p in ("sigma_t", "sigma_x"):
         if p in vals and not float(vals[p]) > 0.0:
-            raise ValueError(f"{where}.{p} must be positive; got {vals[p]!r}.")
+            raise ValueError(f"{where}.{p} must be positive; got {shown(vals[p])}.")
     cls = {
         ("time", "exponential"): sp.ExponentialTemporal,
         ("time", "gaussian"): sp.GaussianTemporal,
@@ -2461,8 +2528,8 @@ def _check_spatial_grid(cfg: WorkflowConfig, system) -> None:
         owner = next(h for h, grid in _SPATIAL_GRIDS.items() if key in grid)
         if key not in read:
             detail = (
-                f"is read only under homogeneity {owner!r}, and this run's "
-                f"homogeneity is {hom!r}, so it would be ignored"
+                f"is read only under homogeneity {shown(owner)}, and this run's "
+                f"homogeneity is {shown(hom)}, so it would be ignored"
             )
         elif not all(k in given for k in read):
             other = next(k for k in read if k not in given)
@@ -2663,14 +2730,15 @@ def _load_c_closed_form(cfg: PropagatorsConfig):
 
     spec_obj = importlib.util.spec_from_file_location(module_name, path)
     if spec_obj is None or spec_obj.loader is None:
-        raise ImportError(f"Cannot load c_closed_form_module {path!r}.")
+        raise ImportError(f"Cannot load c_closed_form_module {shown(path)}.")
     module = importlib.util.module_from_spec(spec_obj)
     sys.modules[module_name] = module
     spec_obj.loader.exec_module(module)
     fn = getattr(module, cfg.c_closed_form_attr, None)
     if fn is None:
         raise AttributeError(
-            f"Module {path!r} has no attribute " f"{cfg.c_closed_form_attr!r}."
+            f"Module {shown(path)} has no attribute "
+            f"{shown(cfg.c_closed_form_attr)}."
         )
     _register_module_by_value(module)
     return fn
@@ -2711,7 +2779,7 @@ def _format_table(df, fmt: str) -> str:
     if fmt == "plain":
         return df.to_string(index=False)
     raise ValueError(
-        f"output.format must be 'markdown', 'csv', or 'plain'; got {fmt!r}."
+        f"output.format must be 'markdown', 'csv', or 'plain'; got {shown(fmt)}."
     )
 
 

@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **6215 tests** in 127 files (parametrised
+The suite has **6291 tests** in 127 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -552,7 +552,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*1252 tests in 25 files.*
+*1328 tests in 25 files.*
 
 .. list-table::
    :header-rows: 1
@@ -667,17 +667,17 @@ Workflow and YAML
      - sft-wick config errors: exit status 2 and one stderr line with code, dotted path and suggestion, malformed observables included; a line with a code and a reason for a file YAML cannot read; validate, schema and --print-resolved; overrides of keys the file leaves out; SFT_WICK_STRICT=0; the ConfigError / OverrideError types
      - the parsed config; an edited copy of the file; a real subprocess for the exit status
      - exact
-     - 126
+     - 134
    * - ``test_workflow_config.py``
      - YAML → System lowering, run_workflow, overrides, dt, parallel layers, closed-form-only path, explicit R, callable modules and by-value hook transport to an existing worker pool
      - L1 flow on the same physics; isolated hook unavailable to workers
      - 1e-6 / 2e-2 (spline vs exact C); exact (hook transport)
      - 33
    * - ``test_workflow_corpora.py``
-     - every single-edit misspelling (deletion, transposition, substitution) of every key in every shipped config refused with its dotted path and the key meant (substitutions outside the quick start marked slow); every misspelling that gives another key of the block refused as well; every key a shipped config leaves out, set by override, gives the result of writing it into the file
+     - every single-edit misspelling (deletion, transposition, substitution) of every key in every shipped config refused with its dotted path and the key meant (substitutions outside the quick start marked slow); every misspelling that gives another key of the block refused as well; every key a shipped config leaves out, set by override, gives the result of writing it into the file; an override through a YAML alias or a merged mapping changes only the path it names and adds at most one container per step of the path; a file where an alias makes a value hold itself refused with the path of that alias; a node shared without a cycle accepted; at every key, a value that expands through shared nodes gives a short message and is never written out whole
      - the parsed WorkflowConfig of the edited file, written out field by field; the jsonschema reference validator
      - exact
-     - 35
+     - 103
    * - ``test_workflow_schema.py``
      - the workflow JSON Schema: a valid 2020-12 document; keys, defaults and required keys of each block against its config dataclass; the keys of every block and type variant against the parser in both directions; value enumerations; every shipped config validates; every pair of keys one edit apart listed with what refuses it
      - config dataclass field sets; the parser's own key check and value checks; the jsonschema reference validator

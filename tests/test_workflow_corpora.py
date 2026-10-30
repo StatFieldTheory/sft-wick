@@ -16,23 +16,43 @@ CO2 -- every key the schema allows in a block of a shipped config, which
        the file leaves out, can be set through an override, and the result
        is the result of writing the key into the file: the same parsed
        config, or the same refusal by a rule that ties two keys together.
+CO4 -- an override changes only the path it names when the file shares a
+       node through a YAML alias or a ``<<:`` merge: the result is that of
+       the file with the sharing written out and the same edit made by
+       hand.  Only the containers on the path are copied, so a file whose
+       aliases expand far beyond its size stays that size.
+CO5 -- a file where an alias makes a mapping or list hold itself is refused
+       when it is loaded, with the path of that alias.  A node shared
+       without a cycle stays accepted, however far it expands.
+CO6 -- an error message shows a value at a bounded length, at every key of
+       every shipped config: a value that expands through shared nodes
+       gives a short message, and a short value prints as ``repr`` prints
+       it.
 
 Before the schema and the one-line errors, CO1 failed on every case (the
 error was a ``ValueError`` listing the allowed keys, without the dotted
 path of the key or a suggestion, and keys of the noise and kernel blocks
 passed the parser) and CO2 raised ``KeyError`` for every key outside
-``sweep``.  The parser's result is compared, not its own report: the
-reference is the parsed :class:`~sft_wick.workflow.config.WorkflowConfig`,
-written out field by field by :func:`_canonical` below.
+``sweep``.  Before an override copied the containers on its path, the
+cases of ``SHARED`` in CO4 wrote through the alias without an error.  A
+file of CO5 passed ``sft-wick validate``, and ``--print-resolved`` and
+``run`` then ended in a traceback.  The messages of CO6 expanded every
+shared node, 6 MB per message at the depth used here.  The
+parser's result is compared, not its own report: the reference is the
+parsed :class:`~sft_wick.workflow.config.WorkflowConfig`, written out field
+by field by :func:`_canonical` below.
 """
 
 from __future__ import annotations
 
+import ast
 import copy
 import dataclasses
 import functools
 import json
 import string
+import sys
+import time
 from pathlib import Path
 
 import jsonschema
@@ -41,6 +61,7 @@ import pytest
 import yaml
 
 from sft_wick.workflow import config as cf
+from sft_wick.workflow._messages import MAX_SHOWN_CHARS, shown, text_of
 from sft_wick.workflow.config import ConfigError, load_workflow_config
 from sft_wick.workflow.schema import workflow_json_schema
 
@@ -410,3 +431,508 @@ def test_CO3_a_misspelling_that_gives_another_valid_key_is_refused(path):
                     cfg = cf._parse_workflow(data, base_dir=path.parent)
                     cf.check_before_run(cfg)
     assert cases > 0
+
+
+# ---------------------------------------------------------------------------
+# CO4 -- an override through a node the file shares
+# ---------------------------------------------------------------------------
+
+SHARED_CONFIG = string.Template("""\
+${head}system:
+  field: {name: phi, n_components: 2}
+  linear: {type: diagonal, gamma: [1.0, 1.5]}
+  vertices:
+$vertices
+  noise:
+    kappa2:
+      type: separable_translation
+      temporal: {type: exponential, lam: 0.05, sigma_t: 0.3}
+      spatial: {type: exponential, sigma_x: 1.0}
+expand:
+  observable: ["phi_a(x)", "phi_b(y)"]
+  orders: [0, 2]
+propagators:
+  t_max: 5.0
+  n_grid_t: 60
+  c_closed_form: auto
+sweep:
+$grids
+  t_final_grid: [1.0, 5.0]
+  component_pairs: [[0, 0], [1, 1]]
+  n_samples: 64
+  seed: 42
+output:
+$output
+""")
+
+
+def _vertex(name: str, *matrices: str, anchor: str = "") -> str:
+    rows = "".join(f"\n        - {m}" for m in matrices)
+    return f"    - {anchor}\n      name: {name}\n      coupling:{rows}"
+
+
+#: Two different matrices, so a write into one does not look like the other.
+M0, M1 = "[[0.0, 0.0], [0.0, 1.0]]", "[[0.0, 0.5], [0.5, 0.0]]"
+VERTEX_F = _vertex("F", M0, M1)
+GRIDS = "  positions_grid: {x: [0.0], y: [0.5, 1.5]}"
+OUTPUT = "  - {type: table, format: markdown, path: a.md}"
+
+
+def _shared_file(directory: Path, name: str, blocks: dict) -> Path:
+    path = directory / f"{name}.yaml"
+    path.write_text(SHARED_CONFIG.substitute(
+        {"head": "", "vertices": VERTEX_F, "grids": GRIDS, "output": OUTPUT,
+         **blocks}))
+    return path
+
+
+#: ``case: (blocks of the file, overrides, blocks of the same file with the
+#: sharing written out and the edit made by hand)``.
+SHARED = {
+    "alias_of_a_mapping_override_at_the_alias": (
+        {"grids": "  positions_grid: &grid {x: [0.0], y: [0.5, 1.5]}\n"
+                  "  external_times_grid: *grid"},
+        {"sweep.external_times_grid.y": [2.0, 3.0]},
+        {"grids": "  positions_grid: {x: [0.0], y: [0.5, 1.5]}\n"
+                  "  external_times_grid: {x: [0.0], y: [2.0, 3.0]}"},
+    ),
+    "alias_of_a_mapping_override_at_the_anchor": (
+        {"grids": "  positions_grid: &grid {x: [0.0], y: [0.5, 1.5]}\n"
+                  "  external_times_grid: *grid"},
+        {"sweep.positions_grid.y": [2.0, 3.0]},
+        {"grids": "  positions_grid: {x: [0.0], y: [2.0, 3.0]}\n"
+                  "  external_times_grid: {x: [0.0], y: [0.5, 1.5]}"},
+    ),
+    "alias_of_a_list": (
+        {"grids": "  positions_grid: {x: &g [0.0, 0.5, 1.5], y: *g}"},
+        {"sweep.positions_grid.y[1]": 0.7},
+        {"grids": "  positions_grid: {x: [0.0, 0.5, 1.5], y: [0.0, 0.7, 1.5]}"},
+    ),
+    "overrides_at_both_ends_of_an_alias": (
+        {"grids": "  positions_grid: {x: &g [0.0, 0.5, 1.5], y: *g}"},
+        {"sweep.positions_grid.y[1]": 0.7, "sweep.positions_grid.x[0]": 0.1},
+        {"grids": "  positions_grid: {x: [0.1, 0.5, 1.5], y: [0.0, 0.7, 1.5]}"},
+    ),
+    "merged_mapping_override_at_the_merge": (
+        {"grids": "  positions_grid: &grid {x: [0.0], y: [0.5, 1.5]}\n"
+                  "  external_times_grid: {<<: *grid, y: [2.0, 3.0]}"},
+        {"sweep.external_times_grid.x[0]": 4.0},
+        {"grids": "  positions_grid: {x: [0.0], y: [0.5, 1.5]}\n"
+                  "  external_times_grid: {x: [4.0], y: [2.0, 3.0]}"},
+    ),
+    "merged_mapping_override_at_the_source": (
+        {"grids": "  positions_grid: &grid {x: [0.0], y: [0.5, 1.5]}\n"
+                  "  external_times_grid: {<<: *grid, y: [2.0, 3.0]}"},
+        {"sweep.positions_grid.x[0]": 4.0},
+        {"grids": "  positions_grid: {x: [4.0], y: [0.5, 1.5]}\n"
+                  "  external_times_grid: {x: [0.0], y: [2.0, 3.0]}"},
+    ),
+    "merged_list_of_mappings": (
+        {"grids": "  positions_grid: &grid {x: [0.0], y: [0.5, 1.5]}\n"
+                  "  external_times_grid: {<<: [*grid], y: [2.0, 3.0]}"},
+        {"sweep.external_times_grid.x[0]": 4.0},
+        {"grids": "  positions_grid: {x: [0.0], y: [0.5, 1.5]}\n"
+                  "  external_times_grid: {x: [4.0], y: [2.0, 3.0]}"},
+    ),
+    "merged_vertex_coupling": (
+        {"vertices": _vertex("F", M0, M1, anchor="&F")
+            + "\n    - {<<: *F, name: K}"},
+        {"system.vertices[1].coupling[1][0][1]": 0.25},
+        {"vertices": VERTEX_F + "\n"
+            + _vertex("K", M0, "[[0.0, 0.25], [0.5, 0.0]]")},
+    ),
+    "list_entry_that_is_an_alias": (
+        {"output": "  - &table {type: table, format: markdown, path: a.md}\n"
+                   "  - *table"},
+        {"output[1].path": "b.md"},
+        {"output": "  - {type: table, format: markdown, path: a.md}\n"
+                   "  - {type: table, format: markdown, path: b.md}"},
+    ),
+    "list_entry_reached_through_an_alias": (
+        {"vertices": _vertex("F", f"&m {M0}", "*m")},
+        {"system.vertices[0].coupling[1][1][1]": 2.0},
+        {"vertices": _vertex("F", M0, "[[0.0, 0.0], [0.0, 2.0]]")},
+    ),
+    "chain_of_aliases": (
+        {"vertices": _vertex("F", "&m [&r [0.0, 1.0], *r]", "*m")},
+        {"system.vertices[0].coupling[1][0][1]": 0.5},
+        {"vertices": _vertex("F", "[[0.0, 1.0], [0.0, 1.0]]",
+                             "[[0.0, 0.5], [0.0, 1.0]]")},
+    ),
+    "chain_of_merges_and_aliases": (
+        {"vertices": _vertex("F", f"&m {M0}", "*m", anchor="&F")
+            + "\n    - &K {<<: *F, name: K}\n    - {<<: *K, name: G}"},
+        {"system.vertices[2].coupling[1][1][1]": 2.0},
+        {"vertices": _vertex("F", M0, M0) + "\n" + _vertex("K", M0, M0) + "\n"
+            + _vertex("G", M0, "[[0.0, 0.0], [0.0, 2.0]]")},
+    ),
+}
+
+#: The same comparison where nothing is shared on the path: a scalar has no
+#: container to write into, and ``<<:`` builds a mapping of its own.  These
+#: passed before the containers were copied; they pin what the copy keeps.
+NOT_SHARED = {
+    "alias_of_a_scalar": (
+        {"grids": "  positions_grid: {x: [&p 0.0], y: [*p, 1.5]}"},
+        {"sweep.positions_grid.y[0]": 0.7},
+        {"grids": "  positions_grid: {x: [0.0], y: [0.7, 1.5]}"},
+    ),
+    "key_of_a_merged_mapping": (
+        {"output": "  - &table {type: table, format: markdown, path: a.md}\n"
+                   "  - {<<: *table, path: b.md}"},
+        {"output[1].format": "csv"},
+        {"output": "  - {type: table, format: markdown, path: a.md}\n"
+                   "  - {type: table, format: csv, path: b.md}"},
+    ),
+}
+
+
+def _check_override_against_file_edit(directory: Path, case: tuple) -> None:
+    blocks, overrides, written_out = case
+    shared = _shared_file(directory, "shared", blocks)
+    edited = _shared_file(directory, "edited", written_out)
+    by_override = _outcome(lambda: load_workflow_config(
+        shared, overrides=overrides))
+    by_edit = _outcome(lambda: load_workflow_config(edited))
+    assert by_edit[0] == "loaded", by_edit
+    assert by_override == by_edit
+
+
+@pytest.mark.parametrize("case", SHARED)
+def test_CO4_an_override_changes_only_the_path_it_names(tmp_path, case):
+    _check_override_against_file_edit(tmp_path, SHARED[case])
+
+
+@pytest.mark.parametrize("case", NOT_SHARED)
+def test_CO4_an_override_where_nothing_is_shared(tmp_path, case):
+    _check_override_against_file_edit(tmp_path, NOT_SHARED[case])
+
+
+def _containers(node, seen: dict | None = None) -> dict:
+    """The mappings and lists reachable from ``node``, each counted once
+    however many paths reach it."""
+    seen = {} if seen is None else seen
+    if isinstance(node, (dict, list)) and id(node) not in seen:
+        seen[id(node)] = node
+        for child in node.values() if isinstance(node, dict) else node:
+            _containers(child, seen)
+    return seen
+
+
+def test_CO4_an_override_copies_the_path_and_not_the_document():
+    """Each grid lists the one before it twice, so the last expands to
+    2**16 pairs from 17 lines of YAML.  An override at the far end adds at
+    most one container per step of its path, and every branch off the path
+    stays the object the file built."""
+    depth = 16
+    lines = ["g0: &g0 [0.0, 1.0]"]
+    lines += [f"g{i}: &g{i} [*g{i - 1}, *g{i - 1}]"
+              for i in range(1, depth + 1)]
+    doc = cf._load_yaml("sweep:\n  positions_grid:\n"
+                        + "".join(f"    {line}\n" for line in lines))
+    before = len(_containers(doc))
+    off_path = doc["sweep"]["positions_grid"][f"g{depth - 1}"]
+    steps = "[0]" * (depth + 1)
+    cf._apply_override(doc, f"sweep.positions_grid.g{depth}{steps}", 9.0)
+
+    grids = doc["sweep"]["positions_grid"]
+    assert len(_containers(doc)) <= before + depth + 3
+    assert grids[f"g{depth}"][1] is off_path
+    assert grids[f"g{depth - 1}"] is off_path
+    written, kept = grids[f"g{depth}"], off_path
+    for _ in range(depth):
+        written = written[0]
+    for _ in range(depth - 1):
+        kept = kept[0]
+    assert written == [9.0, 1.0]
+    assert kept == [0.0, 1.0]
+
+
+def test_CO4_a_value_given_to_two_paths_stays_as_given(tmp_path):
+    """A Python override value can sit at two paths, as a node of the file
+    can; an override below one leaves the other path and the caller's list
+    alone."""
+    grid = [0.0, 0.5, 1.5]
+    cfg = load_workflow_config(_shared_file(tmp_path, "plain", {}), overrides={
+        "sweep.positions_grid.x": grid,
+        "sweep.positions_grid.y": grid,
+        "sweep.positions_grid.y[1]": 0.7,
+    })
+    assert cfg.sweep.positions_grid == {
+        "x": [0.0, 0.5, 1.5], "y": [0.0, 0.7, 1.5]}
+    assert grid == [0.0, 0.5, 1.5]
+
+
+# ---------------------------------------------------------------------------
+# CO5 -- a file whose aliases form a cycle
+# ---------------------------------------------------------------------------
+
+#: ``case: (blocks of the file, dotted path of the alias closing the cycle)``.
+CYCLES = {
+    "list_holds_itself": (
+        {"grids": "  positions_grid: {x: &g [0.0, *g], y: [0.5]}"},
+        "sweep.positions_grid.x[1]",
+    ),
+    "grid_holds_the_document": (
+        {"head": "&r\n",
+         "grids": "  positions_grid: {x: [0.0, *r], y: [0.5]}"},
+        "sweep.positions_grid.x[1]",
+    ),
+    "first_of_two_aliases_in_the_file_is_named": (
+        {"grids": "  positions_grid: {x: &g [*g, *g], y: [0.5]}"},
+        "sweep.positions_grid.x[0]",
+    ),
+    "two_lists_hold_each_other": (
+        {"grids": "  positions_grid: {x: &a [0.0, &b [1.0, *a]], y: [0.5]}"},
+        "sweep.positions_grid.x[1][1]",
+    ),
+    "mapping_holds_itself": (
+        {"grids": "  positions_grid: {x: [0.0, &m {k: *m}], y: [0.5]}"},
+        "sweep.positions_grid.x[1].k",
+    ),
+    "merge_closes_the_cycle": (
+        {"grids": "  positions_grid: {x: [0.0, &a {k: &b {<<: *a}}], y: [0.5]}"},
+        "sweep.positions_grid.x[1].k.k",
+    ),
+    "ordered_mapping_holds_itself": (
+        {"grids": "  positions_grid: {x: [0.0, &o !!omap [k: *o]], y: [0.5]}"},
+        "sweep.positions_grid.x[1][0][1]",
+    ),
+    "cycle_in_an_entry_of_a_list_of_blocks": (
+        {"output": "  - {type: table, format: markdown, path: a.md}\n"
+                   "  - &p {type: plot, x: t, hue: [*p]}"},
+        "output[1].hue[0]",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", CYCLES)
+def test_CO5_a_value_that_holds_itself_is_refused(tmp_path, case):
+    blocks, where = CYCLES[case]
+    with pytest.raises(ConfigError) as info:
+        load_workflow_config(_shared_file(tmp_path, "cycle", blocks))
+    assert (info.value.code, info.value.path) == ("invalid_value", where)
+    assert "\n" not in str(info.value)
+
+
+def test_CO5_an_override_that_opens_the_cycle_is_a_file_edit(tmp_path):
+    """The file is checked after the overrides, so an override that replaces
+    the alias gives the result of replacing it in the file."""
+    _check_override_against_file_edit(tmp_path, (
+        {"grids": "  positions_grid: {x: &g [0.0, *g], y: [0.5]}"},
+        {"sweep.positions_grid.x[1]": 0.7},
+        {"grids": "  positions_grid: {x: [0.0, 0.7], y: [0.5]}"},
+    ))
+
+
+def test_CO5_an_override_value_that_holds_itself_is_refused(tmp_path):
+    grid = [0.0]
+    grid.append(grid)
+    with pytest.raises(ConfigError) as info:
+        load_workflow_config(_shared_file(tmp_path, "plain", {}),
+                             overrides={"sweep.positions_grid.x": grid})
+    assert info.value.path == "sweep.positions_grid.x[1]"
+
+
+def test_CO5_a_node_shared_without_a_cycle_stays_accepted(tmp_path):
+    """Each list holds the one before it twice, so the last expands to
+    2**24 pairs from one line of YAML.  A check that entered a list once per
+    path to it would take seconds here and never end at twice the depth."""
+    depth = 24
+    levels = ", ".join(f"&g{i} [*g{i - 1}, *g{i - 1}]"
+                       for i in range(1, depth + 1))
+    grids = f"  positions_grid: {{x: [&g0 [0.0, 1.0], {levels}], y: [0.5]}}"
+    path = _shared_file(tmp_path, "shared", {"grids": grids})
+    start = time.perf_counter()
+    cfg = load_workflow_config(path)
+    assert time.perf_counter() - start < 2.0
+    assert cfg.sweep.positions_grid["y"] == [0.5]
+
+
+def test_CO5_a_chain_past_the_recursion_limit_is_walked():
+    """A chain of aliases can be as long as the file, and nests no deeper
+    in the YAML than a list of its links."""
+    links = 3 * sys.getrecursionlimit()
+
+    def chained(end: list) -> dict:
+        for _ in range(links):
+            end = [end]
+        return {"a": end}
+
+    cf._refuse_cycles(chained([0.0]))
+    loop: list = []
+    loop.append(loop)
+    with pytest.raises(ConfigError) as info:
+        cf._refuse_cycles(chained(loop))
+    assert info.value.path == "a" + "[0]" * (links + 1)
+
+
+def test_CO5_a_long_key_is_cut_in_the_path():
+    """A path repeats a key once per level, so a key written once and used
+    through an alias at each of 400 levels would give a message of 8 MB."""
+    key = "k" * 20000
+    top: dict = {}
+    node = top
+    for _ in range(400):
+        node[key] = {}
+        node = node[key]
+    node[key] = top
+    with pytest.raises(ConfigError) as info:
+        cf._refuse_cycles(top)
+    assert len(str(info.value)) < 401 * 50
+
+
+# ---------------------------------------------------------------------------
+# CO6 -- a value that expands, in an error message
+# ---------------------------------------------------------------------------
+
+class _WrittenOut(BaseException):
+    """Not an ``Exception``, so no handler in the parser can swallow it."""
+
+
+class _RefusesText(list):
+    """A list that raises when written out.  A ``repr`` or ``str`` of a
+    shared list is the expansion in question; this finds a site that makes
+    one and drops the text, which the length of a message cannot show."""
+
+    def __repr__(self) -> str:
+        raise _WrittenOut
+
+
+def _expanding(kind: type) -> list:
+    """Each level holds the one before it twice: 2**18 pairs.  At 64 levels
+    a parser check that walks every path would not end, and ``repr`` and
+    NumPy run in C, where no timeout reaches them."""
+    return functools.reduce(lambda inner, _: kind([inner, inner]), range(18),
+                            kind([0.0, 1.0]))
+
+
+EXPANDING = _expanding(_RefusesText)
+#: Each shape reaches a different check: the value itself, a mapping, an
+#: entry of a list, an entry below one, and a mapping in a list.
+EXPANDING_SHAPES = (EXPANDING, {"k": EXPANDING}, [EXPANDING],
+                    [0.0, [EXPANDING]], [{"k": EXPANDING}])
+#: A message can show a few values and a few names.
+MAX_MESSAGE_CHARS = 6 * MAX_SHOWN_CHARS
+#: What ``sft-wick`` prints as one line; anything else is a traceback.
+CONFIG_ERRORS = (ValueError, TypeError, ArithmeticError, OSError, EOFError,
+                 ImportError, yaml.YAMLError)
+
+
+def _with_expanding_values(doc: dict):
+    """``(dotted key, config)`` with each shape at each key a block allows."""
+    for where, mapping, allowed, kind in list(_mappings(doc)):
+        for key in sorted(allowed) if kind == "key" else list(mapping):
+            for value in EXPANDING_SHAPES:
+                out = copy.deepcopy(doc)
+                node = out
+                for step in where:
+                    node = node[step]
+                node[key] = value
+                yield _dotted(where + (key,)), out
+
+
+def _check_messages(doc: dict, base_dir: Path) -> None:
+    refused = 0
+    for dotted, config in _with_expanding_values(doc):
+        try:
+            cf.check_before_run(cf._parse_workflow(config, base_dir=base_dir))
+        except CONFIG_ERRORS as exc:
+            refused += 1
+            assert len(str(exc)) < MAX_MESSAGE_CHARS, (
+                dotted, type(exc).__name__, str(exc)[:200])
+    assert refused > 50
+
+
+@pytest.mark.parametrize("path", CONFIGS, ids=IDS)
+def test_CO6_a_value_that_expands_gives_a_short_message(path):
+    _check_messages(yaml.safe_load(path.read_text()), path.parent)
+
+
+#: ``case: (path of a block in the quick start, the block)``: blocks no
+#: shipped config uses, so the keys they hold are in the corpus too.
+UNSHIPPED_BLOCKS = {
+    "multiplicative_noise": (("system", "noise", "sigma2"), {
+        "type": "multiplicative", "g0": [[1.0, 0.0], [0.0, 1.0]],
+        "g1": [[[0.0, 0.0], [0.0, 0.0]], [[0.0, 0.0], [0.0, 0.0]]]}),
+    "coupling_path": (("system", "vertices", 0),
+                      {"name": "F", "coupling_path": "coupling.npy"}),
+    "plot_and_npz": (("output",), [
+        {"type": "plot", "path": "p.png", "x": "t_final"},
+        {"type": "npz", "path": "r.npz"}]),
+    "rotation_kernel": (("system", "noise", "kappa2"), {
+        "type": "separable_rotation",
+        "temporal": {"type": "exponential", "lam": 0.05, "sigma_t": 0.3},
+        "angular": {"type": "legendre", "coeffs": [1.0]}}),
+}
+
+
+@pytest.mark.parametrize("case", UNSHIPPED_BLOCKS)
+def test_CO6_a_value_that_expands_in_a_block_no_config_ships(tmp_path, case):
+    np.save(tmp_path / "coupling.npy", np.zeros((2, 2, 2)))
+    where, block = UNSHIPPED_BLOCKS[case]
+    doc = yaml.safe_load(FULL_BY_DEFAULT.read_text())
+    node = doc
+    for step in where[:-1]:
+        node = node[step]
+    node[where[-1]] = block
+    cf.check_before_run(cf._parse_workflow(doc, base_dir=tmp_path))
+    _check_messages(doc, tmp_path)
+
+
+@pytest.mark.parametrize("value", [
+    None, True, 1.5, "phi_a(x)", [], {}, (), [1.0, "a", None], (1, 2),
+    {"b": 1, "a": [2.0]}, [[0, 1], [1, 0]],
+], ids=repr)
+def test_CO6_a_short_value_prints_as_repr(value):
+    assert shown(value) == repr(value)
+
+
+@pytest.mark.parametrize("value", [
+    None, 1, 1.5, True, "module.py", Path("a/b.py"), [1, 2], {"k": 1}, (1,),
+], ids=repr)
+def test_CO6_text_of_a_short_value_is_str(value):
+    assert text_of(value) == str(value)
+
+
+def test_CO6_text_of_a_value_that_expands_is_a_stand_in():
+    assert text_of(EXPANDING) == "<_RefusesText of length 2>"
+
+
+def test_CO6_the_limit_of_a_value_shown():
+    """Both sides of the limit, for a string and for a list holding one."""
+    at_limit = "x" * (MAX_SHOWN_CHARS - 2)  # and its two quotes
+    assert shown(at_limit) == repr(at_limit)
+    assert shown(at_limit + "x") == f"<str of length {MAX_SHOWN_CHARS - 1}>"
+    # A list costs its brackets and two characters per entry.
+    fits = ["x" * (MAX_SHOWN_CHARS - 6)]
+    assert shown(fits) == repr(fits)
+    assert shown(["x" * (MAX_SHOWN_CHARS - 5)]) == "<list of length 1>"
+    # A mapping costs its braces and four characters per entry.
+    fits = {"x" * (MAX_SHOWN_CHARS - 9): 1}
+    assert shown(fits) == repr(fits)
+    assert shown({"x" * (MAX_SHOWN_CHARS - 8): 1}) == "<dict of length 1>"
+
+
+def test_CO6_a_long_value_gives_a_stand_in_at_a_bounded_cost():
+    assert shown(EXPANDING) == "<_RefusesText of length 2>"
+    assert shown(_expanding(list)) == "<list of length 2>"
+    assert shown({"k": _expanding(list)}) == "<dict of length 1>"
+    assert shown((_expanding(list),)) == "<tuple of length 1>"
+    assert shown(list(range(10**6))) == "<list of length 1000000>"
+    cycle: list = [0.0]
+    cycle.append(cycle)
+    assert shown(cycle) == "<list of length 2>"
+
+
+def test_CO6_the_parser_shows_values_through_shown():
+    """A new ``{value!r}`` in these modules would bring the expansion back,
+    and only a file that reaches that line would show it."""
+    for module in ("config.py", "schema.py", "expansion.py", "specs.py",
+                   "system.py", "propagators.py"):
+        tree = ast.parse((ROOT / "src" / "sft_wick" / "workflow" / module)
+                         .read_text())
+        lines = [node.lineno for node in ast.walk(tree)
+                 if isinstance(node, ast.FormattedValue)
+                 and node.conversion == ord("r")]
+        assert not lines, (module, lines)

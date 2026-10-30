@@ -122,6 +122,45 @@ def test_CL1_exit_status_reaches_the_shell(tmp_path):
         "did you mean 't_min'?")
 
 
+@pytest.mark.parametrize("command", [["validate"],
+                                     ["validate", "--print-resolved"],
+                                     ["run", "--dry-run", "-q"]],
+                         ids=["validate", "print_resolved", "run"])
+@pytest.mark.parametrize("head,grid", [
+    ("", "positions_grid: {x: &g [0.0, *g], y: [0.5]}"),
+    ("&r\n", "positions_grid: {x: [0.0, *r], y: [0.5]}"),
+], ids=["list", "document"])
+def test_CL1_a_file_whose_aliases_form_a_cycle_exits_2(tmp_path, capsys,
+                                                       command, head, grid):
+    """``validate`` used to pass these files; ``--print-resolved`` and
+    ``run`` ended in a traceback."""
+    text = QUICKSTART.read_text()
+    old = "positions_grid: {x: [0.0], y: [0.0, 0.5, 1.5]}"
+    assert old in text
+    path = tmp_path / "c.yaml"
+    path.write_text(head + text.replace(old, grid))
+    status = main([command[0], str(path), *command[1:]])
+    out = capsys.readouterr()
+    assert status == 2
+    assert _one_line(out.err) == (
+        "sft-wick: config error [invalid_value] sweep.positions_grid.x[1]: "
+        "an alias here makes a value hold itself")
+
+
+def test_CL1_a_value_that_expands_is_one_short_line(tmp_path, capsys):
+    """``seed`` holds a list of 2**18 pairs from one line of YAML."""
+    levels = ", ".join(f"&g{i} [*g{i - 1}, *g{i - 1}]" for i in range(1, 19))
+    text = QUICKSTART.read_text()
+    assert "seed: 42" in text
+    path = tmp_path / "c.yaml"
+    path.write_text(text.replace(
+        "seed: 42", f"seed: [&g0 [0.0, 1.0], {levels}]"))
+    assert main(["validate", str(path)]) == 2
+    line = _one_line(capsys.readouterr().err)
+    assert line.startswith("sft-wick: config error [invalid_value] sweep.seed")
+    assert len(line) < 2000
+
+
 def test_CL1_a_value_error_is_one_line_too(tmp_path, capsys):
     doc = _quickstart()
     doc["sweep"]["method"] = "gauss_legendr"
@@ -267,6 +306,56 @@ def test_CL4_run_prints_the_resolved_config(tmp_path, capsys, monkeypatch):
     assert rest
     body = rest.split("[sft-wick] system:")[0]
     assert yaml.safe_load(body)["sweep"]["method"] == "qmc_vectorized"
+
+
+def _leaves(value, path: str = "") -> dict:
+    """``{dotted path: value}`` of every value of a nested config."""
+    if isinstance(value, dict):
+        items = [(f"{path}.{k}" if path else str(k), v)
+                 for k, v in value.items()]
+    elif isinstance(value, list):
+        items = [(f"{path}[{i}]", v) for i, v in enumerate(value)]
+    else:
+        return {path: value}
+    return {k: v for key, item in items for k, v in _leaves(item, key).items()}
+
+
+def test_CL4_run_prints_only_the_path_an_override_names(tmp_path, capsys,
+                                                        monkeypatch):
+    """``y`` is an alias of ``x`` in the file.  ``sft-wick run`` with an
+    override of one entry of ``y`` prints that entry changed and nothing
+    else, and prints what the file with the alias written out and the entry
+    edited prints."""
+    from sft_wick.workflow import estimate
+
+    class _Estimate:
+        def summary(self):
+            return "[sft-wick] estimate: skipped"
+
+    monkeypatch.setattr(estimate, "estimate_cost", lambda cfg: _Estimate())
+
+    def printed(text: str, *extra: str) -> dict:
+        path = tmp_path / "c.yaml"
+        path.write_text(text)
+        status = main(["run", str(path), "--dry-run", "-q",
+                       "--print-resolved", *extra])
+        out = capsys.readouterr().out
+        assert status == 0
+        body = out.partition("[sft-wick] resolved config:\n")[2]
+        return yaml.safe_load(body.split("[sft-wick] system:")[0])
+
+    text = QUICKSTART.read_text()
+    grid = "positions_grid: {x: [0.0], y: [0.0, 0.5, 1.5]}"
+    assert grid in text
+    aliased = text.replace(grid, "positions_grid: {x: &g [0.0, 0.5, 1.5], y: *g}")
+    edited = text.replace(
+        grid, "positions_grid: {x: [0.0, 0.5, 1.5], y: [0.0, 0.7, 1.5]}")
+
+    before = _leaves(printed(aliased))
+    after = printed(aliased, "--override", "sweep.positions_grid.y[1]=0.7")
+    changed = {k for k, v in _leaves(after).items() if before[k] != v}
+    assert changed == {"sweep.positions_grid.y[1]"}
+    assert after == printed(edited)
 
 
 # ---------------------------------------------------------------------------

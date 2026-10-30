@@ -11,6 +11,8 @@ import numpy as np
 
 from sft_wick.evaluate import PropagatorCache
 
+from ._messages import shown
+
 
 @dataclass(frozen=True)
 class Propagators:
@@ -172,7 +174,7 @@ class Propagators:
         if hom not in ("translation", "rotation", "general"):
             raise ValueError(
                 f"homogeneity must be one of 'translation', 'rotation', "
-                f"'general'; got {hom!r}."
+                f"'general'; got {shown(hom)}."
             )
 
         c_fn, c_fn_source = _resolve_closed_form(system, c_closed_form)
@@ -330,7 +332,7 @@ def _resolve_closed_form(system, c_closed_form):
         if c_closed_form != "auto":
             raise ValueError(
                 f"c_closed_form must be 'auto', None or a callable; "
-                f"got {c_closed_form!r}."
+                f"got {shown(c_closed_form)}."
             )
         from .closed_forms import builtin_closed_form_for
 
@@ -393,7 +395,7 @@ def _resolve_c_method_family(system, c_method: str) -> str:
     if c_method not in ("auto", "dblquad", "gauss_legendre"):
         raise ValueError(
             f"c_method must be 'auto', 'dblquad' or 'gauss_legendre'; "
-            f"got {c_method!r}."
+            f"got {shown(c_method)}."
         )
     if c_method != "auto":
         return c_method
