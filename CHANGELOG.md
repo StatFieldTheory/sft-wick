@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Fixed: an override through a YAML alias changed every place sharing the node
+
+**Breaking (an override through a list or mapping the file shares).**  An
+override wrote into the object YAML built, and an alias or a `<<:` merge
+makes that object shared.  With `positions_grid: {x: &g [0.0, 0.5], y: *g}`,
+`--override "sweep.positions_grid.y[1]=0.7"` also changed `x[1]`, and with
+`output: [&o {...}, *o]`, `--override "output[1].path=b.md"` also changed
+`output[0].path`, without an error.  An override now changes only the path
+it names: the result is that of the file with the alias written out and
+the same edit made.  It copies the mappings and lists on the path and no
+others, so the cost does not grow with what the aliases expand to.  A
+Python override value given at two paths is kept as given.
+
 ### Fixed: `compare-resources` kept the last of a key written twice in a merged mapping
 
 `sft-wick compare-resources` refuses a key written twice in its config and

@@ -16,14 +16,21 @@ CO2 -- every key the schema allows in a block of a shipped config, which
        the file leaves out, can be set through an override, and the result
        is the result of writing the key into the file: the same parsed
        config, or the same refusal by a rule that ties two keys together.
+CO4 -- an override changes only the path it names when the file shares a
+       node through a YAML alias or a ``<<:`` merge: the result is that of
+       the file with the sharing written out and the same edit made by
+       hand.  Only the containers on the path are copied, so a file whose
+       aliases expand far beyond its size stays that size.
 
 Before the schema and the one-line errors, CO1 failed on every case (the
 error was a ``ValueError`` listing the allowed keys, without the dotted
 path of the key or a suggestion, and keys of the noise and kernel blocks
 passed the parser) and CO2 raised ``KeyError`` for every key outside
-``sweep``.  The parser's result is compared, not its own report: the
-reference is the parsed :class:`~sft_wick.workflow.config.WorkflowConfig`,
-written out field by field by :func:`_canonical` below.
+``sweep``.  Before an override copied the containers on its path, the
+cases of ``SHARED`` in CO4 wrote through the alias without an error.  The
+parser's result is compared, not its own report: the reference is the
+parsed :class:`~sft_wick.workflow.config.WorkflowConfig`, written out field
+by field by :func:`_canonical` below.
 """
 
 from __future__ import annotations
@@ -410,3 +417,232 @@ def test_CO3_a_misspelling_that_gives_another_valid_key_is_refused(path):
                     cfg = cf._parse_workflow(data, base_dir=path.parent)
                     cf.check_before_run(cfg)
     assert cases > 0
+
+
+# ---------------------------------------------------------------------------
+# CO4 -- an override through a node the file shares
+# ---------------------------------------------------------------------------
+
+SHARED_CONFIG = string.Template("""\
+system:
+  field: {name: phi, n_components: 2}
+  linear: {type: diagonal, gamma: [1.0, 1.5]}
+  vertices:
+$vertices
+  noise:
+    kappa2:
+      type: separable_translation
+      temporal: {type: exponential, lam: 0.05, sigma_t: 0.3}
+      spatial: {type: exponential, sigma_x: 1.0}
+expand:
+  observable: ["phi_a(x)", "phi_b(y)"]
+  orders: [0, 2]
+propagators:
+  t_max: 5.0
+  n_grid_t: 60
+  c_closed_form: auto
+sweep:
+$grids
+  t_final_grid: [1.0, 5.0]
+  component_pairs: [[0, 0], [1, 1]]
+  n_samples: 64
+  seed: 42
+output:
+$output
+""")
+
+
+def _vertex(name: str, *matrices: str, anchor: str = "") -> str:
+    rows = "".join(f"\n        - {m}" for m in matrices)
+    return f"    - {anchor}\n      name: {name}\n      coupling:{rows}"
+
+
+#: Two different matrices, so a write into one does not look like the other.
+M0, M1 = "[[0.0, 0.0], [0.0, 1.0]]", "[[0.0, 0.5], [0.5, 0.0]]"
+VERTEX_F = _vertex("F", M0, M1)
+GRIDS = "  positions_grid: {x: [0.0], y: [0.5, 1.5]}"
+OUTPUT = "  - {type: table, format: markdown, path: a.md}"
+
+
+def _shared_file(directory: Path, name: str, blocks: dict) -> Path:
+    path = directory / f"{name}.yaml"
+    path.write_text(SHARED_CONFIG.substitute(
+        {"vertices": VERTEX_F, "grids": GRIDS, "output": OUTPUT, **blocks}))
+    return path
+
+
+#: ``case: (blocks of the file, overrides, blocks of the same file with the
+#: sharing written out and the edit made by hand)``.
+SHARED = {
+    "alias_of_a_mapping_override_at_the_alias": (
+        {"grids": "  positions_grid: &grid {x: [0.0], y: [0.5, 1.5]}\n"
+                  "  external_times_grid: *grid"},
+        {"sweep.external_times_grid.y": [2.0, 3.0]},
+        {"grids": "  positions_grid: {x: [0.0], y: [0.5, 1.5]}\n"
+                  "  external_times_grid: {x: [0.0], y: [2.0, 3.0]}"},
+    ),
+    "alias_of_a_mapping_override_at_the_anchor": (
+        {"grids": "  positions_grid: &grid {x: [0.0], y: [0.5, 1.5]}\n"
+                  "  external_times_grid: *grid"},
+        {"sweep.positions_grid.y": [2.0, 3.0]},
+        {"grids": "  positions_grid: {x: [0.0], y: [2.0, 3.0]}\n"
+                  "  external_times_grid: {x: [0.0], y: [0.5, 1.5]}"},
+    ),
+    "alias_of_a_list": (
+        {"grids": "  positions_grid: {x: &g [0.0, 0.5, 1.5], y: *g}"},
+        {"sweep.positions_grid.y[1]": 0.7},
+        {"grids": "  positions_grid: {x: [0.0, 0.5, 1.5], y: [0.0, 0.7, 1.5]}"},
+    ),
+    "overrides_at_both_ends_of_an_alias": (
+        {"grids": "  positions_grid: {x: &g [0.0, 0.5, 1.5], y: *g}"},
+        {"sweep.positions_grid.y[1]": 0.7, "sweep.positions_grid.x[0]": 0.1},
+        {"grids": "  positions_grid: {x: [0.1, 0.5, 1.5], y: [0.0, 0.7, 1.5]}"},
+    ),
+    "merged_mapping_override_at_the_merge": (
+        {"grids": "  positions_grid: &grid {x: [0.0], y: [0.5, 1.5]}\n"
+                  "  external_times_grid: {<<: *grid, y: [2.0, 3.0]}"},
+        {"sweep.external_times_grid.x[0]": 4.0},
+        {"grids": "  positions_grid: {x: [0.0], y: [0.5, 1.5]}\n"
+                  "  external_times_grid: {x: [4.0], y: [2.0, 3.0]}"},
+    ),
+    "merged_mapping_override_at_the_source": (
+        {"grids": "  positions_grid: &grid {x: [0.0], y: [0.5, 1.5]}\n"
+                  "  external_times_grid: {<<: *grid, y: [2.0, 3.0]}"},
+        {"sweep.positions_grid.x[0]": 4.0},
+        {"grids": "  positions_grid: {x: [4.0], y: [0.5, 1.5]}\n"
+                  "  external_times_grid: {x: [0.0], y: [2.0, 3.0]}"},
+    ),
+    "merged_list_of_mappings": (
+        {"grids": "  positions_grid: &grid {x: [0.0], y: [0.5, 1.5]}\n"
+                  "  external_times_grid: {<<: [*grid], y: [2.0, 3.0]}"},
+        {"sweep.external_times_grid.x[0]": 4.0},
+        {"grids": "  positions_grid: {x: [0.0], y: [0.5, 1.5]}\n"
+                  "  external_times_grid: {x: [4.0], y: [2.0, 3.0]}"},
+    ),
+    "merged_vertex_coupling": (
+        {"vertices": _vertex("F", M0, M1, anchor="&F")
+            + "\n    - {<<: *F, name: K}"},
+        {"system.vertices[1].coupling[1][0][1]": 0.25},
+        {"vertices": VERTEX_F + "\n"
+            + _vertex("K", M0, "[[0.0, 0.25], [0.5, 0.0]]")},
+    ),
+    "list_entry_that_is_an_alias": (
+        {"output": "  - &table {type: table, format: markdown, path: a.md}\n"
+                   "  - *table"},
+        {"output[1].path": "b.md"},
+        {"output": "  - {type: table, format: markdown, path: a.md}\n"
+                   "  - {type: table, format: markdown, path: b.md}"},
+    ),
+    "list_entry_reached_through_an_alias": (
+        {"vertices": _vertex("F", f"&m {M0}", "*m")},
+        {"system.vertices[0].coupling[1][1][1]": 2.0},
+        {"vertices": _vertex("F", M0, "[[0.0, 0.0], [0.0, 2.0]]")},
+    ),
+    "chain_of_aliases": (
+        {"vertices": _vertex("F", "&m [&r [0.0, 1.0], *r]", "*m")},
+        {"system.vertices[0].coupling[1][0][1]": 0.5},
+        {"vertices": _vertex("F", "[[0.0, 1.0], [0.0, 1.0]]",
+                             "[[0.0, 0.5], [0.0, 1.0]]")},
+    ),
+    "chain_of_merges_and_aliases": (
+        {"vertices": _vertex("F", f"&m {M0}", "*m", anchor="&F")
+            + "\n    - &K {<<: *F, name: K}\n    - {<<: *K, name: G}"},
+        {"system.vertices[2].coupling[1][1][1]": 2.0},
+        {"vertices": _vertex("F", M0, M0) + "\n" + _vertex("K", M0, M0) + "\n"
+            + _vertex("G", M0, "[[0.0, 0.0], [0.0, 2.0]]")},
+    ),
+}
+
+#: The same comparison where nothing is shared on the path: a scalar has no
+#: container to write into, and ``<<:`` builds a mapping of its own.  These
+#: passed before the containers were copied; they pin what the copy keeps.
+NOT_SHARED = {
+    "alias_of_a_scalar": (
+        {"grids": "  positions_grid: {x: [&p 0.0], y: [*p, 1.5]}"},
+        {"sweep.positions_grid.y[0]": 0.7},
+        {"grids": "  positions_grid: {x: [0.0], y: [0.7, 1.5]}"},
+    ),
+    "key_of_a_merged_mapping": (
+        {"output": "  - &table {type: table, format: markdown, path: a.md}\n"
+                   "  - {<<: *table, path: b.md}"},
+        {"output[1].format": "csv"},
+        {"output": "  - {type: table, format: markdown, path: a.md}\n"
+                   "  - {type: table, format: csv, path: b.md}"},
+    ),
+}
+
+
+def _check_override_against_file_edit(directory: Path, case: tuple) -> None:
+    blocks, overrides, written_out = case
+    shared = _shared_file(directory, "shared", blocks)
+    edited = _shared_file(directory, "edited", written_out)
+    by_override = _outcome(lambda: load_workflow_config(
+        shared, overrides=overrides))
+    by_edit = _outcome(lambda: load_workflow_config(edited))
+    assert by_edit[0] == "loaded", by_edit
+    assert by_override == by_edit
+
+
+@pytest.mark.parametrize("case", SHARED)
+def test_CO4_an_override_changes_only_the_path_it_names(tmp_path, case):
+    _check_override_against_file_edit(tmp_path, SHARED[case])
+
+
+@pytest.mark.parametrize("case", NOT_SHARED)
+def test_CO4_an_override_where_nothing_is_shared(tmp_path, case):
+    _check_override_against_file_edit(tmp_path, NOT_SHARED[case])
+
+
+def _containers(node, seen: dict | None = None) -> dict:
+    """The mappings and lists reachable from ``node``, each counted once
+    however many paths reach it."""
+    seen = {} if seen is None else seen
+    if isinstance(node, (dict, list)) and id(node) not in seen:
+        seen[id(node)] = node
+        for child in node.values() if isinstance(node, dict) else node:
+            _containers(child, seen)
+    return seen
+
+
+def test_CO4_an_override_copies_the_path_and_not_the_document():
+    """Each grid lists the one before it twice, so the last expands to
+    2**16 pairs from 17 lines of YAML.  An override at the far end adds at
+    most one container per step of its path, and every branch off the path
+    stays the object the file built."""
+    depth = 16
+    lines = ["g0: &g0 [0.0, 1.0]"]
+    lines += [f"g{i}: &g{i} [*g{i - 1}, *g{i - 1}]"
+              for i in range(1, depth + 1)]
+    doc = cf._load_yaml("sweep:\n  positions_grid:\n"
+                        + "".join(f"    {line}\n" for line in lines))
+    before = len(_containers(doc))
+    off_path = doc["sweep"]["positions_grid"][f"g{depth - 1}"]
+    steps = "[0]" * (depth + 1)
+    cf._apply_override(doc, f"sweep.positions_grid.g{depth}{steps}", 9.0)
+
+    grids = doc["sweep"]["positions_grid"]
+    assert len(_containers(doc)) <= before + depth + 3
+    assert grids[f"g{depth}"][1] is off_path
+    assert grids[f"g{depth - 1}"] is off_path
+    written, kept = grids[f"g{depth}"], off_path
+    for _ in range(depth):
+        written = written[0]
+    for _ in range(depth - 1):
+        kept = kept[0]
+    assert written == [9.0, 1.0]
+    assert kept == [0.0, 1.0]
+
+
+def test_CO4_a_value_given_to_two_paths_stays_as_given(tmp_path):
+    """A Python override value can sit at two paths, as a node of the file
+    can; an override below one leaves the other path and the caller's list
+    alone."""
+    grid = [0.0, 0.5, 1.5]
+    cfg = load_workflow_config(_shared_file(tmp_path, "plain", {}), overrides={
+        "sweep.positions_grid.x": grid,
+        "sweep.positions_grid.y": grid,
+        "sweep.positions_grid.y[1]": 0.7,
+    })
+    assert cfg.sweep.positions_grid == {
+        "x": [0.0, 0.5, 1.5], "y": [0.0, 0.7, 1.5]}
+    assert grid == [0.0, 0.5, 1.5]

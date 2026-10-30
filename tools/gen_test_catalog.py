@@ -1167,7 +1167,9 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "its dotted path and the key meant (substitutions outside the quick "
         "start marked slow); every misspelling that gives another key of "
         "the block refused as well; every key a shipped config leaves out, "
-        "set by override, gives the result of writing it into the file",
+        "set by override, gives the result of writing it into the file; an "
+        "override through a YAML alias or a merged mapping changes only the "
+        "path it names and adds at most one container per step of the path",
         "the parsed WorkflowConfig of the edited file, written out field by "
         "field; the jsonschema reference validator",
         "exact",

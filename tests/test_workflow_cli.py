@@ -269,6 +269,56 @@ def test_CL4_run_prints_the_resolved_config(tmp_path, capsys, monkeypatch):
     assert yaml.safe_load(body)["sweep"]["method"] == "qmc_vectorized"
 
 
+def _leaves(value, path: str = "") -> dict:
+    """``{dotted path: value}`` of every value of a nested config."""
+    if isinstance(value, dict):
+        items = [(f"{path}.{k}" if path else str(k), v)
+                 for k, v in value.items()]
+    elif isinstance(value, list):
+        items = [(f"{path}[{i}]", v) for i, v in enumerate(value)]
+    else:
+        return {path: value}
+    return {k: v for key, item in items for k, v in _leaves(item, key).items()}
+
+
+def test_CL4_run_prints_only_the_path_an_override_names(tmp_path, capsys,
+                                                        monkeypatch):
+    """``y`` is an alias of ``x`` in the file.  ``sft-wick run`` with an
+    override of one entry of ``y`` prints that entry changed and nothing
+    else, and prints what the file with the alias written out and the entry
+    edited prints."""
+    from sft_wick.workflow import estimate
+
+    class _Estimate:
+        def summary(self):
+            return "[sft-wick] estimate: skipped"
+
+    monkeypatch.setattr(estimate, "estimate_cost", lambda cfg: _Estimate())
+
+    def printed(text: str, *extra: str) -> dict:
+        path = tmp_path / "c.yaml"
+        path.write_text(text)
+        status = main(["run", str(path), "--dry-run", "-q",
+                       "--print-resolved", *extra])
+        out = capsys.readouterr().out
+        assert status == 0
+        body = out.partition("[sft-wick] resolved config:\n")[2]
+        return yaml.safe_load(body.split("[sft-wick] system:")[0])
+
+    text = QUICKSTART.read_text()
+    grid = "positions_grid: {x: [0.0], y: [0.0, 0.5, 1.5]}"
+    assert grid in text
+    aliased = text.replace(grid, "positions_grid: {x: &g [0.0, 0.5, 1.5], y: *g}")
+    edited = text.replace(
+        grid, "positions_grid: {x: [0.0, 0.5, 1.5], y: [0.0, 0.7, 1.5]}")
+
+    before = _leaves(printed(aliased))
+    after = printed(aliased, "--override", "sweep.positions_grid.y[1]=0.7")
+    changed = {k for k, v in _leaves(after).items() if before[k] != v}
+    assert changed == {"sweep.positions_grid.y[1]"}
+    assert after == printed(edited)
+
+
 # ---------------------------------------------------------------------------
 # CL5
 # ---------------------------------------------------------------------------

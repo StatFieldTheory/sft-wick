@@ -675,6 +675,10 @@ def _apply_override(data: dict, dotted_key: str, value: Any) -> None:
     switch it.  A key the schema does not allow raises ``unknown_key``; a
     step through a value, past the end of a list or into a list the file
     leaves out raises ``override_path``.
+
+    Only the named path changes.  A node the file shares through a YAML
+    alias or a ``<<:`` merge keeps its value at its other paths, as if the
+    alias were written out.
     """
     from .schema import override_target
 

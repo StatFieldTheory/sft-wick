@@ -565,6 +565,12 @@ def override_target(data: dict, path: list) -> tuple:
     schema allows in a block is accepted whether or not ``data`` has it,
     and a mapping on the way that ``data`` leaves out (or sets to
     ``null``) is created.  A list entry is never created.
+
+    Each mapping and list on the way is replaced in ``data`` by a shallow
+    copy, so a write to the returned container changes this path alone: a
+    node ``data`` holds at several paths, through a YAML alias or a ``<<:``
+    merge, keeps its value at the others.  Everything off the path stays
+    shared, so the cost does not grow with what the aliases expand to.
     """
     node, cur, walked = _tree(), data, ""
     for i, step in enumerate(path):
@@ -582,6 +588,8 @@ def override_target(data: dict, path: list) -> tuple:
                     "a list or a value below it",
                 )
             nxt = cur[step] = {}
+        elif isinstance(nxt, (dict, list)):
+            nxt = cur[step] = copy.copy(nxt)
         cur, node, walked = nxt, child, here
     raise cf.OverrideError("override_syntax", "", "an override needs a key")
 
