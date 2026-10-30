@@ -24,6 +24,8 @@ from sft_wick.evaluate import DEFAULT_GL_CHUNK_SIZE
 from sft_wick.evaluate import _cache_has_spatial_table, integrate_moment
 from sft_wick.expressions import Expr, Product, Symbol, Sum, Rational
 
+from ._messages import shown
+
 
 def _check_sweep_columns(pos_keys, et_keys, comp_cols) -> None:
     """Refuse a point whose column coincides with another.
@@ -139,7 +141,7 @@ def _guard_single_site(expansion, diagram_terms, positions) -> None:
                     raise ValueError(
                         f"Expansion.evaluate: the external points "
                         f"'{pts[0]}' and '{p}' are at different positions "
-                        f"({positions[pts[0]]!r} and {positions[p]!r}), and "
+                        f"({shown(positions[pts[0]])} and {shown(positions[p])}), and "
                         f"a chain of response propagators joins them in a "
                         f"diagram of this system.  A MultiplicativeImpulse "
                         f"lowers to local vertices, so it describes one SDE "
@@ -823,9 +825,9 @@ class Expansion:
         # empty axis gives no rows.
         _check_axis("t_final_grid", t_final_grid)
         for k, v in zip(pos_keys, pos_values):
-            _check_axis(f"positions_grid[{k!r}]", v)
+            _check_axis(f"positions_grid[{shown(k)}]", v)
         for k, v in zip(et_keys, et_values):
-            _check_axis(f"external_times_grid[{k!r}]", v)
+            _check_axis(f"external_times_grid[{shown(k)}]", v)
 
         _check_sweep_columns(pos_keys, et_keys, comp_cols)
 
@@ -1275,13 +1277,13 @@ def _component_tuple(component, observable, n_components, label):
         return zeros
     if isinstance(component, (str, bytes)) or not hasattr(component, "__len__"):
         raise ValueError(
-            f"{label}: component tuple {component!r} is not a sequence of "
+            f"{label}: component tuple {shown(component)} is not a sequence of "
             f"component indices; write e.g. {zeros}."
         )
     entries = tuple(component)
     if len(entries) != n_ops:
         raise ValueError(
-            f"{label}: component tuple {entries} has {len(entries)} "
+            f"{label}: component tuple {shown(entries)} has {len(entries)} "
             f"{'entry' if len(entries) == 1 else 'entries'}, but the "
             f"observable {_observable_text(observable)} has {n_ops} "
             f"{'operator' if n_ops == 1 else 'operators'}; give one "
@@ -1291,11 +1293,12 @@ def _component_tuple(component, observable, n_components, label):
     for c in entries:
         if isinstance(c, (bool, np.bool_)) or not isinstance(c, numbers.Integral):
             raise ValueError(
-                f"{label}: component index {c!r} in {entries} is not an " f"integer."
+                f"{label}: component index {shown(c)} in {shown(entries)} is not "
+                f"an integer."
             )
         if not 0 <= int(c) < n:
             raise ValueError(
-                f"{label}: component index {int(c)} in {entries} is outside "
+                f"{label}: component index {int(c)} in {shown(entries)} is outside "
                 f"0..{n - 1} (n_components = {n})."
             )
     out = tuple(int(c) for c in entries)
@@ -1340,7 +1343,7 @@ def _require_one_index_per_letter(component, observable, label) -> None:
             raise ValueError(
                 f"{label}: operators {i + 1} and {pos + 1} of the observable "
                 f"{_observable_text(observable)} share the component letter "
-                f"{letter!r}, so they carry one component index, but the "
+                f"{shown(letter)}, so they carry one component index, but the "
                 f"component tuple {tuple(component)} gives them "
                 f"{component[i]} and {component[pos]}.  Give the operators "
                 f"distinct letters to ask for distinct indices."
@@ -1407,7 +1410,7 @@ def _resolve_component_tuples(
     if isinstance(given, (str, bytes)) or not hasattr(given, "__iter__"):
         raise ValueError(
             f"{label}: the component axis must be a list of component "
-            f"tuples, e.g. [{zeros}]; got {given!r}."
+            f"tuples, e.g. [{zeros}]; got {shown(given)}."
         )
     given = list(given)
     if not given:
@@ -1421,7 +1424,7 @@ def _resolve_component_tuples(
             raise ValueError(
                 f"{label}: the component axis must be a list of component "
                 f"tuples, one index per observable operator, e.g. "
-                f"[{zeros}]; got the entry {comp!r}."
+                f"[{zeros}]; got the entry {shown(comp)}."
             )
         t = _component_tuple(comp, observable, n_components, label)
         if t in out:
@@ -1462,8 +1465,8 @@ def _order_selection(orders, label, required=False):
     negative = sorted({int(o) for o in entries if int(o) < 0})
     if negative:
         raise ValueError(
-            f"{label}: the orders {negative} in {orders!r} are negative; an "
-            f"order counts interaction vertices and starts at 0."
+            f"{label}: the orders {shown(negative)} in {shown(orders)} are "
+            f"negative; an order counts interaction vertices and starts at 0."
         )
     return tuple(sorted({int(o) for o in entries}))
 
@@ -1473,7 +1476,7 @@ def _order_entries(orders, label, required):
     :func:`_order_selection`."""
     usage = (
         f"{label} must be an integer order or a list of them, e.g. 2 or "
-        f"[0, 2]; got {orders!r}."
+        f"[0, 2]; got {shown(orders)}."
     )
     if isinstance(
         orders, (str, bytes, collections.abc.Mapping, numbers.Number, np.bool_)
@@ -1486,7 +1489,7 @@ def _order_entries(orders, label, required):
     for o in entries:
         if not _is_integer(o):
             raise TypeError(
-                f"{label}: the order {o!r} in {orders!r} is not an integer."
+                f"{label}: the order {shown(o)} in {shown(orders)} is not an integer."
             )
     if not entries:
         if required:
@@ -1517,7 +1520,7 @@ def _vertex_type_selection(vertex_types, label):
         return frozenset((str(vertex_types),))
     usage = (
         f"{label} must be a vertex-type label such as 'FK' or a list of "
-        f"labels such as ['F', 'FK']; got {vertex_types!r}."
+        f"labels such as ['F', 'FK']; got {shown(vertex_types)}."
     )
     if isinstance(vertex_types, (bytes, bytearray, collections.abc.Mapping)):
         raise TypeError(usage)
@@ -1528,7 +1531,7 @@ def _vertex_type_selection(vertex_types, label):
     for v in entries:
         if not isinstance(v, str):
             raise TypeError(
-                f"{label}: the entry {v!r} in {vertex_types!r} is not a "
+                f"{label}: the entry {shown(v)} in {shown(vertex_types)} is not a "
                 f"vertex-type label (a string such as 'FK')."
             )
     if not entries:
@@ -1563,7 +1566,7 @@ def _check_axis(name, values) -> None:
         key = _axis_key(v)
         if key in seen:
             raise ValueError(
-                f"Expansion.sweep: {name} lists the value {v!r} twice; the "
+                f"Expansion.sweep: {name} lists the value {shown(v)} twice; the "
                 f"sweep would evaluate that grid point twice and totals() "
                 f"would add the two copies together."
             )

@@ -27,6 +27,8 @@ import numpy as np
 
 from .._util import require_bool
 
+from ._messages import shown
+
 
 # =========================================================================
 # Field
@@ -56,7 +58,7 @@ class FieldSpec:
         if self.name == self.response_name:
             raise ValueError(
                 f"FieldSpec: the physical field may not be named "
-                f"{self.response_name!r}, the name of the response field; "
+                f"{shown(self.response_name)}, the name of the response field; "
                 f"the two fields would share one name, and an observable "
                 f"could not say which of them it means."
             )
@@ -514,7 +516,7 @@ class ExplicitR(LinearOp):
         if not isinstance(self.vectorized, (bool, np.bool_)):
             raise TypeError(
                 f"ExplicitR.vectorized must be a bool; got "
-                f"{type(self.vectorized).__name__} {self.vectorized!r}."
+                f"{type(self.vectorized).__name__} {shown(self.vectorized)}."
             )
 
     def build_R_callable(self) -> Callable:
@@ -933,7 +935,7 @@ class MultiplicativeImpulse(Sigma2):
         if self.interpretation not in ("ito", "stratonovich"):
             raise ValueError(
                 f"MultiplicativeImpulse: interpretation must be 'ito' or "
-                f"'stratonovich'; got {self.interpretation!r}.")
+                f"'stratonovich'; got {shown(self.interpretation)}.")
         vnames, dnames = tuple(self.vertex_names), tuple(self.drift_names)
         names = vnames + dnames
         if (len(vnames) != 2 or len(dnames) != 2
@@ -942,7 +944,7 @@ class MultiplicativeImpulse(Sigma2):
             raise ValueError(
                 f"MultiplicativeImpulse: vertex_names and drift_names must be "
                 f"two non-empty strings each, all four distinct; got "
-                f"{vnames} and {dnames}.")
+                f"{shown(vnames)} and {shown(dnames)}.")
         object.__setattr__(self, "g0", _nested_tuple(g0))
         object.__setattr__(self, "g1", _nested_tuple(g1))
         object.__setattr__(self, "vertex_names", vnames)
@@ -1091,21 +1093,21 @@ class LocalVertex:
         if callable(self.coupling):
             if self.rank is None:
                 raise ValueError(
-                    f"LocalVertex(name={self.name!r}): a callable coupling "
+                    f"LocalVertex(name={shown(self.name)}): a callable coupling "
                     f"needs rank=n, the number of legs (one psi and n - 1 "
                     f"phi); it cannot be read off a callable."
                 )
             if isinstance(self.rank, bool) or not isinstance(
                     self.rank, (int, np.integer)) or self.rank < 1:
                 raise ValueError(
-                    f"LocalVertex(name={self.name!r}): rank must be an "
-                    f"integer >= 1, got {self.rank!r}."
+                    f"LocalVertex(name={shown(self.name)}): rank must be an "
+                    f"integer >= 1, got {shown(self.rank)}."
                 )
         elif self.rank is not None:
             ndim = np.asarray(self.coupling).ndim
             if self.rank != ndim:
                 raise ValueError(
-                    f"LocalVertex(name={self.name!r}): rank={self.rank!r} "
+                    f"LocalVertex(name={shown(self.name)}): rank={shown(self.rank)} "
                     f"but the coupling tensor has {ndim} axes."
                 )
 
@@ -1244,13 +1246,13 @@ class NonLocalVertex:
     # rationale and validation strategy.
 
     def __post_init__(self) -> None:
-        where = f"NonLocalVertex(name={self.name!r})"
+        where = f"NonLocalVertex(name={shown(self.name)})"
         for flag in ("equal_time", "already_R_contracted"):
             object.__setattr__(self, flag, require_bool(
                 getattr(self, flag), flag, where))
         if self.already_R_contracted and self.equal_time:
             raise ValueError(
-                f"NonLocalVertex(name={self.name!r}): "
+                f"NonLocalVertex(name={shown(self.name)}): "
                 f"already_R_contracted=True is mutually exclusive "
                 f"with equal_time=True. The R-contracted callable has "
                 f"already integrated over its leg coordinates, so an "

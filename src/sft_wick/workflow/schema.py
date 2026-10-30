@@ -38,6 +38,7 @@ from typing import Any
 
 from . import config as cf
 from . import specs as sp
+from ._messages import shown
 
 SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
 
@@ -455,7 +456,7 @@ def _render(node) -> dict:
         return {"type": "object", "additionalProperties": _render(node.value)}
     if isinstance(node, _ListOf):
         return {"type": "array", "items": _render(node.item)}
-    raise TypeError(f"not a schema node: {node!r}")
+    raise TypeError(f"not a schema node: {shown(node)}")
 
 
 def _render_key(key: _Key) -> dict:
@@ -513,7 +514,7 @@ def _variant(node: _Tagged, data: dict, walked: str) -> tuple:
         raise cf.OverrideError(
             "invalid_value",
             _label(walked, "type"),
-            f"{tag!r} is not one of {cf._or_list(node.variants)}; set "
+            f"{shown(tag)} is not one of {cf._or_list(node.variants)}; set "
             f"{_label(walked, 'type')} first",
             cf._nearest(tag, node.variants) if isinstance(tag, str) else (),
         )
@@ -548,7 +549,7 @@ def _child(node, data, step, walked: str):
         if step == "type":
             return _enum(node.variants)
         node, tag = _variant(node, data, walked)
-        note = f" for type {tag!r}"
+        note = f" for type {shown(tag)}"
     key = node.keys.get(step)
     if key is None:
         raise cf.OverrideError(

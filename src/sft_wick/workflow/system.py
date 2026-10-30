@@ -24,6 +24,7 @@ from sft_wick.indices import (
 from sft_wick.perturbation import check_distinct_external_labels
 from sft_wick.vertices import Vertex
 
+from ._messages import shown
 from .specs import (
     ConstantImpulse,
     DiagonalA,
@@ -195,7 +196,7 @@ class System:
             for v in vertices:
                 if v.name in seen:
                     raise ValueError(
-                        f"vertex name {v.name!r} is used by two vertices (a "
+                        f"vertex name {shown(v.name)} is used by two vertices (a "
                         f"{seen[v.name]} and a {kind} one).  Coupling values "
                         f"are keyed by name, so one coupling would replace "
                         f"the other for both vertices; rename one."
@@ -209,7 +210,7 @@ class System:
                 f"the vertex names {sorted(names)} make the vertex-type "
                 f"labels ambiguous: the diagrams with the vertices {first} "
                 f"and those with {second} would both be labelled "
-                f"{''.join(pair[0])!r}, so by_vertex_type would merge the two "
+                f"{shown(''.join(pair[0]))}, so by_vertex_type would merge the two "
                 f"channels and vertex_types would select both.  A label is "
                 f"the sorted vertex names, concatenated; rename a vertex."
             )
@@ -795,7 +796,7 @@ def _parse_observable(observable, system: System, _max_order: int = 1):
             f"is not a dict, whose order the package cannot check, and the "
             f"order of the operators fixes which entry of the component "
             f"tuple belongs to which operator; give a list or a tuple, e.g. "
-            f"list(mapping.keys()); got {observable!r}."
+            f"list(mapping.keys()); got {shown(observable)}."
         )
     if isinstance(observable, collections.abc.Set) and not isinstance(
         observable, type({}.keys())
@@ -804,7 +805,7 @@ def _parse_observable(observable, system: System, _max_order: int = 1):
             f"System.expand: observable is a set, which has no order, and "
             f"the order of the operators fixes which entry of the component "
             f"tuple belongs to which operator; give a list or a tuple, e.g. "
-            f"['phi_a(x)', 'phi_b(y)']; got {observable!r}."
+            f"['phi_a(x)', 'phi_b(y)']; got {shown(observable)}."
         )
     ops = list(observable)
     if all(isinstance(o, str) for o in ops):
@@ -831,8 +832,8 @@ def _parse_observable(observable, system: System, _max_order: int = 1):
             else:
                 raise ValueError(
                     f"Observable field '{name}' matches neither the system's "
-                    f"physical field '{system.field.name}' nor its response "
-                    f"field '{system.field.response_name}'."
+                    f"physical field {shown(system.field.name)} nor its response "
+                    f"field {shown(system.field.response_name)}."
                 )
             if comp is None:
                 if system.n_components != 1:
@@ -880,26 +881,26 @@ def _check_observable_operator(op: FieldOperator, system: System) -> None:
     phi, psi = system.build_fields()
     if op.field not in (phi, psi):
         raise ValueError(
-            f"Observable operator {op!r} belongs to {op.field!r}, which is "
-            f"neither field of this system ({phi!r}, {psi!r}); build the "
+            f"Observable operator {shown(op)} belongs to {shown(op.field)}, which is "
+            f"neither field of this system ({shown(phi)}, {shown(psi)}); build the "
             f"operators from System.build_fields()."
         )
     label = op.component_index
     if label is None:
         if system.n_components != 1:
             raise ValueError(
-                f"Observable operator {op!r} has no component label but the "
+                f"Observable operator {shown(op)} has no component label but the "
                 f"system has n_components={system.n_components}."
             )
         return
     if not isinstance(label, str):
         raise ValueError(
-            f"Observable operator {op!r}: the component label {label!r} is "
+            f"Observable operator {shown(op)}: the component label {shown(label)} is "
             f"not a string; use a letter label such as 'a'."
         )
     if literal_component(label) is not None:
         raise ValueError(
-            f"Observable operator {op!r}: the component label {label!r} is a "
+            f"Observable operator {shown(op)}: the component label {shown(label)} is a "
             f"numeric literal, which would fix the component.  At L1 the "
             f"component tuple of Expansion.evaluate chooses the components; "
             f"use a letter label such as 'a', as in the string form "

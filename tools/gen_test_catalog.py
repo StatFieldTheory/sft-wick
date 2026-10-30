@@ -1169,7 +1169,9 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "the block refused as well; every key a shipped config leaves out, "
         "set by override, gives the result of writing it into the file; an "
         "override through a YAML alias or a merged mapping changes only the "
-        "path it names and adds at most one container per step of the path",
+        "path it names and adds at most one container per step of the path; "
+        "at every key, a value that expands through shared nodes gives a "
+        "short message and is never written out whole",
         "the parsed WorkflowConfig of the edited file, written out field by "
         "field; the jsonschema reference validator",
         "exact",

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Fixed: an error message could hold the expanded size of a value
+
+A message showing a value printed its `repr`, which expands every path to
+a node shared through YAML aliases.  A refused value of a few lines gave a
+7 MB message at 18 levels of sharing, doubling with each level.  The
+messages of `sweep.positions_grid`, `external_times_grid`, `t_final_grid`,
+`component_tuples` and `expand.observable` were built on every load, so a
+valid grid of 24 levels took 10.5 s to load.  `str()` of a list where the
+parser expects text (`sweep.method`, `output[0].format`, `coupling_module`)
+cost the same without showing it.  A value up to 1000 characters prints as
+before, and a longer one as a stand-in such as `<list of length 2>`; the
+grid of 24 levels loads in 2.5 ms, and one of 400 levels in 15 ms.  A
+tensor key such as `coupling` still builds the array the file describes, at
+its expanded size.
+
 ### Fixed: an override through a YAML alias changed every place sharing the node
 
 **Breaking (an override through a list or mapping the file shares).**  An

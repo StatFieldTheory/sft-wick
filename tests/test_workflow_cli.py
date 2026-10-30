@@ -122,6 +122,20 @@ def test_CL1_exit_status_reaches_the_shell(tmp_path):
         "did you mean 't_min'?")
 
 
+def test_CL1_a_value_that_expands_is_one_short_line(tmp_path, capsys):
+    """``seed`` holds a list of 2**18 pairs from one line of YAML."""
+    levels = ", ".join(f"&g{i} [*g{i - 1}, *g{i - 1}]" for i in range(1, 19))
+    text = QUICKSTART.read_text()
+    assert "seed: 42" in text
+    path = tmp_path / "c.yaml"
+    path.write_text(text.replace(
+        "seed: 42", f"seed: [&g0 [0.0, 1.0], {levels}]"))
+    assert main(["validate", str(path)]) == 2
+    line = _one_line(capsys.readouterr().err)
+    assert line.startswith("sft-wick: config error [invalid_value] sweep.seed")
+    assert len(line) < 2000
+
+
 def test_CL1_a_value_error_is_one_line_too(tmp_path, capsys):
     doc = _quickstart()
     doc["sweep"]["method"] = "gauss_legendr"

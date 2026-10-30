@@ -21,6 +21,10 @@ CO4 -- an override changes only the path it names when the file shares a
        the file with the sharing written out and the same edit made by
        hand.  Only the containers on the path are copied, so a file whose
        aliases expand far beyond its size stays that size.
+CO6 -- an error message shows a value at a bounded length, at every key of
+       every shipped config: a value that expands through shared nodes
+       gives a short message, and a short value prints as ``repr`` prints
+       it.
 
 Before the schema and the one-line errors, CO1 failed on every case (the
 error was a ``ValueError`` listing the allowed keys, without the dotted
@@ -28,6 +32,8 @@ path of the key or a suggestion, and keys of the noise and kernel blocks
 passed the parser) and CO2 raised ``KeyError`` for every key outside
 ``sweep``.  Before an override copied the containers on its path, the
 cases of ``SHARED`` in CO4 wrote through the alias without an error.  The
+messages of CO6 expanded every
+shared node, 6 MB per message at the depth used here.  The
 parser's result is compared, not its own report: the reference is the
 parsed :class:`~sft_wick.workflow.config.WorkflowConfig`, written out field
 by field by :func:`_canonical` below.
@@ -35,6 +41,7 @@ by field by :func:`_canonical` below.
 
 from __future__ import annotations
 
+import ast
 import copy
 import dataclasses
 import functools
@@ -48,6 +55,7 @@ import pytest
 import yaml
 
 from sft_wick.workflow import config as cf
+from sft_wick.workflow._messages import MAX_SHOWN_CHARS, shown, text_of
 from sft_wick.workflow.config import ConfigError, load_workflow_config
 from sft_wick.workflow.schema import workflow_json_schema
 
@@ -646,3 +654,159 @@ def test_CO4_a_value_given_to_two_paths_stays_as_given(tmp_path):
     assert cfg.sweep.positions_grid == {
         "x": [0.0, 0.5, 1.5], "y": [0.0, 0.7, 1.5]}
     assert grid == [0.0, 0.5, 1.5]
+
+
+# ---------------------------------------------------------------------------
+# CO6 -- a value that expands, in an error message
+# ---------------------------------------------------------------------------
+
+class _WrittenOut(BaseException):
+    """Not an ``Exception``, so no handler in the parser can swallow it."""
+
+
+class _RefusesText(list):
+    """A list that raises when written out.  A ``repr`` or ``str`` of a
+    shared list is the expansion in question; this finds a site that makes
+    one and drops the text, which the length of a message cannot show."""
+
+    def __repr__(self) -> str:
+        raise _WrittenOut
+
+
+def _expanding(kind: type) -> list:
+    """Each level holds the one before it twice: 2**18 pairs.  At 64 levels
+    a parser check that walks every path would not end, and ``repr`` and
+    NumPy run in C, where no timeout reaches them."""
+    return functools.reduce(lambda inner, _: kind([inner, inner]), range(18),
+                            kind([0.0, 1.0]))
+
+
+EXPANDING = _expanding(_RefusesText)
+#: Each shape reaches a different check: the value itself, a mapping, an
+#: entry of a list, an entry below one, and a mapping in a list.
+EXPANDING_SHAPES = (EXPANDING, {"k": EXPANDING}, [EXPANDING],
+                    [0.0, [EXPANDING]], [{"k": EXPANDING}])
+#: A message can show a few values and a few names.
+MAX_MESSAGE_CHARS = 6 * MAX_SHOWN_CHARS
+#: What ``sft-wick`` prints as one line; anything else is a traceback.
+CONFIG_ERRORS = (ValueError, TypeError, ArithmeticError, OSError, EOFError,
+                 ImportError, yaml.YAMLError)
+
+
+def _with_expanding_values(doc: dict):
+    """``(dotted key, config)`` with each shape at each key a block allows."""
+    for where, mapping, allowed, kind in list(_mappings(doc)):
+        for key in sorted(allowed) if kind == "key" else list(mapping):
+            for value in EXPANDING_SHAPES:
+                out = copy.deepcopy(doc)
+                node = out
+                for step in where:
+                    node = node[step]
+                node[key] = value
+                yield _dotted(where + (key,)), out
+
+
+def _check_messages(doc: dict, base_dir: Path) -> None:
+    refused = 0
+    for dotted, config in _with_expanding_values(doc):
+        try:
+            cf.check_before_run(cf._parse_workflow(config, base_dir=base_dir))
+        except CONFIG_ERRORS as exc:
+            refused += 1
+            assert len(str(exc)) < MAX_MESSAGE_CHARS, (
+                dotted, type(exc).__name__, str(exc)[:200])
+    assert refused > 50
+
+
+@pytest.mark.parametrize("path", CONFIGS, ids=IDS)
+def test_CO6_a_value_that_expands_gives_a_short_message(path):
+    _check_messages(yaml.safe_load(path.read_text()), path.parent)
+
+
+#: ``case: (path of a block in the quick start, the block)``: blocks no
+#: shipped config uses, so the keys they hold are in the corpus too.
+UNSHIPPED_BLOCKS = {
+    "multiplicative_noise": (("system", "noise", "sigma2"), {
+        "type": "multiplicative", "g0": [[1.0, 0.0], [0.0, 1.0]],
+        "g1": [[[0.0, 0.0], [0.0, 0.0]], [[0.0, 0.0], [0.0, 0.0]]]}),
+    "coupling_path": (("system", "vertices", 0),
+                      {"name": "F", "coupling_path": "coupling.npy"}),
+    "plot_and_npz": (("output",), [
+        {"type": "plot", "path": "p.png", "x": "t_final"},
+        {"type": "npz", "path": "r.npz"}]),
+    "rotation_kernel": (("system", "noise", "kappa2"), {
+        "type": "separable_rotation",
+        "temporal": {"type": "exponential", "lam": 0.05, "sigma_t": 0.3},
+        "angular": {"type": "legendre", "coeffs": [1.0]}}),
+}
+
+
+@pytest.mark.parametrize("case", UNSHIPPED_BLOCKS)
+def test_CO6_a_value_that_expands_in_a_block_no_config_ships(tmp_path, case):
+    np.save(tmp_path / "coupling.npy", np.zeros((2, 2, 2)))
+    where, block = UNSHIPPED_BLOCKS[case]
+    doc = yaml.safe_load(FULL_BY_DEFAULT.read_text())
+    node = doc
+    for step in where[:-1]:
+        node = node[step]
+    node[where[-1]] = block
+    cf.check_before_run(cf._parse_workflow(doc, base_dir=tmp_path))
+    _check_messages(doc, tmp_path)
+
+
+@pytest.mark.parametrize("value", [
+    None, True, 1.5, "phi_a(x)", [], {}, (), [1.0, "a", None], (1, 2),
+    {"b": 1, "a": [2.0]}, [[0, 1], [1, 0]],
+], ids=repr)
+def test_CO6_a_short_value_prints_as_repr(value):
+    assert shown(value) == repr(value)
+
+
+@pytest.mark.parametrize("value", [
+    None, 1, 1.5, True, "module.py", Path("a/b.py"), [1, 2], {"k": 1}, (1,),
+], ids=repr)
+def test_CO6_text_of_a_short_value_is_str(value):
+    assert text_of(value) == str(value)
+
+
+def test_CO6_text_of_a_value_that_expands_is_a_stand_in():
+    assert text_of(EXPANDING) == "<_RefusesText of length 2>"
+
+
+def test_CO6_the_limit_of_a_value_shown():
+    """Both sides of the limit, for a string and for a list holding one."""
+    at_limit = "x" * (MAX_SHOWN_CHARS - 2)  # and its two quotes
+    assert shown(at_limit) == repr(at_limit)
+    assert shown(at_limit + "x") == f"<str of length {MAX_SHOWN_CHARS - 1}>"
+    # A list costs its brackets and two characters per entry.
+    fits = ["x" * (MAX_SHOWN_CHARS - 6)]
+    assert shown(fits) == repr(fits)
+    assert shown(["x" * (MAX_SHOWN_CHARS - 5)]) == "<list of length 1>"
+    # A mapping costs its braces and four characters per entry.
+    fits = {"x" * (MAX_SHOWN_CHARS - 9): 1}
+    assert shown(fits) == repr(fits)
+    assert shown({"x" * (MAX_SHOWN_CHARS - 8): 1}) == "<dict of length 1>"
+
+
+def test_CO6_a_long_value_gives_a_stand_in_at_a_bounded_cost():
+    assert shown(EXPANDING) == "<_RefusesText of length 2>"
+    assert shown(_expanding(list)) == "<list of length 2>"
+    assert shown({"k": _expanding(list)}) == "<dict of length 1>"
+    assert shown((_expanding(list),)) == "<tuple of length 1>"
+    assert shown(list(range(10**6))) == "<list of length 1000000>"
+    cycle: list = [0.0]
+    cycle.append(cycle)
+    assert shown(cycle) == "<list of length 2>"
+
+
+def test_CO6_the_parser_shows_values_through_shown():
+    """A new ``{value!r}`` in these modules would bring the expansion back,
+    and only a file that reaches that line would show it."""
+    for module in ("config.py", "schema.py", "expansion.py", "specs.py",
+                   "system.py", "propagators.py"):
+        tree = ast.parse((ROOT / "src" / "sft_wick" / "workflow" / module)
+                         .read_text())
+        lines = [node.lineno for node in ast.walk(tree)
+                 if isinstance(node, ast.FormattedValue)
+                 and node.conversion == ord("r")]
+        assert not lines, (module, lines)
