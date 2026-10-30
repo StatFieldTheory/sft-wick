@@ -1170,8 +1170,10 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "set by override, gives the result of writing it into the file; an "
         "override through a YAML alias or a merged mapping changes only the "
         "path it names and adds at most one container per step of the path; "
-        "at every key, a value that expands through shared nodes gives a "
-        "short message and is never written out whole",
+        "a file where an alias makes a value hold itself refused with the "
+        "path of that alias; a node shared without a cycle accepted; at every "
+        "key, a value that expands through shared nodes gives a short message "
+        "and is never written out whole",
         "the parsed WorkflowConfig of the edited file, written out field by "
         "field; the jsonschema reference validator",
         "exact",

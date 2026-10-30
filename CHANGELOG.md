@@ -17,6 +17,17 @@ grid of 24 levels loads in 2.5 ms, and one of 400 levels in 15 ms.  A
 tensor key such as `coupling` still builds the array the file describes, at
 its expanded size.
 
+### Fixed: a file whose aliases form a cycle passed `validate`
+
+**Breaking (a file where a value holds itself).**  With
+`positions_grid: {x: &g [0.0, *g], y: [0.5]}` the parser read the value
+without looking inside it, so `sft-wick validate` passed the file,
+`--print-resolved` ended in a `RecursionError` and `run` in a `ValueError`
+or `TypeError` traceback.  A mapping or list that holds itself is refused
+when the file is loaded, after the overrides, with `invalid_value` and the
+dotted path of the alias that closes the cycle.  A node shared without a
+cycle stays accepted.
+
 ### Fixed: an override through a YAML alias changed every place sharing the node
 
 **Breaking (an override through a list or mapping the file shares).**  An

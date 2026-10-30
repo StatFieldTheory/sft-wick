@@ -411,6 +411,7 @@ def load_workflow_config(
         for dotted_key, value in overrides.items():
             _apply_override(data, dotted_key, value)
 
+    _refuse_cycles(data)
     return _parse_workflow(data, base_dir=path.parent)
 
 
@@ -564,7 +565,11 @@ def _key_text(key_node) -> str:
         return "<<"
     if not isinstance(key_node, yaml.ScalarNode):
         return "<key>"
-    text = key_node.value
+    return _cut_key(key_node.value)
+
+
+def _cut_key(text: str) -> str:
+    """A key as an error shows it."""
     return text if len(text) <= _MAX_KEY_TEXT else f"{text[:_MAX_KEY_TEXT]}..."
 
 
@@ -580,6 +585,11 @@ def _path_of(root, target, written: dict) -> str:
         if node not in seen:
             seen.add(node)
             stack.extend(reversed(_children(node, route, written)))
+    return _route_text(route)
+
+
+def _route_text(route) -> str:
+    """The dotted path of a chain of ``(route, part)`` links."""
     parts = []
     while route is not None:
         route, part = route
@@ -685,6 +695,50 @@ def _apply_override(data: dict, dotted_key: str, value: Any) -> None:
 
     parent, leaf = override_target(data, _override_path(dotted_key))
     parent[leaf] = value
+
+
+def _refuse_cycles(data: dict) -> None:
+    """Refuse a mapping or list that holds itself through a YAML alias.
+
+    YAML allows ``x: &g [0.0, *g]``, and the parser reads such a value
+    without looking inside it, so the file passed ``sft-wick validate`` and
+    ended in a traceback later.  The dotted path of the alias that closes
+    the cycle is reported.
+
+    The walk uses a stack, since a chain of aliases can be as long as the
+    file, and enters each container once, so a node shared many times costs
+    one visit however far it expands.  An entry links to the one it was
+    reached from; the path is written out only for the error.
+    """
+    containers = (dict, list, tuple)
+    entered, finished = set(), set()
+    stack = [(data, None, False)]
+    while stack:
+        item, route, leaving = stack.pop()
+        if leaving:
+            finished.add(id(item))
+            continue
+        if id(item) in finished:
+            continue
+        if id(item) in entered:
+            raise ConfigError(
+                "invalid_value",
+                _route_text(route),
+                "an alias here makes a value hold itself",
+            )
+        entered.add(id(item))
+        stack.append((item, route, True))
+        if isinstance(item, dict):
+            steps = [
+                (v, f".{_cut_key(str(k))}")
+                for k, v in item.items()
+                if isinstance(v, containers)
+            ]
+        else:
+            steps = [
+                (v, f"[{i}]") for i, v in enumerate(item) if isinstance(v, containers)
+            ]
+        stack.extend((value, (route, part), False) for value, part in reversed(steps))
 
 
 #: Keys each block reads; a key outside its block's set raises.  The

@@ -21,6 +21,9 @@ CO4 -- an override changes only the path it names when the file shares a
        the file with the sharing written out and the same edit made by
        hand.  Only the containers on the path are copied, so a file whose
        aliases expand far beyond its size stays that size.
+CO5 -- a file where an alias makes a mapping or list hold itself is refused
+       when it is loaded, with the path of that alias.  A node shared
+       without a cycle stays accepted, however far it expands.
 CO6 -- an error message shows a value at a bounded length, at every key of
        every shipped config: a value that expands through shared nodes
        gives a short message, and a short value prints as ``repr`` prints
@@ -31,8 +34,9 @@ error was a ``ValueError`` listing the allowed keys, without the dotted
 path of the key or a suggestion, and keys of the noise and kernel blocks
 passed the parser) and CO2 raised ``KeyError`` for every key outside
 ``sweep``.  Before an override copied the containers on its path, the
-cases of ``SHARED`` in CO4 wrote through the alias without an error.  The
-messages of CO6 expanded every
+cases of ``SHARED`` in CO4 wrote through the alias without an error.  A
+file of CO5 passed ``sft-wick validate``, and ``--print-resolved`` and
+``run`` then ended in a traceback.  The messages of CO6 expanded every
 shared node, 6 MB per message at the depth used here.  The
 parser's result is compared, not its own report: the reference is the
 parsed :class:`~sft_wick.workflow.config.WorkflowConfig`, written out field
@@ -47,6 +51,8 @@ import dataclasses
 import functools
 import json
 import string
+import sys
+import time
 from pathlib import Path
 
 import jsonschema
@@ -432,7 +438,7 @@ def test_CO3_a_misspelling_that_gives_another_valid_key_is_refused(path):
 # ---------------------------------------------------------------------------
 
 SHARED_CONFIG = string.Template("""\
-system:
+${head}system:
   field: {name: phi, n_components: 2}
   linear: {type: diagonal, gamma: [1.0, 1.5]}
   vertices:
@@ -475,7 +481,8 @@ OUTPUT = "  - {type: table, format: markdown, path: a.md}"
 def _shared_file(directory: Path, name: str, blocks: dict) -> Path:
     path = directory / f"{name}.yaml"
     path.write_text(SHARED_CONFIG.substitute(
-        {"vertices": VERTEX_F, "grids": GRIDS, "output": OUTPUT, **blocks}))
+        {"head": "", "vertices": VERTEX_F, "grids": GRIDS, "output": OUTPUT,
+         **blocks}))
     return path
 
 
@@ -654,6 +661,125 @@ def test_CO4_a_value_given_to_two_paths_stays_as_given(tmp_path):
     assert cfg.sweep.positions_grid == {
         "x": [0.0, 0.5, 1.5], "y": [0.0, 0.7, 1.5]}
     assert grid == [0.0, 0.5, 1.5]
+
+
+# ---------------------------------------------------------------------------
+# CO5 -- a file whose aliases form a cycle
+# ---------------------------------------------------------------------------
+
+#: ``case: (blocks of the file, dotted path of the alias closing the cycle)``.
+CYCLES = {
+    "list_holds_itself": (
+        {"grids": "  positions_grid: {x: &g [0.0, *g], y: [0.5]}"},
+        "sweep.positions_grid.x[1]",
+    ),
+    "grid_holds_the_document": (
+        {"head": "&r\n",
+         "grids": "  positions_grid: {x: [0.0, *r], y: [0.5]}"},
+        "sweep.positions_grid.x[1]",
+    ),
+    "first_of_two_aliases_in_the_file_is_named": (
+        {"grids": "  positions_grid: {x: &g [*g, *g], y: [0.5]}"},
+        "sweep.positions_grid.x[0]",
+    ),
+    "two_lists_hold_each_other": (
+        {"grids": "  positions_grid: {x: &a [0.0, &b [1.0, *a]], y: [0.5]}"},
+        "sweep.positions_grid.x[1][1]",
+    ),
+    "mapping_holds_itself": (
+        {"grids": "  positions_grid: {x: [0.0, &m {k: *m}], y: [0.5]}"},
+        "sweep.positions_grid.x[1].k",
+    ),
+    "merge_closes_the_cycle": (
+        {"grids": "  positions_grid: {x: [0.0, &a {k: &b {<<: *a}}], y: [0.5]}"},
+        "sweep.positions_grid.x[1].k.k",
+    ),
+    "ordered_mapping_holds_itself": (
+        {"grids": "  positions_grid: {x: [0.0, &o !!omap [k: *o]], y: [0.5]}"},
+        "sweep.positions_grid.x[1][0][1]",
+    ),
+    "cycle_in_an_entry_of_a_list_of_blocks": (
+        {"output": "  - {type: table, format: markdown, path: a.md}\n"
+                   "  - &p {type: plot, x: t, hue: [*p]}"},
+        "output[1].hue[0]",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", CYCLES)
+def test_CO5_a_value_that_holds_itself_is_refused(tmp_path, case):
+    blocks, where = CYCLES[case]
+    with pytest.raises(ConfigError) as info:
+        load_workflow_config(_shared_file(tmp_path, "cycle", blocks))
+    assert (info.value.code, info.value.path) == ("invalid_value", where)
+    assert "\n" not in str(info.value)
+
+
+def test_CO5_an_override_that_opens_the_cycle_is_a_file_edit(tmp_path):
+    """The file is checked after the overrides, so an override that replaces
+    the alias gives the result of replacing it in the file."""
+    _check_override_against_file_edit(tmp_path, (
+        {"grids": "  positions_grid: {x: &g [0.0, *g], y: [0.5]}"},
+        {"sweep.positions_grid.x[1]": 0.7},
+        {"grids": "  positions_grid: {x: [0.0, 0.7], y: [0.5]}"},
+    ))
+
+
+def test_CO5_an_override_value_that_holds_itself_is_refused(tmp_path):
+    grid = [0.0]
+    grid.append(grid)
+    with pytest.raises(ConfigError) as info:
+        load_workflow_config(_shared_file(tmp_path, "plain", {}),
+                             overrides={"sweep.positions_grid.x": grid})
+    assert info.value.path == "sweep.positions_grid.x[1]"
+
+
+def test_CO5_a_node_shared_without_a_cycle_stays_accepted(tmp_path):
+    """Each list holds the one before it twice, so the last expands to
+    2**24 pairs from one line of YAML.  A check that entered a list once per
+    path to it would take seconds here and never end at twice the depth."""
+    depth = 24
+    levels = ", ".join(f"&g{i} [*g{i - 1}, *g{i - 1}]"
+                       for i in range(1, depth + 1))
+    grids = f"  positions_grid: {{x: [&g0 [0.0, 1.0], {levels}], y: [0.5]}}"
+    path = _shared_file(tmp_path, "shared", {"grids": grids})
+    start = time.perf_counter()
+    cfg = load_workflow_config(path)
+    assert time.perf_counter() - start < 2.0
+    assert cfg.sweep.positions_grid["y"] == [0.5]
+
+
+def test_CO5_a_chain_past_the_recursion_limit_is_walked():
+    """A chain of aliases can be as long as the file, and nests no deeper
+    in the YAML than a list of its links."""
+    links = 3 * sys.getrecursionlimit()
+
+    def chained(end: list) -> dict:
+        for _ in range(links):
+            end = [end]
+        return {"a": end}
+
+    cf._refuse_cycles(chained([0.0]))
+    loop: list = []
+    loop.append(loop)
+    with pytest.raises(ConfigError) as info:
+        cf._refuse_cycles(chained(loop))
+    assert info.value.path == "a" + "[0]" * (links + 1)
+
+
+def test_CO5_a_long_key_is_cut_in_the_path():
+    """A path repeats a key once per level, so a key written once and used
+    through an alias at each of 400 levels would give a message of 8 MB."""
+    key = "k" * 20000
+    top: dict = {}
+    node = top
+    for _ in range(400):
+        node[key] = {}
+        node = node[key]
+    node[key] = top
+    with pytest.raises(ConfigError) as info:
+        cf._refuse_cycles(top)
+    assert len(str(info.value)) < 401 * 50
 
 
 # ---------------------------------------------------------------------------

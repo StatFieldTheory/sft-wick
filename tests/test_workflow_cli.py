@@ -122,6 +122,31 @@ def test_CL1_exit_status_reaches_the_shell(tmp_path):
         "did you mean 't_min'?")
 
 
+@pytest.mark.parametrize("command", [["validate"],
+                                     ["validate", "--print-resolved"],
+                                     ["run", "--dry-run", "-q"]],
+                         ids=["validate", "print_resolved", "run"])
+@pytest.mark.parametrize("head,grid", [
+    ("", "positions_grid: {x: &g [0.0, *g], y: [0.5]}"),
+    ("&r\n", "positions_grid: {x: [0.0, *r], y: [0.5]}"),
+], ids=["list", "document"])
+def test_CL1_a_file_whose_aliases_form_a_cycle_exits_2(tmp_path, capsys,
+                                                       command, head, grid):
+    """``validate`` used to pass these files; ``--print-resolved`` and
+    ``run`` ended in a traceback."""
+    text = QUICKSTART.read_text()
+    old = "positions_grid: {x: [0.0], y: [0.0, 0.5, 1.5]}"
+    assert old in text
+    path = tmp_path / "c.yaml"
+    path.write_text(head + text.replace(old, grid))
+    status = main([command[0], str(path), *command[1:]])
+    out = capsys.readouterr()
+    assert status == 2
+    assert _one_line(out.err) == (
+        "sft-wick: config error [invalid_value] sweep.positions_grid.x[1]: "
+        "an alias here makes a value hold itself")
+
+
 def test_CL1_a_value_that_expands_is_one_short_line(tmp_path, capsys):
     """``seed`` holds a list of 2**18 pairs from one line of YAML."""
     levels = ", ".join(f"&g{i} [*g{i - 1}, *g{i - 1}]" for i in range(1, 19))
