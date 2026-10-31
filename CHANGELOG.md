@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Fixed: aliases that expand past what a walk finishes hung `run` and `--print-resolved`
+
+**Breaking (a file whose aliases add more than 10^6 values, or nested past
+100 levels).**  A list that holds the one before it twice doubles at each
+level, and YAML keeps one object, so 1.2 kB at a key nothing reads
+(`output[0].x`, or `system.linear.t_max_cache` under a constant `gamma`)
+passed `validate`.  `validate --print-resolved` then took 23 s and 1.6 GB at
+20 levels, doubling with each level, and `run` did the same in `repr` of the
+cache key.  100 vertices sharing one tensor took 7.5 GB from 4.2 kB, each
+under the limit on one tensor, and a position repeated through aliases was
+read once per alias.  The loader now measures the file as a tree, entering
+each container once, and refuses what aliases add past 10^6 values with
+`invalid_value` and the dotted path where the value spreads out.  A value
+written out, and pairs merged with `<<`, do not count.  `compare-resources`
+refuses the same files.  A file nested past 100 levels, written out or
+through aliases, is refused by the config loader: a chain of 500 aliases
+passed `validate` and `--print-resolved` ended in a `RecursionError`.
+
 ### Fixed: a chain of YAML merges hung `sft-wick validate`
 
 **Breaking (a file whose merges add more than 10^6 pairs).**  PyYAML copies

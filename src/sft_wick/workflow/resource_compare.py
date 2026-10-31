@@ -72,7 +72,7 @@ def _source_files(source_root):
 def _safe_mapping(text, label):
     import yaml
 
-    from .config import ConfigError, _load_yaml
+    from .config import ConfigError, _load_yaml, _refuse_expansion
 
     # PyYAML otherwise silently replaces repeated keys, including variant
     # names. Reject them before a potentially expensive experiment starts.
@@ -90,6 +90,10 @@ def _safe_mapping(text, label):
         raise ValueError(f"{label} must be a mapping")
     if _holds_itself(raw):
         raise ValueError(f"{label}: invalid YAML: a value holds itself")
+    try:
+        _refuse_expansion(raw)
+    except ConfigError as exc:
+        raise ValueError(f"{label}: invalid YAML: {exc}") from None
     return raw
 
 

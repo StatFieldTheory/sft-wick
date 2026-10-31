@@ -1175,6 +1175,15 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "integrals; demo 3's Campbell closed form",
         "exact (YAML vs L1) / 1e-9 - 1e-6",
     ),
+    "tests/test_yaml_alias_expansion.py": (
+        "Workflow and YAML",
+        "alias diamonds at keys nothing reads, shared tensors, depths from the "
+        "limit to 300, both sides of the value and nesting limits, shipped "
+        "configs, validate, --print-resolved, run and compare-resources",
+        "recursive walk of the tree on 3000 random shared values; PyYAML reading "
+        "of the same text",
+        "the count equals the walk; refused within 2 s, one line, a dotted path",
+    ),
     "tests/test_workflow_schema.py": (
         "Workflow and YAML",
         "the workflow JSON Schema: a valid 2020-12 document; keys, defaults "
