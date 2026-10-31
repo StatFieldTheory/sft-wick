@@ -1231,6 +1231,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "2 before any stage: diag_R and diag_C, empty and repeated axes, "
         "pinned and integrated points, joined points at two positions, plot "
         "columns, output paths, the closed-form C module and flags; the "
+        "shapes at every position on each axis; high-point physical "
+        "observables validate without Gaussian pairing enumeration; the "
         "neighbour of each refusal runs; what only the diagrams decide stops "
         "the run after the expansion",
         "the refusal of the integrators, compared directly over observables, "

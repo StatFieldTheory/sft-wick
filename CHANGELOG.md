@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Fixed: later vector shapes passed validation, and physical moments slowed it
+
+The position check read only the first shape on each sweep axis, so
+`x: [[0, 0], [0, 0, 0]]` with `y: [[0.1, 0.2]]` passed `validate` and
+ended in a traceback in `run` and `run --dry-run`.  Every shape is now checked
+against the shapes on other axes, with a single-line error and status 2 at
+the incompatible entry.  Alternatives on one axis can still have different
+lengths when they each broadcast with the other axes, such as a length-one
+vector at the other point.
+
+Validation also enumerated every order-zero Gaussian pairing of a purely
+physical observable, although no response propagator could join its points.
+That contraction is now skipped when there is no response field.  Mixed
+physical and response observables keep the order-zero connection check; the
+expansion performed by a run is unchanged.
+
 ### Fixed: aliases that expand past what a walk finishes hung `run` and `--print-resolved`
 
 **Breaking (a file whose aliases add more than 10^6 values, or nested past

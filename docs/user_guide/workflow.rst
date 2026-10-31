@@ -2033,9 +2033,13 @@ not read is not range-checked: ``sweep.seed`` under ``gauss_legendre``, or
 ``propagators.t_max`` under ``c_closed_form_only``.  ``sft-wick run`` makes
 the same checks first.
 
-``sft-wick validate`` runs no expansion past order 0.  Order 0 holds no
-vertex, so it contracts the observable in milliseconds to find the points
-a response propagator joins, which take one position.  Two checks need
+``sft-wick validate`` runs no expansion past order 0.  It contracts the
+observable at order 0 only when it contains a response field, to find the
+points a response propagator joins, which take one position.  Purely physical
+observables skip this contraction, whose cost grows with the number of
+legs.  The position check compares every shape on each axis with those on
+the other axes; alternatives on the same axis need not broadcast with each
+other.  Two checks need
 the diagrams of the interacting orders: a ``sweep.vertex_types`` label,
 and points that a chain of response propagators joins through a vertex.
 ``sft-wick run``, with or without ``--dry-run``, makes them after the

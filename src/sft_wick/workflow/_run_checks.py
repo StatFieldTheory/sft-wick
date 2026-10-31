@@ -108,6 +108,7 @@ def _check_position_shapes(cfg: WorkflowConfig, system) -> None:
     next to a vector where a ``translation`` full table is read at sampled
     times.  A number next to a vector reaches every other path."""
     shapes: dict = {}
+    axis_shapes: dict = {}
     for point, axis in cfg.sweep.positions_grid.items():
         for i, value in enumerate(axis):
             shape = np.shape(value)
@@ -118,12 +119,32 @@ def _check_position_shapes(cfg: WorkflowConfig, system) -> None:
                     "is a number next to a vector, or a vector next to a "
                     "number, on one axis",
                 )
+            axis_shapes.setdefault(point, {}).setdefault(shape, i)
     try:
         np.broadcast_shapes(*shapes.values())
     except ValueError:
         found = sorted(set(shapes.values()))
         detail = f"positions of the shapes {found} cannot be subtracted"
         raise ConfigError("invalid_value", "sweep.positions_grid", detail) from None
+    # Alternatives on one axis never coexist.  Compare every distinct shape
+    # across different axes, without expanding the Cartesian position grid.
+    for (p, p_shapes), (q, q_shapes) in itertools.combinations(axis_shapes.items(), 2):
+        for (p_shape, i), (q_shape, j) in itertools.product(
+            p_shapes.items(), q_shapes.items()
+        ):
+            if i == 0 and j == 0:
+                continue  # The first shapes were checked above.
+            try:
+                np.broadcast_shapes(p_shape, q_shape)
+            except ValueError:
+                point, index = (q, j) if j else (p, i)
+                detail = (
+                    f"positions {shown(p)}[{i}] and {shown(q)}[{j}] of shapes "
+                    f"{p_shape} and {q_shape} cannot be subtracted"
+                )
+                raise ConfigError(
+                    "invalid_value", f"sweep.positions_grid.{point}[{index}]", detail
+                ) from None
     vector = next((point for point, shape in shapes.items() if shape), None)
     if vector is None:
         return
@@ -158,8 +179,9 @@ def _check_pinned_points(cfg: WorkflowConfig) -> None:
 
 def _order_zero_terms(cfg: WorkflowConfig, system) -> list:
     """The diagrams of order 0 the sweep selects, from the Wick contraction
-    the expansion would start with.  It holds no vertex, so it costs
-    milliseconds, and it knows which pairings vanish (an equal-point R under
+    the expansion would start with.  Only an observable with a response
+    field needs this check: purely physical legs have no R joining points.
+    The contraction knows which pairings vanish (an equal-point R under
     Ito, a causal loop of R)."""
     from sft_wick.perturbation import compute_moment
 
@@ -170,6 +192,8 @@ def _order_zero_terms(cfg: WorkflowConfig, system) -> list:
     if 0 not in _selected_orders(cfg) or (labels is not None and "" not in labels):
         return []
     operators, _ = _parse_observable(expand.observable, system, 0)
+    if not any(op.is_response for op in operators):
+        return []
     result = compute_moment(
         operators,
         system.build_action(),

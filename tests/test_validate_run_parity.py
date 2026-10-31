@@ -14,6 +14,10 @@ VR4 -- what only the diagrams decide stops ``run --dry-run`` and ``run``
 VR5 -- the closed-form C module is imported before the expansion, and the
        run uses the callable it exports.
 VR6 -- a ``plot`` output names a column of the sweep; every column works.
+VR7 -- every position on an axis must broadcast with every position on
+       another axis; alternatives on the same axis need not broadcast.
+VR8 -- validating a high-point physical observable finishes without
+       enumerating its Gaussian pairings.
 
 Before these checks VR1 and VR5 ended with ``validate`` reporting the file
 valid and ``run`` in a traceback, after the expansion, the propagator table
@@ -25,7 +29,10 @@ VR5 is a run with the closed form passed to ``System.propagators``.
 from __future__ import annotations
 
 import copy
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -731,3 +738,67 @@ def test_VR6_a_misspelt_column_lists_the_column_meant(tmp_path):
     with pytest.raises(ConfigError) as info:
         check_before_run(_parse_workflow(doc, base_dir=tmp_path))
     assert info.value.suggestions == ("t_final",)
+
+
+# ---------------------------------------------------------------------------
+# VR7 -- all shapes of a Cartesian position grid
+# ---------------------------------------------------------------------------
+
+def test_VR7_later_position_shapes_are_refused_in_every_command(tmp_path, capsys):
+    cases = [
+        ({"x": [[0.0, 0.0], [0.0, 0.0, 0.0]],
+          "y": [[0.1, 0.2]]}, "x[1]"),
+        ({"x": [[0.0], [0.0, 0.0]],
+          "y": [[0.1], [0.1, 0.2, 0.3]]}, "y[1]"),
+    ]
+    for grid, entry in cases:
+        doc = _doc()
+        doc["system"]["vertices"] = []
+        doc["sweep"]["positions_grid"] = grid
+        path = _write(tmp_path, doc)
+        for command in (["validate", str(path)],
+                        ["run", str(path), "--dry-run", "-q"],
+                        ["run", str(path), "-q"]):
+            status = main(command)
+            lines = capsys.readouterr().err.splitlines()
+            assert status == 2, command
+            assert len(lines) == 1, lines
+            assert lines[0].startswith(
+                "sft-wick: config error [invalid_value] "
+                f"sweep.positions_grid.{entry}: "), lines
+
+
+def test_VR7_same_axis_alternatives_can_broadcast_separately(tmp_path, capsys):
+    doc = _doc()
+    doc["system"]["vertices"] = []
+    doc["sweep"]["positions_grid"] = {
+        "x": [[0.0, 0.0], [0.0, 0.0, 0.0]], "y": [[0.5]]}
+    path = _write(tmp_path, doc)
+    for command in (["validate", str(path)], ["run", str(path), "-q"]):
+        status = main(command)
+        assert status == 0, (command, capsys.readouterr().err)
+
+
+# ---------------------------------------------------------------------------
+# VR8 -- high-point validation does not enumerate pure C pairings
+# ---------------------------------------------------------------------------
+
+def test_VR8_high_point_physical_observable_validates_promptly(tmp_path):
+    doc = _doc()
+    doc["system"]["vertices"] = []
+    doc["expand"]["observable"] = [f"phi_a(p{i})" for i in range(16)]
+    doc["sweep"].pop("component_pairs")
+    doc["sweep"].update(component_tuples=[[0] * 16],
+                        positions_grid={f"p{i}": [0.0] for i in range(16)})
+    path = _write(tmp_path, doc)
+    # Includes interpreter startup.  The former 15!!-pairing enumeration
+    # exceeded this bound; parsing and the checks take well under a second.
+    env = dict(os.environ, PYTHONPATH=str(ROOT / "src"),
+               PYTHONDONTWRITEBYTECODE="1", SFT_WICK_PROGRESS="0")
+    result = subprocess.run(
+        [sys.executable, "-m", "sft_wick.workflow.cli", "validate", str(path)],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not result.stderr
+    assert "[sft-wick] valid:" in result.stdout

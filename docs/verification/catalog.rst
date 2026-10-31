@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **7417 tests** in 134 files (parametrised
+The suite has **7420 tests** in 134 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -562,7 +562,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*1931 tests in 30 files.*
+*1934 tests in 30 files.*
 
 .. list-table::
    :header-rows: 1
@@ -679,10 +679,10 @@ Workflow and YAML
      - 1e-10
      - 10
    * - ``test_validate_run_parity.py``
-     - sft-wick validate reports what run refuses, in one line with status 2 before any stage: diag_R and diag_C, empty and repeated axes, pinned and integrated points, joined points at two positions, plot columns, output paths, the closed-form C module and flags; the neighbour of each refusal runs; what only the diagrams decide stops the run after the expansion
+     - sft-wick validate reports what run refuses, in one line with status 2 before any stage: diag_R and diag_C, empty and repeated axes, pinned and integrated points, joined points at two positions, plot columns, output paths, the closed-form C module and flags; the shapes at every position on each axis; high-point physical observables validate without Gaussian pairing enumeration; the neighbour of each refusal runs; what only the diagrams decide stops the run after the expansion
      - the refusal of the integrators, compared directly over observables, targets, integrators and table kinds; a run with the closed form passed on
      - exact
-     - 111
+     - 114
    * - ``test_workflow.py``
      - System / Expansion / Propagators / SweepResult surface; end-to-end vs the raw API; two-time sweeps
      - raw L0 pipeline (validate_phase5); closed forms
