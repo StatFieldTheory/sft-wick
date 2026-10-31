@@ -79,6 +79,8 @@ def _safe_mapping(text, label):
     try:
         raw = _load_yaml(text)
     except ConfigError as exc:
+        if exc.code != "duplicate_key":
+            raise ValueError(f"{label}: invalid YAML: {exc}") from None
         raise ValueError(
             f"{label}: duplicate mapping key {exc.path!r}: {exc.detail}"
         ) from None

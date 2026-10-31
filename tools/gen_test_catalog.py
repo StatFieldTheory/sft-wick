@@ -1229,6 +1229,24 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "passed on",
         "exact",
     ),
+    "tests/test_yaml_merge_limit.py": (
+        "Workflow and YAML",
+        "a file whose merges would stall PyYAML is refused before PyYAML "
+        "lists them, in each shape of growth, with the dotted path of the "
+        "merge key; both sides of the limit; the count matches the lists "
+        "PyYAML builds on hand-written and random files, cycles included",
+        "the lists PyYAML builds; yaml.safe_load at the limit",
+        "exact",
+    ),
+    "tests/test_config_module_env.py": (
+        "Workflow and YAML",
+        "a module a config names leaves the environment as it was, a later "
+        "process reads the standard library rather than a file beside the "
+        "config, and a loky worker still imports what the module imports",
+        "the standard library's own file; a new interpreter for each worker "
+        "pool",
+        "exact",
+    ),
     "tests/test_config_error_paths.py": (
         "Workflow and YAML",
         "every refusal of the parser is a ConfigError with a code and a "

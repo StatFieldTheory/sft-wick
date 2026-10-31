@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### Fixed: a chain of YAML merges hung `sft-wick validate`
+
+**Breaking (a file whose merges add more than 10^6 pairs).**  PyYAML copies
+a merged mapping's pairs into each mapping it lands in, so a file whose
+mappings each merge the one before twice took 2.5 s at 22 links from 615
+bytes, and the time doubled with each link, inside `yaml.safe_load` and
+before any package code ran.  The parser now counts what each merge will add
+before PyYAML does it, and a file past 10^6 added pairs is refused with
+`invalid_value` and the dotted path of the `<<` key, whatever its length: a
+chain of 400 links stops at 0.16 s, at the link that passes the limit.
+The count follows PyYAML's walk, so it matches the lists it builds, also for
+a merge that reaches a mapping still being merged.  `validate`, `run` and
+`compare-resources` read files the same way.
+
+### Fixed: a module named in a config changed `PYTHONPATH` for later processes
+
+Loading a module named in a config put its folder at the front of
+`PYTHONPATH` for the rest of the process.  Every process started afterwards
+read that folder before the standard library, so a `colorsys.py` beside the
+config replaced the real module there, and `test_catalog_is_current` failed
+when it ran after a test that loads such a file.  Workers did not need it: a
+loky worker takes `sys.path` from the parent, and the entry was gone from
+theirs once they started.  `PYTHONPATH` now stays as it was.  The folder is
+still added to the end of `sys.path`, so workers started after the load find
+what the module imports from it.  A program that started its own process after loading a
+config and relied on the entry must add it itself.
+
 ### Fixed: an alias diamond at a tensor key hung `sft-wick validate`
 
 **Breaking (a tensor of more than 10^7 entries written in a config).**

@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **7315 tests** in 131 files (parametrised
+The suite has **7373 tests** in 133 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -562,7 +562,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*1829 tests in 27 files.*
+*1887 tests in 29 files.*
 
 .. list-table::
    :header-rows: 1
@@ -588,6 +588,11 @@ Workflow and YAML
      - the dotted path of the changed key; the census of the commit before
      - exact
      - 384
+   * - ``test_config_module_env.py``
+     - a module a config names leaves the environment as it was, a later process reads the standard library rather than a file beside the config, and a loky worker still imports what the module imports
+     - the standard library's own file; a new interpreter for each worker pool
+     - exact
+     - 12
    * - ``test_demo3_levels.py``
      - demo 3 level A: the free-field m-point function through the package, and the R-contracted vertex against the raw one
      - closed form (level A is a single diagram, hence exact); QMC on the raw-vertex path
@@ -703,6 +708,11 @@ Workflow and YAML
      - config dataclass field sets; the parser's own key check and value checks; the jsonschema reference validator
      - exact
      - 62
+   * - ``test_yaml_merge_limit.py``
+     - a file whose merges would stall PyYAML is refused before PyYAML lists them, in each shape of growth, with the dotted path of the merge key; both sides of the limit; the count matches the lists PyYAML builds on hand-written and random files, cycles included
+     - the lists PyYAML builds; yaml.safe_load at the limit
+     - exact
+     - 46
    * - ``test_yaml_spec_coverage.py``
      - the L1 specs YAML could not express: custom temporal / spatial / angular kernels, a matrix-valued explicit R, a matrix ConstantImpulse; validation of the vertex, kernel and sigma2 blocks; a misspelt key refused in every block; overrides into list entries; flags read from true/false words; a key written twice; spatial grid keys the run ignores; output requirements at load; isotropy flags refused when their condition fails; observable entries and point names checked before the run
      - the equivalent L1 System; scipy quadrature of the defining C integrals; demo 3's Campbell closed form

@@ -1930,7 +1930,13 @@ User-Python hooks
 The YAML block can defer to user Python in eight places.  Each loads
 a callable from a ``.py`` module relative to the YAML file and
 registers it for joblib's worker-safe by-value module loading, so it
-composes cleanly with any of the ``n_jobs > 1`` knobs:
+composes cleanly with any of the ``n_jobs > 1`` knobs.  The folder of the
+module goes at the end of ``sys.path``, after the standard library, so a
+worker started after the load finds what the module imports from it.  A
+worker kept from an earlier pool holds the path it started with.
+``PYTHONPATH`` stays as it was.  A worker started in the folder itself reads
+that folder first while it starts, so a ``random.py`` there stops it.  The
+keys are:
 
 .. list-table::
    :header-rows: 1
@@ -2066,7 +2072,9 @@ The code in brackets is one of ``unknown_key``, ``unknown_point`` (a
 mapping merged in with ``<<:``, which YAML would read as the last
 value; to merge two mappings write one ``<<`` with a list, in which the
 earlier wins a key they share, so ``<<: *a`` and then ``<<: *b`` is
-``<<: [*b, *a]``), ``invalid_value``, ``override_syntax``,
+``<<: [*b, *a]``), ``invalid_value`` (any other refusal, among them a
+file whose merges would add more than 10\ :sup:`6` pairs, repeats included, which is stopped
+before PyYAML lists them), ``override_syntax``,
 ``override_path`` (an override through a value or past the end of a
 list) and ``read_error`` (a file the config names cannot be read, or a
 module it names cannot be imported or lacks the attribute).  Every error
