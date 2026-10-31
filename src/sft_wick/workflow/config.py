@@ -553,6 +553,10 @@ _MERGE_TAG = "tag:yaml.org,2002:merge"
 _MERGE_KEY = object()
 #: A path shows this much of a key: it repeats every alias on the way.
 _MAX_KEY_TEXT = 40
+#: The most pairs the merges of one file may add.  PyYAML copies a merged
+#: mapping's pairs into each mapping it lands in, so a mapping that merges
+#: the one before it twice doubles at each link: 600 bytes take seconds.
+_MAX_MERGED_PAIRS = 10**6
 #: What PyYAML's constructors raise on a value they cannot read, besides
 #: ``yaml.YAMLError``.
 _CONSTRUCTOR_ERRORS = (
@@ -573,7 +577,9 @@ def _load_yaml(stream):
     ``diag_C`` for ``diag_R``), replaced the first without a word.  A
     mapping merged in with ``<<:`` is checked too, also when it is written
     in place.  A key that overrides one brought in by the merge, or the
-    earlier of two merged mappings, is YAML's merge, not a duplicate.
+    earlier of two merged mappings, is YAML's merge, not a duplicate.  A
+    file whose merges would add more than ``_MAX_MERGED_PAIRS`` pairs is
+    refused before PyYAML lists them.
 
     What YAML cannot read is a ``yaml.YAMLError``, also where PyYAML raises
     something else, and comes before any repeat in the file.
@@ -601,10 +607,12 @@ def _load_checked(stream):
     import yaml
 
     written: dict = {}
+    count = _MergeCount(written)
 
     class Loader(yaml.SafeLoader):
         def construct_mapping(self, node, deep=False):
             _keep_as_written(node, written)
+            _refuse_merging_too_much(root, node, written, count)
             return super().construct_mapping(node, deep=deep)
 
     loader = Loader(stream)
@@ -646,6 +654,69 @@ def _merge_sources(value_node) -> list:
     if isinstance(value_node, yaml.SequenceNode):
         return value_node.value
     return [value_node]
+
+
+class _MergeCount:
+    """The walk of ``flatten_mapping``, with numbers for its lists.
+
+    Each ``<<`` key is taken once, also by a walk that reaches a mapping
+    still being merged, which resumes the keys left in it.  Counted at each
+    mapping PyYAML is about to merge, in its order, ``sizes`` is the length
+    of the list it will build, and the count costs one step per merge
+    source.  A source that is no mapping ends the walk, as PyYAML raises
+    there.  ``written`` holds the mappings as written.  One frame per link
+    and none besides, as in ``flatten_mapping``, so a chain PyYAML can read
+    can be counted.
+    """
+
+    def __init__(self, written: dict) -> None:
+        self._written = written
+        self._waiting: dict = {}
+        self.sizes: dict = {}
+        self.added = 0
+        self.stopped = False
+
+    def flatten(self, mapping) -> None:
+        import yaml
+
+        if mapping not in self.sizes:
+            size = 0
+            merges = []
+            for key_node, value_node in self._written[mapping]:
+                if key_node.tag == _MERGE_TAG:
+                    merges.append(value_node)
+                else:
+                    size += 1
+            self.sizes[mapping] = size
+            self._waiting[mapping] = merges[::-1]
+        added = 0
+        waiting = self._waiting[mapping]
+        while waiting:
+            value_node = waiting.pop()
+            many = isinstance(value_node, yaml.SequenceNode)
+            for source in value_node.value if many else [value_node]:
+                if source not in self._written:
+                    self.stopped = True
+                    return
+                self.flatten(source)
+                if self.stopped:
+                    return
+                added += self.sizes[source]
+        self.sizes[mapping] += added
+        self.added += added
+
+
+def _refuse_merging_too_much(root, node, written: dict, count) -> None:
+    """Refuse the merge of ``node`` if it takes the file past the limit."""
+    if node in written:
+        count.flatten(node)
+    if count.added > _MAX_MERGED_PAIRS:
+        raise ConfigError(
+            "invalid_value",
+            _join(_path_of(root, node, written), "<<"),
+            f"the merges in this file add more than "
+            f"{_MAX_MERGED_PAIRS:,} pairs",
+        )
 
 
 def _refuse_repeated_keys(root, written: dict, read: dict) -> None:
@@ -744,11 +815,15 @@ def _children(node, route, written: dict) -> list:
     if not isinstance(node, yaml.MappingNode):
         return []
     children = []
+    merged = set()
     for key_node, value_node in written.get(node, node.value):
         if key_node.tag == _MERGE_TAG:
-            children.extend(
-                (source, route) for source in _merge_sources(value_node)
-            )
+            if value_node not in merged:
+                merged.add(value_node)
+                children.extend(
+                    (source, route)
+                    for source in dict.fromkeys(_merge_sources(value_node))
+                )
             continue
         if not isinstance(key_node, yaml.ScalarNode):
             children.append((key_node, route))
@@ -1958,12 +2033,11 @@ def _load_callable_from_module(
     ``getattr(module, attr)``.
 
     Registers the module under its file basename (``path.stem``) and ensures
-    ``path.parent`` is on both ``sys.path`` (for the current process) and
-    the ``PYTHONPATH`` environment variable (for subprocess workers, e.g.
-    joblib loky). Without the env-var step, a worker process started after
-    this call cannot re-import the module by name, and unpickling a cache
-    that holds the loaded callable raises ``BrokenProcessPool`` /
-    ``ModuleNotFoundError``.
+    ``path.parent`` is on ``sys.path``, after the standard library.  A loky
+    worker started after this call takes its ``sys.path`` from this process,
+    so it finds what the module imports from its directory.  ``PYTHONPATH``
+    stays as it was: an entry there would come before the standard library
+    in every process started later.
 
     A module that cannot be imported is refused at the key ``where`` names,
     a missing attribute at ``attr_where`` (by default the same key), and
@@ -1974,14 +2048,6 @@ def _load_callable_from_module(
     parent_dir = str(path.parent.resolve())
     if parent_dir not in sys.path:
         sys.path.append(parent_dir)
-
-    # Propagate parent_dir to subprocess workers via PYTHONPATH. loky
-    # workers inherit os.environ but not the parent's sys.path mods,
-    # so this is the durable channel.
-    pp = os.environ.get("PYTHONPATH", "")
-    pp_parts = pp.split(os.pathsep) if pp else []
-    if parent_dir not in pp_parts:
-        os.environ["PYTHONPATH"] = os.pathsep.join([parent_dir, *pp_parts])
 
     name = path.stem
     spec_obj = importlib.util.spec_from_file_location(name, path)
@@ -2027,10 +2093,9 @@ def _register_module_by_value(module) -> None:
 
     Modules loaded via :func:`importlib.util.spec_from_file_location`
     are not importable by name in subprocess workers. joblib's loky
-    backend uses a persistent worker pool whose ``sys.path`` /
-    ``PYTHONPATH`` is fixed at first-pool-creation time, so a worker
-    spawned during an earlier test won't have a later test's
-    ``tmp_path`` available.
+    backend uses a persistent worker pool whose ``sys.path`` is fixed
+    when each worker starts, so a worker spawned during an earlier test
+    won't have a later test's ``tmp_path`` available.
 
     cloudpickle's ``register_pickle_by_value`` flips the encoding so
     the module's source is shipped inline with each task. Workers no
