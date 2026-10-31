@@ -937,9 +937,10 @@ def test_CE8_a_diamond_behind_axes_of_length_one_is_refused(tmp_path, hang_fails
 def test_CE8_text_in_a_coupling_is_refused_before_numpy_stores_it(
         tmp_path, hang_fails, key, leaves):
     """NumPy stores every entry at the width of the longest string, so 4 kB
-    of aliases around a long string asked for tens of GB.  Eight characters
-    keep a failure of this test to a few hundred MB."""
-    path = _with_tensor(tmp_path, key, _doubling(23, leaves))
+    of aliases around a long string asked for tens of GB.  Seventeen levels
+    stay under the limit on what aliases add, so this guard is the one that
+    answers, and eight characters keep a failure to a few MB."""
+    path = _with_tensor(tmp_path, key, _doubling(17, leaves))
     tracemalloc.start()
     try:
         with pytest.raises(ConfigError) as info:

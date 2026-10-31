@@ -2072,9 +2072,11 @@ The code in brackets is one of ``unknown_key``, ``unknown_point`` (a
 mapping merged in with ``<<:``, which YAML would read as the last
 value; to merge two mappings write one ``<<`` with a list, in which the
 earlier wins a key they share, so ``<<: *a`` and then ``<<: *b`` is
-``<<: [*b, *a]``), ``invalid_value`` (any other refusal, among them a
-file whose merges would add more than 10\ :sup:`6` pairs, repeats included, which is stopped
-before PyYAML lists them), ``override_syntax``,
+``<<: [*b, *a]``), ``invalid_value`` (any other refusal, among them a file
+whose merges would add more than 10\ :sup:`6` pairs, repeats included, which
+is stopped before PyYAML lists them, a file whose aliases add more than
+10\ :sup:`6` values to what it writes, or one nested past 100 levels, both
+stopped before anything walks the value), ``override_syntax``,
 ``override_path`` (an override through a value or past the end of a
 list) and ``read_error`` (a file the config names cannot be read, or a
 module it names cannot be imported or lacks the attribute).  Every error

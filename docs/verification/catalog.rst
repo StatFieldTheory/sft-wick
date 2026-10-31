@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **7373 tests** in 133 files (parametrised
+The suite has **7417 tests** in 134 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -562,7 +562,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*1887 tests in 29 files.*
+*1931 tests in 30 files.*
 
 .. list-table::
    :header-rows: 1
@@ -708,6 +708,11 @@ Workflow and YAML
      - config dataclass field sets; the parser's own key check and value checks; the jsonschema reference validator
      - exact
      - 62
+   * - ``test_yaml_alias_expansion.py``
+     - alias diamonds at keys nothing reads, shared tensors, depths from the limit to 300, both sides of the value and nesting limits, shipped configs, validate, --print-resolved, run and compare-resources
+     - recursive walk of the tree on 3000 random shared values; PyYAML reading of the same text
+     - the count equals the walk; refused within 2 s, one line, a dotted path
+     - 44
    * - ``test_yaml_merge_limit.py``
      - a file whose merges would stall PyYAML is refused before PyYAML lists them, in each shape of growth, with the dotted path of the merge key; both sides of the limit; the count matches the lists PyYAML builds on hand-written and random files, cycles included
      - the lists PyYAML builds; yaml.safe_load at the limit

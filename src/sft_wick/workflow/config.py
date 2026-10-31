@@ -545,6 +545,8 @@ def load_workflow_config(
             _apply_override(data, dotted_key, value)
 
     _refuse_cycles(data)
+    _refuse_expansion(data)
+    _refuse_nesting(data)
     return _parse_workflow(data, base_dir=path.parent)
 
 
@@ -947,6 +949,119 @@ def _refuse_cycles(data: dict) -> None:
                 (v, f"[{i}]") for i, v in enumerate(item) if isinstance(v, containers)
             ]
         stack.extend((value, (route, part), False) for value, part in reversed(steps))
+
+
+#: The most values aliases may add to a file.  A list that holds the one
+#: before it twice doubles at each level: ``--print-resolved`` took 23 s and
+#: 1.6 GB on 20 levels, and 40 levels fit in 1.2 kB.
+_MAX_ALIAS_VALUES = 10**6
+#: The deepest nesting of a file.  ``yaml.safe_dump`` recurses, and a chain
+#: of aliases can be as long as the file.  A tensor has at most
+#: :data:`_MAX_TENSOR_AXES` axes.
+_MAX_NESTING = 100
+_CONTAINERS = (dict, list, tuple)
+
+
+def _children_of(item) -> list:
+    return list(item.values()) if isinstance(item, dict) else list(item)
+
+
+def _tree_measures(data) -> tuple[dict, dict]:
+    """The values each container of ``data`` holds as a tree, and its
+    height, by ``id``.  With a stack, as in :func:`_refuse_cycles`, whose
+    check comes first."""
+    sizes: dict = {}
+    heights: dict = {}
+    stack = [(data, False)]
+    while stack:
+        item, leaving = stack.pop()
+        if leaving:
+            inner = [v for v in _children_of(item) if isinstance(v, _CONTAINERS)]
+            sizes[id(item)] = (
+                1 + len(_children_of(item)) - len(inner)
+                + sum(sizes[id(v)] for v in inner)
+            )
+            heights[id(item)] = 1 + max((heights[id(v)] for v in inner), default=0)
+        elif id(item) not in sizes:
+            stack.append((item, True))
+            stack.extend(
+                (v, False) for v in _children_of(item) if isinstance(v, _CONTAINERS)
+            )
+    return sizes, heights
+
+
+def _values_written(data) -> int:
+    """The values of ``data``, each container taken once."""
+    written, seen, pending = 1, set(), [data]
+    while pending:
+        item = pending.pop()
+        if id(item) not in seen:
+            seen.add(id(item))
+            children = _children_of(item)
+            written += len(children)
+            pending.extend(v for v in children if isinstance(v, _CONTAINERS))
+    return written
+
+
+def _values_added_by_aliases(data) -> int:
+    """How many more values ``data`` holds as a tree than the file wrote."""
+    return _tree_measures(data)[0][id(data)] - _values_written(data)
+
+
+def _route_down(data, measure: dict, goes_on) -> str:
+    """The dotted path down the largest value by ``measure``, for as long as
+    ``goes_on(item, value)``, to the first list in a list at most."""
+    route, item = None, data
+    while True:
+        if isinstance(item, dict):
+            steps = [(v, f".{_cut_key(text_of(k))}") for k, v in item.items()]
+        else:
+            steps = [(v, f"[{i}]") for i, v in enumerate(item)]
+        value, part = max(
+            (step for step in steps if isinstance(step[0], _CONTAINERS)),
+            key=lambda step: measure[id(step[0])],
+            default=(None, None),
+        )
+        if (
+            value is None
+            or (isinstance(item, list) and isinstance(value, list))
+            or not goes_on(item, value)
+        ):
+            return _route_text(route) or "config"
+        route, item = (route, part), value
+
+
+def _refuse_expansion(data) -> None:
+    """Refuse a file whose aliases add more than :data:`_MAX_ALIAS_VALUES`.
+
+    YAML keeps one object for an anchor, so reading the file is cheap and a
+    key nothing reads passes, but ``repr``, ``copy`` and ``safe_dump`` walk
+    the tree.  Each container is entered once.  The path goes down while
+    one value holds more than half of the one around it, so it stops where
+    the expansion spreads out.
+    """
+    sizes = _tree_measures(data)[0]
+    if sizes[id(data)] - _values_written(data) > _MAX_ALIAS_VALUES:
+        raise ConfigError(
+            "invalid_value",
+            _route_down(
+                data, sizes, lambda item, value: 2 * sizes[id(value)] > sizes[id(item)]
+            ),
+            f"the aliases here repeat more than {_MAX_ALIAS_VALUES:,} values; "
+            f"write the value once, or load it from a file",
+        )
+
+
+def _refuse_nesting(data) -> None:
+    """Refuse a file nested past :data:`_MAX_NESTING` levels, which
+    ``--print-resolved`` cannot write."""
+    heights = _tree_measures(data)[1]
+    if heights[id(data)] > _MAX_NESTING:
+        raise ConfigError(
+            "invalid_value",
+            _route_down(data, heights, lambda item, value: True),
+            f"nested more than {_MAX_NESTING} levels deep",
+        )
 
 
 #: Keys each block reads; a key outside its block's set raises.  The
