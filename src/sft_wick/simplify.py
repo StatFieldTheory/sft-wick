@@ -12,7 +12,7 @@ Pipeline:
 from __future__ import annotations
 
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Collection, Iterable
 from fractions import Fraction
 from itertools import permutations, product
@@ -467,7 +467,14 @@ def _try_add_index_perm(
     flipped: bool,
     internal_indices: set[str],
 ) -> bool:
-    """Try to add component-index mappings from other_prop to ref_prop."""
+    """Try to add component-index mappings from other_prop to ref_prop.
+
+    A renaming of dummy indices is a bijection.  An internal index that
+    meets itself is recorded as ``i -> i``, so a later ``j -> i`` is
+    refused: skipping the identity would let ``R_ai R_bi`` and
+    ``R_aj R_bi`` merge.  Equal indices outside ``internal_indices`` are
+    not renamed and need no entry.
+    """
     if flipped:
         pairs = [
             (ref_prop.index_left, other_prop.index_right),
@@ -481,16 +488,46 @@ def _try_add_index_perm(
     for ref_idx, other_idx in pairs:
         if ref_idx is None and other_idx is None:
             continue
-        if ref_idx == other_idx:
+        if ref_idx == other_idx and ref_idx not in internal_indices:
             continue
         if other_idx not in internal_indices or ref_idx not in internal_indices:
             return False
         if other_idx in perm:
             if perm[other_idx] != ref_idx:
                 return False
+        elif ref_idx in perm.values():
+            return False
         else:
             perm[other_idx] = ref_idx
     return True
+
+
+def _edge_key(p: Propagator) -> tuple:
+    """A propagator as an edge, with ``C_ij(x, y) = C_ji(y, x)``."""
+    left = (p.spatial_left, p.index_left or "")
+    right = (p.spatial_right, p.index_right or "")
+    if p.kind == "C" and right < left:
+        left, right = right, left
+    return (p.kind, left, right)
+
+
+def _maps_edges_onto(
+    ref_props: list[Propagator],
+    other_props: list[Propagator],
+    perm: dict[str, str],
+) -> bool:
+    """Whether renaming *other_props* by *perm* gives *ref_props* exactly."""
+    renamed = [
+        Propagator(
+            p.kind,
+            None if p.index_left is None else perm.get(p.index_left, p.index_left),
+            None if p.index_right is None else perm.get(p.index_right, p.index_right),
+            perm.get(p.spatial_left, p.spatial_left),
+            perm.get(p.spatial_right, p.spatial_right),
+        )
+        for p in other_props
+    ]
+    return Counter(map(_edge_key, renamed)) == Counter(map(_edge_key, ref_props))
 
 
 def _match_propagators_after_spatial(
@@ -552,9 +589,11 @@ def _match_propagators_after_spatial(
         # Try all permutations of other indices against ref indices
         options: list[list[tuple[int, int, bool]]] = []
         for oi_perm in permutations(oi_list):
-            matching = []
+            # One list of orientations per matched pair.  C_ij(x, y) =
+            # C_ji(y, x), so a C at two equal points matches either way
+            # round and both orientations are tried.
+            choices: list[list[tuple[int, int, bool]]] = []
             for ri, (oi, flipped) in zip(ri_list, oi_perm):
-                # Also check if ref C needs flipping
                 rp = ref_props[ri]
                 _, osl, osr, _ = remapped[oi]
                 if rp.kind == "C":
@@ -564,16 +603,19 @@ def _match_propagators_after_spatial(
                     )
                     if not both_canonical:
                         continue
+                    if osl == osr:
+                        choices.append([(ri, oi, False), (ri, oi, True)])
+                        continue
                     # Determine if the actual (non-canonical) orders differ
                     actual_flipped = (rp.spatial_left, rp.spatial_right) != (osl, osr)
-                    matching.append((ri, oi, actual_flipped))
+                    choices.append([(ri, oi, actual_flipped)])
                 else:
                     # R: must match exactly after spatial perm
                     if (rp.spatial_left, rp.spatial_right) != (osl, osr):
                         continue
-                    matching.append((ri, oi, False))
-            if len(matching) == len(ri_list):
-                options.append(matching)
+                    choices.append([(ri, oi, False)])
+            if len(choices) == len(ri_list):
+                options.extend(list(m) for m in product(*choices))
         if not options:
             return None
         group_matchings.append(options)
@@ -781,7 +823,7 @@ def _collect_inner(
                 continue
 
             full_perm = _complete_permutation({**spatial_perm, **comp_perm})
-            if full_perm is None:
+            if full_perm is None or not _maps_edges_onto(ref_props, props, full_perm):
                 parts = list(outer_symbols) + non_props + props
                 ungroupable.append(
                     Product(tuple(parts)) if len(parts) > 1 else parts[0]

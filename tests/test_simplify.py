@@ -125,7 +125,7 @@ class TestCanonicalDiagramForm:
 
 class TestMatchPropagatorsAfterSpatial:
     def test_identity_permutation(self):
-        """Same propagators should yield empty permutation."""
+        """Same propagators map every internal index they carry to itself."""
         ref = [
             Propagator("R", "a", "i2", "x", "y_0"),
             Propagator("C", "i0", "i1", "y_0", "y_0"),
@@ -137,8 +137,7 @@ class TestMatchPropagatorsAfterSpatial:
         perm = _match_propagators_after_spatial(
             ref, other, {}, {"i0", "i1", "i2"}
         )
-        assert perm is not None
-        assert perm == {}
+        assert perm == {"i0": "i0", "i1": "i1", "i2": "i2"}
 
     def test_index_swap(self):
         """Propagators differing by internal index swap."""
@@ -153,8 +152,7 @@ class TestMatchPropagatorsAfterSpatial:
         perm = _match_propagators_after_spatial(
             ref, other, {}, {"i0", "i1", "i2"}
         )
-        assert perm is not None
-        assert perm == {"i1": "i2", "i2": "i1"}
+        assert perm == {"i0": "i0", "i1": "i2", "i2": "i1"}
 
     def test_external_index_mismatch_fails(self):
         """External indices must match exactly."""
@@ -761,6 +759,54 @@ def test_collect_declines_a_merge_that_is_not_injective():
         Sum((pair("i", "i"), pair("j", "k"))),
     )))))
     assert _value(collect_by_diagram(expr), tables, env, points) == pytest.approx(
+        _value(expr, tables, env, points), rel=1e-13, abs=0.0
+    )
+
+
+def test_collect_keeps_an_index_that_meets_itself():
+    """``R_ai R_bi`` and ``R_aj R_bi`` are different diagrams: one index on
+    both legs against two.  The matcher dropped the ``i -> i`` it read off
+    ``R_bi`` and kept ``j -> i``, so the swap ``i <-> j`` merged them.  On
+    integer tables the merged value was 813 against a direct sum of 797."""
+    rng = np.random.default_rng(5)
+    tables = {"F": rng.normal(size=(3, 3)), "R": rng.normal(size=(3, 2, 3, 2))}
+    env = {"a": 0, "b": 1}
+    points = {"x": 0, "w": 1}
+
+    def pair(first, second):
+        return Product((Propagator("R", "a", first, "x", "w"),
+                        Propagator("R", "b", second, "x", "w")))
+
+    expr = SumOverIndex("i", 3, SumOverIndex("j", 3, Product((
+        Symbol("F", ("i", "j")),
+        Sum((pair("i", "i"), pair("j", "i"))),
+    ))))
+    assert _value(collect_by_diagram(expr), tables, env, points) == pytest.approx(
+        _value(expr, tables, env, points), rel=1e-13, abs=0.0
+    )
+
+
+def test_collect_merges_through_a_c_at_one_point():
+    """``C_jk(w, w) C_ak(x, w)`` and ``C_jk(w, w) C_aj(x, w)`` are one diagram
+    under ``j <-> k``, because ``C_jk(w, w) = C_kj(w, w)``.  The merge needs
+    the C at one point read the other way round."""
+    rng = np.random.default_rng(6)
+    c = rng.normal(size=(3, 2, 3, 2))
+    tables = {"F": rng.normal(size=(3, 3, 3)), "C": c + c.transpose(2, 3, 0, 1)}
+    env = {"a": 0}
+    points = {"x": 0, "w": 1}
+
+    def pair(leg):
+        return Product((Propagator("C", "j", "k", "w", "w"),
+                        Propagator("C", "a", leg, "x", "w")))
+
+    expr = SumOverIndex("i", 3, SumOverIndex("j", 3, SumOverIndex("k", 3, Product((
+        Symbol("F", ("i", "j", "k")),
+        Sum((pair("k"), pair("j"))),
+    )))))
+    collected = collect_by_diagram(expr)
+    assert collected.to_latex().count("C_{") == 2
+    assert _value(collected, tables, env, points) == pytest.approx(
         _value(expr, tables, env, points), rel=1e-13, abs=0.0
     )
 

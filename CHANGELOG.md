@@ -43,6 +43,7 @@ status 1, with no key named.
 | `nquad` on an undeclared closed-form C and a cache with no table | the kink probe read the ambient `direction`, where `C_value` reads the points: `C ∝ x1 x2` ran unsplit at `direction = 0`, 9.4e-07 off under an estimate of 1.5e-08 | the probe reads C where the integrator does; on a time-only table, at the table's position |
 | `make_scipy_integrand` on a callable coupling with `directions` keyed by point | `KeyError`, while `evaluate` takes that spelling | takes it too |
 | `collect_by_diagram` on a hand-built sum with a delta | -0.81172 against -1.67758 | every occurrence of a dummy index is renamed, and a merge that is not injective is declined |
+| `collect_by_diagram` on `F_ij (R_ai R_bi + R_aj R_bi)`, one index on both legs against two | 813 against a direct sum of 797 on integer tables, 895 before the fix in the row above | an index that meets itself is kept as `i -> i`, and a merge is made only when the renaming maps every propagator of one term onto the other; a C at one point is matched either way round, so `C_jk(w, w) C_ak(x, w)` and `C_jk(w, w) C_aj(x, w)` still merge |
 | An `already_R_contracted` vertex with a phi leg | one term 0.0 against 2.0 | `Vertex` refuses a phi leg there |
 | `evaluate_coupling_batched` on `I K` with a real K | zeros with a `ComplexWarning`; the scalar entry raised | both keep the factor: `2j`, `3j` |
 
@@ -717,7 +718,9 @@ still gives the expression, which has no numerical evaluation above order 0.
 `wick_contract_spatial`, `evaluate_pairing`, `contract_pair` and
 `generate_valid_pairings`, and `expand.ito` from the YAML, where it is now an
 unknown key.  Passing it raises `TypeError`, `ito=True`
-included.  The engine is Ito: `ito=False` changed the expression only, and the
+included.  `--print-resolved` no longer prints `expand.ito: true`; for the
+eleven configurations shipped with the package that line is the only change in
+the resolved configuration.  The engine is Ito: `ito=False` changed the expression only, and the
 numerics applied Theta(0)=0 whatever it said and refused where the value
 depended on it.  A Stratonovich SDE with multiplicative noise is reached through
 `MultiplicativeImpulse(interpretation='stratonovich')`, which is unchanged.
