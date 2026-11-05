@@ -69,19 +69,19 @@ rates on Gauss-Legendre and `qmc_vectorized`.
 ## Results
 
 Worst relative difference from the reference over the component tuples and
-orders of each block (`time8_results.json`). All 258 table and time-translation
-rows were remeasured on 2026-09-13 after the min/lag C-table rewrite; exact-C rows retain their
-earlier measurements. This is recorded in the JSON provenance.
+orders of each block (`time8_results.json`), from one run of `time8_run.py` on
+2026-11-02.  Where one route runs with matrix and scalar R, the JSON keeps one
+worst value for both, and the table gives it for each.
 
 ### (a) a rate varying in time, `t_min ∈ {−1.3, 0.7}`
 
 | route | worst |
 |---|---|
-| exact C, `nquad` (matrix R) | 5.9e-09 |
-| exact C, `qmc_scalar` and `qmc` 2¹¹ (matrix R) | 4.3e-05 |
-| exact C, `gauss_legendre` 12 (scalar R) | 2.3e-13 |
-| exact C, `nquad` (scalar R) | 1.3e-08 |
-| exact C, `qmc_vectorized` 2¹⁴ (scalar R) | 4.3e-07 |
+| exact C, `nquad` (matrix R) | 5.0e-13 |
+| exact C, `qmc_scalar` and `qmc` 2¹¹ (matrix R) | 2.2e-05 |
+| exact C, `gauss_legendre` 12 (scalar R) | 5.0e-13 |
+| exact C, `nquad` (scalar R) | 5.0e-13 |
+| exact C, `qmc_vectorized` 2¹⁴ (scalar R) | 6.1e-07 |
 | table `n_grid_t = 21` / `41`, `nquad` (matrix R) | 7.1e-06 / 1.9e-07 |
 | table `n_grid_t = 21` / `41`, `gauss_legendre` 12 (scalar R) | 1.1e-05 / 2.3e-07 |
 
@@ -107,27 +107,27 @@ its spacing `h` (worst of the tadpole and order-2 `⟨φ_a φ_b⟩`, exact C):
 |---|---|
 | exact C, `gauss_legendre` 12 | 6.5e-08 |
 | exact C, `gauss_legendre` 16 / 20 | 5.7e-10 / 1.9e-15 |
-| exact C, `nquad` | 2.7e-06 |
-| exact C, `qmc_vectorized` 2¹⁴ | 4.4e-05 |
+| exact C, `nquad` | 2.7e-12 |
+| exact C, `qmc_vectorized` 2¹⁴ | 1.4e-05 |
 | exact C, `qmc_scalar` 2¹¹ | 2.5e-03 |
 | table `n_grid_t = 21` / `41`, `gauss_legendre` 12 | 6.6e-05 / 1.6e-06 |
-| unequal external times, `qmc_vectorized` 2¹⁶ | 3.2e-12 (orders 0, 1), 6.2e-08 (order 2) |
-| unequal external times, `nquad` | 3.7e-08 (order 1), 7.1e-07 (order 2) |
-| unequal external times, `gauss_legendre` 12 / 28 | 1.6e-03 / 4.4e-05 (see "Limits") |
+| unequal external times, `qmc_vectorized` 2¹⁶ | 1.8e-13 (orders 0, 1), 4.1e-08 (order 2) |
+| unequal external times, `nquad` | 7.1e-15 (order 1), 2.7e-15 (order 2) |
+| unequal external times, `gauss_legendre` 12 / 28 | 1.2e-09 / 1.4e-13 (see "Limits") |
 
 ### (c) custom temporal kernels
 
 | kernel, rates | exact C | table `n_grid_t = 21` | table `41` |
 |---|---|---|---|
-| Matérn-3/2, equal (`gauss_legendre` 12) | 1.5e-13 | 1.4e-06 | 3.9e-08 |
-| Matérn-3/2, unequal (`nquad`) | 1.4e-09 | 1.6e-06 | 3.2e-08 |
+| Matérn-3/2, equal (`gauss_legendre` 12) | 2.1e-13 | 1.4e-06 | 3.9e-08 |
+| Matérn-3/2, unequal (`nquad`) | 2.1e-13 | 1.6e-06 | 3.2e-08 |
 | damped cosine, equal (`gauss_legendre` 12) | 1.3e-13 | 1.6e-05 | 6.0e-07 |
-| damped cosine, unequal (`nquad`) | 1.0e-08 | 1.4e-05 | 6.9e-07 |
+| damped cosine, unequal (`nquad`) | 1.3e-13 | 1.4e-05 | 6.9e-07 |
 | Gaussian, equal (`gauss_legendre` 12) | 2.4e-13 | 5.9e-06 | 1.2e-07 |
 | Gaussian, unequal (`nquad`) | 9.5e-15 | 8.3e-06 | 1.1e-07 |
 
-`qmc_vectorized` at 2¹⁴ reaches 6.4e-07 (equal rates) and `qmc_scalar` at
-2¹¹ 1.4e-04 (unequal) on the same exact C.
+`qmc_vectorized` at 2¹⁴ reaches 2.0e-06 (equal rates) and `qmc_scalar` at
+2¹¹ 3.1e-05 (unequal) on the same exact C.
 
 The damped-cosine table now converges under refinement. The Gaussian rows are measured against
 the hand contraction, the others against the hierarchy.
@@ -140,10 +140,10 @@ Time-translation invariance (`GaussianTemporal`, table C, `t_min` shifted by
 | route | worst |
 |---|---|
 | exact C, `gauss_legendre` 12 (scalar R) | 1.4e-13 |
-| exact C, `nquad` (scalar R) | 1.9e-07 |
-| exact C, `qmc_vectorized` 2¹⁴ | 8.3e-07 |
-| exact C, `nquad` (matrix R) | 7.2e-08 |
-| exact C, `qmc_scalar` 2¹¹ (matrix R) | 9.9e-05 |
+| exact C, `nquad` (scalar R) | 1.4e-13 |
+| exact C, `qmc_vectorized` 2¹⁴ | 1.7e-05 |
+| exact C, `nquad` (matrix R) | 1.4e-13 |
+| exact C, `qmc_scalar` 2¹¹ (matrix R) | 2.9e-04 |
 
 The package's own table against the hierarchy, order-2 `⟨φ_0(x) φ_1(y)⟩`
 and the order-1 tadpole:

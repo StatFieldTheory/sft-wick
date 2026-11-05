@@ -430,10 +430,12 @@ def item_d_table_pointwise() -> None:
     for n_grid_t in (21, 41, 81):
         tab = ts.table_propagators(system, p.t_final + 0.3, n_grid_t,
                                    c_method="gauss_legendre", c_n_gauss=24)
-        t1 = np.linspace(p.t_min + 0.2, p.t_final, 37)
+        t1_grid = np.linspace(p.t_min + 0.2, p.t_final, 37)
         r = abs(POS["x"] - POS["y"])
         cells = []
         for delta in (0.0, 1e-6, 1e-2, 0.1, 0.4):
+            # The table starts at t_min and refuses a time before it.
+            t1 = t1_grid[t1_grid - delta >= p.t_min]
             t2 = t1 - delta
             got = tab.cache.C_at_batch(t1, t2, np.zeros_like(t1),
                                        np.full_like(t1, r))

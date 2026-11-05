@@ -28,28 +28,6 @@ from sft_wick.wick import wick_contract_spatial
 from sft_wick.workflow.config import _parse_expand
 
 
-@pytest.mark.parametrize("engine", ["symbolic", "operator", "numerical"])
-def test_connected_cycle_cache_lifetime_is_per_contraction(engine):
-    import sft_wick.wick as wick_module
-
-    phi = sw.Field("phi", "physical")
-    psi = sw.Field("psi", "response")
-    action = sw.Action([])
-    for index in range(100):
-        observable = [phi(f"x{index}"), psi(f"y{index}")]
-        if engine == "numerical":
-            sw.compute_moment_numerical(observable, action, 0, {}, target="connected")
-        else:
-            sw.compute_moment(
-                observable,
-                action,
-                0,
-                target="connected",
-                collect_topology=engine != "operator",
-            )
-        assert len(wick_module._r_cycle_cache) <= 1
-
-
 def test_connected_numerical_real_parallel_routing_matches_serial(monkeypatch):
     import joblib
 
@@ -67,7 +45,6 @@ def test_connected_numerical_real_parallel_routing_matches_serial(monkeypatch):
         observable,
         action,
         3,
-        couplings,
         target="connected",
         n_jobs=1,
     )
@@ -83,7 +60,6 @@ def test_connected_numerical_real_parallel_routing_matches_serial(monkeypatch):
         observable,
         action,
         3,
-        couplings,
         target="connected",
         n_jobs=2,
     )
@@ -168,7 +144,7 @@ def _coefficients(q, action, coupling_values, engine, target):
         dts = result.diagram_terms_by_order
     else:
         dts = sw.compute_moment_numerical(
-            obs, action, 2, coupling_values, target=target
+            obs, action, 2, target=target
         )
     return [
         sum(
@@ -284,7 +260,7 @@ def test_input_cumulant_hyperedge_keeps_asymmetric_tensor_and_aliases(
         assert not result.diagram_terms(0)
     else:
         dts = sw.compute_moment_numerical(
-            obs, sw.Action([vertex]), 1, values, fixed, iso_R=True, target="connected"
+            obs, sw.Action([vertex]), 1, iso_R=True, target="connected"
         ).get(1, [])
     value = sum(complex(np.sum(dt.evaluate_coupling(values, fixed))) for dt in dts)
     expected = sum(
@@ -307,11 +283,9 @@ def test_ownership_label_collision_filters_routings_not_representative(engine):
     ops = obs + vi.field_operators
     plan = ConnectedIncidence.from_instances(obs, [vi])
     assert not plan.disjoint_labels
-    topologies = wick_contract_spatial(
-        ops, vertex_points=frozenset(vi.spatial_variables)
-    )
+    topologies = wick_contract_spatial(ops)
     assert len(topologies) == 2
-    for props, _mult, pairing in topologies.values():
+    for props, pairing in topologies.values():
         assert not plan.is_connected(pairing)
         routings = _enumerate_component_routings(
             props, pairing, ops, frozenset(vi.spatial_variables)
@@ -323,7 +297,7 @@ def test_ownership_label_collision_filters_routings_not_representative(engine):
     # Earlier versions also named the vertex point 'y_0' and counted 4.
     if engine == "numerical":
         result = sw.compute_moment_numerical(
-            obs, sw.Action([vertex]), 1, {"F": np.ones((2,) * 3)}, target="connected"
+            obs, sw.Action([vertex]), 1, target="connected"
         )
         assert len(result[1]) == 6
     else:
@@ -353,7 +327,7 @@ def test_zero_order_occurrences_ignore_location_and_uid(engine):
             dts = result.diagram_terms(0)
         else:
             dts = sw.compute_moment_numerical(
-                [same] * q, sw.Action([]), 0, {}, target="connected"
+                [same] * q, sw.Action([]), 0, target="connected"
             ).get(0, [])
         assert len(dts) == (1 if q == 2 else 0)
 
@@ -382,12 +356,12 @@ def test_impossible_edge_count_skips_wick_and_retains_prior_validation(
 
     else:
         assert not sw.compute_moment_numerical(
-            obs, action, 2, {"F": np.asarray(1)}, target="connected"
+            obs, action, 2, target="connected"
         )
 
         def call():
             return sw.compute_moment_numerical(
-                [phi("x")] * 6, action, 2, {}, target="connected"
+                [phi("x")] * 6, action, 2, target="connected"
             )
 
     with pytest.raises(ValueError, match="share the same spatial label"):
@@ -467,7 +441,7 @@ def test_scalar_numerical_symbols_match_vertex_instance_no_component_axes(target
     assert instance.coupling_symbol.indices == ()
     values = {"K": np.asarray(1j / 6)}
     dts = sw.compute_moment_numerical(
-        [phi(f"x{k}") for k in range(3)], sw.Action([vertex]), 1, values, target=target
+        [phi(f"x{k}") for k in range(3)], sw.Action([vertex]), 1, target=target
     )[1]
     assert all(
         isinstance(dt.coupling_sum, Symbol) and dt.coupling_sum.indices == ()
@@ -497,7 +471,7 @@ def test_component_aliases_keep_external_response_phase_and_zero_leg_bound(
         )
     else:
         dts = sw.compute_moment_numerical(
-            obs, sw.Action([]), 0, {}, iso_R=True, target="connected"
+            obs, sw.Action([]), 0, iso_R=True, target="connected"
         )[0]
     assert len(dts) == 1 and dts[0].n_external_response == 1
     assert complex(dts[0].evaluate_coupling({}, {"a": 0})) == -1j
@@ -515,7 +489,7 @@ def test_component_aliases_keep_external_response_phase_and_zero_leg_bound(
         )
     else:
         assert set(
-            sw.compute_moment_numerical(obs, action, 2, {}, target="connected")
+            sw.compute_moment_numerical(obs, action, 2, target="connected")
         ) == {0}
 
 
@@ -580,7 +554,7 @@ def test_local_response_vertices_against_independent_evolution_moment_partitions
                 obs, action, 2, target=target
             ).diagram_terms_by_order
         else:
-            dts = sw.compute_moment_numerical(obs, action, 2, couplings, target=target)
+            dts = sw.compute_moment_numerical(obs, action, 2, target=target)
         actual = [
             sum(
                 complex(dt.evaluate_coupling(couplings)) * float(time_volume(dt))

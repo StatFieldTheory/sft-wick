@@ -17,7 +17,12 @@ from typing import Any, Iterator, Sequence, TypeAlias, cast
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
-from ._mixed_contraction import RoundingCertificate, admits, rounding_certificate
+from ._mixed_contraction import (
+    RoundingCertificate,
+    admits,
+    mixed_weights,
+    rounding_certificate,
+)
 from ._mixed_rounding import correctly_rounded_statistic
 
 RealArray: TypeAlias = NDArray[np.float64]
@@ -1376,10 +1381,8 @@ class GaussianQuadraticFamily:
                     chain_terms.extend(endpoint_terms)
         prefix_cache = None
         ring, chain = _exact_signed_sum(ring_terms), _exact_signed_sum(chain_terms)
-        return (
-            Fraction(2 ** (order - 1), order) * ring
-            + Fraction(2) ** (order - 3) * chain
-        ) / divisor
+        ring_weight, chain_weight = mixed_weights(order)
+        return (ring_weight * ring + chain_weight * chain) / divisor
 
     def joint_coefficient(self, powers: Sequence[int]) -> float:
         """Coefficient of prod(J[a]**powers[a]) in K(J), total degree <= 4.

@@ -26,9 +26,10 @@ Two reasons for opt-in:
 from __future__ import annotations
 
 import hashlib
-import os
 from pathlib import Path
 from typing import Any, Callable
+
+from sft_wick.progress import env_flag
 
 #: Bump when the meaning of a cached value changes, so a cache built by an
 #: earlier version is never read back.  Bumped when the C tables moved to
@@ -37,13 +38,17 @@ from typing import Any, Callable
 #: return the smeared near-diagonal value this release fixes.
 #: Schema 3 also rejects tables with the general E-space swap and tables
 #: built from physical kernels evaluated beyond the requested horizon.
-_CACHE_SCHEMA = "3"
+#: Schema 4 rejects tables built under ``c_method='auto'`` with ``c_n_gauss``
+#: nodes in place of the converged count their label reported.
+#: It also rejects expansions whose ``raw_result.total`` held the response
+#: phase twice.
+_CACHE_SCHEMA = "4"
 
 _REMINDER_SEEN: set[str] = set()
 
 
 def _reminder_quiet() -> bool:
-    return os.environ.get("SFT_WICK_QUIET_CACHE", "0") not in ("0", "")
+    return env_flag("SFT_WICK_QUIET_CACHE", False)
 
 
 def hash_spec(obj: Any, length: int = 12) -> str:

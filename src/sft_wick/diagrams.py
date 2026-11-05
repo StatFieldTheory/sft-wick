@@ -14,9 +14,11 @@ from typing import Sequence
 
 import networkx as nx
 
+from .expressions import canonical_edge
 from .fields import FieldOperator
 from .propagators import contract_pair
-from .vertices import VertexInstance
+from .render_labels import default_external_label
+from .vertices import VertexInstance, all_operators
 from .wick import Pairing
 
 
@@ -186,37 +188,29 @@ class FeynmanDiagram:
         Returns:
             A fully-constructed ``FeynmanDiagram`` with external nodes,
             vertex nodes, and propagator edges.
+
+        Raises:
+            ValueError: if a pair of *pairing* vanishes: two ψ, or an R at
+                one point.
         """
         diagram = cls()
 
-        # Build the full operator list (same order as in wick contraction)
-        all_ops: list[FieldOperator] = list(observable_ops)
-        for vi in vertex_instances:
-            all_ops.extend(vi.field_operators)
+        all_ops = all_operators(observable_ops, vertex_instances)
 
         # Graph node ID of each entry of all_ops.  The pairing holds positions
         # in that list, and a uid need not be unique.
         op_nodes: list[str] = []
 
-        # Add external nodes.  The displayed label is *compact* by
-        # default ($\phi_a$); the full form ($\phi_a(x_1)$) is stashed
-        # in ``full_label`` so the rendering layer can opt back into
-        # it via ``label_format=LABEL_FULL``.  See render_labels.py.
+        # Add external nodes.  render_labels.py spells every label from
+        # the field type, component and spatial argument.
         for op in observable_ops:
-            name = r"\phi" if op.is_physical else r"\psi"
-            if op.component_index is not None:
-                compact_label = rf"${name}_{{{op.component_index}}}$"
-                full_label = rf"${name}_{{{op.component_index}}}({op.spatial_arg})$"
-            else:
-                compact_label = f"${name}$"
-                full_label = rf"${name}({op.spatial_arg})$"
-
+            attrs = {
+                "field_type": op.field_type.value,
+                "component": op.component_index,
+                "spatial": op.spatial_arg,
+            }
             node_id = diagram.add_external_point(
-                label=compact_label,
-                field_type=op.field_type.value,
-                component=op.component_index,
-                spatial=op.spatial_arg,
-                full_label=full_label,
+                label=default_external_label(attrs), **attrs
             )
             op_nodes.append(node_id)
 
@@ -235,30 +229,34 @@ class FeynmanDiagram:
         for i, j in pairing:
             op_i, op_j = all_ops[i], all_ops[j]
             prop = contract_pair(op_i, op_j)
-            if prop is not None:
-                node_a = op_nodes[i]
-                node_b = op_nodes[j]
-
-                # Track R-propagator direction (which end is φ, which is ψ)
-                phi_end = None
-                psi_end = None
-                if prop.kind == "R":
-                    if op_i.is_physical:
-                        phi_end, psi_end = node_a, node_b
-                    else:
-                        phi_end, psi_end = node_b, node_a
-
-                diagram.add_propagator(
-                    node_a,
-                    node_b,
-                    kind=prop.kind,
-                    index_left=prop.index_left,
-                    index_right=prop.index_right,
-                    spatial_left=prop.spatial_left,
-                    spatial_right=prop.spatial_right,
-                    phi_end=phi_end,
-                    psi_end=psi_end,
+            if prop is None:
+                raise ValueError(
+                    f"the pair {(i, j)} of this pairing vanishes, so it has "
+                    "no diagram: from_pairing takes a surviving pairing"
                 )
+            node_a = op_nodes[i]
+            node_b = op_nodes[j]
+
+            # Track R-propagator direction (which end is φ, which is ψ)
+            phi_end = None
+            psi_end = None
+            if prop.kind == "R":
+                if op_i.is_physical:
+                    phi_end, psi_end = node_a, node_b
+                else:
+                    phi_end, psi_end = node_b, node_a
+
+            diagram.add_propagator(
+                node_a,
+                node_b,
+                kind=prop.kind,
+                index_left=prop.index_left,
+                index_right=prop.index_right,
+                spatial_left=prop.spatial_left,
+                spatial_right=prop.spatial_right,
+                phi_end=phi_end,
+                psi_end=psi_end,
+            )
 
         return diagram
 
@@ -311,7 +309,7 @@ class FeynmanDiagram:
                 kind = data["kind"]
                 if kind == "C":
                     lu, lv = label_map[u], label_map[v]
-                    edges.append(("C", min(lu, lv), max(lu, lv)))
+                    edges.append(canonical_edge("C", lu, lv))
                 else:
                     # R is directed: use phi_end / psi_end if available
                     pe = data.get("phi_end")
@@ -325,25 +323,6 @@ class FeynmanDiagram:
             form = tuple(sorted(edges))
             if best is None or form < best:
                 best = form
-
-        # If no vertices (and thus no permutations to try), handle the
-        # trivial case where iter_product produces exactly one empty combo
-        if best is None:
-            label_map = dict(ext_label)
-            edges = []
-            for u, v, data in g.edges(data=True):
-                kind = data["kind"]
-                lu, lv = label_map.get(u, -1), label_map.get(v, -1)
-                if kind == "C":
-                    edges.append(("C", min(lu, lv), max(lu, lv)))
-                else:
-                    pe = data.get("phi_end")
-                    se = data.get("psi_end")
-                    if pe is not None and se is not None:
-                        edges.append(("R", label_map.get(pe, -1), label_map.get(se, -1)))
-                    else:
-                        edges.append(("R", lu, lv))
-            best = tuple(sorted(edges))
 
         ext_meta = tuple(
             (g.nodes[n]["field_type"], g.nodes[n].get("component"), g.nodes[n]["spatial"])

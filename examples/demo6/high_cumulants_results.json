@@ -29,20 +29,20 @@
   "white | m=4 | hierarchy | expm | distinct times": 6.366742973205155e-16,
   "exponential | m=4 | R-contracted | gauss_legendre | equal times": 2.1967801563380116e-14,
   "exponential | m=4 | R-contracted | gauss_legendre | distinct times": 7.500406942115028e-15,
-  "exponential | m=4 | raw | qmc_vectorized | equal times": 2.5415941915063415e-05,
-  "exponential | m=4 | raw | gauss_legendre | equal times": 0.11775643137328658,
+  "exponential | m=4 | raw | qmc_vectorized | equal times": 0.00036129243466621354,
+  "exponential | m=4 | raw | gauss_legendre | equal times": 1.0461331220026856e-13,
   "exponential | m=4 | hierarchy | expm | equal times": 1.92760010013491e-13,
   "exponential | m=4 | hierarchy | expm | distinct times": 3.120949016743472e-14,
   "static static | m=4 | X4 | gauss_legendre | distinct times | rates [1.05, 1.05]": 2.4452257766489324e-16,
-  "static static | m=4 | X4 | qmc_vectorized | distinct times | rates [1.05, 1.05]": 1.1174072612037132e-07,
+  "static static | m=4 | X4 | qmc_vectorized | distinct times | rates [1.05, 1.05]": 4.785250505269916e-07,
   "static static | m=4 | hierarchy | expm | distinct times | rates [1.05, 1.05]": 8.150752588829775e-16,
   "static equal_time | m=4 | J4 | gauss_legendre | distinct times | rates [1.05, 1.05]": 5.176754229346559e-16,
-  "static equal_time | m=4 | J4 | qmc_vectorized | distinct times | rates [1.05, 1.05]": 9.778887013650908e-10,
+  "static equal_time | m=4 | J4 | qmc_vectorized | distinct times | rates [1.05, 1.05]": 3.45116948623104e-16,
   "static equal_time | m=4 | J4 | nquad | distinct times | rates [1.05, 1.05]": 3.01977330045216e-16,
   "static equal_time | m=4 | hierarchy | expm | distinct times | rates [1.05, 1.05]": 1.0569206551582559e-15,
-  "static static | m=4 | X4 | qmc_scalar | distinct times | rates [0.8, 1.3]": 6.29801422155853e-07,
+  "static static | m=4 | X4 | qmc_scalar | distinct times | rates [0.8, 1.3]": 1.1367445151153958e-05,
   "static static | m=4 | hierarchy | expm | distinct times | rates [0.8, 1.3]": 7.988442588306303e-16,
-  "static equal_time | m=4 | J4 | qmc_scalar | distinct times | rates [0.8, 1.3]": 9.778236373349443e-10,
+  "static equal_time | m=4 | J4 | qmc_scalar | distinct times | rates [0.8, 1.3]": 1.5347632803062529e-15,
   "static equal_time | m=4 | J4 | nquad | distinct times | rates [0.8, 1.3]": 4.479530597496298e-16,
   "static equal_time | m=4 | hierarchy | expm | distinct times | rates [0.8, 1.3]": 9.7666754201307e-16,
   "white | m=5 | R-contracted | gauss_legendre | equal times": 2.544799334777564e-15,
@@ -52,19 +52,19 @@
   "white | m=5 | hierarchy | expm | distinct times": 9.241592097000873e-16,
   "exponential | m=5 | R-contracted | gauss_legendre | equal times": 8.808231997586831e-13,
   "exponential | m=5 | R-contracted | gauss_legendre | distinct times": 3.3776954891975415e-14,
-  "exponential | m=5 | raw | qmc_vectorized | equal times": 0.0017095263453161904,
+  "exponential | m=5 | raw | qmc_vectorized | equal times": 0.004527546881663685,
   "exponential | m=5 | hierarchy | expm | equal times": 8.231396040962255e-13,
   "exponential | m=5 | hierarchy | expm | distinct times": 3.2282398131455396e-14,
   "static static | m=5 | X5 | gauss_legendre | distinct times | rates [1.05, 1.05]": 2.899299067736676e-16,
-  "static static | m=5 | X5 | qmc_vectorized | distinct times | rates [1.05, 1.05]": 1.152389088445931e-06,
+  "static static | m=5 | X5 | qmc_vectorized | distinct times | rates [1.05, 1.05]": 4.3684425495694785e-06,
   "static static | m=5 | hierarchy | expm | distinct times | rates [1.05, 1.05]": 2.899299067736676e-16,
   "static equal_time | m=5 | J5 | gauss_legendre | distinct times | rates [1.05, 1.05]": 5.157201967040526e-16,
-  "static equal_time | m=5 | J5 | qmc_vectorized | distinct times | rates [1.05, 1.05]": 1.2223609270638508e-09,
+  "static equal_time | m=5 | J5 | qmc_vectorized | distinct times | rates [1.05, 1.05]": 3.8679014752803946e-16,
   "static equal_time | m=5 | J5 | nquad | distinct times | rates [1.05, 1.05]": 1.7190673223468422e-16,
   "static equal_time | m=5 | hierarchy | expm | distinct times | rates [1.05, 1.05]": 3.8679014752803946e-16,
-  "static static | m=5 | X5 | qmc_scalar | distinct times | rates [0.8, 1.3]": 4.93591229463553e-06,
+  "static static | m=5 | X5 | qmc_scalar | distinct times | rates [0.8, 1.3]": 2.7067065403665208e-06,
   "static static | m=5 | hierarchy | expm | distinct times | rates [0.8, 1.3]": 5.844407107088418e-16,
-  "static equal_time | m=5 | J5 | qmc_scalar | distinct times | rates [0.8, 1.3]": 1.1640044446459156e-09,
+  "static equal_time | m=5 | J5 | qmc_scalar | distinct times | rates [0.8, 1.3]": 6.351052323118911e-15,
   "static equal_time | m=5 | J5 | nquad | distinct times | rates [0.8, 1.3]": 4.701059127504904e-16,
   "static equal_time | m=5 | hierarchy | expm | distinct times | rates [0.8, 1.3]": 1.2927912600638484e-15
  },
@@ -1425,9 +1425,9 @@
     0,
     0
    ],
-   "package": 5.633121006815646e-05,
+   "package": 5.634321832860214e-05,
    "reference": 5.633050872477936e-05,
-   "rel": 1.2450506714310308e-05
+   "rel": 0.0002256255821312282
   },
   {
    "noise": "exponential",
@@ -1441,9 +1441,9 @@
     0,
     1
    ],
-   "package": -0.0002813822679402833,
+   "package": -0.00028148161452784553,
    "reference": -0.00028137995407917,
-   "rel": 8.223262104309779e-06
+   "rel": 0.00036129243466621354
   },
   {
    "noise": "exponential",
@@ -1457,9 +1457,9 @@
     1,
     0
    ],
-   "package": -0.00028137280254260117,
+   "package": -0.000281402384411961,
    "reference": -0.0002813799540791701,
-   "rel": 2.5415941915063415e-05
+   "rel": 7.971546112555017e-05
   },
   {
    "noise": "exponential",
@@ -1473,9 +1473,9 @@
     1,
     1
    ],
-   "package": 0.0011910291171662196,
+   "package": 0.0011912505046736883,
    "reference": 0.001191043771764599,
-   "rel": 1.2303996483437158e-05
+   "rel": 0.00017357288958660635
   },
   {
    "noise": "exponential",
@@ -1489,9 +1489,9 @@
     0,
     0
    ],
-   "package": 6.296378840965116e-05,
+   "package": 5.633050872478236e-05,
    "reference": 5.633050872477936e-05,
-   "rel": 0.11775643137328658
+   "rel": 5.329056727919686e-14
   },
   {
    "noise": "exponential",
@@ -1505,9 +1505,9 @@
     0,
     1
    ],
-   "package": -0.00030253568570331524,
+   "package": -0.00028137995407914057,
    "reference": -0.00028137995407917,
-   "rel": 0.0751856389108401
+   "rel": 1.0461331220026856e-13
   },
   {
    "noise": "exponential",
@@ -1909,9 +1909,9 @@
     0,
     0
    ],
-   "package": 0.12769792611740605,
+   "package": 0.12769785074169895,
    "reference": 0.12769791184834867,
-   "rel": 1.1174072601169462e-07
+   "rel": 4.785250504726533e-07
   },
   {
    "noise": "static static",
@@ -1929,9 +1929,9 @@
     0,
     1
    ],
-   "package": -0.04256597537246869,
+   "package": -0.04256595024723298,
    "reference": -0.04256597061611622,
-   "rel": 1.1174072612037132e-07
+   "rel": 4.785250505269916e-07
   },
   {
    "noise": "static static",
@@ -1949,9 +1949,9 @@
     1,
     0
    ],
-   "package": -0.04256597537246869,
+   "package": -0.04256595024723298,
    "reference": -0.04256597061611622,
-   "rel": 1.1174072612037132e-07
+   "rel": 4.785250505269916e-07
   },
   {
    "noise": "static static",
@@ -1969,9 +1969,9 @@
     1,
     1
    ],
-   "package": 0.06384896305870302,
+   "package": 0.06384892537084948,
    "reference": 0.06384895592417433,
-   "rel": 1.1174072601169462e-07
+   "rel": 4.785250504726533e-07
   },
   {
    "noise": "static static",
@@ -2389,9 +2389,9 @@
     0,
     0
    ],
-   "package": 0.00789875444219093,
+   "package": 0.007898754449915033,
    "reference": 0.007898754449915031,
-   "rel": 9.778884660580803e-10
+   "rel": 2.196198763965207e-16
   },
   {
    "noise": "static equal_time",
@@ -2409,9 +2409,9 @@
     0,
     1
    ],
-   "package": -0.0028722743426148837,
+   "package": -0.0028722743454236486,
    "reference": -0.0028722743454236478,
-   "rel": 9.77888507236807e-10
+   "rel": 3.01977330045216e-16
   },
   {
    "noise": "static equal_time",
@@ -2429,9 +2429,9 @@
     1,
     0
    ],
-   "package": -0.0028722743426148837,
+   "package": -0.0028722743454236486,
    "reference": -0.0028722743454236478,
-   "rel": 9.77888507236807e-10
+   "rel": 3.01977330045216e-16
   },
   {
    "noise": "static equal_time",
@@ -2449,9 +2449,9 @@
     1,
     1
    ],
-   "package": 0.005026480099576045,
+   "package": 0.005026480104491385,
    "reference": 0.005026480104491383,
-   "rel": 9.778887013650908e-10
+   "rel": 3.45116948623104e-16
   },
   {
    "noise": "static equal_time",
@@ -2629,9 +2629,9 @@
     0,
     0
    ],
-   "package": 0.20212354453727072,
+   "package": 0.20212267767827155,
    "reference": 0.20212352728402766,
-   "rel": 8.535989495282322e-08
+   "rel": 4.2033986222458375e-06
   },
   {
    "noise": "static static",
@@ -2649,9 +2649,9 @@
     0,
     1
    ],
-   "package": -0.05192619584031368,
+   "package": -0.05192583204375424,
    "reference": -0.05192619016914054,
-   "rel": 1.092160453854751e-07
+   "rel": 6.896816137115967e-06
   },
   {
    "noise": "static static",
@@ -2669,9 +2669,9 @@
     1,
     0
    ],
-   "package": -0.060108538714063894,
+   "package": -0.060108101938589925,
    "reference": -0.06010851670999648,
-   "rel": 3.66072374095226e-07
+   "rel": 6.900376672993207e-06
   },
   {
    "noise": "static static",
@@ -2689,9 +2689,9 @@
     1,
     1
    ],
-   "package": 0.06948937240097161,
+   "package": 0.06948853872036174,
    "reference": 0.06948932863649361,
-   "rel": 6.29801422155853e-07
+   "rel": 1.1367445151153958e-05
   },
   {
    "noise": "static static",
@@ -2789,9 +2789,9 @@
     0,
     0
    ],
-   "package": 0.017836563049837863,
+   "package": 0.017836563063126826,
    "reference": 0.017836563063126826,
-   "rel": 7.450406018490051e-10
+   "rel": 0.0
   },
   {
    "noise": "static equal_time",
@@ -2809,9 +2809,9 @@
     0,
     1
    ],
-   "package": -0.0038725563688570934,
+   "package": -0.0038725563721930586,
    "reference": -0.003872556372193059,
-   "rel": 8.614375873989698e-10
+   "rel": 1.1198826493740745e-16
   },
   {
    "noise": "static equal_time",
@@ -2829,9 +2829,9 @@
     1,
     0
    ],
-   "package": -0.005923425121410212,
+   "package": -0.005923425126512873,
    "reference": -0.005923425126512876,
-   "rel": 8.614380771449572e-10
+   "rel": 5.857163512415459e-16
   },
   {
    "noise": "static equal_time",
@@ -2849,9 +2849,9 @@
     1,
     1
    ],
-   "package": 0.006216580257666315,
+   "package": 0.006216580263745024,
    "reference": 0.006216580263745034,
-   "rel": 9.778236373349443e-10
+   "rel": 1.5347632803062529e-15
   },
   {
    "noise": "static equal_time",
@@ -5814,9 +5814,9 @@
     0,
     0
    ],
-   "package": 8.023478857741141e-06,
+   "package": 8.061994091682764e-06,
    "reference": 8.025657550865044e-06,
-   "rel": 0.00027146599641143766
+   "rel": 0.004527546881663685
   },
   {
    "noise": "exponential",
@@ -5831,9 +5831,9 @@
     0,
     1
    ],
-   "package": -1.4423528910827396e-05,
+   "package": -1.4471980868319073e-05,
    "reference": -1.442160013746498e-05,
-   "rel": 0.00013374198036499239
+   "rel": 0.003493421698970323
   },
   {
    "noise": "exponential",
@@ -5848,9 +5848,9 @@
     1,
     0
    ],
-   "package": -3.61070182149769e-05,
+   "package": -3.6143493343815096e-05,
    "reference": -3.6168849816618195e-05,
-   "rel": 0.0017095263453161904
+   "rel": 0.0007010583121017304
   },
   {
    "noise": "exponential",
@@ -5865,9 +5865,9 @@
     1,
     1
    ],
-   "package": 7.590265108745506e-05,
+   "package": 7.597466765535151e-05,
    "reference": 7.59565304681061e-05,
-   "rel": 0.0007093449413630836
+   "rel": 0.00023878377716349565
   },
   {
    "noise": "exponential",
@@ -6017,9 +6017,9 @@
     1,
     1
    ],
-   "package": -0.03191067331237889,
+   "package": -0.031910673312378894,
    "reference": -0.03191067331237889,
-   "rel": 0.0
+   "rel": 2.1744743008025065e-16
   },
   {
    "noise": "static static",
@@ -6059,9 +6059,9 @@
     0,
     1
    ],
-   "package": -0.03191067331237889,
+   "package": -0.031910673312378894,
    "reference": -0.03191067331237889,
-   "rel": 0.0
+   "rel": 2.1744743008025065e-16
   },
   {
    "noise": "static static",
@@ -6080,9 +6080,9 @@
     1,
     0
    ],
-   "package": -0.03191067331237889,
+   "package": -0.031910673312378894,
    "reference": -0.03191067331237889,
-   "rel": 0.0
+   "rel": 2.1744743008025065e-16
   },
   {
    "noise": "static static",
@@ -6143,9 +6143,9 @@
     0,
     1
    ],
-   "package": -0.03191067331237889,
+   "package": -0.031910673312378894,
    "reference": -0.03191067331237889,
-   "rel": 0.0
+   "rel": 2.1744743008025065e-16
   },
   {
    "noise": "static static",
@@ -6164,9 +6164,9 @@
     1,
     0
    ],
-   "package": -0.03191067331237889,
+   "package": -0.031910673312378894,
    "reference": -0.03191067331237889,
-   "rel": 0.0
+   "rel": 2.1744743008025065e-16
   },
   {
    "noise": "static static",
@@ -6206,9 +6206,9 @@
     0,
     0
    ],
-   "package": -0.03191067331237889,
+   "package": -0.031910673312378894,
    "reference": -0.03191067331237889,
-   "rel": 0.0
+   "rel": 2.1744743008025065e-16
   },
   {
    "noise": "static static",
@@ -6269,9 +6269,9 @@
     1,
     1
    ],
-   "package": -0.015955336656189444,
+   "package": -0.015955336656189447,
    "reference": -0.015955336656189444,
-   "rel": 0.0
+   "rel": 2.1744743008025065e-16
   },
   {
    "noise": "static static",
@@ -6311,9 +6311,9 @@
     0,
     1
    ],
-   "package": -0.03191067331237889,
+   "package": -0.031910673312378894,
    "reference": -0.03191067331237889,
-   "rel": 0.0
+   "rel": 2.1744743008025065e-16
   },
   {
    "noise": "static static",
@@ -6332,9 +6332,9 @@
     1,
     0
    ],
-   "package": -0.03191067331237889,
+   "package": -0.031910673312378894,
    "reference": -0.03191067331237889,
-   "rel": 0.0
+   "rel": 2.1744743008025065e-16
   },
   {
    "noise": "static static",
@@ -6374,9 +6374,9 @@
     0,
     0
    ],
-   "package": -0.03191067331237889,
+   "package": -0.031910673312378894,
    "reference": -0.03191067331237889,
-   "rel": 0.0
+   "rel": 2.1744743008025065e-16
   },
   {
    "noise": "static static",
@@ -6437,9 +6437,9 @@
     1,
     1
    ],
-   "package": -0.015955336656189444,
+   "package": -0.015955336656189447,
    "reference": -0.015955336656189444,
-   "rel": 0.0
+   "rel": 2.1744743008025065e-16
   },
   {
    "noise": "static static",
@@ -6458,9 +6458,9 @@
     0,
     0
    ],
-   "package": -0.03191067331237889,
+   "package": -0.031910673312378894,
    "reference": -0.03191067331237889,
-   "rel": 0.0
+   "rel": 2.1744743008025065e-16
   },
   {
    "noise": "static static",
@@ -6521,9 +6521,9 @@
     1,
     1
    ],
-   "package": -0.015955336656189444,
+   "package": -0.015955336656189447,
    "reference": -0.015955336656189444,
-   "rel": 0.0
+   "rel": 2.1744743008025065e-16
   },
   {
    "noise": "static static",
@@ -6563,9 +6563,9 @@
     0,
     1
    ],
-   "package": -0.015955336656189444,
+   "package": -0.015955336656189447,
    "reference": -0.015955336656189444,
-   "rel": 0.0
+   "rel": 2.1744743008025065e-16
   },
   {
    "noise": "static static",
@@ -6584,9 +6584,9 @@
     1,
     0
    ],
-   "package": -0.015955336656189444,
+   "package": -0.015955336656189447,
    "reference": -0.015955336656189444,
-   "rel": 0.0
+   "rel": 2.1744743008025065e-16
   },
   {
    "noise": "static static",
@@ -6626,9 +6626,9 @@
     0,
     0
    ],
-   "package": 0.047865954808300734,
+   "package": 0.047865800868653705,
    "reference": 0.047866009968568324,
-   "rel": 1.1523890883299591e-06
+   "rel": 4.368442549453507e-06
   },
   {
    "noise": "static static",
@@ -6647,9 +6647,9 @@
     0,
     1
    ],
-   "package": 0.01994414783679197,
+   "package": 0.019944083695272376,
    "reference": 0.019944170820236803,
-   "rel": 1.152389088445931e-06
+   "rel": 4.3684425495694785e-06
   },
   {
    "noise": "static static",
@@ -6668,9 +6668,9 @@
     1,
     0
    ],
-   "package": 0.01994414783679197,
+   "package": 0.019944083695272376,
    "reference": 0.019944170820236803,
-   "rel": 1.152389088445931e-06
+   "rel": 4.3684425495694785e-06
   },
   {
    "noise": "static static",
@@ -6689,9 +6689,9 @@
     1,
     1
    ],
-   "package": -0.03191063653886716,
+   "package": -0.03191053391243581,
    "reference": -0.03191067331237889,
-   "rel": 1.1523890884024414e-06
+   "rel": 4.3684425493085415e-06
   },
   {
    "noise": "static static",
@@ -7466,9 +7466,9 @@
     0,
     0
    ],
-   "package": -0.002522768380426389,
+   "package": -0.0025227683835101233,
    "reference": -0.0025227683835101224,
-   "rel": 1.2223608697616068e-09
+   "rel": 3.4381346446936845e-16
   },
   {
    "noise": "static equal_time",
@@ -7487,9 +7487,9 @@
     0,
     1
    ],
-   "package": 0.003784152570639584,
+   "package": 0.003784152575265185,
    "reference": 0.0037841525752651843,
-   "rel": 1.2223609270638508e-09
+   "rel": 2.2920897631291227e-16
   },
   {
    "noise": "static equal_time",
@@ -7508,9 +7508,9 @@
     1,
     0
    ],
-   "package": 0.003784152570639584,
+   "package": 0.003784152575265185,
    "reference": 0.0037841525752651843,
-   "rel": 1.2223609270638508e-09
+   "rel": 2.2920897631291227e-16
   },
   {
    "noise": "static equal_time",
@@ -7529,9 +7529,9 @@
     1,
     1
    ],
-   "package": 0.0016818455869509264,
+   "package": 0.0016818455890067491,
    "reference": 0.0016818455890067485,
-   "rel": 1.2223607838082406e-09
+   "rel": 3.8679014752803946e-16
   },
   {
    "noise": "static equal_time",
@@ -7718,9 +7718,9 @@
     0,
     0
    ],
-   "package": 0.08310333347876589,
+   "package": 0.08310352390571804,
    "reference": 0.0831035948375578,
-   "rel": 3.144975766994466e-06
+   "rel": 8.535351557483439e-07
   },
   {
    "noise": "static static",
@@ -7739,9 +7739,9 @@
     0,
     1
    ],
-   "package": 0.02888405692897457,
+   "package": 0.028884185241863772,
    "reference": 0.028884191344107635,
-   "rel": 4.653588236704749e-06
+   "rel": 2.1126587171144882e-07
   },
   {
    "noise": "static static",
@@ -7760,9 +7760,9 @@
     1,
     0
    ],
-   "package": 0.026686887704729496,
+   "package": 0.02668690680851982,
    "reference": 0.026686979042340537,
-   "rel": 3.422553406872322e-06
+   "rel": 2.7067065403665208e-06
   },
   {
    "noise": "static static",
@@ -7781,9 +7781,9 @@
     1,
     1
    ],
-   "package": -0.0356179482041198,
+   "package": -0.03561806842362979,
    "reference": -0.035618124012056024,
-   "rel": 4.93591229463553e-06
+   "rel": 1.5606781036048082e-06
   },
   {
    "noise": "static static",
@@ -7886,9 +7886,9 @@
     0,
     0
    ],
-   "package": -0.0063730276487088105,
+   "package": -0.00637302765464382,
    "reference": -0.006373027654643827,
-   "rel": 9.312710832077893e-10
+   "rel": 1.0887908039832641e-15
   },
   {
    "noise": "static equal_time",
@@ -7907,9 +7907,9 @@
     0,
     1
    ],
-   "package": 0.007380138930863164,
+   "package": 0.007380138938594927,
    "reference": 0.0073801389385949505,
-   "rel": 1.0476478328508485e-09
+   "rel": 3.17321491106581e-15
   },
   {
    "noise": "static equal_time",
@@ -7928,9 +7928,9 @@
     1,
     0
    ],
-   "package": 0.005747657978531992,
+   "package": 0.005747657984553495,
    "reference": 0.0057476579845535105,
-   "rel": 1.0476472973105585e-09
+   "rel": 2.716325732280689e-15
   },
   {
    "noise": "static equal_time",
@@ -7949,9 +7949,9 @@
     1,
     1
    ],
-   "package": 0.001980261623795945,
+   "package": 0.001980261626100966,
    "reference": 0.0019802616261009784,
-   "rel": 1.1640044446459156e-09
+   "rel": 6.351052323118911e-15
   },
   {
    "noise": "static equal_time",

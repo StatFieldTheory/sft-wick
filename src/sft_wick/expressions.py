@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from fractions import Fraction
 from math import gcd
-from typing import Sequence
+from typing import Iterable, Sequence
 
 
 class Expr(ABC):
@@ -200,13 +200,13 @@ class Propagator(Expr):
 
     def to_latex(self) -> str:
         s = self.kind
-        if self.index_left is not None and self.index_right is not None:
-            s += (
-                "_{"
-                + _latex_index(self.index_left)
-                + _latex_index(self.index_right)
-                + "}"
-            )
+        indices = "".join(
+            _latex_index(i)
+            for i in (self.index_left, self.index_right)
+            if i is not None
+        )
+        if indices:
+            s += "_{" + indices + "}"
         s += (
             "("
             + _latex_index(self.spatial_left)
@@ -328,7 +328,7 @@ class SumOverIndex(Expr):
     body: Expr
 
     def to_latex(self) -> str:
-        return rf"\sum_{{{_latex_index(self.index_name)}=1}}^{{{self.dimension}}} {self.body.to_latex()}"
+        return latex_sum(self.index_name, self.dimension) + self.body.to_latex()
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, SumOverIndex):
@@ -351,9 +351,7 @@ class IntegralOver(Expr):
     body: Expr
 
     def to_latex(self) -> str:
-        return (
-            rf"\int \mathrm{{d}}{_latex_index(self.variable)}\, {self.body.to_latex()}"
-        )
+        return latex_integral(self.variable) + self.body.to_latex()
 
     def __eq__(self, other: object) -> bool:
         if isinstance(other, IntegralOver):
@@ -441,22 +439,54 @@ I = ImaginaryUnit()
 # ---------------------------------------------------------------------------
 
 
+#: The powers of i, by exponent modulo 4.
+QUARTER_TURNS = (1.0, 1j, -1.0, -1j)
+
+
+def i_power(n: int) -> complex:
+    r"""Return :math:`\mathrm{i}^n` exactly, for any integer ``n``.
+
+    The response phase :math:`(-\mathrm{i})^n` is ``i_power(-n)``.
+    """
+    return QUARTER_TURNS[n % 4]
+
+
+def canonical_edge(kind: str, left: str, right: str) -> tuple[str, str, str]:
+    """A propagator edge as a key: C is symmetric, so its two points are
+    sorted; R is directed and keeps its order."""
+    if kind == "C":
+        return ("C", min(left, right), max(left, right))
+    return (kind, left, right)
+
+
+def count_r(propagators: Iterable[Propagator]) -> int:
+    """The number of R propagators among ``propagators``."""
+    return sum(p.kind == "R" for p in propagators)
+
+
 def _count_r_deep(expr: Expr) -> int:
     """Count R propagators recursively through the expression tree.
 
-    For a **Sum**, returns the count from the first term (within a
-    single vertex combination all surviving pairings have the same R
-    count).  Returns -1 if terms disagree.
+    For a **Sum**, every term must hold the same count, as the terms of one
+    vertex combination do.
+
+    Raises:
+        ValueError: the terms of a Sum disagree, so no single phase multiplies
+            the product that holds it.
     """
     if isinstance(expr, Propagator):
         return 1 if expr.kind == "R" else 0
     if isinstance(expr, Product):
         return sum(_count_r_deep(f) for f in expr.factors)
     if isinstance(expr, Sum) and expr.terms:
-        first = _count_r_deep(expr.terms[0])
-        if all(_count_r_deep(t) == first for t in expr.terms[1:]):
-            return first
-        return -1  # terms disagree
+        counts = {_count_r_deep(t) for t in expr.terms}
+        if len(counts) > 1:
+            raise ValueError(
+                f"the terms of {expr.to_latex()} hold {sorted(counts)} R "
+                f"propagators, so no single response phase multiplies them; "
+                f"expand the product over the sum first"
+            )
+        return counts.pop()
     if isinstance(expr, (IntegralOver, SumOverIndex)):
         return _count_r_deep(expr.body)
     return 0
@@ -479,10 +509,7 @@ def apply_response_phase(expr: Expr) -> Expr:
         return Sum(tuple(apply_response_phase(t) for t in expr.terms))
 
     if isinstance(expr, Product):
-        n_r = _count_r_deep(expr)
-        if n_r <= 0:
-            return expr  # 0 R's or disagreeing terms
-        r = n_r % 4
+        r = _count_r_deep(expr) % 4
         if r == 0:
             return expr
 
@@ -536,6 +563,16 @@ def apply_response_phase(expr: Expr) -> Expr:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def latex_sum(name: str, dimension: int) -> str:
+    """The LaTeX prefix of a sum over the component index ``name``."""
+    return rf"\sum_{{{_latex_index(name)}=1}}^{{{dimension}}} "
+
+
+def latex_integral(variable: str) -> str:
+    """The LaTeX prefix of an integral over the point ``variable``."""
+    return rf"\int \mathrm{{d}}{_latex_index(variable)}\, "
 
 
 def _latex_index(name: str) -> str:

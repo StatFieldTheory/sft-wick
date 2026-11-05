@@ -296,3 +296,45 @@ def test_a_probe_that_cannot_evaluate_is_not_a_refusal():
             return np.exp(-abs(t1 - t2)) * np.eye(N)
 
     _system(kappa2=GeneralKappa2(fn=VectorOnly())).expand(OBS, orders=[0])
+
+
+@pytest.mark.parametrize("gamma", [[1e-9, 5e-9], [5e-9, 1e-9], [1e-9, 0.0]])
+def test_small_rates_are_told_apart_with_no_absolute_floor(gamma):
+    """``np.allclose`` called these equal, so R and C of the second listed
+    rate took the first.  At ``t = 1e9`` that was a factor 55 in R and 4.3 in
+    C.  The reference is the OU solution written out here."""
+    t_final = 1e9
+    noise = sw.GaussianNoise(
+        kappa2=sw.SeparableTranslation(
+            temporal=sw.ExponentialTemporal(lam=0.0, sigma_t=1.0),
+            spatial=sw.ExponentialSpatial(sigma_x=1.0),
+        ),
+        sigma2=sw.ConstantImpulse(0.7),
+    )
+    lin = sw.DiagonalA(gamma=gamma)
+    assert lin.is_iso_R is False
+    system = sw.System(field=sw.FieldSpec("phi", 2), linear=lin, noise=noise)
+    props = system.propagators(
+        t_max=2 * t_final, n_grid_t=6, diag_C=False, c_closed_form_only=True
+    )
+    C = np.asarray(props.cache.C_value(0.0, t_final, 0.0, t_final))
+    for a, rate in enumerate(gamma):
+        var = 0.7 * (
+            t_final
+            if rate == 0.0
+            else -np.expm1(-2 * rate * t_final) / (2 * rate)
+        )
+        assert C[a, a] == pytest.approx(var, rel=1e-10, abs=0.0)
+    R = lin.build_R_callable()
+    assert np.diag(R(t_final, 0.0)) == pytest.approx(
+        np.exp(-np.array(gamma) * t_final), rel=1e-12, abs=0.0
+    )
+
+
+@pytest.mark.parametrize("gap, equal", [(1e-10, True), (1e-8, False)])
+def test_rates_equal_to_the_tolerance_lower_to_one_rate(gap, equal):
+    """Each side of the relative tolerance of an index-free C, at a size the
+    old absolute floor could not see and at a size it could."""
+    for scale in (1e-12, 1.0, 1e8):
+        lin = sw.DiagonalA(gamma=[scale, scale * (1 + gap)])
+        assert lin.is_iso_R is equal

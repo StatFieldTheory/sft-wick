@@ -37,7 +37,7 @@ def C_fn(n1, t1, n2, t2):
     Suitable for the spline-build path (``c_closed_form_module``
     + ``c_closed_form_attr: C_fn``).
     """
-    r = abs(float(np.asarray(n1).sum()) - float(np.asarray(n2).sum()))
+    r = float(np.linalg.norm(np.asarray(n1, dtype=float) - np.asarray(n2, dtype=float)))
     return _C_t(t1, t2) * np.exp(-r / SIGMA_X) * np.eye(N_COMP)
 
 

@@ -126,7 +126,7 @@ def _terms(engine, ops, order, action=None, couplings=None, **flags):
     action = Action([]) if action is None else action
     if engine == "compute_moment":
         return compute_moment(ops, action, order=order, **flags).diagram_terms(order)
-    res = compute_moment_numerical(ops, action, order, couplings or {}, **flags)
+    res = compute_moment_numerical(ops, action, order, **flags)
     return res.get(order, [])
 
 
@@ -391,3 +391,43 @@ def test_LK9_a_pin_does_not_admit_an_out_of_range_literal(caches, engine):
     text = " ".join((guide / "fields.rst").read_text().split())
     assert "whether or not the evaluation would pin it" in text
     assert "unless ``fixed_indices`` pins the label" in text
+
+
+def _order_one():
+    """``<phi_a(x) phi_b(y)>`` at order 1 of a linear vertex: ``a`` and ``b``
+    sit on propagators only, so no coupling resolver reads them."""
+    system = sw.System(
+        field=sw.FieldSpec("phi", 2),
+        linear=sw.DiagonalA(gamma=[1.0, 3.0]),
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.ExponentialTemporal(lam=1.0, sigma_t=0.5),
+                spatial=sw.ExponentialSpatial(sigma_x=1.0),
+            )
+        ),
+    )
+    props = system.propagators(t_max=2.0, n_grid_t=12, progress=False)
+    phi, psi = Field("phi", "physical", 2), Field("psi", "response", 2)
+    terms = compute_moment(
+        [phi("a", "x"), phi("b", "y")], Action([Vertex([phi, psi], "L")]), 1
+    ).diagram_terms(1)
+    return terms, {"L": -1j * np.array([[0.3, 0.8], [-0.5, 0.2]])}, props.cache
+
+
+@pytest.mark.parametrize("method", ["qmc_scalar", "qmc_vectorized", "gauss_legendre"])
+def test_a_label_that_names_nothing_is_refused_on_a_propagator(method):
+    """It was read as a trace, 0.195 where the pins give 0.041, 0.055, -0.012
+    and 0.003, a number that is no component of the observable."""
+    terms, couplings, cache = _order_one()
+    with pytest.raises(KeyError, match="fixed_indices"):
+        integrate_diagrams(terms, couplings, 2.0, cache, method=method, n_samples=64)
+    pinned, _ = integrate_diagrams(
+        terms,
+        couplings,
+        2.0,
+        cache,
+        method=method,
+        n_samples=64,
+        fixed_indices={"a": 0, "b": 1},
+    )
+    assert pinned != 0.0

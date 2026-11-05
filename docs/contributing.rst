@@ -66,17 +66,23 @@ The core data flow is a pipeline:
    defines an interaction term; ``VertexInstance`` is a fresh copy with
    non-overlapping indices.  ``Action`` holds a list of vertices.
 
-3. :mod:`~sft_wick.wick`: ``generate_valid_pairings()`` enumerates
-   complete pairings skipping :math:`\psi`-:math:`\psi` pairs.
-   ``wick_contract()`` sums over all valid pairings.
+3. :mod:`~sft_wick.wick`: ``r_vanishes()`` is the vanishing rule of an
+   R product.  ``r_classes()`` is the one enumeration of R assignments,
+   between spatial labels, and it is lazy.  ``wick_contract_spatial()``
+   crosses the classes with C pairings between labels to give spatial
+   topologies.  ``generate_valid_pairings()`` lifts each class to its
+   operator assignments and crosses them with C pairings between operators,
+   and ``wick_contract()`` sums those.
 
 4. :mod:`~sft_wick.propagators`: ``contract_pair()`` maps
    :math:`(\phi,\phi) \to C`, :math:`(\phi,\psi) \to R`,
-   :math:`(\psi,\psi) \to 0`.
+   :math:`(\psi,\psi) \to 0`, and asks ``r_vanishes()`` about the R.
 
 5. :mod:`~sft_wick.perturbation`: ``compute_moment()`` is the main
    entry point: expands vertex combinations, instantiates vertices,
-   calls ``wick_contract()``, and returns a ``PerturbativeResult``.
+   calls ``wick_contract_spatial()`` (``wick_contract()`` at order 0 and
+   under ``collect_topology=False``), and returns a
+   ``PerturbativeResult``.
 
 6. :mod:`~sft_wick.simplify`: multi-pass simplification pipeline.
 

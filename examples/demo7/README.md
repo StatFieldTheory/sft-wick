@@ -103,7 +103,7 @@ earlier test used `coeffs=[1.0]`, where C does not depend on direction):
 | κ² | order 0 | order 1 | order 2 | order 2, QMC |
 |---|---|---|---|---|
 | `GaussianSpatial` (GL tables, n_grid_t = 48) | 1.7e-10 | 2.6e-08 | 5.9e-08 | 1.9e-07 |
-| `CustomKernel`, damped cosine (dblquad tables) | 1.7e-10 | 2.6e-08 | 1.2e-07 | 2.5e-07 |
+| `CustomKernel`, damped cosine (GL tables, n_grid_t = 48) | 1.7e-10 | 2.6e-08 | 1.2e-07 | 2.5e-07 |
 | `GeneralKappa2` (GL tables, n_grid_t = 40) | 4.3e-09 | 4.9e-08 | 1.1e-07 | 2.0e-07 |
 | `GeneralKappa2`, matrix R (`qmc_scalar`) | 1.3e-08 | 1.9e-07 | 4.1e-05 | 5.0e-07 |
 

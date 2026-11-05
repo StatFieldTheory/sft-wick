@@ -431,9 +431,13 @@ class SpectralPropagatorCache(PropagatorCache):
     """A cache whose ``R`` and ``C`` are spectral superpositions.
 
     Both are evaluated exactly from the density.  There is no interpolation
-    table, so there is no diagonal ridge to resolve and nothing to keep in
-    sync.  The batch accessors are true vectorised reductions rather than
-    ``np.vectorize`` over a scalar callable.
+    table, so the diagonal ridge of ``C`` is not smeared and nothing has to
+    be kept in sync.  The batch accessors are true vectorised reductions
+    rather than ``np.vectorize`` over a scalar callable.
+
+    The ridge is still in the integrand of every diagram with a ``C`` between
+    two integration times, so the cache declares it through
+    :attr:`has_diagonal_kink`.
 
     ``_c_splines`` is set to a sentinel because the batch integrators use it to
     mean "batch C is available"; the scalar accessors are overridden alongside
@@ -474,22 +478,27 @@ class SpectralPropagatorCache(PropagatorCache):
         super().__init__(model, c_value_fn=self._c_matrix)
         self._c_splines = True  # sentinel: batch C is available
 
+    @property
+    def has_diagonal_kink(self) -> bool:
+        """``C`` jumps in its first derivative on ``t1 == t2`` when ``D > 0``.
+
+        Read by ``evaluate._c_has_diagonal_kink``, which decides for the
+        Gauss-Legendre and nquad integrators.  ``D = 0`` makes ``C`` zero.
+        """
+        return self.noise_D > 0.0
+
     # -- R --------------------------------------------------------------- #
 
-    def _r_scalar(self, t: float, tp: float) -> float:
+    def _r_scalar(self, t: Any, tp: Any) -> Any:
         """Raw, Θ-stripped, per this package's convention (see
-        ``PropagatorCache.R_time``): Θ is applied at diagram evaluation."""
-        return float(_r_star(self.density, float(t) - float(tp)))
+        ``PropagatorCache.R_time``): Θ is applied at diagram evaluation.
+        Takes arrays of time pairs too (``vectorized``, read by
+        ``PropagatorCache._causal_R``)."""
+        dt = np.asarray(t, dtype=float) - np.asarray(tp, dtype=float)
+        value = _r_star(self.density, dt)
+        return float(value) if dt.ndim == 0 else value
 
-    def R_time_batch(self, t1, t2) -> np.ndarray:
-        t1a = np.asarray(t1, dtype=float)
-        t2a = np.asarray(t2, dtype=float)
-        out = np.zeros(np.broadcast(t1a, t2a).shape, dtype=float)
-        causal = t1a > t2a
-        if np.any(causal):
-            b1, b2 = np.broadcast_arrays(t1a, t2a)
-            out[causal] = _r_star(self.density, b1[causal] - b2[causal])
-        return out
+    _r_scalar.vectorized = True
 
     # -- C --------------------------------------------------------------- #
 

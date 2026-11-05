@@ -121,6 +121,7 @@ from scipy.special import erf
 import sft_wick as sw
 from sft_wick._propagator_lookup import wrap_propagator_cache
 from sft_wick.evaluate import (
+    _cache_has_spatial_table,
     PropagatorCache,
     PropagatorModel,
     _c_lookup_positions,
@@ -407,8 +408,10 @@ def _build(cls, kind, table):
 
 def _evaluate(expansions, kind, cache, method, orders=(2,), pair=PAIR, **extra):
     name, kw = _METHODS[method]
+    # A time-only table holds one separation and refuses points apart.
+    y = Y3 if _cache_has_spatial_table(cache) else X3
     return expansions[kind][1].evaluate(
-        sw.propagators_from_cache(cache), positions={"x": X3, "y": Y3},
+        sw.propagators_from_cache(cache), positions={"x": X3, "y": y},
         t_final=TX, external_times={"x": TX, "y": TY}, component_pair=pair,
         orders=list(orders), method=name, **kw, **extra).total
 
@@ -492,6 +495,7 @@ def test_CA3_two_point_qmc_with_a_reused_buffer(expansions, kind, table, name):
 
 _K0 = np.array([[[0.31, -0.57], [0.12, 0.44]], [[-0.26, 0.08], [0.73, -0.19]]])
 _SEVEN = ("u", "v", "w", "x", "y", "z", "q")
+_SEVEN_AT = (0.1, -0.4, 0.7, 0.25, -0.15, 0.55, -0.3)
 
 
 class _KappaR3:
@@ -527,7 +531,7 @@ def test_CA3_zero_dimensional_branch_with_a_reused_buffer(method, table):
             exp_.dts_by_order[1], {"K": _KappaR3()}, TX, cache, t_min=T0,
             method=method, n_gauss=3, n_samples=64, seed=1,
             fixed_indices=dict(zip("abcdefg", (0, 1, 1, 0, 1, 0, 1))),
-            positions=dict(zip(_SEVEN, (0.1, -0.4, 0.7, 0.25, -0.15, 0.55, -0.3))),
+            positions=dict(zip(_SEVEN, (0.1,) * 7 if table == "legacy" else _SEVEN_AT)),
             external_times=dict(zip(_SEVEN, (1.9, 1.2, 1.5, 0.9, 1.6, 1.3, 1.75))))
     assert totals["fresh"] != 0.0
     assert totals["reuse"] == totals["fresh"]
@@ -908,12 +912,17 @@ def _zero_dimensional(case, method):
         exp_, model = _five_point_with_psi()
         g, table, points = G_DIAG, "legacy", _FIVE
         times = (1.9, 1.5, 1.75, 1.6, 0.9)
+        # The ψ leg joins y to another external point, so they share one
+        # coordinate: the callable reads it, and two would be refused.
+        coords = (0.1,) * 5
     else:
         g, diag_C, table = {"C_diagonal_batch": (G_DIAG, True, "legacy"),
                             "C_matrix_batch": (G_MIX, False, "legacy"),
                             "C_at_batch": (G_DIAG, True, "spatial")}[case]
         exp_, model = _seven_point(g, diag_C)
         points, times = _SEVEN, (1.9, 1.2, 1.5, 0.9, 1.6, 1.3, 1.75)
+        # A time-only table holds one separation and refuses points apart.
+        coords = (0.1,) * 7 if table == "legacy" else _SEVEN_AT
 
     def run(cls, *_fixtures):
         cache = cls(model, homogeneity="general", c_value_fn=_ExactC(g, EQUAL))
@@ -922,7 +931,7 @@ def _zero_dimensional(case, method):
             exp_.dts_by_order[1], {"K": _KappaR3()}, TX, cache, t_min=T0,
             method=method, n_gauss=3, n_samples=64, seed=1,
             fixed_indices=dict(zip("abcdefg", (0, 1, 1, 0, 1, 0, 1))),
-            positions=dict(zip(points, (0.1, -0.4, 0.7, 0.25, -0.15, 0.55, -0.3))),
+            positions=dict(zip(points, coords)),
             external_times=dict(zip(points, times)))
         return total, cache
 
@@ -1011,16 +1020,13 @@ def test_CA8_direct_scalar_lookups_hand_C_at_batch_read_only_times(name):
 
 
 def _writing_delegate(name):
-    """A subclass whose ``name`` (``_on_diagonal``, a static method, or
-    ``_lazy_lookup``) reads its arguments, then writes into the first time
-    array."""
+    """A subclass whose ``name`` (``_on_diagonal`` or ``_lazy_lookup``) reads
+    its arguments, then writes into the first time array."""
     if name == "_on_diagonal":
-        def on_diagonal(t1, t2):
-            mask = PropagatorCache._on_diagonal(t1, t2)
+        def body(self, t1, t2):
+            mask = PropagatorCache._on_diagonal(self, t1, t2)
             t1 -= t2
             return mask
-
-        body = staticmethod(on_diagonal)
     else:
         def body(self, lazy, t1, t2, *rest):
             value = PropagatorCache._lazy_lookup(self, lazy, t1, t2, *rest)

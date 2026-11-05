@@ -118,7 +118,7 @@ vanishes by causality:
 because the retarded nature of :math:`R` would require
 :math:`t_1 > t_2 > \cdots > t_n > t_1`, which is impossible.
 
-In **sft-wick**, both rules are applied by default when ``ito=True``.
+**sft-wick** applies both rules at every contraction.
 
 
 Response Phase Convention
@@ -135,7 +135,8 @@ field with a response field picks up a phase:
 When ``response_phase=True`` (the default in
 :func:`~sft_wick.perturbation.compute_moment`), each term in the final
 result is multiplied by :math:`(-\mathrm{i})^n`, where *n* is the
-number of response propagators in that term.
+number of response propagators in that term.  The flag concerns the
+symbolic output; integrated numbers always carry this phase.
 
 
 The Partition Function :math:`Z=1`

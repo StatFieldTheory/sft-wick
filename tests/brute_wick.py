@@ -95,7 +95,7 @@ def count_pairings(n_operators: int) -> int:
 Propagator = tuple[str, str, str, str | None, str | None]
 
 
-def _contract(op1: Op, op2: Op, ito: bool) -> tuple[Propagator, str] | tuple[None, str]:
+def _contract(op1: Op, op2: Op) -> tuple[Propagator, str] | tuple[None, str]:
     """Independent re-implementation of ``contract_pair``.
 
     Returns ``(propagator, 'ok')`` or ``(None, reason)``.  ``reason`` is
@@ -113,7 +113,7 @@ def _contract(op1: Op, op2: Op, ito: bool) -> tuple[Propagator, str] | tuple[Non
     else:
         phi_op, psi_op = op2, op1
 
-    if ito and phi_op.spatial == psi_op.spatial:
+    if phi_op.spatial == psi_op.spatial:
         return None, "ito"
 
     return (
@@ -154,7 +154,6 @@ def _has_r_cycle(propagators: list[Propagator]) -> bool:
 def classify_pairing(
     pairing: frozenset,
     op_by_uid: dict[int, Op],
-    ito: bool = True,
 ) -> tuple[bool, str, list[Propagator]]:
     """Classify a pairing and return ``(kept, reason, propagators)``.
 
@@ -162,7 +161,7 @@ def classify_pairing(
     a pairing was rejected:
 
         1. ``psi-psi`` — any ψ-ψ pair -> vanish.
-        2. ``ito``     — any R(x,x) pair under Itô -> vanish.
+        2. ``ito``     — any R(x,x) pair -> vanish.
         3. ``r-loop``  — causal R-loop among surviving R edges -> vanish.
         4. ``ok``      — accepted.
 
@@ -174,12 +173,12 @@ def classify_pairing(
     for pair in pairing:
         u1, u2 = tuple(pair)
         op1, op2 = op_by_uid[u1], op_by_uid[u2]
-        prop, reason = _contract(op1, op2, ito=ito)
+        prop, reason = _contract(op1, op2)
         if prop is None:
             return False, reason, propagators
         propagators.append(prop)
 
-    if ito and _has_r_cycle(propagators):
+    if _has_r_cycle(propagators):
         return False, "r-loop", propagators
 
     return True, "ok", propagators
@@ -214,7 +213,6 @@ def spatial_signature(propagators: list[Propagator]) -> tuple:
 
 def topology_multiplicities(
     ops: list[Op],
-    ito: bool = True,
 ) -> dict[tuple, int]:
     """Count surviving pairings by spatial topology.
 
@@ -225,7 +223,7 @@ def topology_multiplicities(
     uids = [op.uid for op in ops]
     counts: Counter = Counter()
     for p in enumerate_pairings(uids):
-        kept, _, props = classify_pairing(p, op_by_uid, ito=ito)
+        kept, _, props = classify_pairing(p, op_by_uid)
         if kept:
             counts[spatial_signature(props)] += 1
     return dict(counts)
@@ -233,20 +231,18 @@ def topology_multiplicities(
 
 def iter_kept_pairings(
     ops: list[Op],
-    ito: bool = True,
 ) -> Iterator[tuple[frozenset, list[Propagator]]]:
     """Yield ``(pairing, propagators)`` for every surviving pairing."""
     op_by_uid = {op.uid: op for op in ops}
     uids = [op.uid for op in ops]
     for p in enumerate_pairings(uids):
-        kept, _, props = classify_pairing(p, op_by_uid, ito=ito)
+        kept, _, props = classify_pairing(p, op_by_uid)
         if kept:
             yield p, props
 
 
 def classify_all(
     ops: list[Op],
-    ito: bool = True,
 ) -> tuple[set[frozenset], dict[str, int]]:
     """Run classification over every candidate pairing.
 
@@ -260,7 +256,7 @@ def classify_all(
     kept: set[frozenset] = set()
     reasons: Counter = Counter()
     for p in enumerate_pairings(uids):
-        ok, reason, _ = classify_pairing(p, op_by_uid, ito=ito)
+        ok, reason, _ = classify_pairing(p, op_by_uid)
         if ok:
             kept.add(p)
         else:

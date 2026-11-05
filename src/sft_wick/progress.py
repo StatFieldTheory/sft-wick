@@ -26,7 +26,7 @@ import contextlib
 import os
 import sys
 import time
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Sequence
 
 _FALSY = {"0", "false", "off", "no"}
 _TRUTHY = {"1", "true", "on", "yes"}
@@ -35,16 +35,14 @@ _TRUTHY = {"1", "true", "on", "yes"}
 _SETTINGS: list[Any] = []
 
 
-def _env_setting() -> bool | None:
-    raw = os.environ.get("SFT_WICK_PROGRESS")
-    if raw is None:
-        return None
-    val = raw.strip().lower()
-    if val in _FALSY:
+def env_flag(name: str, default: bool | None = None) -> bool | None:
+    """The ``SFT_WICK_*`` switch ``name``: ``0``/``false``/``off``/``no`` are
+    off and ``1``/``true``/``on``/``yes`` on, in any case and with spaces
+    around them.  Unset, empty or any other word gives ``default``."""
+    word = os.environ.get(name, "").strip().lower()
+    if word in _FALSY:
         return False
-    if val in _TRUTHY:
-        return True
-    return None
+    return True if word in _TRUTHY else default
 
 
 def current_setting() -> Any:
@@ -53,7 +51,7 @@ def current_setting() -> Any:
         setting = _SETTINGS[-1]
         if setting is not None:
             return setting
-    env = _env_setting()
+    env = env_flag("SFT_WICK_PROGRESS")
     if env is not None:
         return env
     try:
@@ -83,7 +81,7 @@ def progress(setting: Any):
 
 
 def _tqdm_class():
-    if _env_setting() is None and not sys.stderr.isatty():
+    if env_flag("SFT_WICK_PROGRESS") is None and not sys.stderr.isatty():
         return None
     try:
         from tqdm import tqdm  # type: ignore

@@ -78,7 +78,7 @@ def test_ito_phi_psi_equal_point_vanishes():
     psi = Field("psi", "response", n_components=3)
     op1 = phi("a", "x")
     op2 = psi("b", "x")  # same spatial arg
-    assert contract_pair(op1, op2, ito=True) is None
+    assert contract_pair(op1, op2) is None
 
 
 def test_ito_psi_phi_equal_point_vanishes():
@@ -87,7 +87,7 @@ def test_ito_psi_phi_equal_point_vanishes():
     psi = Field("psi", "response", n_components=3)
     op1 = psi("b", "x")
     op2 = phi("a", "x")  # same spatial arg
-    assert contract_pair(op1, op2, ito=True) is None
+    assert contract_pair(op1, op2) is None
 
 
 def test_ito_phi_psi_different_points_survives():
@@ -96,7 +96,7 @@ def test_ito_phi_psi_different_points_survives():
     psi = Field("psi", "response", n_components=3)
     op1 = phi("a", "x")
     op2 = psi("b", "y")  # different spatial arg
-    prop = contract_pair(op1, op2, ito=True)
+    prop = contract_pair(op1, op2)
     assert prop is not None
     assert prop.kind == "R"
 
@@ -106,7 +106,7 @@ def test_ito_does_not_affect_C():
     phi = Field("phi", "physical", n_components=3)
     op1 = phi("a", "x")
     op2 = phi("b", "x")  # same spatial arg
-    prop = contract_pair(op1, op2, ito=True)
+    prop = contract_pair(op1, op2)
     assert prop is not None
     assert prop.kind == "C"
 
@@ -116,4 +116,4 @@ def test_ito_does_not_affect_psi_psi():
     psi = Field("psi", "response", n_components=3)
     op1 = psi("a", "x")
     op2 = psi("b", "x")
-    assert contract_pair(op1, op2, ito=True) is None
+    assert contract_pair(op1, op2) is None

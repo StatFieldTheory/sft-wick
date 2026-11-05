@@ -52,8 +52,8 @@ workflow:
 
 The factory accepts the native constant ``DiagonalA`` specification and checks
 the component count, actual lowered rates and lower time bound. In particular,
-``DiagonalA`` collapses rates considered equal by its existing ``allclose``
-rule to the first component's scalar response; ``from_system`` snapshots that
+``DiagonalA`` collapses rates equal to 1e-9 relative to the first component's
+scalar response; ``from_system`` snapshots that
 actual response. Explicit responses, callable rates and overridden System or
 DiagonalA subclasses are refused. ``as_vertex`` checks the supplied System
 again. Revalidate if its response or time bound changes.

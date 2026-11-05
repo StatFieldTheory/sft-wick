@@ -31,7 +31,8 @@ import numpy as np
 import pytest
 
 import sft_wick as sw
-from sft_wick.evaluate import (_coupling_kink_candidates, _declares,
+from sft_wick.evaluate import (_c_has_diagonal_kink, _coupling_kink_candidates,
+                               _declares,
                                _kink_orientations, _kink_pairs)
 from sft_wick.workflow.specs import ConstantImpulse
 
@@ -174,7 +175,8 @@ def test_the_white_noise_system_has_matrix_r_and_a_kink_pair(white):
     cv = exp.system.build_coupling_values()
     igs = [dt.build_integrand(cv, {"a": 0, "b": 1})
            for dt in exp.dts_by_order[2]]
-    assert any(ig._kink_pairs_under(props.cache, ig.spatial.time_orderings)
+    assert any(ig._kink_pairs_under(_c_has_diagonal_kink(props.cache),
+                                    ig.spatial.time_orderings)
                for ig in igs), "no diagram with a C kink between unordered times"
 
 

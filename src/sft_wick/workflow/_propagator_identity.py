@@ -140,6 +140,8 @@ _MODULE_ROLES = (
         for name in (
             "_psi",
             "_dexp",
+            "_phi_at_small_rates",
+            "_phi_closed",
             "ou_exponential_phi",
             "ou_white_psi",
             "_resolve_positions",

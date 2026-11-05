@@ -78,9 +78,8 @@ def default_external_label(
     comp = node_attrs.get("component")
 
     if fmt == LABEL_FULL:
-        # Honour a pre-computed full label if the diagram builder
-        # stashed one (current convention in
-        # FeynmanDiagram.from_pairing); otherwise reconstruct.
+        # Honour a full label a hand-built diagram stored through
+        # ``add_external_point(full_label=...)``; otherwise spell it.
         full = node_attrs.get("full_label")
         if full:
             return full

@@ -111,6 +111,12 @@ Product = TypeVar("Product")
 
 
 @lru_cache(maxsize=512)
+def mixed_weights(order: int) -> tuple[Fraction, Fraction]:
+    """The ring and chain weights ``2**(n-1)/n`` and ``2**(n-3)`` of a mixed
+    cumulant of order ``n``."""
+    return Fraction(2 ** (order - 1), order), Fraction(2) ** (order - 3)
+
+
 def _class_items(
     slots: Word, cyclic: bool, reversal: bool
 ) -> tuple[tuple[Word, int], ...]:
@@ -300,7 +306,7 @@ def _coefficients(order: int, latent: int) -> tuple[Fraction, Fraction, Fraction
     ring = (growth ** (order - 1) - 1) * restore
     chain = (growth ** (order - 2) * (1 + _UNIT_ROUNDOFF) - 1) * restore
     allowance = math.factorial(order) * 64 * order * latent**2 * _UNDERFLOW_ERROR
-    leading, endpoint = Fraction(2 ** (order - 1), order), Fraction(2) ** (order - 3)
+    leading, endpoint = mixed_weights(order)
     return leading * ring, endpoint * chain, (leading + endpoint) * allowance
 
 

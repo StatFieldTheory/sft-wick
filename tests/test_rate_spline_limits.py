@@ -733,3 +733,27 @@ def test_RS8_one_rule_at_both_levels(orders, observable, refused):
         (f"{observable[0]}_a(x)", f"{observable[1]}_a(y)"), orders=orders
     )
     assert _reads_R(expansion, orders) is refused
+
+
+@pytest.mark.parametrize("excess, refused", [(5e-13, False), (1e-9, True)])
+def test_t_max_within_rounding_of_the_spline_end_is_at_the_end(excess, refused):
+    """``System.propagators`` compared with no slack, so it refused a computed
+    ``t_max`` that R itself reads."""
+    system = sw.System(
+        field=sw.FieldSpec("phi", 1),
+        linear=sw.DiagonalA(gamma=lambda t: np.array([1.0 + 0.1 * t]),
+                            t_max_cache=10.0),
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.ExponentialTemporal(lam=1.0, sigma_t=0.5),
+                spatial=sw.ExponentialSpatial(sigma_x=1.0),
+            )
+        ),
+        t_min=0.25,
+    )
+    t_max = 10.0 * (1.0 + excess)
+    if refused:
+        with pytest.raises(ValueError, match="t_max_cache"):
+            system._require_gamma_grid(t_max)
+    else:
+        system._require_gamma_grid(t_max)

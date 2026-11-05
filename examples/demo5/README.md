@@ -39,10 +39,10 @@ Worst relative difference over the component tuples (`results.json`):
 | | mixing | diagonal | isotropic |
 |---|---|---|---|
 | Gauss-Legendre, orders 0-3 (12 nodes) | 6.6e-16 | 9.2e-16 | 5.6e-16 |
-| Gauss-Legendre, order 4 (12 nodes) | 9.0e-16 | 1.4e-15 | 1.3e-15 |
+| Gauss-Legendre, order 4 (12 nodes) | 9.0e-16 | 1.2e-15 | 1.3e-15 |
 | `nquad`, orders 1 / 2 / 3 | 4.3e-16 / 8.3e-16 / 2.0e-16 | 1.9e-16 / 3.2e-16 / 3.7e-16 | 4.0e-16 / 1.7e-16 / 5.0e-16 |
-| `qmc_vectorized` (2¹⁴), orders 1 / 2 | 2.5e-7 / 9.4e-7 | 1.1e-7 / 1.0e-6 | 1.1e-7 / 9.6e-7 |
-| `qmc_scalar`, `qmc` (2¹¹), orders 1 / 2 | 2.5e-7 / 2.7e-6 | 1.1e-7 / 6.7e-6 | 1.1e-7 / 6.7e-6 |
+| `qmc_vectorized` (2¹⁴), orders 1 / 2 | 2.7e-15 / 7.5e-6 | 2.9e-15 / 8.0e-6 | 3.0e-15 / 7.7e-6 |
+| `qmc_scalar`, `qmc` (2¹¹), orders 1 / 2 | 6.5e-9 / 2.6e-5 | 6.9e-9 / 6.4e-5 | 6.8e-9 / 6.5e-5 |
 
 `run.py --c-quadrature` takes C from quadrature tables instead of the
 closed form; the mixing variant then tabulates every `C_ab`, which is the
@@ -84,7 +84,7 @@ has no `g'`-odd term; the hierarchy agrees.
 
 | | scalar R, GL | matrix R, GL | matrix R, `nquad` (orders ≤ 1) | matrix R, `qmc_vectorized` (2¹³) | matrix R, `qmc_scalar` (2¹³) |
 |---|---|---|---|---|---|
-| worst over all tags and components | 2.4e-16 | 6.6e-16 | 6.2e-16 | 2.6e-5 | 2.6e-5 |
+| worst over all tags and components | 2.4e-16 | 6.6e-16 | 6.2e-16 | 5.6e-5 | 5.6e-5 |
 | seconds | 0.0 | 0.1 | 0.2 | 2.2 | 20.5 |
 
 The two QMC columns are the same Sobol points: they agree to 2.4e-16 and
@@ -132,25 +132,22 @@ interpretations:
 | run | vertex orders | worst |
 |---|---|---|
 | scalar R, Gauss-Legendre (12 nodes) | 0-3 (`⟨φ⟩`, `⟨φφφ⟩`), 0-4 (`⟨φφ⟩`) | 9.0e-16 |
-| scalar R, `qmc_vectorized` (2¹⁴) | 0-2 | 1.0e-6 |
-| matrix R, `qmc_scalar` (2¹²) | 0-2 (`⟨φφ⟩`), 0-3 (`⟨φ⟩`) | 1.4e-5 (order 2), 1.1e-3 (order 3) |
-| matrix R, `nquad` | 0-2 | 2.3e-7 |
+| scalar R, `qmc_vectorized` (2¹⁴) | 0-2 | 8.0e-6 |
+| matrix R, `qmc_scalar` (2¹²) | 0-2 (`⟨φφ⟩`), 0-3 (`⟨φ⟩`) | 7.2e-5 (weight 2), 3.1e-4 (weight 3) |
+| matrix R, `nquad` | 0-2 | 6.2e-16 |
 
 Distinct times at one point, `⟨φ_a(t_min + 0.9) φ_b(t_min + 1.5)⟩`, orders
 0-3:
 
 | integrator | worst |
 |---|---|
-| `nquad` | 5.2e-8 |
-| `qmc_vectorized` (2¹⁶) | 2.0e-7 |
-| Gauss-Legendre (12 nodes) | 2.0e-3 |
+| `nquad` | 9.2e-16 |
+| `qmc_vectorized` (2¹⁶) | 4.7e-7 |
+| Gauss-Legendre (12 nodes) | 6.4e-16 |
 
-Gauss-Legendre is algebraic on the two-time integrand: an internal time
-crosses the earlier external time inside the domain, where C is kinked, and
-the GL kink split pairs internal variables only.  Measured on the FG
-channel: 2.0e-3 at 12 nodes, 1.1e-3 at 24, 1.8e-4 at 48, 5.4e-5 at 80.  The
-FF channel behaves the same way, so this is a property of two external
-times with white noise, not of the noise vertices.
+An internal time crosses the earlier external time inside the domain, where
+C is kinked, and Gauss-Legendre and `nquad` cut the domain at that time.  With
+that cut removed, Gauss-Legendre is 2.0e-3 off at 12 nodes and 1.1e-3 at 24.
 
 What the run would have shown on older code:
 
@@ -180,14 +177,7 @@ relative difference the Gauss-Legendre check then sees, tolerance 1e-9):
   batched loop is 11 times faster than the scalar one here (2.2 s vs
   20.5 s at 2¹³), and Gauss-Legendre reaches 6.6e-16 in 0.1 s.
 - The numerical layer evaluates every R at equal times as 0, so it computes
-  the Itô SDE whatever `ito=` says.  Under `ito=False` the extra
-  equal-point R on a vertex with one ψ leg is still evaluated (it gives 0,
-  which is exact: it and the Stratonovich Jacobian cancel, and the package
-  emits neither); on a vertex with two or more ψ legs, or between two
-  external operators, it now raises instead of returning the Itô value.  A
-  Stratonovich model is computed in its Itô form (part C).
-- Gauss-Legendre converges algebraically when the two external points are
-  at different times (part C); `nquad` and QMC do not.
+  the Itô SDE.  A Stratonovich model is computed in its Itô form (part C).
 - Part C is one SDE per point: `Expansion.evaluate` refuses external points
   at different positions that a response chain joins, and since 0.5.x so do
   the L0 entry points, for any system rather than this noise alone.
@@ -208,7 +198,7 @@ conda activate sft-wick
 cd examples/demo5
 python run.py                      # ~12 min, 10 of them the mixing variant's order 4
 python multiplicative.py           # ~30 s
-python white_l1_multiplicative.py  # ~20 min, 17 of them the two Gauss-Legendre runs
+python white_l1_multiplicative.py  # ~5 min, 3 of them the two matrix R QMC runs
 pytest ../../tests/test_demo5_white_noise.py -q
 pytest ../../tests/test_multiplicative_noise_l1.py -q
 ```

@@ -31,7 +31,7 @@
     "n_diagrams": 1,
     "vs_closed": 5.875475180957199e-16,
     "vs_hierarchy": 9.79945324823933e-16,
-    "seconds": 24.6,
+    "seconds": 1.9,
     "rows": [
      {
       "comps": [
@@ -99,9 +99,9 @@
     },
     "n_tuples": 3,
     "n_diagrams": 1,
-    "vs_closed": 6.716525539220997e-05,
-    "vs_hierarchy": 6.716525539237685e-05,
-    "seconds": 0.4,
+    "vs_closed": 2.0535476927964155e-05,
+    "vs_hierarchy": 2.053547692813105e-05,
+    "seconds": 0.3,
     "rows": [
      {
       "comps": [
@@ -112,7 +112,7 @@
        1,
        0
       ],
-      "package": -0.16628880201817764,
+      "package": -0.16629655654901188,
       "closed": -0.16629997159824175,
       "hierarchy": -0.16629997159824178
      },
@@ -125,7 +125,7 @@
        0,
        1
       ],
-      "package": -0.16628880201817764,
+      "package": -0.16629655654901188,
       "closed": -0.16629997159824175,
       "hierarchy": -0.16629997159824178
      },
@@ -138,7 +138,7 @@
        0,
        1
       ],
-      "package": 0.18935075266303442,
+      "package": 0.18935958263975078,
       "closed": 0.18936347130894682,
       "hierarchy": 0.18936347130894673
      }
@@ -156,9 +156,9 @@
     },
     "n_tuples": 3,
     "n_diagrams": 1,
-    "vs_closed": 1.2341221625948145e-05,
-    "vs_hierarchy": 1.2341221626139108e-05,
-    "seconds": 3.6,
+    "vs_closed": 1.5661862708537757e-05,
+    "vs_hierarchy": 1.56618627083468e-05,
+    "seconds": 4.7,
     "rows": [
      {
       "comps": [
@@ -169,7 +169,7 @@
        1,
        0
       ],
-      "package": -0.16456459628916933,
+      "package": -0.16456047317724,
       "closed": -0.16456303273707323,
       "hierarchy": -0.1645630327370733
      },
@@ -182,7 +182,7 @@
        0,
        1
       ],
-      "package": -0.16131549668958164,
+      "package": -0.16131289040421037,
       "closed": -0.16131499256471912,
       "hierarchy": -0.16131499256471918
      },
@@ -195,7 +195,7 @@
        0,
        1
       ],
-      "package": 0.14534818450888998,
+      "package": 0.1453441143616519,
       "closed": 0.14534639075686911,
       "hierarchy": 0.1453463907568691
      }
@@ -213,9 +213,9 @@
     },
     "n_tuples": 3,
     "n_diagrams": 1,
-    "vs_closed": 1.2341221625948145e-05,
-    "vs_hierarchy": 1.2341221626139108e-05,
-    "seconds": 3.6,
+    "vs_closed": 1.5661862708537757e-05,
+    "vs_hierarchy": 1.56618627083468e-05,
+    "seconds": 4.7,
     "rows": [
      {
       "comps": [
@@ -226,7 +226,7 @@
        1,
        0
       ],
-      "package": -0.16456459628916933,
+      "package": -0.16456047317724,
       "closed": -0.16456303273707323,
       "hierarchy": -0.1645630327370733
      },
@@ -239,7 +239,7 @@
        0,
        1
       ],
-      "package": -0.16131549668958164,
+      "package": -0.16131289040421037,
       "closed": -0.16131499256471912,
       "hierarchy": -0.16131499256471918
      },
@@ -252,7 +252,7 @@
        0,
        1
       ],
-      "package": 0.14534818450888998,
+      "package": 0.1453441143616519,
       "closed": 0.14534639075686911,
       "hierarchy": 0.1453463907568691
      }
@@ -262,11 +262,11 @@
   "pending": [
    {
     "method": "gauss_legendre",
-    "status": "refused: method='gauss_legendre' currently supports scalar iso_R=True response propagator"
+    "status": "ran: vs closed 6.7e-16"
    },
    {
     "method": "qmc_vectorized",
-    "status": "refused: method='qmc_vectorized' currently supports scalar iso_R=True response propagator"
+    "status": "ran: vs closed 2.9e-05"
    }
   ],
   "hierarchy_vs_closed_common": 5.716347728139607e-16,
@@ -287,7 +287,7 @@
     "n_diagrams": 10,
     "vs_closed": 9.67733215641764e-16,
     "vs_hierarchy": 2.350209237987144e-15,
-    "seconds": 0.4,
+    "seconds": 0.3,
     "rows": [
      {
       "comps": [
@@ -355,9 +355,9 @@
     },
     "n_tuples": 3,
     "n_diagrams": 10,
-    "vs_closed": 1.315507712619633e-07,
-    "vs_hierarchy": 1.3155077188209016e-07,
-    "seconds": 0.7,
+    "vs_closed": 1.5912562831332087e-07,
+    "vs_hierarchy": 1.5912562893344774e-07,
+    "seconds": 0.0,
     "rows": [
      {
       "comps": [
@@ -368,7 +368,7 @@
        1,
        0
       ],
-      "package": 0.008392108347423604,
+      "package": 0.008392108578834762,
       "closed": 0.008392107243435424,
       "hierarchy": 0.008392107243435419
      },
@@ -381,7 +381,7 @@
        0,
        1
       ],
-      "package": 0.00839210834623475,
+      "package": 0.008392108577514561,
       "closed": 0.008392107243435424,
       "hierarchy": 0.008392107243435419
      },
@@ -394,7 +394,7 @@
        0,
        1
       ],
-      "package": 0.007960211682430066,
+      "package": 0.007960211931215164,
       "closed": 0.007960211193601066,
       "hierarchy": 0.007960211193601064
      }
@@ -411,7 +411,7 @@
     "n_diagrams": 10,
     "vs_closed": 4.1341785219290746e-16,
     "vs_hierarchy": 2.1792430298473623e-16,
-    "seconds": 0.1,
+    "seconds": 0.2,
     "rows": [
      {
       "comps": [
@@ -466,9 +466,9 @@
     },
     "n_tuples": 3,
     "n_diagrams": 10,
-    "vs_closed": 2.591732594123702e-05,
-    "vs_hierarchy": 2.591732594058553e-05,
-    "seconds": 1.1,
+    "vs_closed": 2.3887792614093837e-06,
+    "vs_hierarchy": 2.3887792620608918e-06,
+    "seconds": 1.5,
     "rows": [
      {
       "comps": [
@@ -479,7 +479,7 @@
        1,
        0
       ],
-      "package": 0.007644481818569146,
+      "package": 0.007644658934543322,
       "closed": 0.007644643137136127,
       "hierarchy": 0.0076446431371361276
      },
@@ -492,7 +492,7 @@
        0,
        1
       ],
-      "package": 0.007987691690876975,
+      "package": 0.007987917797178374,
       "closed": 0.00798789871585158,
       "hierarchy": 0.007987898715851574
      },
@@ -505,7 +505,7 @@
        0,
        1
       ],
-      "package": 0.004063995702623901,
+      "package": 0.00406406491193748,
       "closed": 0.004064058482976276,
       "hierarchy": 0.004064058482976274
      }
@@ -523,9 +523,9 @@
     },
     "n_tuples": 3,
     "n_diagrams": 10,
-    "vs_closed": 2.591732594123702e-05,
-    "vs_hierarchy": 2.591732594058553e-05,
-    "seconds": 1.1,
+    "vs_closed": 2.3887792614093837e-06,
+    "vs_hierarchy": 2.3887792620608918e-06,
+    "seconds": 1.5,
     "rows": [
      {
       "comps": [
@@ -536,7 +536,7 @@
        1,
        0
       ],
-      "package": 0.007644481818569146,
+      "package": 0.007644658934543322,
       "closed": 0.007644643137136127,
       "hierarchy": 0.0076446431371361276
      },
@@ -549,7 +549,7 @@
        0,
        1
       ],
-      "package": 0.007987691690876975,
+      "package": 0.007987917797178374,
       "closed": 0.00798789871585158,
       "hierarchy": 0.007987898715851574
      },
@@ -562,7 +562,7 @@
        0,
        1
       ],
-      "package": 0.004063995702623901,
+      "package": 0.00406406491193748,
       "closed": 0.004064058482976276,
       "hierarchy": 0.004064058482976274
      }
@@ -600,11 +600,11 @@
   "pending": [
    {
     "method": "gauss_legendre",
-    "status": "refused: method='gauss_legendre' currently supports scalar iso_R=True response propagator"
+    "status": "ran: vs closed 5.4e-14"
    },
    {
     "method": "qmc_vectorized",
-    "status": "refused: method='qmc_vectorized' currently supports scalar iso_R=True response propagator"
+    "status": "ran: vs closed 3.9e-06"
    }
   ],
   "hierarchy_vs_closed_common": 2.211961635752601e-15,

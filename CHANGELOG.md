@@ -2,7 +2,793 @@
 
 ## Unreleased
 
-### Fixed: later vector shapes passed validation, and physical moments slowed it
+### Fixed: rates a relative test tells apart were called equal
+
+`DiagonalA` lowered rates to one scalar R, component 0's, when `np.allclose` called
+them equal.  Its absolute floor of 1e-8 called small rates equal whatever their
+ratio, and its relative tolerance of 1e-5 left a 5e-6 relative error in the rate.
+At `gamma = [1e-9, 5e-9]`, `t = 1e9`, R of the second component was too large by a
+factor 55 and C by a factor 4.32.  At `[1e-9, 0]`, C came out at 0.43 of its value.
+The result depended on which rate was listed first.  Rates are now equal when they
+differ by at most 1e-9 of the first, the tolerance of an index-free C, with no floor.
+The reference is the OU solution written out in the test.  Rates that differ by more
+than 1e-9 now take a matrix R, which costs more than a scalar one.  From a difference
+of 1e-9 to one of about 1e-5, an explicit `iso_R=True` now raises, as `iso_C=True` does
+from a difference that depends on the time and the table (about 2e-9 at `t = 1.5`, 4e-8
+at `t = 0.05`), since neither system is what those flags say: float32-rounded rates
+reach this.  `sft-wick validate` and `sft-wick run` refuse `iso_R` at `expand.iso_R`
+with status 2 when a selected diagram reads an R; an R absorbed into an
+`already_R_contracted` vertex is not read.  They refuse `iso_C` at `expand.iso_C` from
+exact C at one point, the last `t_final`.  The integrators read the table at every
+time, so close to that refusal `validate` can pass and the run end in a `ValueError`,
+status 1, with no key named.
+
+### Fixed: wrong numbers at L0
+
+| Case | Before | Now |
+|---|---|---|
+| A propagator label that names nothing (`fixed_indices={}`, N = 2, order 1) | 0.19525, the trace; the four pinned values are 0.04149, 0.05457, -0.01220, 0.00263 | `KeyError` on every integrator |
+| A flagged and a plain vertex sharing a coupling name, order 2 | -134.08 against -182.91 (`equal_time`), -57.30 against -113.02 (`already_R_contracted`) | both engines give the hand count |
+| `integrate_moment` with positions on a cache with no table | 0.51419, against `C(x, y)` 0.11473 | 0.11473 on all four methods |
+| A time-only table asked for a C it does not hold | `C(x, x)`, 0.31946 against 0.10371; a factor e on a σ² of position; a factor 25 at `x = y = 2` | `ValueError` on every integrator, `DiagramIntegrand.evaluate` and `make_scipy_integrand`, unless κ² and σ² read there as where the table was built, at six times across its range |
+| `dblquad` C at or below `t_min` with an R that is not causal | -0.12028, and -1.82e17 at `C(0.1, -40)` | 0 on every method |
+| L0 integrals on a model with `t_min` other than 0 | 0.0709183 against 0.0729964, or a table refusal | the integrals read the model's `t_min` |
+| `integration_bounds` with no `t_min` under a model with `t_min = 2` | 1.46834 against 0.326142, a default of 0 | `t_min` is required; the method holds no cache to read it from |
+| `precompute_C_table` a second time on one cache | the grid read the old table, so a rebuild at another `direction` kept C there under the new label: 0.31946 against 7.98644, past the time-only refusal, and the position it did hold was refused | the old table is cleared first |
+| A time-only table beside a far stronger component | a component 1e14 weaker could depend on position unseen: a factor 3.08 at r = 1.5, 90 at r = 3 | each entry is compared on its own scale |
+| Two times on a time-only table at a large time origin | a lag up to `1e-9 max(1, abs(t))` read the diagonal line at the mean time: 0.33333 against 0.21594 at t = 1e9, lag 0.9, and at t = 1e6 with gamma = 1000 | the tolerance is `1e-9` of the table's span, or 8 units of rounding of the times |
+| `clear_cache` on a time-only table | the rules of the removed table stayed, so `c_method_resolved` reported them and a later C took them: 3.1e-2 off where a fresh cache is 1.4e-12 off | they go with the table; a spatial table keeps its own |
+| A half table on a one-sided kernel that passed the probe | 58 and 73 percent off, translation; 0.1044 against 0.1545, general; 22 percent on a kernel of short reach; 0.79377 against 0.57343 by the separation read first | half a table only for a declared kernel (see below) |
+| A translation table on noise not even in `x - y`, such as a moving pattern `κ²(x - y - v (t - t'))` | the orientation read first: 0.889096 against 0.437489, a factor 2.03; order 2 of `<phi phi>` 2.5385 against 2.1283 | `ValueError` at each separation the table reads, full or lazy; `homogeneity='general'` holds both orientations |
+| `nquad` on an undeclared closed-form C and a cache with no table | the kink probe read the ambient `direction`, where `C_value` reads the points: `C ∝ x1 x2` ran unsplit at `direction = 0`, 9.4e-07 off under an estimate of 1.5e-08 | the probe reads C where the integrator does; on a time-only table, at the table's position |
+| `make_scipy_integrand` on a callable coupling with `directions` keyed by point | `KeyError`, while `evaluate` takes that spelling | takes it too |
+| `collect_by_diagram` on a hand-built sum with a delta | -0.81172 against -1.67758 | every occurrence of a dummy index is renamed, and a merge that is not injective is declined |
+| An `already_R_contracted` vertex with a phi leg | one term 0.0 against 2.0 | `Vertex` refuses a phi leg there |
+| `evaluate_coupling_batched` on `I K` with a real K | zeros with a `ComplexWarning`; the scalar entry raised | both keep the factor: `2j`, `3j` |
+
+`t_min` of an L0 integrator now defaults to `None`, the model's value, and an explicit
+value that differs from the model's raises `ValueError`.  A conflict in one position
+group now raises the position `ValueError` on every integrator, with or without a
+table, on a diagram that reads no position too: the order-0 `⟨φ(x) ψ(y)⟩` at two
+positions returned 0.0 at L0, and `qmc_vectorized` and `gauss_legendre` returned a number
+at order 1.  A leg with no label at all still gives the trace.
+
+### Fixed: the rule of C, the kink probe and the time-only rescale
+
+| Case | Before | Now |
+| --- | --- | --- |
+| A `GeneralKappa2.fn` object with a field named `temporal`, whose time shape changes with position | taken for separable: the origin's rule at every pair, 0.73 off at gamma 0.5, T 20, width 1e-3, with no warning | a private flag of the separable kernels decides, and the pair finds its rule |
+| A separable kernel not finite at r = 0 | `dblquad` at every separation: 5.3e-16 against 4.6e-4 at sigma_t 1e-3, T 30 | the pair finds its rule, and `c_source` is `quadrature:per_position` |
+| The same kernel raising at r = 0 | `ZeroDivisionError` on the first read of a lazy table | the table falls back to quadrature per separation |
+| A weak cusp beside a strong smooth entry of κ² | read as smooth: order 2 was 1.3e-3 off at 8 nodes where the same kernel with equal entries is 1.5e-5 off | each entry is judged on its own scale |
+| An undeclared closed-form C with every external pinned past `t_final` | probed up to `t_final` only: at `t_final = t_min` no split, 8.3e-3 off at 16 nodes | probed over the domain, up to the latest pinned time |
+| A κ² that collapses a one-element array, on a time-only table at distinct positions | `integrate_two_point_qmc` wrapped the positions: 46 to 94 percent off, or `IndexError` | the kernel receives the positions as given |
+| A per-build `c_method` of a build, failed or not | stayed on the instance: 44 percent off at 4 nodes on later direct cells, and an instance set to `dblquad` took it too | a per-build method reaches the cells of its build alone, whatever the instance's setting |
+| A kernel feature at interior times under `c_method='auto'` | the rule was read at five cells: with `gamma = 5`, `T = 16`, a burst at `t = 14` gave up to 1.94 off at width 0.02 and 4e-5 at width 0.2, no warning | the rule is read at 23 cells (see below): the node count rises, or `dblquad` with its warning |
+| A kernel not symmetric in time under `c_method='auto'` | no cell with `t1 < t2` was read: 5e-2 and 1e-1 off on a ridge at lag 8, no warning, on a valid covariance of a moving pattern too | those cells are read |
+| Separations or angles below the key of a lazy table | a key of 10 decimals put them on one table, so both took the value of the one read first: order 2 was 23 percent low at positions of order 1e-13 and below, on every integrator; an angle below 1e-5 collapsed in any units; 1.02e-9 and 1.04e-9 collapsed too | a key of 13 significant digits, the separation in general mode too, and for rotation the distances between unit vectors in place of a cosine |
+| `integrate_two_point_qmc` on a time-only table where kappa2 at `t_ref` is at most 1e-30 | 0.0 against 3.7e-6 where noise has decayed by `t_ref`, 0.0 against 2.5e-32 at an amplitude of 1e-31, and 0.0 against 0.0115 where it has ended | the ratio has no floor, and a kappa2 that is 0 at `t_ref` and not throughout is refused; a component with no noise keeps 0 |
+| A chain of aliases, an equal-time leg as partner of an absorbed leg | `KeyError` on `qmc_scalar` and `nquad` with a callable coupling | every leg reads the end of its chain |
+| `DiagramIntegrand.to_latex` with an absorbed R | printed R factors the integrand does not hold | prints the factors it multiplies |
+| `ou_exponential_phi` on a batch with one small time | numpy overflow warnings on correct input | the small-rate branch reads its own elements |
+
+The rule search reads 23 cells: the five extreme ones, the mirrors of their two
+off-diagonal cells, ten more on the diagonal and three lags on both sides.  A kernel
+that fails at the extreme cells stops there, and one that passes reads all 23.  The diagonal covers a rate times the
+range up to about 100, and a feature beyond that can still go unread.
+
+The scalar loop (`qmc_scalar`, `qmc`, `nquad`) on a closed-form-only cache costs about
+25 percent more CPU: 78.9 s against 63.1 s on demo 5's matrix-R run on `qmc_scalar` at
+`2^12` samples.
+
+A lazy table now builds a second table for separations that differ by more than 1e-12
+relative, where the old key collapsed them; the rescaled separable path pays nothing
+for that.  The key has no floor at the rounding of the positions: separations up to
+9 ulps of the coordinates shared the r = 0 table, so at x = 1e10 and a width of 2e-6 the
+ratio to C(x, x) was 1 against 1e-16 at 9 ulps, and moving the origin changed it.  Two
+positions meant to coincide that differ by rounding now cost a table of their own.
+
+`dblquad` runs with `epsabs=0` and `epsrel=1.49e-8` under whatever `quad_opts` gives.
+scipy's default `epsabs=1.49e-8` stopped the outer integral on its first samples of a
+small C, and `quad_opts` cannot be set from L1 or L2:
+
+| Kernel, C(T, T) / amplitude through `dblquad` | amplitude 1 | amplitude 1e-9 | now |
+|---|---|---|---|
+| gamma 0.5, T 200, ridge and kink | 0.455744 | 1.481339 | 0.455744 at both |
+| gamma 5, T 60, ridge and kink | 0.0054113 | 0.0228534 | 0.0054113 at both |
+
+On OU and Gaussian kernels of width 0.5 at `gamma = 0.5`, a `dblquad` cell costs 8 to
+25 ms at `T = 5`, as before.  At `T = 30` it costs 58 to 70 ms on OU against 44 to 45 ms
+before, and 193 to 262 ms on Gaussian against 124 to 170 ms.  An
+entry of C that cancels to 0 cannot meet a relative tolerance, so scipy warns on it
+unless `quad_opts` gives an `epsabs`.  A ridge narrower than the samples can still be
+missed at any amplitude, as the fallback warning says.
+
+### Changed: half a C table only for a kernel that declares it
+
+A table was filled from `C_ab(t1, t2) = C_ba(t2, t1)`, and `C(x2, x1)` from
+`C(x1, x2)`, when κ² and σ² passed a numerical test at five time pairs.  No finite set
+of reads can establish that: a one-sided kernel that ends below 0.37 of the span reads
+0 on both sides at every lag read, and at a separation where the spatial factor is 0
+the test compares 0 with 0.  The test is gone, with `_probe_c_transpose`,
+`_c_half_grid`, the general table's swapped slice and the lazy table's filing at
+`(x2, x1)`.  Half a table now takes `symmetric_in_time` on the kernel, which the
+built-in even temporal kernels declare, and with `diag_C=False` a σ² from
+`ConstantImpulse` or none.  Anything else gets every cell, twice the cells of a half
+table: a `CustomKernel` or `GeneralKappa2` at `diag_C=False`, and every general table.
+No value of a declared kernel moves.
+
+### Fixed: wrong numbers at L1 and L2
+
+| Case | Before | Now |
+|---|---|---|
+| `diag_C=True` on a user closed form with off-diagonal entries | 0.60289 on `qmc_scalar`, 0.12403 on `qmc_vectorized`, 0.12476 on `gauss_legendre`, a factor 4.9 | every read takes the diagonal |
+| `Propagators.build` called directly on a C with off-diagonal entries | order 0 of `<phi_0 phi_1>` 0.0 against 0.0738, order 2 -0.885 against -0.582 | `ValueError`, as from `System.propagators` |
+| `propagators.dt` with `t_min` other than 0 | `ceil(t_max / dt)` nodes: 1.5 to 10 percent off at `t_min = -10`, 20 times too many at `95..100` | `ceil((t_max - t_min) / dt)` nodes |
+| `ConstantImpulse` not symmetric at L1 | `C_01 = 0.2050`, `C_10 = 0` against 0.1025 for both | `ValueError` at L1 as at L2 |
+| A coupling of the wrong shape at L1 | entries outside the leading block dropped | `ValueError` |
+| A negative kernel width at L1 | a kernel growing with `abs(dt)`, a factor 52 | `ValueError` naming the width |
+| A point left out of `positions`, or misspelt, beside a located one | 30 percent off at order 0, 45 at order 2 | `ValueError` |
+| `n_samples: 4096.9`, `seed: 1.5`, `t_max: true` in YAML | truncated, or read as 1 | refused at the key |
+
+The positions check is narrower than a required key: an extra name beside a position
+for every point, `{}`, all positions 0 with a point left out, a point sharing an R
+group with a located one and a cache with no spatial table stay accepted, because
+each gave the right number.  A callable coupling reads the positions, so a point left
+out is still refused for it on a cache with no spatial table.  At L1 a 0-d coupling at `N = 1` and equal rates of any
+length stay too.  `CustomImpulse` and a callable rate of the wrong length are not
+checked.
+
+Newly refused at L1, as at their YAML keys: `ConstantImpulse` of another `N` or not
+square, a kernel width that is not positive, unequal rates of the wrong length,
+`NonLocalVertex` of an order that is not an integer of at least 1.  Also newly refused:
+an `ExponentialTemporal` width whose reciprocal overflows, below about 5.57e-309.  The
+closed form returned NaN there, and a 40-node Gauss-Legendre rule gives 0.
+
+Under a constant `gamma` the YAML parser now reads `n_grid_cache`, refusing a value
+below 2, and requires `t_max_cache` and `t_min_cache` to be finite numbers, so `.inf`
+is refused; it did not read them.  It does not compare the two times, and L1 checks none of the three under a
+constant `gamma`.
+
+`examples/demo1/c_closed_form.py` took `|sum(n1) - sum(n2)|` as the separation of two
+vectors, 0 for `[1, 0]` and `[0, 1]`; it now takes the norm.  The demos use scalar
+positions, so no demo value moves.
+
+### Fixed: a wrong refusal of an R or a `t_max`
+
+`system.linear.R_time_module` refused an R that does not vanish for `t1 < t2`.  The
+integrators apply Θ, and at `gamma = 0.9`, `t_min = 0.4` such an R gives 1.5701585792e-01
+at L1, the value of the clamped R.  The probe now reads the shape of that value only.
+`ExplicitR` and the user guide state the one contract.  `System.propagators` compared
+`t_max` with `t_max_cache` with no slack, and refused `10 * (1 + 5e-13)`, which R reads.
+It now uses the table slack, and `_outside_table`, `_refuse_past_spline` and this check
+share `_table_slack`.
+
+### Fixed: `sft-wick validate` passed a joined point at an interacting order
+
+F vertex, `<phi psi psi>`, order 1, `x = y = 0`, `z = 0.5`: `validate` exited 0 and `run`
+exited 2.  The check read order 0 only, which has no diagram for three operators.  It
+now walks the R assignments at the selected orders, only when two points of the grid
+are apart and the observable has a response leg or a local vertex has two, and stops
+at the first diagram it refuses.  A config with nothing to refuse pays for the whole
+walk.  A connected target is decided after the
+expansion, since the choice depends on the C pairings, so `validate` does not see it.
+
+### Fixed: the closed form of an OU C lost its digits at small rates
+
+`ou_exponential_phi` divides by `γ + a` a sum that cancels to `(γ + a) t²`, and
+`_psi` returned 1 below 1e-12, dropping a term that the division then lifts.
+`c_closed_form='auto'` took it with no check, while the quadrature beside it was
+right.  At `γ = 0`, `(t1, t2) = (2, 1)`, against an 80-digit integral: 8.9e-5 off at
+`σ_t = 1e12` and 5.0e-1 off at `1e13`.  At `γ = 0`, `σ_t = inf` it returned NaN.
+Below `(γ + a) t = 1` it now sums positive terms (`_phi_at_small_rates`): the square
+of the domain is `t²` times a divided difference of `ψ`, taken from its Taylor series
+with no `0 / 0` at `γ = a`.  `_psi` keeps its term, and `_dexp` forms a difference of
+two exponentials through `expm1` when the rates are close.  Against the defining
+integral at 40 digits: within 1e-13 at each cell tried, on both sides of the change
+of form.  On demo 2 no value moves.  Its `FF` channel at order 2 under
+Gauss-Legendre at 16 nodes takes 3.69 s against 3.33 s, and the L2 sweep of
+`config_FF.yaml` at `n_jobs = 1` 83.4 s against 111.8 s, medians of three runs.
+
+### Fixed: a time-only table carried a C it does not hold
+
+The refusal of a time-only C table read κ² alone, at one equal time, and compared
+the two ends with each other.  It now compares κ² and σ² at the two ends with those
+at the table's own position, `direction` of `precompute_C_table`, at 36 pairs of
+times across the range, with or without `positions`.  `integrate_two_point_qmc`
+went around it at order 0 with `diag_C=False`, returning `C(x, x)`, a factor 3.08 at
+`r = 1.5`; it now takes its κ² ratio there too, and refuses what the ratio cannot
+carry, off-diagonal entries and σ² that reads differently at the two ends (0.0
+against 0.13233).  Its ratio is now taken against the table's position.  It reads
+positions through `_resolve_group_x`, so vector positions reach a time-only table,
+where they raised a bare numpy error.
+
+### Fixed: `response_phase=False` printed two conventions
+
+`order(n)` came without the phase and `to_latex` with it.  `DiagramTerm` now carries a
+display field `response_phase` (not compared), read by `to_latex` and
+`to_latex_evaluated`.  `evaluate_coupling` and the integrators always use the physical
+phase, so `response_phase` changes no number.
+
+### Changed: other refusals
+
+- `apply_response_phase` raises `ValueError` on a product over a sum whose terms hold
+  different numbers of R.  It used to skip the phase (-1) or apply the wrong one.
+- The batched integrators and `integrate_two_point_qmc` raise `ValueError` on a total
+  that is not finite, as `qmc_scalar` does.  They used to return it.
+- A closed-form C that returns a complex array is refused, a zero imaginary part
+  included, on both ways of attaching it.  One kept the real part and one the complex
+  value.  `sft-wick validate` does not read a user closed form, so at L2 this passes
+  `validate` and ends in the exception on `run` and `run --dry-run`, status 1.
+- `System.expand`, `System.propagators`, `coupling_vectorized` and `ExplicitR.iso_R`
+  raise `TypeError` on anything but a bool, `0` or `1`.  A word such as `'false'` read
+  as true; `None`, `1.0`, `2` and `np.array(True)` also ran.  `iso_R=None` on
+  `System.expand` stays, and means the system's own.
+- `propagators.c_closed_form: 0` is refused, as by the schema.
+- A `PropagatorCache` pickled by an earlier release fails on load, where the first read
+  raised `AttributeError`.  A lazy, empty or time-only table raises `ValueError`.  A
+  closed-form cache, whose class is gone, and a full spatial table, whose interpolator
+  changed slots, raise `AttributeError` while unpickling.  A pickled cache does not
+  cross this release; `cache_path` does, by rebuilding.
+- `ConstantImpulse` refuses a `0 x 0` amplitude, and shows a refused amplitude at full
+  precision: the array repr rounded `0.500000001` to `0.5` and printed a symmetric
+  matrix as asymmetric.
+- A file nested past the limit is refused before `compare-resources` starts a worker.
+  A refused variant now reads `variant <name>: <rule text>`.
+
+### Changed: words and numbers read in one way
+
+- `--override` reads a value as the value of a key in a file, with the file's loader, so
+  `017`, `0x10`, `1:30`, `1e3`, `Off`, `no`, `NONE` and `.inf` mean what they mean in a
+  file.  That includes a comment: `run #3.csv` reads as `run`.  `|` and `>` read as an
+  empty string, and `2026-11-01` as a date, which a typed key refuses.  `none` is now the
+  string `none` on an ordinary key.  A value that reads as a list or mapping stays a
+  string, and so does an empty value or one that is only a comment, which an ordinary key
+  then refuses as before, so `system.vertices=$UNSET` deletes nothing.  `null` and `~`
+  read as null; `---` and `...` are strings, as in a file.
+- `SFT_WICK_QUIET_CACHE`, `SFT_WICK_PROGRESS`, `SFT_WICK_STRICT` and the
+  `reuse_integrands` of a `compare-resources` variant read one word list, which also
+  takes `yes`, `no`, 1 and 0 there.  `false`, `OFF` and ` no ` no longer silence the cache tip, and a
+  word outside the list, such as `xyz`, reads as unset.
+- `sft-wick schema` accepts what the parser reads: `dt: 1e-1`, numeric strings, flag words
+  in any case.  The other way round, the parser now refuses `true` or `false` inside a
+  coupling, `sigma2.amplitude`, `g0` or `g1` tensor, which it read as 1 or 0 while the
+  schema refused it.  Numeric strings pass the schema only at keys that read them, and
+  at an integer key only without a fractional part or with an exponent, so `'1e-1'`
+  passes there and the parser refuses it.  `order`, `rank`, `orders`, component indices,
+  `gl_chunk_size`, `qmc_coupling_chunk_size`, `propagator_cache_bytes` and
+  `contraction_max_bytes` share their check with L1, which takes an integer only.  The
+  schema gives them the type `integer`, which in JSON Schema includes `8.0`, so `8.0` at
+  these keys passes the schema and `sft-wick validate` refuses it.
+- The YAML integer reader takes `1000`, `1000.0`, `'1e3'` and `'1000'` as 1000, at the
+  keys that use it, `n_grid_r`, `n_grid_cos` and `n_grid_x` among them.  A coupling reads
+  numeric strings as `sigma2.amplitude`, `g0` and `g1` do, so `1e-3`, which PyYAML reads
+  as a string, works in a coupling in a file and in `--override`.
+- The resource report classes `qmc`, `qmc_scalar` and `nquad` as the scalar loop, which is
+  what they run, and the run's summary line no longer prints `qmc_coupling_chunk_size`
+  under them; the report still gives it as ignored.
+- `--dry-run` counts both time orders of a general C table: 324 cells at
+  `n_grid_t = 8`, `n_grid_x = 3`, now 576.  The build fills 702 cells there, so the
+  estimate is still low.
+- `--dry-run` takes its arguments from the run, so a config that fails with
+  `contraction_max_bytes=1` fails the dry run.  It no longer builds the full table:
+  22.5 s to 17.0 s on a 20 x 20 x 9 cubic table with a Gaussian kernel of width 0.3,
+  and 1.8 s now at width 2.  The worker count matches `joblib` at
+  `n_jobs = -3, -2, -1, 2`.
+- Any of the six BLAS thread variables silences the thread tip.
+- `c_closed_form_only=True` with the built-in closed form takes the batched read whatever
+  `c_closed_form_vectorized` says: 31.7 s to 0.21 s on 80 diagrams at N = 2, order 3,
+  `n_gauss = 10`.
+  Totals do not change.
+
+### Fixed: display and small numeric differences
+
+- The TikZ backend drew parallel propagators on one line, so a one-loop diagram read as
+  a tree.  Parallel edges now bend, with the end tangent of the matplotlib curve, and
+  two self-loops at a node point apart.  `DiagramRenderer.PROP_STYLES` and the arrow end
+  come from the shared style and layout.  Matplotlib output is unchanged on 321 diagrams.
+- `LaTeXFormatter` renames propagators on the tree instead of the text, so a coupling
+  named `KC` no longer becomes `KG` under `C -> G`, and swapping two names works.  A
+  one-index propagator shows its index.  `LaTeXFormatter.format` takes an `Expr` and
+  raises `TypeError` on anything else: a `DiagramTerm` or a `PerturbativeResult`, which
+  the text replacement also renamed, would keep the default names with no error.
+- `FeynmanDiagram.from_pairing` no longer stores `full_label` on external nodes;
+  `render_labels.py` spells it.  The spelled text differs from the stored text only for
+  an empty spatial argument, `\phi_{a}` against `\phi_{a}()`.
+- The reality floor is one rule: `1e-292(1+i)` passed the scalar path and raised on the
+  batched one.  `_isotropic_C` judges each point by its own size, so the verdict does
+  not depend on the batch.
+- `integrate_two_point_qmc` reported a NaN error at `n_samples` 2 to 7, and a NaN that
+  spread through a sum of diagrams.  All three QMC paths share one error rule.
+
+### Changed: a κ² that is not separable finds its rules on the workers
+
+Under `'auto'` a full table asks one rule per pair of positions.  That stage ran in
+the parent whatever `n_jobs`.  It now goes through `n_jobs`, and the warnings stay in
+the parent.  It does not grow with `n_grid_t`, so its share of a serial build falls as
+the table grows.
+
+A general table on a smooth kernel, which the old route built with `dblquad`, now costs
+more to build.  Serial, N = 2, a Gaussian kernel in `dt` and `dx`, rule `n = 20`, `t_max
+= 2`; an off-grid cell agrees with the old value to about 1e-15:
+
+| `(n_grid_t, n_grid_x)` | build | rule stage | share | `dblquad` before | ratio |
+|---|---|---|---|---|---|
+| (5, 3) | 8.9 s | 6.7 s | 75 % | 1.1 s | 8.2 |
+| (5, 5) | 24.3 s | 18.4 s | 76 % | 2.6 s | 9.5 |
+| (10, 5) | 40.4 s | 18.4 s | 45 % | 9.0 s | 4.5 |
+| (20, 5) | 108 s | 18.2 s | 17 % | 34.8 s | 3.1 |
+| (40, 3) | 143 s | 6.7 s | 4.7 % | 50.8 s | 2.8 |
+
+The ratio reached 23 at N = 1 on (5, 5): 23.8 s against 1.0 s.  With `diag_C=False` on
+(10, 3) at `t_max = 8` it is 1.5: 12.5 s against 8.4 s.
+
+### Changed: one implementation per rule
+
+No value changes here: 97 integrator cases, 93 table cases and 2800 symbolic cases are
+identical to the start of this work, numerical terms compared with their coupling
+points removed.
+
+`DiagramIntegrand.observable_phase` and `.expected_phase` are removed, as is the private
+`_ClosedFormPropagatorCache`: nothing read the two properties, and
+`DiagramTerm.observable_phase_factor` is the phase in use.  A closed form is
+`PropagatorCache(model, c_value_fn=c_fn)`.  `generate_valid_pairings` and
+`evaluate_pairing` are no longer importable from `sft_wick.perturbation`; they stay in
+`sft_wick.wick`.  `integrate_moment`, `Expr`, `Product`, `Rational`, `Sum` and `Symbol`
+are no longer importable from `sft_wick.workflow.expansion`.
+
+**Breaking (`compute_moment_numerical`).**  The unread `coupling_values` and
+`fixed_indices` are gone.  A fourth positional argument raises `TypeError`.  Terms now
+hold coupling symbols with their legs, so a callable coupling evaluates on numerical
+terms, where it raised `ValueError`, and agrees with the 3! routings by hand to 1e-10.
+`wick_contract_grouped` is removed and `wick_contract` takes `keep`.  Both engines share
+one sequence and term builder, and one pairing loop.  One causal-domain statement serves QMC, Gauss-Legendre,
+`nquad` and `integration_bounds`.  The constants and helpers of one rule have one home:
+`i_power`, `canonical_edge`, `_msr_factor`, `vertex_type_label`, `is_literal_component`,
+`mixed_weights`, `C_METHODS`, `HOMOGENEITIES`, `TARGETS`, `CONTRACTION_BACKENDS`,
+`DEFAULT_N_GRID_T`, `DEFAULT_C_N_GAUSS`, `LAZY_KEY_DIGITS`.
+
+### Fixed: under `c_method='auto'` a C no node count converged on came from an unchecked `dblquad`
+
+When `select_gl_node_count` found no converged count, `auto` took `dblquad`, whose
+first samples miss a ridge or a boundary layer far narrower than the interval.
+It reports a small error and the value can be off by any factor, with
+`GaussianTemporal` on default settings, against a 1-D `mpmath` integral at
+`(gamma, sigma_t, T)`:
+
+| Case | `dblquad` value or error | Now |
+|---|---|---|
+| `(0.5, 0.02, 20)` | 3.9e-1 | 6.7e-12 |
+| `(1, 0.01, 5)` | 1.6e-1 | 9.4e-12 |
+| `(0.5, 0.002, 20)` | 5.8e-10, true 5.0e-3 | 5.8e-12 |
+| `(300, 0.3, 30)` | 2.5e-11, true 1.1e-5 | 1.0e-12 |
+| `(3000, 0.3, 30)` | 1.0e-87, true 1.1e-7 | 4.6e-13 |
+| `(0.5, 1e-5, 20)` | not run | 1.2e-11 |
+
+The fallback is now Gauss-Legendre on panels halved towards the ends of each
+interval, 8 nodes a panel, at the depth `select_graded_levels` finds converged to
+the 1e-8 that `select_gl_node_count` asks for.  `c_source` reports
+`quadrature:graded(levels=12)`.  A one-component build at `n_grid_t = 4`, `t_max = 32`,
+`gamma = 0.3`, width 0.01, with its first lookup takes 124 s at 12 levels.
+A kernel on which no depth converges gets `dblquad` with a `UserWarning`.  A route
+that resolves to a node count does not change.  An explicit `c_method='dblquad'`
+remains unchecked.
+
+### Fixed: under `c_method='auto'` a user callable kernel and a C before any table came from an unchecked `dblquad`
+
+`System.propagators` sent any callable (`CustomKernel`, `GeneralKappa2`,
+`CustomImpulse`, `ExplicitR`, a callable `gamma`) straight to `dblquad`, and a
+direct `C_value` before any table, with a legacy `precompute_C_table`, took it as
+well.  Both now run the steps a built-in kernel runs: Gauss-Legendre with a
+converged count, the graded rule, `dblquad` with a `UserWarning`.  A direct
+evaluation runs them for its positions and for the first power of 2 above `t -
+t_min`, as for a table reaching that horizon, and every later cell at those
+positions below that horizon shares the rule.  Where they find no rule, the cell's
+own steps decide.  So its rule does not depend on the calls before it, and
+`c_method_resolved` is `'auto'` until something resolves it.  An explicit
+`n_gauss` with no method takes Gauss-Legendre at that count.
+
+Relative error of `C_aa` on a `CustomKernel` equal to a Gaussian of width
+`sigma_t`, `gamma = (0.1, 0.3)`, `[2, 32]`, table at the deep cell, against an
+`erf`-reduced `mpmath` integral, and of a direct cell before any table at
+`gamma = 0.1`, `t = 30`:
+
+| `sigma_t` | `dblquad` table | Table now | Rule now | Direct before | Direct now |
+|---|---|---|---|---|---|
+| 2 | 3.6e-14 | 6.0e-10 | `n=20` | 1.3e-15 | 6.0e-10 |
+| 0.3 | 2.4e-8 | 5.4e-12 | `n=68` | 2.3e-12 | 1.7e-12 |
+| 0.05 | 3.3e-1 | 1.8e-11 | graded | 3.3e-1 | 1.2e-11 |
+| 0.01 | 1.0 | 1.3e-11 | graded | 9.7e-1 | 2.6e-12 |
+
+The first cell at a position costs 0.8 s on a smooth kernel, 9.1 s at width 0.3
+and 113 s on the two narrow rows, and a later cell 7 ms, 80 ms and 0.65 s, where
+`dblquad` took 70 to 390 ms and on the narrow rows 2 to 3 s and was wrong.  A cell
+on which no rule converges pays for all the steps each time; a table
+or an explicit `c_method` avoids that.
+
+The graded rule's test was blind inside the interval: its depths differ only at
+the ends, so a kink or a step at a lag of 2 passed at 12 levels, off by 1.5e-5 and
+4.6e-3 with no warning, and a ridge of width 0.01 at a lag of 3 by 1.2e-1.  This
+reached user kernels only.  The depth found is now compared with the same panels at
+12 nodes.  All three end in `dblquad` with the warning.  There the
+triangle is right to 9.3e-10 and the step to 1.9e-6, and the ridge is still off by
+0.85, as it was before.
+
+A non-separable kernel now has a rule per pair of positions, on `translation`,
+`rotation` and `general` tables, full or lazy, and a pair where no rule converges
+takes `dblquad` there alone, with a warning that names it.  With a time width of 0.3
+at the origin and 0.01 at `x = 1`, `dblquad` was off by 0.97 and is now right to
+2.6e-12.  One function decides the rule, from the pair and the horizon: full tables
+ask it per pair, lazy tables per position, direct cells per cell.  A direct cell
+inside a table takes the rule the table took there.  The graded rule is not finer than a
+count: 8 nodes on a quarter of the interval missed an oscillation that 30 nodes on
+all of it resolved, 3.3e-5 off at those positions with no warning.  `c_source` names
+the deepest rule of a table, or `quadrature:per_position` when only some pairs take
+`dblquad`.  On a 5 by 5 `general` grid, with a Paciorek-Schervish
+kernel of time width 0.3 that narrows at the interior node `x = 0.5`, against a 1-D
+integral at `T = 5`:
+
+| Width at the node | Rule of the grid's ends | `dblquad` | Now | Build, 4 workers |
+|---|---|---|---|---|
+| 0.03 | 1.4e-3 at `n=30` | 1.7e-13 | 1.4e-9 at `n=68` | 17 s |
+| 0.02 | 5.9e-3 at `n=30` | 5.6e-11 | 7.7e-12 at 12 levels | 122 s |
+| 0.01 | 3.6e-2 at `n=30` | 2.2e-1 | 7.8e-12 at 12 levels | 122 s |
+| 0.003 | 2.1e-1 at `n=30` | 8.6e-1 | 2.2e-12 at 12 levels | 122 s |
+
+`c_source` names the
+rule at the origin on a lazy table, or `quadrature:per_position` when the kernel
+raises on the scalar probe, vanishes at the origin, or no rule converges there.  An
+explicit per-build method keeps its rule at every position.  `sft-wick run --dry-run`
+ended in the kernel's traceback on a kernel that raises on the scalar probe, where
+`run` succeeded.  It now prints an estimate timed at a position of the sweep, and
+says, for more than one separation or grid position, that working out the rule is
+not in that estimate.
+
+A separable kernel with a white-noise `sigma2`, `ConstantImpulse` included, also
+searches its rule once per pair of a full table and once per position of a lazy
+one, because the `sigma2` term does not scale with the spatial factor.  No value
+moves.  A rotation table at `n_grid_t = 11`, `n_grid_cos = 5`, `t_max = 5`, N = 2,
+rates (0.4, 0.7), a `GaussianTemporal` kernel and three Legendre terms, with
+`diag_C=False`, builds in 8.6 s with `ConstantImpulse(0.05 I)` and in 4.7 s with no
+`sigma2`; that includes the integral of `sigma2` itself.
+
+`PropagatorCache.resolve_c_method` gained `positions`.  A subclass override with the
+old `(self, t_max)` signature keeps working: it is called with `t_max` alone, and it
+decides the rule of a lazy table too.  `PropagatorCache.graded_levels_resolved` is the
+largest depth of the last table, as `n_gauss_resolved` is the largest count.
+`resolve_c_method` no longer changes what those report.  `_C_value_direct(...,
+method='graded')` with no depth takes the depth in force, else the first of
+`_GRADED_LEVELS`.
+
+The check judges each entry of C at each pair of positions on its own scale.  With
+one scale a weak component passed against a floor of 1e-6 of a stronger one: at
+`gamma = (0.05, 3e5)`, `sigma_t = 2`, `T = 30`, `C_11` came back 0 under `n=20`, true
+1.1e-11, with no warning, and it is now 1.6e-9 off under the graded rule.  When R mixes components an entry is
+a sum that can cancel, so two rules may differ there by rounding: a difference up to
+32 eps of the sizes of that entry's own terms does not count, which costs one more
+rule at each probe cell on such a system.  When that allowance is above the tolerance
+times an entry, a warning says once that the entry cannot be checked.  An entry
+the kernel does not feed is 0 and needs no rule: a zero kernel resolves its rule
+in 0.8 s at a horizon of 5, with no warning.  At `gamma = (1e-3, 3e6)`, `sigma_t = 1` no depth converges, so that
+case ends in the warning, where it was a silent 0.
+
+`c_n_gauss` of 74 or more under `auto` is tested once, where it passed the cap of 110
+untested and a smooth kernel went to the graded rule.
+
+The check compares two rules.  A feature narrower than the node spacing that both
+miss passes it: a pulse in absolute time of width 0.01 under a background a thousand
+times weaker gave `n=20`, 3.9e-6 off with no warning, the same value `dblquad` gave.
+That covers the diagonal too: a spike of width 3e-8 on a kernel of unit width over
+`T = 5` gives `n=20`, 0.59 off with no warning, the value `dblquad` gives, where
+widths down to 1e-7 go to the graded rule.  White noise is the spelling for such a
+kernel.
+
+The demo tables under `auto` were `dblquad` and are now `n=20`.  They cost less to
+build: 16.0 s to 6.7 s, 5.0 s to 4.3 s, 16.7 s to 5.2 s, 7.9 s to 5.4 s, 4.9 s to
+3.8 s and 18.9 s to 12.0 s on demo 8 rate, oscillator, Matern, damped cosine, white
+and demo 7 damped cosine.  Values at 36 off-grid cells move by at most 3.8e-14, except
+Matern at 3.2e-8, where `dblquad` was the one off: against the exact C at three cells
+it had 1.9e-9 and `n=20` has 5.6e-16.  The only table in a demo ledger built on these
+routes is the demo 7 `CustomKernel` row, which moves by 1.3e-15.
+
+### Fixed: an undeclared closed form on a model with `sigma2` could lose its split
+
+A kink rule of this release sent such a closed form to the probe, which needed the
+jump at two of three times in the last two thirds of the range.  With noise
+`exp(-(s/tau)^2)` the cusp has died out by then, so Gauss-Legendre went unsplit
+with no signal.  On order-2 `F`, `g = 1`, against a hand-written Picard iteration,
+at 24 nodes: 5.1e-4 at `T = 4`, `tau = 0.6` and 1.8e-2 at `T = 30`, `tau = 3`,
+where it had been 8.4e-15 and 2.8e-8.  They are back at 8.2e-15 and 2.8e-8.  A model with `sigma2` now splits an undeclared closed form whatever the
+probe would say, and the probe takes five times, adding 0.05 and 0.15 of the range,
+which gives the same two values with no `sigma2` on the model.  A pulse narrower than
+about 1e-3 of the range that lies between the times is still missed when the model
+does not carry it.
+
+### Fixed: the cusp probe of a κ² read two fixed times
+
+`_probe_diagonal_cusp` read `t_min + 0.7` and `t_min + 2.3` whatever the range, so a
+kernel off at both, such as noise over by `t = 0.6`, reported no cusp and took no
+split.  It now reads five times across the range the integrator or quadrature asks
+about, at steps scaled to it.  On a range of 3 it keeps the two old times.
+
+### Fixed: a closed form narrow across the diagonal was not split
+
+The probe tests for a jump in a derivative, so a rounded cusp and a narrow smooth
+peak passed as smooth and Gauss-Legendre stayed on one piece.  On order-2 `F` at
+`T = 2`, 24 nodes, against the same iteration, unsplit against split:
+
+| C | Unsplit | Split |
+|---|---|---|
+| rounded `exp(-sqrt(dt^2 + eps^2))`, `eps = 1e-4` | 8.2e-4 | 5.4e-8 |
+| rounded, `eps = 1e-7` | 8.3e-4 | 1.6e-13 |
+| Gaussian in `dt`, width 0.1 | 1.5e-4 | 3.0e-9 |
+| Gaussian in `dt`, width 0.01 | 8.2e-2 | 8.1e-4 |
+
+The probe now also compares a 32-node rule on the range with the same count on each
+side of a cut at `t1 = t2`, and asks for a split when the integral moves by more than
+1e-10.  The time of that line is a node of the rule on the range, because an unsplit
+tensor rule has nodes on `t1 = t2`, which read a feature there at full height however
+narrow it is.  A cusp, a ridge or a value at exactly `t1 = t2` is therefore split at any
+width.  Order 2 of `F` at `T = 3` with a cusp or a ridge of width 1e-7 was off by
+2.9e-1, 1.5e-1, 7.7e-2 and 3.9e-2 at 8, 16, 32 and 64 nodes with no error, and is off
+by about 1e-15 at 16.  A C with nothing
+on the diagonal that varies too fast for the 32-node rule is split as well, and there
+the split can cost accuracy: `1 / ((1 + t1) (1 + t2))` from `T = 30` and
+`0.1 exp(-(t1 + t2)) cosh((t1 - t2) / 2) + 0.01` from `T = 155` to `579`, where the
+same transient at `T` from 5 to 154 and from 580 is left alone.  At `T = 30` at 16 nodes that
+transient is 5.4e-12 off unsplit and was 2.55e-7 off split.
+
+### Fixed: an undeclared kink of a closed-form C was integrated without a split
+
+A user closed-form C with a `|t1 - t2|` cusp and no `has_diagonal_kink` went
+through Gauss-Legendre and `nquad` unsplit, with no signal.  On order-2 `F` with
+an OU C under white noise, against the exact Itô hierarchy, Gauss-Legendre at 24
+nodes was off by 1.8e-4 to 9.5e-3 relative over `gamma` from 0.01 to 1 and
+`t_final` from 0.05 to 30, and `nquad` by 1.3e-7.  The split gives 1e-15 to 6e-11.
+The undeclared callable is now probed at the times and points of the diagram for
+a jump in its first, second or third derivative across `t1 = t2`, under the
+scalar or the batched contract, entry by entry.  The third derivative is what a
+hand-written C of an exponential kernel carries, as the closed forms of demos
+1-3 do; those were split only through the next fix's defect.  With the two fixes
+above the probe adds 780 calls on a smooth C and 300 on a kinked one (2 and 1
+batched) per pair of points and
+per `t_final`, and per grid point of a sweep with `n_jobs > 1`, where each task has
+its own copy of the cache.  `has_diagonal_kink` skips it.  At order 2 with 16 `y`, 2
+`t_final` and 4 nodes, on a scalar C of 200 us a read, 7168 reads became 26968
+serially and 35968 on 4 workers, and 1.52 s became 5.56 s serially.  It misses a cusp below
+about 1e-6 of the size of C, which `has_diagonal_kink = True` covers.  Where it misses a third
+derivative of a hand-written exponential kernel, with `sigma_t` far above the
+range, the value is off by at most 4e-9 at 12 nodes and 2.7e-10 at 24.
+
+### Fixed: a closed-form C was judged by the κ² and `has_diagonal_kink = False` was ignored
+
+`_kappa2_kinks_c` read κ² on a closed-form cache, which never uses it, although
+its docstring said such a cache answers False.  A smooth closed form on a cusped
+κ² was split, and a callable setting `has_diagonal_kink = False` was split too,
+and the split costs wall clock and changes no value beyond the node-count error.
+A declaration now decides, `False` included, and a closed form is never judged by
+the κ² it replaces.  The `sigma2` of the model still counts when nothing is
+declared (see above).
+
+### Fixed: a lower cut carried past a swept external left a kink in the domain
+
+`integrate_over` with a swept external `s`, a variable `v` cut at a pinned time
+`t*` and a later `w` with `v <= w` and `s <= w` leaves `max(s, t*)` in `w`'s lower
+limit, which `_kink_constant_cuts` missed because `s` is not below `v`.  On a
+three-point `F` observable at order 3 with one external swept and two pinned,
+Gauss-Legendre was off by 1.5e-5 relative at 10 nodes, 1.8e-6 at 20 and 1.6e-7 at
+28, against a three-time Itô hierarchy; it is now 1.5e-14 at 10 nodes.  The other
+kink rules hold on the same observable: pinned, one swept and two swept externals
+reach 1e-14 at 10 nodes.
+
+### Fixed: `PerturbativeResult.total` applied the response phase twice
+
+`compute_moment` applied `(-i)^n_R` to each order and again to their sum when
+two or more orders were nonzero, so a term in `total` carried `(-i)^(2 n_R)`.
+On a two-component `F` vertex at order 2 with seeded tables the sum of the
+orders is -74.30 and `total` gave +75.04; on a linear vertex at order 1 it is
+0.849+0.488i and `total` gave 1.338.  `total` is now the sum of the order terms.
+`order_terms`, `DiagramTerm` and every integrated value read neither path and
+do not change.  The expansion cache held the old `total` in `raw_result`, and
+the cache schema bump of this release already rejects those entries.
+
+### Fixed: `diagonal_propagators` kept a sum whose index one term eliminated
+
+Under `diag_C`, `diag_R` or their isotropic forms, a delta constraint removes a
+summation index from one additive term.  The expression walker dropped a sum
+only when every term had lost the index, so in `sum_i (G_i C_ai + H_ii C_bb)`
+the first term came back multiplied by N: 9.65967 against 5.42918 at N = 3.
+`order(n)`, `order_terms` and `total` were wrong from order 1 on three and four
+points, with `F` on `<phi phi phi>` and `<phi phi psi>` and with a quartic vertex
+on `<phi phi phi phi>`, by up to 1.8 of the larger value on random tables at N = 2
+and 3.  They were wrong from order 2 on `<phi phi>` with `F` and on `<phi>` with
+`F` and `L`: -18.8346 against -8.89954 (ratio 2.12) at N = 2, ratio 2.99 at N = 3
+and 1.94 under `iso_C`, `iso_R` at N = 2.  Order 1 on one and two points was right.
+`DiagramTerm`s, `to_latex` of a term and the integrators were right.  It also
+dropped a sum whose index no term ever used, so `sum_i C_bb` lost its factor N.
+Sums are now held per additive term and only an eliminated index removes one;
+`DiagramTerm.apply_diagonal` and the walker share `diagonal_index_sub`, and
+`simplify.strip_isotropic` is the one statement of what an isotropy flag does to
+a propagator.  `apply_diagonal` now applies it also to a term with no index to
+substitute, so on a diagram with an absorbed R the printed text shows `R` where it
+showed `R_{aa}`; no value changes.  `diagonal_propagators` raises `ValueError`
+when a summed index or integrated point is bound twice in one product, or a sum
+rebinds a name inside it, since the terms hold their sums at one level.
+`compute_moment` never builds that shape.  It also expands a product of sums into
+additive terms, and raises `ValueError` past 2**20 terms: two sums of 1024 terms take
+27.7 s and 1.4 GB where they took 0.02 s, and 1025 are refused.  The largest product
+`compute_moment` built in the cases measured had 99 terms (orders up to 4, N = 2), at
+3 to 12 percent more time.
+
+### Fixed: a callable coupling lost its positions on a cache with no spatial table
+
+`qmc`, `qmc_vectorized`, `gauss_legendre` and `nquad` took a leg's position from
+its direction group only when the cache had a spatial table.  With no table,
+such as `spectral_cache` or a time-only table, every leg sat at the ambient
+`direction`, 0 by default, whatever `positions` said, while
+`integrate_two_point_qmc` read `positions`.  One resolver now gives a leg its
+position and time on every evaluator: the position of its direction group,
+else the ambient `direction`.  C still reads a table with no spatial structure
+by time, and the warning of `Expansion.sweep` says so.
+
+Measured on the order `F kappa3` term of `<phi(x) phi(y)>`, a diagram with no C,
+with `kappa3 = (1 + n_1) exp(-t_1 - t_2 - t_3)`, `F = 0.5`, `gamma = 1`, `x = y = 0.7`,
+`t_final = 1.5`: `0.028551` before, `0.048536` now, 41 % low.  The reference is the
+closed form `2 F kappa A(T) I(T)`, with `A(t) = t exp(-t)` and `I` a 1-D integral,
+confirmed by integrating the model with `eta = exp(-t) xi` as an ODE in `xi`
+(relative difference 1.4e-13).  At `x = 3e6, y = -2e6` with
+`g = 1 + n_1 + n_2 + n_3`, the old value was `0.028` and the reference `42826`.
+
+The same resolver ends two crashes on hand-built L0 terms: `qmc_vectorized` and
+`gauss_legendre` raised `TypeError` on a vector `direction`, and these two and
+`integrate_two_point_qmc` raised `KeyError` on a leg with no propagator.  A leg
+that is no external point and no integration variable now raises `ValueError`
+on every evaluator; the batched ones used to put it at `t_final`.  Two points of
+one direction group at two positions are refused for a callable coupling on any
+cache, as they are on a spatial table.
+
+**Breaking (`DiagramIntegrand.dynamic_coupling_array`).**  The signature went from
+`(times, directions, default_position=0.0)` to `(times, leg_positions)`, keyed by
+leg rather than by direction variable.  A call with two positional arguments in the
+old form raises `KeyError`, and one with `default_position` or `directions=` raises
+`TypeError`.
+
+### Fixed: a spectral C was kinked on its diagonal and the time split did not know
+
+`SpectralPropagatorCache` computes C from the density, with `|t1 - t2|` in it, so
+C has a first-derivative jump of `-2D` on `t1 = t2`.  The cache did not declare
+it, so `gauss_legendre` and `nquad` did not cut the time domain there and
+`gauss_legendre` converged at `n^-2` with no error.  The cache now declares
+`has_diagonal_kink` (true when `D > 0`), and `_c_has_diagonal_kink` reads it, so
+every integrator takes the answer from one predicate.
+
+Measured on order 2 of `<phi_0 phi_1>` with a non-symmetric `F`, rates
+`(0.4, 1.1, 3.0)`, `D = 0.35`, `t_min = 0.5`, against a hand-written iteration of
+the equation of motion that shares no code with the integrators.  At
+`t_final = 3.5`, `gauss_legendre` went from 7.4e-3 to 5.9e-7 at `n = 8`, from
+1.3e-4 to 2.4e-14 at `n = 64`, and `nquad` from 8.1e-8 to 2.4e-14.  At
+`t_final = 60`, `n = 48` went from 5.3e-3 to 8.3e-11.  Below the rule's resolution
+of `exp(-h t)` the split does not help: at `t_final = 60`, `n = 8` is off by 0.39
+unsplit and 0.56 split.  QMC never split and does not change, and order 0 has no
+time domain.
+
+### Fixed: `c_method='auto'` built its tables with `c_n_gauss` nodes, not the converged count
+
+`select_gl_node_count` found the count, `c_source` reported it, and the table
+builders then overrode it with `c_n_gauss`, on every path (translation, rotation,
+general, lazy or on a grid).  With `GaussianTemporal(0.05, 0.3)`,
+`DiagonalA([0.1, 0.3])`, `t_min = 2`, `t_max = 32`, `c_source` said `n=68` and
+the cells used 20: `C_aa` at `(32, 32)` was off by 2.1e-3 and 5.7e-3 against an
+independent one-dimensional integral, and the order-0 correlator at `r = 0.7` by
+8.8e-4 and 3.8e-3 against `n = 200`.  Those errors are now 1e-11 or below where a
+count converges, and one count serves the table, `c_source`, `n_gauss_resolved`, later direct
+evaluations and the `--dry-run` timing.  Under `'auto'`, `c_n_gauss` is only
+where the refinement starts; an explicit `c_method='gauss_legendre'` keeps
+`c_n_gauss` with no convergence check.  The right count and the rule search of 23
+cells cost time: a two-component table with `sigma_t = 0.3`, `t_max = 32`,
+`n_grid_t = 8` at `n=68` went from 3.1 s to 12.6 s.
+
+A table moves only where the converged count exceeds `c_n_gauss`.  No route the
+demos ship moves: demos 1-6 use closed forms or an explicit rule, and the `'auto'`
+tables of demos 7 and 8 resolve to 20.  Forcing quadrature on the demo 1 kernel
+moves the table by up to 2.4e-2 at `t_max = 100` (45 nodes) and the demo 2 kernels
+by up to 4.3e-4 at `t_max = 50` (30 nodes).  The cache schema goes to 4, so a
+persisted table built with the wrong count is rebuilt.
+
+### Fixed: `collect_topology=False` returned 0 at interacting orders
+
+**Breaking (`System.expand`, `expand.collect_topology` and
+`PerturbativeResult.diagram_terms`).**  The operator path builds the expression
+and no `DiagramTerm` above order 0, and L1, L2 and `integrate_diagrams` took
+the empty list for a computed zero.  An order 2 of 0.000257579 came out as 0
+with no warning.  `System.expand` now raises `ValueError` at an order above 0
+with `collect_topology=False`, and `validate`, `run --dry-run` and `run` report
+it as one line at `expand.collect_topology`.  `diagram_terms` raises
+`ValueError` at an order that has an expression and no diagrams, so an order
+that is 0 still gives an empty list.  `diagram_terms_by_order` has no key for such an
+order, so that reading it raises `KeyError` rather than handing `integrate_diagrams`
+an empty list.  Order 0 is unchanged, and `compute_moment` at L0 keeps the flag and
+still gives the expression, which has no numerical evaluation above order 0.
+
+### Removed: the `ito` switch
+
+**Breaking (every layer).**  `ito=` is gone from `compute_moment`,
+`compute_moment_numerical`, `System.expand`, `wick_contract`,
+`wick_contract_spatial`, `evaluate_pairing`, `contract_pair` and
+`generate_valid_pairings`, and `expand.ito` from the YAML, where it is now an
+unknown key.  Passing it raises `TypeError`, `ito=True`
+included.  The engine is Ito: `ito=False` changed the expression only, and the
+numerics applied Theta(0)=0 whatever it said and refused where the value
+depended on it.  A Stratonovich SDE with multiplicative noise is reached through
+`MultiplicativeImpulse(interpretation='stratonovich')`, which is unchanged.
+
+The arguments after `order` in `compute_moment` and `compute_moment_numerical`, and
+after `operators` in `wick_contract`, are now keyword-only, so a positional `ito`
+raises instead of being read as the next flag.
+
+A `DiagramTerm` built by hand can still hold an equal-point R or a loop of R.
+The refusals of `ito=False` are gone with it.  An equal-point R gives 0, unless a C
+propagator of the term lies past the table and is read first, which raises the usual
+`ValueError`: on every integrator on a translation table, and on `qmc_vectorized`, `qmc`
+and `gauss_legendre` on a time-only table when the term has an integration variable.  A
+loop raises `ValueError` naming its points.
+
+`FeynmanDiagram.from_pairing` raises `ValueError` on a pair that vanishes, which
+it used to leave out of the diagram.
+
+The flag left the expansion cache key.  The schema bump of this release rejects
+every earlier entry, so existing expansions are recomputed.
+
+### Fixed: a closed R loop raised `KeyError` or returned 0, by integrator
+
+**Breaking (a `DiagramTerm` with a closed R loop).**  `analyze_spatial`, which
+every integrator passes through, now raises `ValueError` naming the points of
+the loop.  A loop of two or three R over integrated points raised a bare
+`KeyError` from `integrate_moment`, from each `integrate_moment_*` method and
+from `integrate_two_point_qmc`.  With a free variable beside the loop,
+`qmc_vectorized` and `gauss_legendre` returned 0.0 and the others raised
+`KeyError`.  A loop through an external point returned 0.0 everywhere and is
+refused too.  The equal-time case is covered by the same
+check: an L0 `Vertex(fields=[phi, psi], local=False, equal_time=True)` with `F`
+gives four terms for `<phi>` at order 2, and one, `R(y_1, y_0) R(y_0, y_2)` with
+`y_2` at the time of `y_1`, raised `KeyError: 'y_1'` on all four integrators.  It
+closes in time and not in labels, so the Wick engines keep it, and integrating
+that order now raises `ValueError` where it raised `KeyError`.  The Wick engines
+drop every other loop.  An equal-point R keeps its value of 0.
+
+### Changed: one vanishing rule and one R enumerator in the Wick engines
+
+`wick.r_vanishes` is now the only statement of the Ito and causal rules, and
+both engines call it: an equal-point R is the shortest closed loop.
+`wick.r_classes` enumerates the R assignments between labels, lazily, and is
+the only enumeration of them.  `wick.wick_contract_spatial` crosses each class
+with its C pairings between labels, and `generate_valid_pairings` lifts it to
+operator assignments and crosses those with C pairings between operators.
+
+**Breaking (`generate_valid_pairings`).**  `operators` is required, the memo is
+gone, and the pairings come class by class.  Its `ito` defaulted to `False`, so
+a call that passed `operators` and no flag kept equal-point R and causal loops.
+That call now prunes them with no error: one phi and one psi at `x` went from
+one pairing to none.  `wick_contract` and `compute_moment` put the pairings back
+in operator order, so their output is unchanged.
+
+The first pairing of ten phi and ten psi takes 0.08 ms and no table.  With nine
+phi and nine psi at 18 distinct points, 362880 pairings, `wick_contract` went from
+6.3 s and 1254 MB to 2.8 s and 459 MB, since a repeated operator pair now shares one
+propagator.  An enumeration in which nothing survives, one phi and one psi at each
+of ten points, went from 6.4 s and 1.9 GB to 4.0 s and 72 MB.
+
+**Breaking (L0 API).**  The API reference documents `sft_wick.wick`, and
+`wick_contract_spatial` now returns `(propagators, pairing)` per topology and
+no longer takes `vertex_points`.  Its multiplicity went unread and differed
+from the operator-level count; the component routings of a topology give that
+count.  `SpatialTopology` is gone, with the private `_compute_multiplicity`,
+`_has_r_cycle` and module cache `_r_cycle_cache`.  `wick_contract_grouped` is
+removed: it had no caller and was not exported.  `wick.contracted_pairings` gives
+each pairing of `generate_valid_pairings` in operator order with its propagators,
+and `wick.r_class_pairings` gives one complete pairing per R class.
+
+### Fixed: later vector shapes passed validation, and high-point moments slowed it
 
 The position check read only the first shape on each sweep axis, so
 `x: [[0, 0], [0, 0, 0]]` with `y: [[0.1, 0.2]]` passed `validate` and
@@ -12,22 +798,26 @@ the incompatible entry.  Alternatives on one axis can still have different
 lengths when they each broadcast with the other axes, such as a length-one
 vector at the other point.
 
-Validation also enumerated every order-zero Gaussian pairing of a purely
-physical observable, although no response propagator could join its points.
-That contraction is now skipped when there is no response field.  Mixed
-physical and response observables keep the order-zero connection check; the
-expansion performed by a run is unchanged.
+Validation also enumerated every order-zero Gaussian pairing of the
+observable, 13!! of them at 14 points, to find the points a response
+propagator joins.  The checks read only the R of a diagram, so it now takes
+one pairing per R assignment from the Wick engine, repeated points included,
+and the engine's rule decides which assignments vanish.  Its cost is the
+number of assignments: 13 at 1 response and 13 physical legs, 40320 at 8 and
+8.  When several pairs sit apart, the error names the first in sorted order,
+where it followed `PYTHONHASHSEED`, in `validate`, `run` and
+`Expansion.evaluate`.  The expansion performed by a run is unchanged.
 
 ### Fixed: aliases that expand past what a walk finishes hung `run` and `--print-resolved`
 
 **Breaking (a file whose aliases add more than 10^6 values, or nested past
 100 levels).**  A list that holds the one before it twice doubles at each
-level, and YAML keeps one object, so 1.2 kB at a key nothing reads
+level, and YAML keeps one object, so 748 bytes at a key nothing reads
 (`output[0].x`, or `system.linear.t_max_cache` under a constant `gamma`)
-passed `validate`.  `validate --print-resolved` then took 23 s and 1.6 GB at
+passed `validate`.  `validate --print-resolved` then took 20 s and 1.6 GB at
 20 levels, doubling with each level, and `run` did the same in `repr` of the
-cache key.  100 vertices sharing one tensor took 7.5 GB from 4.2 kB, each
-under the limit on one tensor, and a position repeated through aliases was
+cache key.  Many vertices sharing one tensor, each under the limit on one
+tensor, expanded the same way, and a position repeated through aliases was
 read once per alias.  The loader now measures the file as a tree, entering
 each container once, and refuses what aliases add past 10^6 values with
 `invalid_value` and the dotted path where the value spreads out.  A value
@@ -40,12 +830,12 @@ passed `validate` and `--print-resolved` ended in a `RecursionError`.
 
 **Breaking (a file whose merges add more than 10^6 pairs).**  PyYAML copies
 a merged mapping's pairs into each mapping it lands in, so a file whose
-mappings each merge the one before twice took 2.5 s at 22 links from 615
-bytes, and the time doubled with each link, inside `yaml.safe_load` and
+mappings each merge the one before twice took 5.0 s at 22 links from 1.2
+kB, and the time doubled with each link, inside `yaml.safe_load` and
 before any package code ran.  The parser now counts what each merge will add
 before PyYAML does it, and a file past 10^6 added pairs is refused with
 `invalid_value` and the dotted path of the `<<` key, whatever its length: a
-chain of 400 links stops at 0.16 s, at the link that passes the limit.
+chain of 400 links stops at 0.19 s, at the link that passes the limit.
 The count follows PyYAML's walk, so it matches the lists it builds, also for
 a merge that reaches a mapping still being merged.  `validate`, `run` and
 `compare-resources` read files the same way.
@@ -67,20 +857,20 @@ config and relied on the entry must add it itself.
 
 **Breaking (a tensor of more than 10^7 entries written in a config).**
 `np.asarray` visits every path of a nested list, so a file of a few lines
-whose lists each hold the one before twice took 1.8 s at 24 levels, and the
+whose lists each hold the one before twice took 3.1 s at 24 levels, and the
 time doubled with each level.  `coupling` of a local or
 non-local vertex and `amplitude`, `g0` and `g1` of `system.noise.sigma2` are
 now measured along their first entries before NumPy reads them, and a tensor
 of more than 10^7 entries is refused with `invalid_value` and the dotted path
 of the key.  The first entries bound the entries NumPy visits, since it does
 not descend past the depth of the first number.  A tensor in a `.npy` file
-(`coupling_path`) has no limit.  PyYAML reads about 70,000 numbers a second,
-so a tensor written out at the limit takes over two minutes to read.
+(`coupling_path`) has no limit.  PyYAML takes minutes to read a tensor written
+out at the limit.
 
 A `coupling` holding text kept its refusal and its message, and is now
 refused before NumPy stores it.  NumPy gives every entry the width of the
-longest string, so a 3.8 kB file of aliases around a string of 1000
-characters peaked at 1.1 GB at 18 levels, a factor of 4 for every two levels.
+longest string, so a short file of aliases around a long string took memory
+that grew with each level.
 
 ### Fixed: an R read past the cumulative-rate spline returned a number
 
@@ -118,8 +908,8 @@ a constant `gamma` or an `ExplicitR` has no spline.  The limits are the spline's
 own breakpoints, so propagators cached on disk carry them and `_CACHE_SCHEMA`
 does not change.
 
-The check costs about 0.6 us on a scalar R call of 6 to 12 us, and 3 to 11% on a
-batch of 8,192.  In-range numbers do not move: the 156 rows of the shipped
+The check costs about 0.6 us on a scalar R call of 6 us, and about 11% on a
+batch of 8,192, medians of three runs.  In-range numbers do not move: the 156 rows of the shipped
 configs and 3,030 in-range R values, ends included, are bit-identical to the
 previous commit.
 
@@ -157,16 +947,10 @@ read, and such a run is unchanged.  There is no limit on cos on a rotation
 table, on the position on a lazy table, or on anything under
 `c_closed_form_only`, which reads no table.
 
-A diagram with a closed R loop, which `ito=False` keeps in the expression, is
-now 0 without being integrated.  It was 0 before; its vertices have no causal
-parent and no external point, so it looked up C at a time and a position no
-request named.  At orders 2 and 4 of a cubic vertex this skips 8 of 14 and 136
-of 200 diagrams, and those are exactly the diagrams that evaluated to 0.
-
-In-range numbers do not move.  All 10 shipped YAML configs and the quickstart
-with `ito: false` (156 rows, with the grids trimmed to their first and last
-values and at most 512 samples, so the limits stay in) and 3,464 lookups on four
-table kinds are bit-identical to the previous commit.
+In-range numbers do not move.  All 10 shipped YAML configs (with the grids
+trimmed to their first and last values and at most 512 samples, so the limits
+stay in) and 3,464 lookups on four table kinds are bit-identical to the previous
+commit.
 `test_S3_translation_vs_general_agree_on_invariant_input` read one point past
 its own table; it now samples inside it.
 
@@ -241,7 +1025,9 @@ A `sweep.vertex_types` label, and points a chain of response propagators
 joins through a vertex, need the diagrams.  `sft-wick run` makes these two
 checks after the expansion, before the propagator table, with status 2 and
 one line; they used to end in a traceback, the second in the sweep.
-`validate` runs no expansion past order 0 and passes them.
+`validate` runs no expansion past order 0 and passes a label.  It finds joined
+points by walking the R assignments, except under `target: connected`, which it
+passes.
 
 Some failures still show only where they happen, such as a number that is
 finite in the file and overflows in an integrand, a directory the process
@@ -296,15 +1082,16 @@ refuses `expand.observable: []`.
 ### Fixed: an error message could hold the expanded size of a value
 
 A message showing a value printed its `repr`, which expands every path to
-a node shared through YAML aliases.  A refused value of a few lines gave a
-7 MB message at 18 levels of sharing, doubling with each level.  The
+a node shared through YAML aliases, so the message of a refused value of a few
+lines doubled with each level of sharing.  The
 messages of `sweep.positions_grid`, `external_times_grid`, `t_final_grid`,
 `component_tuples` and `expand.observable` were built on every load, so a
-valid grid of 24 levels took 10.5 s to load.  `str()` of a list where the
+valid grid of 24 levels took 5.0 s to load.  `str()` of a list where the
 parser expects text (`sweep.method`, `output[0].format`, `coupling_module`)
 cost the same without showing it.  A value up to 1000 characters prints as
-before, and a longer one as a stand-in such as `<list of length 2>`; the
-grid of 24 levels loads in 2.5 ms, and one of 400 levels in 15 ms.  A
+before, and a longer one as a stand-in such as `<list of length 2>`.  The
+alias limit above now refuses the grid of 24 levels in 8 ms, and one of 400
+levels in 58 ms.  A
 tensor key such as `coupling` still builds the array the file describes, at
 its expanded size, up to 10^7 entries.
 
@@ -344,7 +1131,7 @@ defines stay.  A value that holds itself through aliases is refused with
 
 ### Fixed: a quoted `"false"` switched a flag on
 
-**Breaking (a value that is not a flag).**  `expand.response_phase`, `ito`,
+**Breaking (a value that is not a flag).**  `expand.response_phase`,
 `collect_topology`, `diag_R`, `diag_C`, `iso_C` and
 `propagators.c_closed_form_only`, `c_closed_form_vectorized` and `diag_C`
 were read with Python's `bool()`, so a quoted `"false"`, `"no"` or `"off"`

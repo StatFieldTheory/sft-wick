@@ -16,6 +16,7 @@ from sft_wick.workflow import resource_compare as rc
 from sft_wick.workflow.config import (
     ConfigError,
     _load_yaml,
+    refuse_unbounded,
 )
 
 
@@ -102,7 +103,6 @@ def _child(request, timeout, source_root):
         {"method": "qmc_scalar"},
         {"gl_chunk_size": True},
         {"qmc_coupling_chunk_size": 0},
-        {"reuse_integrands": 1},
         {},
     ],
 )
@@ -749,7 +749,7 @@ def test_a_key_past_the_digit_limit_of_str_reads():
 def test_a_key_that_holds_itself_reads_but_is_no_config():
     text = "a: !!pairs [? &x [*x] : 1]\n"
     assert repr(_load_yaml(text)) == repr(yaml.safe_load(text))
-    with pytest.raises(ValueError, match="holds itself"):
+    with pytest.raises(ValueError, match="hold itself"):
         rc._safe_mapping(text, "config")
 
 
@@ -972,14 +972,16 @@ class _CountedList(list):
         return super().__iter__()
 
 
-def test_a_node_used_twice_is_walked_once():
-    """Each level of aliases doubles the paths through the file."""
+def test_the_reads_of_a_walk_stay_linear_in_its_nodes():
+    """Each level of aliases doubles the paths through the file, and four
+    walks read each of the 17 nodes.  Without their memos the walks read
+    131190 and 786460 times."""
     node = _CountedList([1])
     for _ in range(16):
         node = _CountedList([node, node])
     _CountedList.reads = 0
-    assert not rc._holds_itself({"a": node})
-    assert _CountedList.reads == 17
+    refuse_unbounded({"a": node})
+    assert _CountedList.reads < 10 * 17
 
 
 def test_a_long_alias_chain_stays_readable():
@@ -1121,3 +1123,27 @@ def test_known_files_walks_a_shared_node_once(tmp_path):
     for _ in range(60):
         node = {"a": node, "b": [node]}
     assert rc._known_files(node, tmp_path) == {(tmp_path / "m.py").absolute()}
+
+
+def test_a_file_nested_too_deep_is_refused_before_any_worker():
+    text = "a: " + "[" * 150 + "]" * 150 + "\n"
+    with pytest.raises(ValueError, match="nested more than 100 levels"):
+        rc._refuse_deep_config(rc._safe_mapping(text, "config"))
+
+
+@pytest.mark.parametrize("value", [True, False, "yes", "1", 1, 0])
+def test_a_flag_variant_takes_what_the_parser_reads(value):
+    rc._validate_variants({"case": {"reuse_integrands": value}})
+
+
+@pytest.mark.parametrize("key,value", [
+    ("reuse_integrands", "maybe"),
+    ("gl_chunk_size", 0),
+    ("qmc_coupling_chunk_size", True),
+    ("propagator_cache_bytes", -1),
+    ("contraction_backend", "fast"),
+    ("contraction_max_bytes", 0),
+])
+def test_a_control_variant_is_refused_by_its_own_rule(key, value):
+    with pytest.raises(ValueError, match="variant 'case'"):
+        rc._validate_variants({"case": {key: value}})

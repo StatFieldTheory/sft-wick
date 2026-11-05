@@ -215,21 +215,18 @@ def _sample_point(ig):
 
 
 def _fast(ig, cache, times, directions):
-    prop_idx = ig.diagram_term.propagator_indices
-    names = [n for n, _ in prop_idx]
+    names = [n for n, _ in ig.diagram_term.propagator_indices]
     return ig._evaluate_diag_fast(
-        1.0, times, directions, cache, names,
+        1.0, times, directions, cache,
         {n: ax for ax, n in enumerate(names)},
         coupling_array=ig.coupling_array,
     )
 
 
 def _general(ig, cache, times, directions):
-    prop_idx = ig.diagram_term.propagator_indices
-    names = [n for n, _ in prop_idx]
+    names = [n for n, _ in ig.diagram_term.propagator_indices]
     return ig._evaluate_general(
         1.0, times, directions, cache, names,
-        {n: ax for ax, n in enumerate(names)},
         coupling_array=ig.coupling_array,
     )
 

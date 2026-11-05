@@ -158,13 +158,14 @@ def run(repeats, baseline_source):
                             obs, action, order, target=target
                         ).diagram_terms_by_order
                     return compute_moment_numerical(
-                        obs, action, order, values, target=target
+                        obs, action, order, target=target
                     )
                 if engine == "symbolic":
                     moment = baseline.compute_moment(
                         obs, action, order
                     ).diagram_terms_by_order
                 else:
+                    # The baseline predates the removal of this argument.
                     moment = baseline.compute_moment_numerical(
                         obs, action, order, values
                     )
@@ -258,7 +259,8 @@ def run(repeats, baseline_source):
             def control(module):
                 if engine == "symbolic":
                     return module.compute_moment(obs, action, 2).diagram_terms_by_order
-                return module.compute_moment_numerical(obs, action, 2, values)
+                extra = (values,) if module is baseline else ()
+                return module.compute_moment_numerical(obs, action, 2, *extra)
 
             before, after = control(baseline), control(candidate)
             signature = []

@@ -16,8 +16,9 @@ VR5 -- the closed-form C module is imported before the expansion, and the
 VR6 -- a ``plot`` output names a column of the sweep; every column works.
 VR7 -- every position on an axis must broadcast with every position on
        another axis; alternatives on the same axis need not broadcast.
-VR8 -- validating a high-point physical observable finishes without
-       enumerating its Gaussian pairings.
+VR8 -- validating a high-point observable takes one pairing per R
+       assignment, with repeated points as with distinct ones, and still
+       refuses the points an R joins.
 
 Before these checks VR1 and VR5 ended with ``validate`` reporting the file
 valid and ``run`` in a traceback, after the expansion, the propagator table
@@ -30,14 +31,17 @@ from __future__ import annotations
 
 import copy
 import os
-from pathlib import Path
 import subprocess
 import sys
+from math import perm
+from pathlib import Path
 
 import numpy as np
 import pytest
 import yaml
 
+from sft_wick import perturbation
+from sft_wick.workflow import _run_checks
 from sft_wick.workflow.cli import main
 from sft_wick.workflow.config import (ConfigError, _parse_workflow,
                                       check_before_run, run_workflow)
@@ -177,6 +181,15 @@ REFUSED = {
         _all(_rate_spline, _RESPONSE, _ONE_POSITION,
              _set("sweep", "external_times_grid", {"x": [5.0], "y": [1.0]})),
         "invalid_value", "sweep.external_times_grid.x[0]"),
+    "collect_topology_off_at_an_interacting_order": (
+        _all(_set("expand", "orders", [0, 2]),
+             _set("expand", "collect_topology", False)),
+        "invalid_value", "expand.collect_topology"),
+    "collect_topology_off_with_the_sweep_at_order_0": (
+        _all(_set("expand", "orders", [0, 2]),
+             _set("expand", "collect_topology", False),
+             _set("sweep", "orders", [0])),
+        "invalid_value", "expand.collect_topology"),
     "dense_R_under_diag_R": (
         _all(_dense_r, _set("expand", "diag_C", False),
              _set("propagators", "diag_C", False)),
@@ -353,6 +366,7 @@ ACCEPTED = {
     "response_at_the_end_of_the_rate_spline": _all(
         _rate_spline, _RESPONSE, _ONE_POSITION,
         _set("sweep", "external_times_grid", {"x": [4.0], "y": [1.0]})),
+    "collect_topology_off_at_order_0": _set("expand", "collect_topology", False),
     "dense_R_with_both_flags_off": _all(
         _dense_r, _set("expand", "diag_R", False),
         _set("expand", "diag_C", False), _set("propagators", "diag_C", False)),
@@ -542,12 +556,13 @@ def test_VR3_a_selection_without_order_0_is_left_to_the_diagrams(tmp_path):
     assert _outcome(doc, tmp_path, run=False) == "ran"
 
 
-def test_VR3_a_vertex_type_filter_is_left_to_the_diagrams(tmp_path):
+def test_VR3_a_vertex_type_filter_reaches_the_walk_of_the_diagrams(tmp_path):
     doc = _doc()
     doc["expand"].update(observable=["phi_a(x)", "psi_b(y)"], orders=[0, 2])
     doc["sweep"].update(positions_grid={"x": [0.0], "y": [0.5]},
                         vertex_types=["F"])
-    assert _outcome(doc, tmp_path, run=False) == "ran"
+    assert _outcome(doc, tmp_path, run=False) == "refused"
+    assert _run_past_the_check(doc, tmp_path) == "refused"
 
 
 
@@ -562,8 +577,6 @@ def test_VR4_a_conflict_at_an_interacting_order_stops_the_run_early(
     doc["expand"].update(observable=["phi_a(x)", "psi_b(y)"], orders=[2])
     doc["sweep"]["positions_grid"] = {"x": [0.0], "y": [0.5]}
     path = _write(tmp_path, doc)
-    assert main(["validate", str(path)]) == 0
-    capsys.readouterr()
     monkeypatch.setattr(System, "propagators", _no_stage)
     for command in (["run", str(path), "--dry-run", "-q"],
                     ["run", str(path), "-q"]):
@@ -780,25 +793,108 @@ def test_VR7_same_axis_alternatives_can_broadcast_separately(tmp_path, capsys):
 
 
 # ---------------------------------------------------------------------------
-# VR8 -- high-point validation does not enumerate pure C pairings
+# VR8 -- high-point validation does not enumerate Gaussian pairings
 # ---------------------------------------------------------------------------
 
-def test_VR8_high_point_physical_observable_validates_promptly(tmp_path):
+def _high_point_doc(fields: list, points: list, positions: list) -> dict:
+    """An order-0 observable of the given fields at the given points."""
     doc = _doc()
     doc["system"]["vertices"] = []
-    doc["expand"]["observable"] = [f"phi_a(p{i})" for i in range(16)]
+    doc["expand"]["observable"] = [
+        f"{field}_a({point})" for field, point in zip(fields, points)]
     doc["sweep"].pop("component_pairs")
-    doc["sweep"].update(component_tuples=[[0] * 16],
-                        positions_grid={f"p{i}": [0.0] for i in range(16)})
-    path = _write(tmp_path, doc)
-    # Includes interpreter startup.  The former 15!!-pairing enumeration
-    # exceeded this bound; parsing and the checks take well under a second.
-    env = dict(os.environ, PYTHONPATH=str(ROOT / "src"),
-               PYTHONDONTWRITEBYTECODE="1", SFT_WICK_PROGRESS="0")
-    result = subprocess.run(
-        [sys.executable, "-m", "sft_wick.workflow.cli", "validate", str(path)],
-        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10,
+    doc["sweep"].update(
+        component_tuples=[[0] * len(fields)],
+        positions_grid={p: [x] for p, x in zip(points, positions)})
+    return doc
+
+
+def _distinct(fields: list) -> list:
+    return [f"p{i}" for i in range(len(fields))]
+
+
+FACING = ["psi"] * 2 + ["phi"] * 12
+FACING_POINTS = ["p0", "p1"] + ["p1"] * 6 + ["p0"] * 6
+
+
+@pytest.mark.parametrize("fields, points, assignments", [
+    (["phi"] * 16, _distinct(range(16)), 1),
+    (["psi"] + ["phi"] * 13, _distinct(range(14)), 13),
+    (["psi"] * 3 + ["phi"] * 11, _distinct(range(14)), perm(11, 3)),
+    # Two psi at one point: the operators of each point do not count.
+    (FACING, ["p0"] * 2 + ["p1"] * 6 + ["p2"] * 6, 3),
+    # Each psi needs the other point, which closes a loop.
+    (FACING, FACING_POINTS, 0),
+])
+def test_VR8_validate_takes_one_pairing_per_R_assignment(
+        tmp_path, capsys, monkeypatch, fields, points, assignments):
+    # 15!! and 13!! pairings took minutes and seconds; the count does not
+    # depend on how busy the machine is.
+    counts = []
+    refuse = _run_checks._refuse_joined_points
+
+    def counted(terms, sweep):
+        terms = list(terms)
+        counts.append(len(terms))
+        return refuse(terms, sweep)
+
+    monkeypatch.setattr(_run_checks, "_refuse_joined_points", counted)
+    monkeypatch.setattr(perturbation, "_wick_contract_target", _no_stage)
+    doc = _high_point_doc(fields, points, [0.0] * len(fields))
+    assert main(["validate", str(_write(tmp_path, doc))]) == 0, capsys.readouterr().err
+    assert counts == [assignments]
+
+
+@pytest.mark.parametrize("seed", ["0", "3", "7"])
+def test_VR8_the_pair_refused_does_not_follow_the_hash_seed(tmp_path, seed):
+    """Six pairs are joined and apart, and the first in sorted order is named.
+    Each seed runs in its own process: a process has one, and the old order
+    named ``q0`` at about one seed in six."""
+    points = [p for i in range(6) for p in (f"p{i}", f"q{i}")]
+    positions = [x for i in range(6) for x in (float(i), i + 0.5)]
+    doc = _high_point_doc(["psi", "phi"] * 6, points, positions)
+    done = subprocess.run(
+        [sys.executable, "-m", "sft_wick.workflow.cli", "validate",
+         str(_write(tmp_path, doc))],
+        capture_output=True, text=True, check=False,
+        env={**os.environ, "PYTHONHASHSEED": seed,
+             "PYTHONPATH": str(Path(_run_checks.__file__).parents[2])},
     )
-    assert result.returncode == 0, result.stderr
-    assert not result.stderr
-    assert "[sft-wick] valid:" in result.stdout
+    assert done.returncode == 2, done.stderr
+    assert "sweep.positions_grid.q0" in done.stderr
+
+
+@pytest.mark.parametrize("fields, points, positions, status", [
+    # Pairing the response point with any physical point joins the two.
+    (["psi"] + ["phi"] * 13, _distinct(range(14)), [0.5] + [0.0] * 13, 2),
+    (["phi"] * 13 + ["psi"], _distinct(range(14)),
+     [0.0] * 6 + [0.5] + [0.0] * 7, 2),
+    (["psi"] * 3 + ["phi"] * 11, _distinct(range(14)),
+     [0.0, 0.5] + [0.0] * 12, 2),
+    # Repeated points: only the second physical point is apart.
+    (["psi"] + ["phi"] * 13, ["p0"] + ["p1"] * 6 + ["p2"] * 7,
+     [0.0] * 7 + [0.5] * 7, 2),
+    # The two points face each other, and every R there vanishes.
+    (FACING, FACING_POINTS, [0.0, 0.5] + [0.5] * 6 + [0.0] * 6, 0),
+    # More response than physical fields: every pairing has a zero psi-psi.
+    (["psi"] * 3 + ["phi"], _distinct(range(4)), [0.5, 0.0, 0.0, 0.0], 0),
+])
+def test_VR8_response_point_joined_in_some_pairing_is_refused(
+        tmp_path, capsys, fields, points, positions, status):
+    doc = _high_point_doc(fields, points, positions)
+    assert main(["validate", str(_write(tmp_path, doc))]) == status
+    err = capsys.readouterr().err
+    assert ("a chain of response propagators joins them" in err) == bool(status)
+
+
+@pytest.mark.parametrize("moved, outcome", [({"z": 0.5}, "refused"), ({}, "ran")])
+def test_VR9_a_response_point_joined_at_an_interacting_order(
+        tmp_path, moved, outcome):
+    """Order 1 of ``<phi psi psi>`` has no diagram at order 0, so only the
+    walk over R assignments sees that the vertex joins two external points.
+    Validate passed this and the run refused it."""
+    doc = _response_doc(["phi_a(x)", "psi_b(y)", "psi_c(z)"], moved)
+    doc["system"]["vertices"] = _doc()["system"]["vertices"]
+    doc["expand"]["orders"] = [1]
+    assert _outcome(doc, tmp_path, run=False) == outcome
+    assert _run_past_the_check(doc, tmp_path) == outcome

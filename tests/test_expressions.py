@@ -4,6 +4,7 @@ from sft_wick import (
     Rational, Propagator, Sum, Product, Symbol, ZERO, ONE, I, ImaginaryUnit,
 )
 from sft_wick.expressions import MINUS_ONE, apply_response_phase
+import pytest
 
 
 def test_rational_normalization():
@@ -53,6 +54,11 @@ def test_propagator_equality():
 def test_propagator_latex():
     p = Propagator("C", "a", "b", "x", "y")
     assert p.to_latex() == "C_{ab}(x, y)"
+
+
+@pytest.mark.parametrize("left, right", [("j", None), (None, "j")])
+def test_propagator_one_index_latex(left, right):
+    assert Propagator("C", left, right, "u", "x").to_latex() == "C_{j}(u, x)"
 
 
 def test_propagator_scalar_latex():
@@ -166,3 +172,11 @@ def test_response_phase_sum():
     # First term (R) should have -i; second term (C) should be unchanged
     assert isinstance(result.terms[0], Product)  # -i * R
     assert result.terms[1] is c  # C unchanged
+
+
+def test_response_phase_refuses_a_product_over_a_mixed_sum():
+    """No single power of -i multiplies R + C."""
+    r = Propagator("R", None, None, "x", "y")
+    c = Propagator("C", None, None, "x", "y")
+    with pytest.raises(ValueError, match="no single response phase"):
+        apply_response_phase(Product((Rational(1, 2), Sum((r, c)))))

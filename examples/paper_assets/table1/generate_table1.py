@@ -42,6 +42,7 @@ from sft_wick import (
 )
 from sft_wick.drawing_tikz import TikzRenderer
 from sft_wick.expressions import Sum
+from sft_wick.wick import generate_all_pairings
 
 HERE = Path(__file__).resolve().parent
 ORDERS = [1, 2, 3]
@@ -180,16 +181,19 @@ def order1_diagrams():
     n_ops = 3 * 1 + len(obs)
     raw = double_factorial(n_ops - 1)
 
-    # How many of the raw pairings the Ito prescription removes is
-    # MEASURED, not asserted: re-run with ito=False and count.  At order 1
-    # there is a single psi, so no psi-psi pairing exists and <psi psi> = 0
-    # prunes nothing -- the whole reduction is R(x, x) = 0.  Deriving it
-    # keeps the prose honest if that ever stops being true.
-    reset_uid_counter()
-    phi_n, _psi_n, action_n = make_setup()
-    obs_n, _tex_n, _m_n = observable(1, phi_n)
-    n_no_ito = len(compute_moment(obs_n, action_n, order=1,
-                                  ito=False).diagrams_by_order[1])
+    # How many of the raw pairings the Ito prescription removes is counted
+    # from the pairings themselves.  At order 1 there is a single psi, so
+    # no psi-psi pairing exists and <psi psi> = 0 prunes nothing: the whole
+    # reduction is R(x, x) = 0.  It is derived so that the table follows if
+    # that changes.
+    first = result.diagrams_by_order[1][0]
+    ops = [*first.observable_ops,
+           *(op for vi in first.vertex_instances for op in vi.field_operators)]
+    n_equal_point = sum(
+        any(ops[i].is_response != ops[j].is_response
+            and ops[i].spatial_arg == ops[j].spatial_arg for i, j in pairing)
+        for pairing in generate_all_pairings(list(range(len(ops))))
+    )
     # ``diagrams_by_order`` holds one record per Wick pairing; grouping by
     # canonical form gives the distinct diagrams, in the same order as the
     # DiagramTerms, whose prefactors already contain the pairing
@@ -226,7 +230,7 @@ def order1_diagrams():
     md = [f"# Order-1 diagrams of ${obs_tex}$ (cubic vertex, N = 3)", "",
           f"`compute_moment(obs, action, order=1)` returns {len(dts)} `DiagramTerm`s. "
           f"Wick's theorem pairs the {n_ops} operators in {raw} ways, of which "
-          f"{n_no_ito - len(fds)} pair the vertex's psi with one of its own phi's "
+          f"{n_equal_point} pair the vertex's psi with one of its own phi's "
           f"and vanish under the Ito prescription (R(x, x) = 0), leaving {len(fds)}; "
           f"the topology engine groups those into the {len(unique)} distinct "
           f"topologies here, with pairing multiplicities {mults} summing to "

@@ -129,7 +129,8 @@ What changes for the kernels
   ``GeneralKappa2``.
 * A kink of C on its time diagonal stays on the diagonal, because ``f`` is
   increasing.  A kernel declared with ``has_diagonal_kink`` or
-  ``has_coincident_time_kinks`` keeps its declaration.
+  ``has_coincident_time_kinks`` keeps its declaration, and an undeclared
+  closed-form C is probed on the diagonal in ``u``.
 * A missing factor changes values without an error.  Compare the system in
   ``u`` with the system in ``t`` at a node count where the ``t`` version has
   converged, as the test above does.

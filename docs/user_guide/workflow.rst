@@ -26,9 +26,9 @@ Use **L1 Python** when you need to:
 
 Drop to the **raw L0 API** (``Field``, ``Vertex``, ``Action``,
 ``compute_moment``, ``PropagatorCache``, ``DiagramIntegrand``) only
-when you need fine-grained control over Itô prescription,
-diagonal/isotropic simplification flags, or contraction engines
-that the L1 defaults don't expose.
+when you need fine-grained control over diagonal/isotropic
+simplification flags or contraction engines that the L1 defaults
+don't expose.
 
 Quick start: L2 (config file)
 -----------------------------
@@ -81,8 +81,8 @@ Run it:
    sft-wick validate demo1_config.yaml             # check only, run nothing
 
 The CLI is registered on install; ``--override key=value`` sets any
-key the schema allows, including one the file leaves out (safe scalar
-coercion, no ``eval``).  Larger
+key the schema allows, including one the file leaves out (the value is
+read as one YAML scalar, no ``eval``).  Larger
 examples exercising non-local vertices, closed-form :math:`C`
 hooks, and dynamic couplings live in ``examples/demo1_config.yaml``
 and ``examples/demo2_config.yaml``.
@@ -144,7 +144,7 @@ script:
 The five headline types
 -----------------------
 
-:class:`~sft_wick.workflow.System`: physics spec
+:class:`~sft_wick.workflow.system.System`: physics spec
    Combines field, linear operator (for :math:`R`), noise (for
    :math:`C`), and vertex lists.  Methods ``expand`` and
    ``propagators`` lower to the computational layer.
@@ -267,8 +267,8 @@ its Itô form: the extra drift
 becomes the drift vertices ``B`` and ``L``, so R and C stay those of the
 Itô part and every integrator that runs the Itô model runs the
 Stratonovich one.  (Folding ``L`` into the linear operator would resum it,
-but a generic ``L`` is not diagonal, and a dense R runs only on the
-scalar-loop integrators and has no closed-form C.)  Rename the vertices
+but a generic ``L`` is not diagonal, and a dense R has no built-in
+closed-form C.)  Rename the vertices
 with ``vertex_names=`` and ``drift_names=`` if they collide with your own;
 a vertex whose coupling is identically zero is not generated.
 
@@ -286,11 +286,6 @@ selected orders carries, and many vertex sets give no diagram (an odd
 number of fields, a vanishing response loop), so pass the labels of the
 power that ``Expansion.by_vertex_type(order)`` holds, as
 ``examples/demo5/white_l1_multiplicative.py`` does.
-
-Expand with ``ito=True`` (the default): the numerical layer evaluates the
-Itô form, and under ``ito=False`` it refuses the equal-point R of a
-two-ψ vertex rather than return the Itô value (see
-:doc:`perturbative_expansion`).
 
 Two further properties of this spec:
 
@@ -399,7 +394,8 @@ composes cleanly with ``propagators.n_jobs > 1``,
 drift: a time-ordered matrix exponential rather than a per-component
 decay.  At load time the callable is called once at a causal and once at
 an acausal time pair inside ``[t_min, t_max]``: the value must have the
-declared shape and must vanish for ``t1 < t2``.  A dense R needs three
+declared shape.  It need not vanish for ``t1 < t2``, since the integrators
+apply Θ.  A dense R needs three
 more settings, because C is then dense too: ``expand.diag_R: false`` and
 ``expand.diag_C: false`` (``System.expand`` refuses the diagonal
 simplifications when R or C has off-diagonal entries), and
@@ -701,8 +697,21 @@ the pieces are added.  Three kinds of pair are split:
   white noise (``GaussianNoise(sigma2=...)``) and a κ² with a ``|Δt|`` cusp
   (the exponential/OU kernel, a damped cosine, any callable the kernel
   probe finds cusped, since ``C = ∫∫ R κ² R`` inherits the cusp in its
-  third derivative) are found from the model, and a closed-form C callable
-  declares it with ``has_diagonal_kink = True``;
+  third derivative) are found from the model.  A cache that computes its
+  own C (``spectral_cache``) declares it with ``has_diagonal_kink``, and so
+  can a closed-form C callable, which replaces the model: ``True`` and
+  ``False`` are both trusted.  A closed-form C that sets nothing is split on
+  a model with ``sigma2``, and otherwise probed at the times and points of
+  the diagram, for a jump in its first, second or third derivative across
+  ``t1 = t2`` and for a smooth C too narrow across the diagonal for a
+  32-node rule, at any width of a ridge on the diagonal.  The probe costs
+  about 780 calls (two for a batched callable) per pair of points and per
+  ``t_final``, and per grid point of a sweep with ``n_jobs > 1``, and
+  ``has_diagonal_kink`` skips it.  A callable that raises on it is split.  It
+  does not see a cusp below about 1e-6 of the size of C on a C of order-one
+  curvature over the range, a pulse of noise narrower than about 1e-3 of the
+  range that lies between its five times, or a feature that vanishes on the
+  diagonal and is narrower than about 1e-4 of the range;
 * two time arguments of a coupling callable that declares
   ``has_coincident_time_kinks = True``, meaning that it is kinked wherever
   two of its time arguments coincide, for example through a ``min`` over
@@ -944,8 +953,7 @@ prints the same keys as a JSON Schema; see `Checking a config`_.
      observable: ["phi_a(x)", "phi_b(y)"]   # required: a list of operators
      orders:     [0, 2]                     # required: a list, or one integer
      target:            moment   # 'moment' | 'connected' (connected_targets.rst)
-     response_phase:    true     # multiply by (-i)^n_response (MSR)
-     ito:               true     # Itô prescription (R(x,x) = 0)
+     response_phase:    true     # show (-i)^n_response in symbolic output (MSR)
      collect_topology:  true     # spatial-level Wick contraction (faster, default)
      diag_R:            true     # diagonal-R simplification; raises if R has off-diagonal entries
      diag_C:            true     # diagonal-C simplification; raises if C has off-diagonal entries
@@ -960,7 +968,7 @@ prints the same keys as a JSON Schema; see `Checking a config`_.
    propagators:
      t_max:              50.0    # required: upper time bound
      n_grid_t:           60      # time-grid resolution (or set dt instead)
-     # dt:               0.5     # alternative single-knob: n_grid_t = ceil(t_max/dt)
+     # dt:               0.5     # alternative single-knob: n_grid_t = ceil((t_max - t_min)/dt)
 
      # spatial-cache modes (all optional; lazy mode if unset)
      homogeneity:        null    # auto-inferred from noise.kappa2.type
@@ -982,7 +990,7 @@ prints the same keys as a JSON Schema; see `Checking a config`_.
 
      # quadrature for the inner ∫ R κ² R when no closed form is given
      c_method:           auto         # 'auto' | 'dblquad' | 'gauss_legendre'
-     c_n_gauss:          20           # GL nodes/dim under c_method='gauss_legendre'
+     c_n_gauss:          20           # GL nodes/dim under 'gauss_legendre'; start under 'auto'
 
      diag_C:             true         # false: tabulate every C_ab, for a C with
                                       # off-diagonal entries (dense R, mixing
@@ -1108,7 +1116,7 @@ Section reference: ``system``
    * - ``linear.R_time_module``
      - ``str`` (path)
      - **required when** ``type: explicit``
-     - Path to a ``.py`` file exporting a callable ``R_time(t1, t2) -> float``, or ``-> (N, N)`` under ``iso_R: false``. Must enforce causality (return 0 when ``t1 < t2``).
+     - Path to a ``.py`` file exporting a callable ``R_time(t1, t2) -> float``, or ``-> (N, N)`` under ``iso_R: false``. It need not vanish for ``t1 < t2``: the integrators apply Θ.
    * - ``linear.R_time_attr``
      - ``str``
      - ``"R_time"``
@@ -1116,7 +1124,7 @@ Section reference: ``system``
    * - ``linear.iso_R``
      - ``bool``
      - ``true``
-     - (``type: explicit``) ``true``: the callable returns a scalar; ``false``: it returns an ``(N, N)`` matrix.  Checked for shape and for causality when the config is loaded
+     - (``type: explicit``) ``true``: the callable returns a scalar; ``false``: it returns an ``(N, N)`` matrix.  Checked for shape when the config is loaded
    * - ``linear.R_time_vectorized``
      - ``bool``
      - ``false``
@@ -1136,7 +1144,7 @@ Section reference: ``system``
    * - ``noise.sigma2``
      - block or ``null``
      - ``null``
-     - Optional δ-correlated white-noise variance.  Three flavours: ``{type: constant, amplitude: 0.01}``, where the amplitude is a number (read as ``amplitude × I_N``) or a symmetric ``N × N`` nested list (the matrix form mixes the components, so it needs ``propagators.diag_C: false``); ``{type: callable_module, module: ./fn.py, attr: sigma2}`` for a user-supplied ``sigma2(n1, lam, n2) → (N, N)`` (mirrors the ``kappa2.callable_module`` pattern; the spec is wrapped via ``CustomImpulse``); or ``{type: multiplicative, g0: [[...]], g1: [[[...]]], interpretation: ito|stratonovich}`` for white noise whose amplitude depends on φ (:class:`~sft_wick.workflow.MultiplicativeImpulse`; optional ``vertex_names``, ``drift_names``), whose ``D0 = g0 g0ᵀ`` is dense in general and then needs ``propagators.diag_C: false``
+     - Optional δ-correlated white-noise variance.  Three flavours: ``{type: constant, amplitude: 0.01}``, where the amplitude is a number (read as ``amplitude × I_N``) or a symmetric ``N × N`` nested list (the matrix form mixes the components, so it needs ``propagators.diag_C: false``); ``{type: callable_module, module: ./fn.py, attr: sigma2}`` for a user-supplied ``sigma2(n1, lam, n2) → (N, N)`` (mirrors the ``kappa2.callable_module`` pattern; the spec is wrapped via ``CustomImpulse``); or ``{type: multiplicative, g0: [[...]], g1: [[[...]]], interpretation: ito|stratonovich}`` for white noise whose amplitude depends on φ (:class:`~sft_wick.workflow.specs.MultiplicativeImpulse`; optional ``vertex_names``, ``drift_names``), whose ``D0 = g0 g0ᵀ`` is dense in general and then needs ``propagators.diag_C: false``
    * - ``vertices``
      - list of blocks
      - ``[]``
@@ -1223,15 +1231,11 @@ Section reference: ``expand``
    * - ``response_phase``
      - ``bool``
      - ``true``
-     - Multiply each diagram by :math:`(-i)^{n_R}` (MSR). Disable to inspect raw symbolic output
-   * - ``ito``
-     - ``bool``
-     - ``true``
-     - Itô prescription: :math:`R(x, x) = 0` and causal R-loops vanish
+     - Multiply the symbolic output by :math:`(-i)^{n_R}` (MSR). ``false`` shows it without the phase. Integrated numbers always carry the phase
    * - ``collect_topology``
      - ``bool``
      - ``true``
-     - Spatial-level Wick contraction (avoids combinatorial explosion). Disable only for debugging
+     - Spatial-level Wick contraction (avoids combinatorial explosion). ``false`` is refused at an order above 0, which it builds no diagrams for; ``compute_moment`` at L0 gives the expression
    * - ``diag_R`` / ``diag_C``
      - ``bool``
      - ``true``
@@ -1351,11 +1355,11 @@ Section reference: ``propagators``
    * - ``n_grid_t`` / ``dt``
      - ``int`` / ``float``
      - ``60`` / derived
-     - Pick **one**. ``dt`` derives ``n_grid_t = ceil(t_max/dt)``. See :doc:`discretization`
+     - Pick **one**. ``dt`` derives ``n_grid_t = ceil((t_max - t_min)/dt)``. See :doc:`discretization`
    * - ``homogeneity``
      - ``str``
      - auto
-     - Override inferred ``"translation"`` / ``"rotation"`` / ``"general"``
+     - Override inferred ``"translation"`` / ``"rotation"`` / ``"general"``.  ``"translation"`` keys C on ``|x1 - x2|`` and refuses noise that is not even in ``x1 - x2``.  ``"rotation"`` keys C on ``x1 · x2`` and does not check that the noise is even under swapping the points
    * - ``r_max`` + ``n_grid_r``
      - ``float`` + ``int``
      - ``null``
@@ -1391,11 +1395,11 @@ Section reference: ``propagators``
    * - ``c_method``
      - ``str``
      - ``"auto"``
-     - Quadrature for the inner :math:`\int R\kappa^2 R`, used only when no closed form applies. ``"auto"`` (default) is Gauss-Legendre for the package's own kernels, with the node count refined from ``c_n_gauss`` until the rule is converged at the table's extreme cells, and ``"dblquad"`` for user callables; ``"gauss_legendre"`` forces fixed-``c_n_gauss`` GL (18-100× faster on piecewise-analytic κ²) and ``"dblquad"`` forces the adaptive rule. See :ref:`integrator-choice` below
+     - Quadrature for the inner :math:`\int R\kappa^2 R`, used only when no closed form applies. ``"auto"`` (default) is Gauss-Legendre with the node count refined from ``c_n_gauss`` until the rule is converged at 23 probe cells of the table, for user callables too; ``"gauss_legendre"`` forces fixed-``c_n_gauss`` GL (18-100× faster on piecewise-analytic κ²) and ``"dblquad"`` forces the adaptive rule, with no convergence check. See :ref:`integrator-choice` below
    * - ``c_n_gauss``
      - ``int``
      - ``20``
-     - GL nodes per dimension when ``c_method: gauss_legendre`` (cost ``c_n_gauss²`` per sub-region)
+     - GL nodes per dimension when ``c_method: gauss_legendre`` (cost ``c_n_gauss²`` per sub-region); under ``auto`` the count the refinement starts from, tested at least once however large, and the table uses the converged count that ``c_source`` and ``--dry-run`` report
    * - ``diag_C``
      - ``bool``
      - ``true``
@@ -1455,11 +1459,8 @@ to ``t_max`` is valid.  ``t_final`` is compared only when a point of the
 observable is left free, and a point in ``integrate_over`` counts as free:
 with every point pinned by ``external_times_grid`` it is not read, and it can
 be anything.  With ``c_closed_form_only: true`` no table is built and none of
-these limits applies.
-
-A diagram with a closed R loop, which ``expand.ito: false`` keeps in the
-expression, is exactly 0 and reads no table, so these limits do not depend on
-``ito``.
+these limits applies; a time before ``t_min`` is then neither refused nor
+given a meaning, and a response operator pinned there reads R of that time.
 
 A callable ``gamma`` puts a second limit on time, which holds with or without
 a table: R reads a spline that covers ``t_min_cache`` to ``t_max_cache``, and
@@ -1830,9 +1831,9 @@ Two layers in the pipeline run numerical quadrature:
    one evaluation per ``(positions, t_final, component_pair)``
    grid point.
 
-For both layers the choice is the same trade-off: **adaptive
-robustness** (``dblquad`` / ``nquad``) vs **smooth-integrand
-speed** (``gauss_legendre``).
+For the integrator the choice is a trade-off: ``nquad`` adapts,
+``gauss_legendre`` is faster on a smooth integrand.  For C ``auto`` checks
+the rule it takes, which ``dblquad`` does not.
 
 .. tip::
 
@@ -1848,8 +1849,8 @@ speed** (``gauss_legendre``).
    ``c_method='gauss_legendre'`` does this split automatically for
    the C table.  ``sweep.method='gauss_legendre'`` does it for the
    diagram's time domain, where a kinked C (white noise, a κ² with a
-   ``|Δt|`` cusp, or a closed-form C that declares
-   ``has_diagonal_kink``) or a vertex with several ψ legs at one time
+   ``|Δt|`` cusp, or a closed-form C that declares ``has_diagonal_kink``
+   or shows the jump to the probe) or a vertex with several ψ legs at one time
    kinks the integrand, and keeps exponential convergence.  A kink
    inside a coupling callable, such as a ``min`` over partner times in
    an R-contracted cumulant, is split once the callable declares
@@ -1861,7 +1862,10 @@ speed** (``gauss_legendre``).
    Levin), (c) integrable singularities like :math:`1/\sqrt{x}`
    (need Gauss-Jacobi or tanh-sinh). None of these arise in
    typical sft-wick diagrams; the standard exp / Gaussian /
-   Legendre kernels are all GL-friendly.
+   Legendre kernels are all GL-friendly, except a Gaussian kernel far
+   narrower than the node spacing, which is not split and converges
+   algebraically (6e-3 at ``n_gauss = 8`` and ``sigma_t = 0.05`` on
+   ``T = 3``).
 
 Decision matrix:
 
@@ -1882,12 +1886,19 @@ Decision matrix:
        ``c_closed_form_module`` supplies your own.
    * - ``propagators.c_method``
      - ``auto`` (default)
-     - Any of the package's own kernels (exponential / Gaussian /
-       Legendre) when no closed form applies
+     - Any κ² when no closed form applies, a user callable included
      - Gauss-Legendre with the node count refined until the rule is
-       converged at the table's extreme cells (20 → 30 → 45 → 68), so
-       6-30 ms / cell; ``dblquad`` if no count converges.  User
-       callables always get ``dblquad``.
+       converged at 23 probe cells of the table: the extreme cells, the
+       diagonal and both sides of the lag (20 → 30 → 45 → 68), so
+       6-30 ms / cell.  If no count converges, a Gauss-Legendre rule on
+       panels halved towards the ends of each interval (about 1 s / cell,
+       ``c_source`` says ``graded``), and ``dblquad`` with a warning if that
+       does not converge either, as for a kink or a step inside the interval
+       (about 30 s to reach the warning).  Two rules that agree can both
+       miss a feature narrower than their node spacing, so a sharp feature
+       at a known place is better given a closed form, and a spike on the
+       diagonal narrower than about ``1e-8`` of the horizon is better
+       written as white noise.
    * -
      - ``gauss_legendre``
      - Piecewise-analytic κ² (single ``|Δt|`` cusp on the diagonal)
@@ -1896,7 +1907,8 @@ Decision matrix:
        2e-2 at 100 for demo1's kernel), so prefer ``auto``
    * -
      - ``dblquad``
-     - Any κ² (robust, adaptive)
+     - An adaptive rule on request, with no convergence check: it can be
+       wrong by any factor on a kernel far narrower than the interval
      - 7 ms / cell at ``t_max ≈ 5`` rising to ~200 ms at 100 (the
        rectangle is split at the diagonal cusp; un-split it was
        74-245 ms and only ~2e-6 accurate)
@@ -1973,8 +1985,14 @@ keys are:
 Parameter scans from the shell
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``--override key=value`` sets a key of the config (safe scalar
-coercion, no ``eval``).  The key is read against the schema, not the
+``--override key=value`` sets a key of the config.  The value is read
+by the YAML loader of the config file, so ``1e3``, ``off`` and ``017``
+mean what they mean in a file, and ``none`` is the string ``none``
+where a file would read it so.  A value that reads as a list or a
+mapping stays a string, and so does an empty value or one that is only
+a comment, so an unset variable in ``key=$VALUE`` deletes nothing;
+``null`` and ``~`` read as null.  Nothing goes through ``eval``.  The
+key is read against the schema, not the
 file: a key the file leaves out is set, and a mapping on the way that
 the file leaves out (``system.noise.sigma2`` in
 ``--override system.noise.sigma2.amplitude=0.01``) is created, as
@@ -2014,7 +2032,7 @@ Checking a config
    sft-wick schema > sft-wick-config.schema.json
 
 ``sft-wick validate`` parses the config, applies any ``--override``,
-builds the :class:`~sft_wick.workflow.System` and makes the checks
+builds the :class:`~sft_wick.workflow.system.System` and makes the checks
 :func:`~sft_wick.workflow.config.run_workflow` makes before the
 expansion: the observable against the system (its field, component
 index and, at interacting orders, spatial labels), the component tuples
@@ -2033,15 +2051,17 @@ not read is not range-checked: ``sweep.seed`` under ``gauss_legendre``, or
 ``propagators.t_max`` under ``c_closed_form_only``.  ``sft-wick run`` makes
 the same checks first.
 
-``sft-wick validate`` runs no expansion past order 0.  It contracts the
-observable at order 0 only when it contains a response field, to find the
-points a response propagator joins, which take one position.  Purely physical
-observables skip this contraction, whose cost grows with the number of
-legs.  The position check compares every shape on each axis with those on
-the other axes; alternatives on the same axis need not broadcast with each
-other.  Two checks need
-the diagrams of the interacting orders: a ``sweep.vertex_types`` label,
-and points that a chain of response propagators joins through a vertex.
+``sft-wick validate`` runs no expansion.  It finds the points a response
+propagator joins, which take one position, from one pairing per R assignment,
+of the observable at order 0 and of the observable with its vertices at each
+selected order above 0.  The second walk runs only when two points of the grid
+are apart and the observable has a response leg or a local vertex has two.
+Its cost is the number of R assignments, and the pairings among the leftover
+physical legs add nothing.  The position check compares every shape on each
+axis with those on the other axes; alternatives on the same axis need not
+broadcast with each other.  Two checks need the diagrams of the interacting
+orders: a ``sweep.vertex_types`` label, and joined points under
+``target: connected``, where the C pairings decide which diagrams stay.
 ``sft-wick run``, with or without ``--dry-run``, makes them after the
 expansion, before the propagator table, with exit status 2 and the same
 one line.  Some failures show only where they happen, such as a number
@@ -2059,9 +2079,9 @@ files: the keys of every block, their value types, enumerations and
 defaults, and the keys a block requires.  Editors and tools that read
 JSON Schema can check a file with it.  Rules that tie two keys
 together (``dt`` or ``n_grid_t``, one coupling source per vertex) are
-checked by the parser only, so the parser decides.  The schema asks
-for ``true`` and ``false`` where the parser also reads other
-spellings of a flag (``yes``, ``on``, ``1``).
+checked by the parser only, so the parser decides.  The schema takes
+the spellings of a flag the parser reads (``yes``, ``on``, ``1``),
+and numeric strings at the keys that read them.
 
 A config the parser refuses ends the command with exit status 2 and
 one line on standard error:
@@ -2112,7 +2132,7 @@ other key already, a missing required key (``t_max`` written as
 written as ``n_grid_r``), a plot without ``x``.  One pair is not
 refused: ``iso_R`` and ``iso_C``, and likewise ``diag_R`` and
 ``diag_C``, when only one of the two is in the file.  Each states a
-simplification; :meth:`~sft_wick.workflow.System.expand` refuses one
+simplification; :meth:`~sft_wick.workflow.system.System.expand` refuses one
 whose condition fails, and switching one off keeps the value, so such
 a misspelling stops the run or leaves the number unchanged.
 

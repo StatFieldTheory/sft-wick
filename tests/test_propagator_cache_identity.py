@@ -27,8 +27,9 @@ def _system(gamma=None, *, kappa2=None, sigma2=None, explicit_R=None):
         kappa2 = sw.SeparableTranslation(
             sw.ExponentialTemporal(1.0, 1.0), sw.ExponentialSpatial(1.0)
         )
+    rates = isinstance(gamma, (list, np.ndarray)) and len(gamma) > 1
     return sw.System(
-        field=sw.FieldSpec("phi", 1),
+        field=sw.FieldSpec("phi", len(gamma) if rates else 1),
         linear=sw.DiagonalA(gamma),
         noise=sw.GaussianNoise(kappa2, sigma2),
         explicit_R=explicit_R,

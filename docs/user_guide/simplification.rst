@@ -128,13 +128,14 @@ pipeline to each order expression:
 
 1. **Wick contraction**: when ``collect_topology=True`` (default),
    uses the spatial-level engine which enumerates spatial topologies
-   with multiplicities, then groups by canonical diagram form.
+   and their component routings, then groups by canonical diagram form.
    When ``collect_topology=False``, uses the operator-level engine
    followed by ``collect_by_diagram``.
 2. **simplify**: flatten, absorb rationals, eliminate zeros, collect
    like terms
 3. **apply_response_phase** (``response_phase=True``): multiply by
-   :math:`(-\mathrm{i})^n`
+   :math:`(-\mathrm{i})^n`.  With ``False`` the symbolic output stays
+   without the phase, and numbers do not change.
 
 These run automatically.  All three are also exposed in the public API
 for manual use.

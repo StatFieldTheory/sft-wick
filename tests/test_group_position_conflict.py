@@ -386,3 +386,343 @@ def test_GP5_multiplicative_noise_is_refused_at_L0_too(props):
         exp.evaluate(props, positions=SEP, t_final=T_F,
                      component_pair=(0, 0), orders=[1],
                      method="gauss_legendre", n_gauss=8)
+
+
+def _separated_kernel(n1, t1, n2, t2):
+    r = float(n1) - float(n2)
+    return np.array([[np.exp(-abs(t1 - t2) - r * r / 2.0)]])
+
+
+@pytest.mark.parametrize("r", [0.0, 1.5, 6.0])
+@pytest.mark.parametrize("method", ["qmc", "qmc_scalar", "nquad", "gauss_legendre"])
+def test_positions_reach_c_on_a_cache_with_no_table(method, r):
+    """They used to be dropped, which returned C(x, x): a factor 4.48 at
+    r = 1.5.  The reference is the defining integral, by scipy alone."""
+    from scipy.integrate import dblquad
+    from sft_wick.evaluate import PropagatorCache, PropagatorModel, integrate_moment
+    from sft_wick.expressions import Propagator, Rational, Symbol
+    from sft_wick.perturbation import DiagramTerm
+
+    gamma, t_f = 1.3, 2.0
+    model = PropagatorModel(
+        R_time=lambda t, s: np.exp(-gamma * (t - s)),
+        kappa2=_separated_kernel,
+        n_components=1,
+        diag_C=True,
+    )
+    term = DiagramTerm(
+        propagators=(
+            Propagator(
+                kind="C",
+                spatial_left="x",
+                spatial_right="y",
+                index_left=None,
+                index_right=None,
+            ),
+        ),
+        coupling_sum=Symbol("K", indices=()),
+        rational_prefactor=Rational(1, 1),
+        integration_vars=(),
+        summation_indices=(),
+        n_response=0,
+    )
+    integrand = term.build_integrand({"K": np.array(1.0)})
+    got, _ = integrate_moment(
+        integrand,
+        t_f,
+        PropagatorCache(model),
+        method=method,
+        positions={"x": 0.0, "y": r},
+    )
+    # Twice the triangle b < a, where the integrand is smooth; the Gaussian
+    # in r is a factor, so the tolerance does not meet its size.
+    ref, _ = dblquad(
+        lambda b, a: np.exp(-gamma * (2.0 * t_f - a - b) - (a - b)),
+        0.0,
+        t_f,
+        0.0,
+        lambda a: a,
+        epsabs=1e-12,
+        epsrel=1e-12,
+    )
+    assert got == pytest.approx(2.0 * ref * np.exp(-r * r / 2.0), rel=1e-6, abs=0.0)
+
+
+def _point_to_point_term():
+    from sft_wick.expressions import Propagator, Rational, Symbol
+    from sft_wick.perturbation import DiagramTerm
+
+    return DiagramTerm(
+        propagators=(
+            Propagator(
+                kind="C",
+                spatial_left="x",
+                spatial_right="y",
+                index_left=None,
+                index_right=None,
+            ),
+        ),
+        coupling_sum=Symbol("K", indices=()),
+        rational_prefactor=Rational(1, 1),
+        integration_vars=(),
+        summation_indices=(),
+        n_response=0,
+    )
+
+
+@pytest.mark.parametrize("method", ["qmc_scalar", "nquad", "gauss_legendre"])
+def test_a_time_only_table_refuses_points_its_kernel_tells_apart(method):
+    """It returned C(x, x), a factor 3.08 at r = 1.5, with no error."""
+    from sft_wick.evaluate import PropagatorCache, PropagatorModel, integrate_moment
+
+    def kernel(n1, t1, n2, t2):
+        r = np.ravel(n1)[0] - np.ravel(n2)[0]
+        return np.array([[np.exp(-abs(t1 - t2) - r * r / 2.0)]])
+
+    def run(kappa2, y):
+        model = PropagatorModel(
+            R_time=lambda t, s: np.exp(-1.3 * (t - s)),
+            kappa2=kappa2,
+            n_components=1,
+            diag_C=True,
+        )
+        cache = PropagatorCache(model)
+        cache.precompute_C_table(2.0, n_grid=12)
+        integrand = _point_to_point_term().build_integrand({"K": np.array(1.0)})
+        return integrate_moment(
+            integrand, 2.0, cache, method=method, positions={"x": 0.0, "y": y}
+        )[0]
+
+    with pytest.raises(ValueError, match="time-only C table"):
+        run(kernel, 1.5)
+    assert run(kernel, 0.0) == run(lambda a, b, c, d: kernel(0.0, b, 0.0, d), 1.5)
+
+
+def _kernel_of_place(n1, t1, n2, t2):
+    """Not translation invariant, and the same at x = y as nowhere else."""
+    a, b = float(np.ravel(n1)[0]), float(np.ravel(n2)[0])
+    return np.array([[(1 + a * a) * (1 + b * b) * np.exp(-abs(t1 - t2))]])
+
+
+def _kernel_alike_at_one_time(n1, t1, n2, t2):
+    """Reads alike at both pairs of positions at every equal time t = 1."""
+    r = float(np.ravel(n1)[0]) - float(np.ravel(n2)[0])
+    wave = np.sin(np.pi * (t1 - 1.0)) * np.sin(np.pi * (t2 - 1.0))
+    return np.array([[(1 + r * r * wave) * np.exp(-abs(t1 - t2))]])
+
+
+def _no_kernel(n1, t1, n2, t2):
+    return np.zeros((1, 1))
+
+
+def _white_of_place(n1, t, n2):
+    r = float(np.ravel(n1)[0]) - float(np.ravel(n2)[0])
+    return np.array([[0.6 * np.exp(-r * r)]])
+
+
+def _table_cache(kappa2, sigma2=None, direction=0.0, t_max=3.0):
+    from sft_wick.evaluate import PropagatorCache, PropagatorModel
+
+    model = PropagatorModel(
+        R_time=lambda t, s: np.exp(-0.8 * (t - s)),
+        kappa2=kappa2,
+        sigma2=sigma2,
+        n_components=1,
+        diag_C=True,
+    )
+    cache = PropagatorCache(model)
+    cache.precompute_C_table(t_max, n_grid=13, direction=direction)
+    return cache
+
+
+@pytest.mark.parametrize("method", ["qmc_scalar", "qmc_vectorized", "nquad",
+                                    "gauss_legendre"])
+@pytest.mark.parametrize(
+    "kappa2, sigma2, read",
+    [
+        (_no_kernel, _white_of_place, {"positions": {"x": 0.0, "y": 1.0}}),
+        (_kernel_of_place, None, {"positions": {"x": 2.0, "y": 2.0}}),
+        (_kernel_of_place, None, {"direction": 2.0}),
+        (_kernel_alike_at_one_time, None, {"positions": {"x": 0.0, "y": 1.0}}),
+    ],
+    ids=["sigma2", "together_elsewhere", "direction", "alike_at_one_time"],
+)
+def test_a_time_only_table_refuses_any_C_it_does_not_hold(
+    kappa2, sigma2, read, method
+):
+    """Off by a factor e, a factor 25 and 1.19 with no error: the check read
+    κ² alone, at one equal time, and compared the two ends with each other."""
+    from sft_wick.evaluate import integrate_moment
+
+    cache = _table_cache(kappa2, sigma2)
+    integrand = _point_to_point_term().build_integrand({"K": np.array(1.0)})
+    with pytest.raises(ValueError, match="time-only C table"):
+        integrate_moment(integrand, 2.0, cache, method=method, **read)
+
+
+def test_a_time_only_table_refuses_a_direct_read():
+    """``evaluate`` and ``make_scipy_integrand`` read the table too: 0.31946
+    against 0.10371 from a table-less cache, a factor 3.08, with no error.
+    Positions the kernel does not tell apart read the table as before."""
+
+    def kernel(n1, t1, n2, t2):
+        r = np.ravel(n1)[0] - np.ravel(n2)[0]
+        return np.array([[np.exp(-abs(t1 - t2) - r * r / 2.0)]])
+
+    cache = _table_cache(kernel)
+    integrand = _point_to_point_term().build_integrand({"K": np.array(1.0)})
+    times = {"x": 2.0, "y": 2.0}
+    apart = {"n_x": 0.0, "n_y": 1.5}
+    with pytest.raises(ValueError, match="time-only C table"):
+        integrand.evaluate(times, apart, cache)
+    with pytest.raises(ValueError, match="time-only C table"):
+        integrand.make_scipy_integrand(times, apart, cache)()
+    together = {"n_x": 1.5, "n_y": 1.5}
+    assert integrand.make_scipy_integrand(times, together, cache)() == pytest.approx(
+        integrand.evaluate(times, {"n_x": 0.0, "n_y": 0.0}, cache), rel=1e-14, abs=0.0
+    )
+
+
+def test_a_time_only_table_is_read_where_it_was_built():
+    """At x = y = 2 the table built there holds the integral, by scipy alone;
+    the same table does not stand for the origin."""
+    from scipy.integrate import dblquad
+
+    from sft_wick.evaluate import integrate_moment
+
+    cache = _table_cache(_kernel_of_place, direction=2.0)
+    integrand = _point_to_point_term().build_integrand({"K": np.array(1.0)})
+    got = integrate_moment(
+        integrand, 2.0, cache, method="gauss_legendre",
+        positions={"x": 2.0, "y": 2.0},
+    )[0]
+    half, _ = dblquad(
+        lambda b, a: 25.0 * np.exp(b - a - 0.8 * (4.0 - a - b)),
+        0.0, 2.0, 0.0, lambda a: a, epsabs=1e-10, epsrel=1e-10,
+    )
+    ref = 2.0 * half
+    assert got == pytest.approx(ref, rel=1e-5, abs=0.0)
+    with pytest.raises(ValueError, match="time-only C table"):
+        integrate_moment(integrand, 2.0, cache, method="gauss_legendre")
+
+
+def test_a_rebuilt_time_only_table_holds_the_C_of_its_own_position():
+    """The grid was read through ``C_value``, which took the old table, so the
+    rebuild kept C at 0 under the label 2: a factor 25 low at x = y = 2, and
+    the origin it did hold was refused."""
+    from sft_wick.evaluate import integrate_moment
+
+    cache = _table_cache(_kernel_of_place, direction=0.0)
+    fresh = _table_cache(_kernel_of_place, direction=2.0)
+    cache.precompute_C_table(3.0, n_grid=13, direction=2.0)
+    integrand = _point_to_point_term().build_integrand({"K": np.array(1.0)})
+    at_two = {"x": 2.0, "y": 2.0}
+    assert (
+        integrate_moment(
+            integrand, 2.0, cache, method="gauss_legendre", positions=at_two
+        )[0]
+        == integrate_moment(
+            integrand, 2.0, fresh, method="gauss_legendre", positions=at_two
+        )[0]
+    )
+
+
+def _kernel_of_late_separation(n1, t1, n2, t2):
+    """Reads the separation only after ``t = 1.5``."""
+    r = float(np.ravel(n1)[0]) - float(np.ravel(n2)[0])
+    late = max(0.0, t1 - 1.5) * max(0.0, t2 - 1.5)
+    return np.exp(-abs(t1 - t2)) * (1.0 + r * r * late) * np.eye(1)
+
+
+@pytest.mark.parametrize("kernel, y, t_max, direction, read_at", [
+    (_kernel_of_place, 0.0, 3.0, 2.0, 2.0),
+    (_kernel_of_late_separation, 1.0, 1.0, 0.0, 3.0),
+], ids=["another_position", "another_range"])
+def test_a_read_that_passed_is_asked_again_after_a_rebuild(
+    kernel, y, t_max, direction, read_at
+):
+    """The memo of passed reads outlives a rebuild, so its key names the
+    table.  Without the position the value is 25 times too large, without the
+    range 0.6 of the right one, with no error."""
+    from sft_wick.evaluate import integrate_moment
+
+    cache = _table_cache(kernel, t_max=t_max)
+    positions = {"x": 0.0, "y": y}
+    integrand = _point_to_point_term().build_integrand({"K": np.array(1.0)})
+    integrate_moment(integrand, 1.0, cache, method="gauss_legendre",
+                     positions=positions)
+    cache.precompute_C_table(3.0, n_grid=13, direction=direction)
+    with pytest.raises(ValueError, match="time-only C table"):
+        integrate_moment(integrand, read_at, cache, method="gauss_legendre",
+                         positions=positions)
+
+
+@pytest.mark.parametrize("weak, refused", [(True, True), (False, False)],
+                         ids=["place_in_weak_entry", "no_place"])
+def test_a_time_only_table_judges_each_component_on_its_own_scale(weak, refused):
+    """Beside a component 1e14 times stronger, the place of the weak one was
+    within 1e-12 of the largest entry: a factor 3.08 at r = 1.5 with no
+    error."""
+    import sft_wick as sw
+    from sft_wick.evaluate import PropagatorCache, integrate_moment
+
+    def kernel(n1, t1, n2, t2):
+        r = float(np.ravel(n1)[0]) - float(np.ravel(n2)[0])
+        w = np.exp(-abs(t1 - t2) / 0.5)
+        return np.diag([w, 1e-14 * w * np.exp(-r * r / 2.0 if weak else 0.0)])
+
+    system = sw.System(
+        field=sw.FieldSpec("phi", n_components=2),
+        linear=sw.DiagonalA(gamma=[1.3, 1.3]),
+        noise=sw.GaussianNoise(kappa2=sw.GeneralKappa2(fn=kernel)),
+    )
+    diagram = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0]).diagrams(0)[0]
+    integrand = diagram.build_integrand(
+        system.build_coupling_values(), {"a": 1, "b": 1}
+    )
+    cache = PropagatorCache(system.build_propagator_model(diag_C=True))
+    cache.precompute_C_table(2.0, n_grid=12)
+    positions = {"x": 0.0, "y": 1.5}
+    if refused:
+        with pytest.raises(ValueError, match="time-only C table"):
+            integrate_moment(
+                integrand, 2.0, cache, method="gauss_legendre", positions=positions
+            )
+    else:
+        assert integrate_moment(
+            integrand, 2.0, cache, method="gauss_legendre", positions=positions
+        )[0] > 0.0
+
+
+def test_two_point_qmc_refuses_a_table_whose_sigma2_tells_the_points_apart():
+    """The ratio reads κ², which is zero here: 0.0 against 0.13233."""
+    from sft_wick.evaluate import integrate_two_point_qmc
+
+    cache = _table_cache(_no_kernel, _white_of_place)
+    integrand = _point_to_point_term().build_integrand({"K": np.array(1.0)})
+    with pytest.raises(ValueError, match="no spatial table"):
+        integrate_two_point_qmc([integrand], 2.0, {"x": 0.0, "y": 1.0}, cache)
+
+
+@pytest.mark.parametrize(
+    "method", ["qmc", "qmc_scalar", "qmc_vectorized", "gauss_legendre", "nquad"]
+)
+def test_a_conflict_with_no_C_is_refused_on_a_cache_with_no_table(method):
+    """Nothing in this diagram reads a table or a position, so the two batched
+    integrators used to return a number for ``x`` and ``y`` apart."""
+    phi, psi = sw.Field("phi", "physical"), sw.Field("psi", "response")
+    action = sw.Action(vertices=[sw.Vertex(fields=[psi, phi], coupling="A")])
+    term = sw.compute_moment([phi("x"), psi("y")], action, order=1).diagram_terms(1)[0]
+    model = sw.PropagatorModel(
+        R_time=lambda a, b: np.exp(-0.7 * (a - b)),
+        kappa2=lambda n1, t1, n2, t2: np.eye(1),
+        n_components=1,
+        iso_R=True,
+    )
+    integrand = term.build_integrand({"A": -1j * np.ones((1, 1))})
+    with pytest.raises(ValueError, match="joins them"):
+        integrate_moment(
+            integrand, 2.0, sw.PropagatorCache(model), method=method,
+            n_samples=2**8, seed=1, n_gauss=8,
+            positions={"x": 0.0, "y": 0.5},
+        )

@@ -67,8 +67,7 @@ The raw ``Action`` API permits broader vertices. Its legacy moment target does
 not divide by a nontrivial vacuum partition function. To compare a connected
 target with independent moment-partition cumulants in such a theory, first
 normalize the moments by ``Z(0)`` and perform coefficient convolutions at the
-same total vertex order. ``ito=False`` is a symbolic switch with the existing
-numerical restrictions, rather than a normalized Stratonovich prescription.
+same total vertex order.
 Finite input cumulants and a formal expansion establish neither a realizable
 probability law nor convergence of the series. An absorbed-response callable
 must implement its declared R-contracted kernel.

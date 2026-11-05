@@ -11,9 +11,12 @@ Pipeline:
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
+from collections.abc import Collection, Iterable
 from fractions import Fraction
-from itertools import permutations
+from itertools import permutations, product
+from typing import NamedTuple
 
 from .expressions import (
     ZERO,
@@ -28,8 +31,12 @@ from .expressions import (
     Sum,
     SumOverIndex,
     Symbol,
+    canonical_edge,
 )
 from .indices import fresh_names
+
+#: Most additive terms :func:`diagonal_propagators` expands one product into.
+_MAX_DIAGONAL_TERMS = 2**20
 
 
 def simplify(expr: Expr) -> Expr:
@@ -261,43 +268,23 @@ def _collect_terms(expr: Expr) -> Expr:
 # ---------------------------------------------------------------------------
 
 
-def _apply_perm_to_symbol(sym: Symbol, perm: dict[str, str]) -> Symbol:
-    """Relabel indices of a Symbol according to the permutation."""
-    new_indices = tuple(perm.get(idx, idx) for idx in sym.indices)
-    new_spatial = tuple(perm.get(s, s) for s in sym.spatial_args)
-    if new_indices == sym.indices and new_spatial == sym.spatial_args:
-        return sym
-    # Carry ``local`` through: it is what suppresses the (single) point of
-    # a local coupling when rendering.  Dropping it printed the symmetrised
-    # partner of a local F as ``F_{i1 i0 i2}(y_0)``.
-    return Symbol(sym.name, new_indices, new_spatial, sym.local)
+def _complete_permutation(perm: dict[str, str]) -> dict[str, str] | None:
+    """Extend a renaming of dummy labels to a permutation of them.
 
+    Matching propagators names only the labels they carry.  A label that
+    lives in the coupling alone is still a dummy, and it has to move out of
+    the way: ``{j: i}`` alone would turn ``F_ij`` into ``F_ii``.
 
-def _apply_perm_to_expr(expr: Expr, perm: dict[str, str]) -> Expr:
-    """Apply index permutation to Symbols and Rationals in an expression."""
-    if not perm:
-        return expr
-    if isinstance(expr, Symbol):
-        return _apply_perm_to_symbol(expr, perm)
-    if isinstance(expr, Rational):
-        return expr
-    if isinstance(expr, Product):
-        return Product(tuple(_apply_perm_to_expr(f, perm) for f in expr.factors))
-    return expr
-
-
-def _canonical_edge(
-    kind: str, spatial_left: str, spatial_right: str,
-) -> tuple[str, str, str]:
-    """Canonical form for a single propagator edge.
-
-    C edges are symmetric: ``C(x, y) = C(y, x)``, so we sort the
-    spatial arguments.  R edges are directed and kept as-is.
+    Returns ``None`` when two labels map to one, which no renaming of dummies
+    does.
     """
-    if kind == "C":
-        return ("C", min(spatial_left, spatial_right),
-                max(spatial_left, spatial_right))
-    return (kind, spatial_left, spatial_right)
+    images = set(perm.values())
+    if len(images) != len(perm):
+        return None
+    return {
+        **perm,
+        **dict(zip(sorted(images - perm.keys()), sorted(perm.keys() - images))),
+    }
 
 
 def _same_time_edges(
@@ -325,7 +312,7 @@ def _canonical_diagram_form(
     Tries all permutations of integration variables (internal spatial
     points), keeping external spatial variables fixed.  For each
     permutation, computes the sorted edge list using
-    :func:`_canonical_edge`, then picks the lexicographically smallest.
+    :func:`~sft_wick.expressions.canonical_edge`, then picks the lexicographically smallest.
 
     ``same_time_groups`` lists the leg labels of each ``equal_time``
     non-local vertex instance: the legs of one group share one time
@@ -353,7 +340,7 @@ def _canonical_diagram_form(
     # Trivial case: no internal variables to permute
     if not internal:
         form = tuple(sorted(
-            [_canonical_edge(p.kind, p.spatial_left, p.spatial_right)
+            [canonical_edge(p.kind, p.spatial_left, p.spatial_right)
              for p in props] + _same_time_edges(same_time_groups, {})
         ))
         return form, {}
@@ -374,7 +361,7 @@ def _canonical_diagram_form(
         for p in props:
             sl = mapping.get(p.spatial_left, p.spatial_left)
             sr = mapping.get(p.spatial_right, p.spatial_right)
-            edges_list.append(_canonical_edge(p.kind, sl, sr))
+            edges_list.append(canonical_edge(p.kind, sl, sr))
         edges_list.extend(_same_time_edges(same_time_groups, mapping))
         form = tuple(sorted(edges_list))
         if best_form is None or form < best_form:
@@ -473,6 +460,39 @@ def _canonical_key_nauty(
     return pynauty.certificate(g)
 
 
+def _try_add_index_perm(
+    perm: dict[str, str],
+    ref_prop: Propagator,
+    other_prop: Propagator,
+    flipped: bool,
+    internal_indices: set[str],
+) -> bool:
+    """Try to add component-index mappings from other_prop to ref_prop."""
+    if flipped:
+        pairs = [
+            (ref_prop.index_left, other_prop.index_right),
+            (ref_prop.index_right, other_prop.index_left),
+        ]
+    else:
+        pairs = [
+            (ref_prop.index_left, other_prop.index_left),
+            (ref_prop.index_right, other_prop.index_right),
+        ]
+    for ref_idx, other_idx in pairs:
+        if ref_idx is None and other_idx is None:
+            continue
+        if ref_idx == other_idx:
+            continue
+        if other_idx not in internal_indices or ref_idx not in internal_indices:
+            return False
+        if other_idx in perm:
+            if perm[other_idx] != ref_idx:
+                return False
+        else:
+            perm[other_idx] = ref_idx
+    return True
+
+
 def _match_propagators_after_spatial(
     ref_props: list[Propagator],
     other_props: list[Propagator],
@@ -504,13 +524,13 @@ def _match_propagators_after_spatial(
     # where canonical means sorted for C
     ref_groups: dict[tuple[str, str, str], list[int]] = defaultdict(list)
     for i, p in enumerate(ref_props):
-        key = _canonical_edge(p.kind, p.spatial_left, p.spatial_right)
+        key = canonical_edge(p.kind, p.spatial_left, p.spatial_right)
         ref_groups[key].append(i)
 
     # Group remapped other props similarly, tracking whether C was flipped
     other_groups: dict[tuple[str, str, str], list[tuple[int, bool]]] = defaultdict(list)
     for i, (p, sl, sr, _) in enumerate(remapped):
-        canon_key = _canonical_edge(p.kind, sl, sr)
+        canon_key = canonical_edge(p.kind, sl, sr)
         flipped = (p.kind == "C" and sl > sr)
         other_groups[canon_key].append((i, flipped))
 
@@ -568,37 +588,13 @@ def _match_propagators_after_spatial(
 
         for option in group_matchings[group_idx]:
             new_perm = dict(perm)
-            ok = True
-            for ri, oi, flipped in option:
-                rp = ref_props[ri]
-                op = other_props[oi]
-
-                if flipped:
-                    pairs = [(rp.index_left, op.index_right),
-                             (rp.index_right, op.index_left)]
-                else:
-                    pairs = [(rp.index_left, op.index_left),
-                             (rp.index_right, op.index_right)]
-
-                for ref_idx, other_idx in pairs:
-                    if ref_idx is None and other_idx is None:
-                        continue
-                    if ref_idx == other_idx:
-                        continue
-                    if (other_idx not in internal_indices
-                            or ref_idx not in internal_indices):
-                        ok = False
-                        break
-                    if other_idx in new_perm:
-                        if new_perm[other_idx] != ref_idx:
-                            ok = False
-                            break
-                    else:
-                        new_perm[other_idx] = ref_idx
-                if not ok:
-                    break
-
-            if ok:
+            if all(
+                _try_add_index_perm(
+                    new_perm, ref_props[ri], other_props[oi], flipped,
+                    internal_indices,
+                )
+                for ri, oi, flipped in option
+            ):
                 result = _try_combinations(group_idx + 1, new_perm)
                 if result is not None:
                     return result
@@ -732,7 +728,7 @@ def _collect_inner(
             continue
 
         sig = tuple(sorted(
-            _canonical_edge(p.kind, p.spatial_left, p.spatial_right)
+            canonical_edge(p.kind, p.spatial_left, p.spatial_right)
             for p in props
         ))
         spatial_sig_groups.setdefault(sig, []).append((props, non_props))
@@ -784,15 +780,18 @@ def _collect_inner(
                 )
                 continue
 
-            # Full permutation
-            full_perm = {**spatial_perm, **comp_perm}
+            full_perm = _complete_permutation({**spatial_perm, **comp_perm})
+            if full_perm is None:
+                parts = list(outer_symbols) + non_props + props
+                ungroupable.append(
+                    Product(tuple(parts)) if len(parts) > 1 else parts[0]
+                )
+                continue
 
             # Apply to outer coupling symbols + inner non-props
-            permuted_factors: list[Expr] = []
-            for sym in outer_symbols:
-                permuted_factors.append(_apply_perm_to_expr(sym, full_perm))
-            for np in non_props:
-                permuted_factors.append(_apply_perm_to_expr(np, full_perm))
+            permuted_factors = [
+                _apply_index_sub(f, full_perm) for f in (*outer_symbols, *non_props)
+            ]
 
             if not permuted_factors:
                 coupling_terms.append(ONE)
@@ -873,100 +872,55 @@ def diagonal_propagators(
         iso_C: Enforce isotropic (index-free) correlation propagators.
 
     Returns:
-        Simplified expression with the requested constraints applied.
+        Simplified expression with the requested constraints applied.  A
+        product of sums comes back expanded into additive terms.
+
+    Raises:
+        ValueError: if a summed index or integrated point is bound twice in
+            one product, a sum rebinds a name inside it, or a product would
+            expand past ``2**20`` terms.
     """
     diag_R = diag_R or iso_R
     diag_C = diag_C or iso_C
     if not diag_R and not diag_C:
         return expr
-    result = _diag_walk(expr, diag_R, diag_C, iso_R, iso_C, {})
-    result = simplify(result)
-    return _canonical_expr_indices(result)
+    reduced = [
+        _diag_term(term, diag_R, diag_C, iso_R, iso_C)
+        for term in _additive_terms(expr)
+    ]
+    return _canonical_expr_indices(simplify(_rebuild_terms(reduced)))
 
 
-def _diag_walk(
-    expr: Expr,
+def diagonal_index_sub(
+    propagators: Iterable[Propagator],
+    summed: Collection[str],
     diag_R: bool,
     diag_C: bool,
-    iso_R: bool,
-    iso_C: bool,
-    sum_dims: dict[str, int],
-) -> Expr:
-    """Recursively walk expression, applying diagonal propagator constraints.
+) -> tuple[dict[str, str], list[KroneckerDelta]]:
+    r"""Index substitution implied by the diagonal propagators of one term.
 
-    *sum_dims* maps summation-index names to their dimension, accumulated
-    from ancestor :class:`SumOverIndex` wrappers.
+    Args:
+        propagators: The propagators of a single additive term.
+        summed: The indices that term sums over.
+        diag_R: Enforce diagonal response propagators.
+        diag_C: Enforce diagonal correlation propagators.
+
+    Returns:
+        ``(sub, deltas)``.  ``sub`` maps each merged index to the survivor
+        of its class, an external index when the class has one, since
+        :math:`\sum_i \delta_{ia} f(i) = f(a)`.  A summed key of ``sub`` is
+        eliminated from this term only.  ``deltas`` holds one
+        :class:`KroneckerDelta` for each merged pair of external indices,
+        which no sum absorbs.
     """
-    if isinstance(expr, SumOverIndex):
-        new_sum_dims = {**sum_dims, expr.index_name: expr.dimension}
-        new_body = _diag_walk(expr.body, diag_R, diag_C, iso_R, iso_C, new_sum_dims)
-        if not _expr_uses_index(new_body, expr.index_name):
-            return new_body
-        return SumOverIndex(expr.index_name, expr.dimension, new_body)
-
-    if isinstance(expr, IntegralOver):
-        new_body = _diag_walk(expr.body, diag_R, diag_C, iso_R, iso_C, sum_dims)
-        return IntegralOver(expr.variable, new_body)
-
-    if isinstance(expr, Sum):
-        new_terms = [_diag_walk(t, diag_R, diag_C, iso_R, iso_C, sum_dims) for t in expr.terms]
-        new_terms = [t for t in new_terms if not _is_zero(t)]
-        if not new_terms:
-            return ZERO
-        if len(new_terms) == 1:
-            return new_terms[0]
-        return Sum(tuple(new_terms))
-
-    if isinstance(expr, Product):
-        has_props = any(isinstance(f, Propagator) for f in expr.factors)
-        if has_props:
-            return _diag_product(expr.factors, diag_R, diag_C, iso_R, iso_C, sum_dims)
-        new_factors = [
-            _diag_walk(f, diag_R, diag_C, iso_R, iso_C, sum_dims) for f in expr.factors
-        ]
-        return Product(tuple(new_factors))
-
-    if isinstance(expr, Propagator):
-        # Bare propagator (not inside a Product): wrap and apply
-        if (
-            expr.index_left is not None
-            and expr.index_right is not None
-        ):
-            if expr.index_left != expr.index_right:
-                if (expr.kind == "R" and diag_R) or (expr.kind == "C" and diag_C):
-                    return _diag_product((expr,), diag_R, diag_C, iso_R, iso_C, sum_dims)
-            elif expr.index_left == expr.index_right:
-                if (expr.kind == "R" and iso_R) or (expr.kind == "C" and iso_C):
-                    return Propagator(expr.kind, None, None, expr.spatial_left, expr.spatial_right)
-        return expr
-
-    return expr
-
-
-def _diag_product(
-    factors: tuple[Expr, ...],
-    diag_R: bool,
-    diag_C: bool,
-    iso_R: bool,
-    iso_C: bool,
-    sum_dims: dict[str, int],
-) -> Expr:
-    """Apply diagonal (and optionally isotropic) constraints to a Product that contains Propagators."""
-    sum_idx_set = set(sum_dims.keys())
-
-    constraints: list[tuple[str, str]] = []
-    for f in factors:
-        if (
-            isinstance(f, Propagator)
-            and f.index_left is not None
-            and f.index_right is not None
-        ):
-            if (f.kind == "R" and diag_R) or (f.kind == "C" and diag_C):
-                if f.index_left != f.index_right:
-                    constraints.append((f.index_left, f.index_right))
-
-    if not constraints:
-        return Product(tuple(factors)) if len(factors) > 1 else factors[0]
+    constraints = [
+        (p.index_left, p.index_right)
+        for p in propagators
+        if p.index_left is not None
+        and p.index_right is not None
+        and p.index_left != p.index_right
+        and ((p.kind == "R" and diag_R) or (p.kind == "C" and diag_C))
+    ]
 
     # Union-find for index equivalences (prefer external index as root)
     parent: dict[str, str] = {}
@@ -980,51 +934,173 @@ def _diag_product(
         rl, rr = find(left), find(right)
         if rl == rr:
             continue
-        if rr in sum_idx_set and rl not in sum_idx_set:
-            parent[rr] = rl
-        elif rl in sum_idx_set and rr not in sum_idx_set:
+        if rl in summed and rr not in summed:
             parent[rl] = rr
         else:
             parent[rr] = rl
 
-    sub: dict[str, str] = {}
-    for idx in {k for pair in constraints for k in pair}:
-        root = find(idx)
-        if idx != root:
-            sub[idx] = root
+    sub = {
+        idx: find(idx)
+        for idx in sorted({k for pair in constraints for k in pair})
+        if find(idx) != idx
+    }
+    pairs = {
+        tuple(sorted((idx, root)))
+        for idx, root in sub.items()
+        if idx not in summed and root not in summed
+    }
+    return sub, [KroneckerDelta(a, b) for a, b in sorted(pairs)]
 
-    if not sub:
-        return Product(tuple(factors)) if len(factors) > 1 else factors[0]
 
-    new_factors = [_apply_index_sub(f, sub) for f in factors]
+def strip_isotropic(p: Propagator, iso_R: bool, iso_C: bool) -> Propagator:
+    """Drop the equal component indices of ``p`` under an isotropy flag."""
+    if (
+        p.index_left is not None
+        and p.index_left == p.index_right
+        and ((p.kind == "R" and iso_R) or (p.kind == "C" and iso_C))
+    ):
+        return Propagator(p.kind, None, None, p.spatial_left, p.spatial_right)
+    return p
 
-    # Add KroneckerDelta for external-external constraints
-    seen_deltas: set[frozenset[str]] = set()
-    for idx, root in sub.items():
-        if idx not in sum_idx_set and root not in sum_idx_set:
-            pair = frozenset({idx, root})
-            if pair not in seen_deltas:
-                seen_deltas.add(pair)
-                a, b = sorted(pair)
-                new_factors.append(KroneckerDelta(a, b))
 
-    # Isotropic: strip equal component indices from R/C propagators
-    if iso_R or iso_C:
-        new_factors = [
-            Propagator(f.kind, None, None, f.spatial_left, f.spatial_right)
-            if (
-                isinstance(f, Propagator)
-                and f.index_left is not None
-                and f.index_left == f.index_right
-                and ((f.kind == "R" and iso_R) or (f.kind == "C" and iso_C))
+class _DiagTerm(NamedTuple):
+    """One additive term: its own sums and integrals over a flat product.
+
+    A delta constraint belongs to a single term, so the sums have to be
+    held per term: in sum_i (G_i C_ai + H_ii C_bb) the first
+    term loses i and the second keeps it.
+    """
+
+    sums: tuple[tuple[str, int], ...]
+    integrals: tuple[str, ...]
+    factors: tuple[Expr, ...]
+
+    def bound(self) -> set[str]:
+        return {name for name, _ in self.sums} | set(self.integrals)
+
+    def labels(self) -> set[str]:
+        out = self.bound()
+        for f in self.factors:
+            out |= expr_labels(f)
+        return out
+
+
+def _has_structure(expr: Expr) -> bool:
+    """True when ``expr`` holds a propagator, a sum or an integral."""
+    if isinstance(expr, (Propagator, SumOverIndex, IntegralOver)):
+        return True
+    if isinstance(expr, Sum):
+        return any(_has_structure(t) for t in expr.terms)
+    if isinstance(expr, Product):
+        return any(_has_structure(f) for f in expr.factors)
+    return False
+
+
+def _refuse_rebinding(names: set[str]) -> None:
+    """Pulling a sum or integral outwards must not capture another label."""
+    if names:
+        raise ValueError(
+            "diagonal_propagators needs each summed index and integrated "
+            f"point to be bound once in a product; got {sorted(names)}"
+        )
+
+
+def _multiply_terms(left: _DiagTerm, right: _DiagTerm) -> _DiagTerm:
+    """Product of two terms, with their sums and integrals pulled out."""
+    _refuse_rebinding(
+        (left.bound() & right.labels()) | (right.bound() & left.labels())
+    )
+    return _DiagTerm(
+        left.sums + right.sums,
+        left.integrals + right.integrals,
+        left.factors + right.factors,
+    )
+
+
+def _additive_terms(expr: Expr) -> list[_DiagTerm]:
+    """Expand ``expr`` into additive terms.
+
+    A factor with no propagator, sum or integral (a coupling sum, say) stays
+    whole.
+    """
+    if isinstance(expr, (SumOverIndex, IntegralOver)):
+        outer = _binder(expr)
+        terms = _additive_terms(expr.body)
+        for term in terms:
+            _refuse_rebinding(term.bound() & outer.bound())
+        return [
+            _DiagTerm(
+                outer.sums + t.sums, outer.integrals + t.integrals, t.factors
             )
-            else f
-            for f in new_factors
+            for t in terms
         ]
+    if isinstance(expr, Sum) and _has_structure(expr):
+        return [term for t in expr.terms for term in _additive_terms(t)]
+    if isinstance(expr, Product) and _has_structure(expr):
+        parts = [_additive_terms(f) for f in expr.factors]
+        size = math.prod(len(part) for part in parts)
+        if size > _MAX_DIAGONAL_TERMS:
+            raise ValueError(
+                f"diagonal_propagators would expand a product into {size} "
+                f"terms, above the limit of {_MAX_DIAGONAL_TERMS}."
+            )
+        terms = [_DiagTerm((), (), ())]
+        for part in parts:
+            terms = [
+                _multiply_terms(left, right) for left, right in product(terms, part)
+            ]
+        return terms
+    return [_DiagTerm((), (), (expr,))]
 
-    if len(new_factors) == 1:
-        return new_factors[0]
-    return Product(tuple(new_factors))
+
+def _binder(expr: SumOverIndex | IntegralOver) -> _DiagTerm:
+    """The empty term carrying the sum or integral that ``expr`` opens."""
+    if isinstance(expr, SumOverIndex):
+        return _DiagTerm(((expr.index_name, expr.dimension),), (), ())
+    return _DiagTerm((), (expr.variable,), ())
+
+
+def _diag_term(
+    term: _DiagTerm, diag_R: bool, diag_C: bool, iso_R: bool, iso_C: bool
+) -> _DiagTerm:
+    """Apply the constraints of one term, removing only the sums it eliminates."""
+    summed = {name for name, _ in term.sums}
+    propagators = [f for f in term.factors if isinstance(f, Propagator)]
+    sub, deltas = diagonal_index_sub(propagators, summed, diag_R, diag_C)
+    factors = [_apply_index_sub(f, sub) for f in term.factors]
+    factors = [
+        strip_isotropic(f, iso_R, iso_C) if isinstance(f, Propagator) else f
+        for f in factors
+    ]
+    return _DiagTerm(
+        tuple(s for s in term.sums if s[0] not in sub),
+        term.integrals,
+        (*factors, *deltas),
+    )
+
+
+def _rebuild_terms(terms: list[_DiagTerm]) -> Expr:
+    """Sum the terms, sharing the sums and integrals of those that agree."""
+    groups: dict[tuple, list[Expr]] = {}
+    for term in terms:
+        body = (
+            term.factors[0]
+            if len(term.factors) == 1
+            else Product(term.factors) if term.factors else ONE
+        )
+        groups.setdefault((term.sums, term.integrals), []).append(body)
+
+    out: list[Expr] = []
+    for (sums, integrals), bodies in groups.items():
+        expr = bodies[0] if len(bodies) == 1 else Sum(tuple(bodies))
+        for variable in reversed(integrals):
+            expr = IntegralOver(variable, expr)
+        for name, dimension in reversed(sums):
+            expr = SumOverIndex(name, dimension, expr)
+        out.append(expr)
+    if not out:
+        return ZERO
+    return out[0] if len(out) == 1 else Sum(tuple(out))
 
 
 def _canonical_expr_indices(expr: Expr) -> Expr:
@@ -1098,25 +1174,32 @@ def expr_labels(expr: Expr) -> set[str]:
 
 
 def _apply_index_sub(expr: Expr, sub: dict[str, str]) -> Expr:
-    """Apply an index-name substitution to an expression."""
+    """Rename labels in an expression, the one relabeller of the package.
+
+    A symbol's indices and points, a propagator's indices, delta indices
+    and summed indices are renamed.  A propagator's points and an integrated
+    point are not: the callers that move points do that themselves.
+    """
     if not sub:
         return expr
+    if isinstance(expr, Symbol):
+        new_indices = tuple(sub.get(i, i) for i in expr.indices)
+        new_spatial = tuple(sub.get(s, s) for s in expr.spatial_args)
+        if new_indices == expr.indices and new_spatial == expr.spatial_args:
+            return expr
+        # ``local`` suppresses the single point of a local coupling when
+        # rendering.
+        return Symbol(expr.name, new_indices, new_spatial, expr.local)
+    if isinstance(expr, Product):
+        return Product(tuple(_apply_index_sub(f, sub) for f in expr.factors))
+    if isinstance(expr, Sum):
+        return Sum(tuple(_apply_index_sub(t, sub) for t in expr.terms))
     if isinstance(expr, Propagator):
         il = sub.get(expr.index_left, expr.index_left) if expr.index_left else expr.index_left
         ir = sub.get(expr.index_right, expr.index_right) if expr.index_right else expr.index_right
         if il == expr.index_left and ir == expr.index_right:
             return expr
         return Propagator(expr.kind, il, ir, expr.spatial_left, expr.spatial_right)
-    if isinstance(expr, Symbol):
-        new_indices = tuple(sub.get(i, i) for i in expr.indices)
-        new_spatial = tuple(sub.get(s, s) for s in expr.spatial_args)
-        if new_indices == expr.indices and new_spatial == expr.spatial_args:
-            return expr
-        return Symbol(expr.name, new_indices, new_spatial, expr.local)
-    if isinstance(expr, Sum):
-        return Sum(tuple(_apply_index_sub(t, sub) for t in expr.terms))
-    if isinstance(expr, Product):
-        return Product(tuple(_apply_index_sub(f, sub) for f in expr.factors))
     if isinstance(expr, KroneckerDelta):
         i1 = sub.get(expr.index1, expr.index1)
         i2 = sub.get(expr.index2, expr.index2)
@@ -1135,47 +1218,3 @@ def _apply_index_sub(expr: Expr, sub: dict[str, str]) -> Expr:
             return expr
         return IntegralOver(expr.variable, new_body)
     return expr
-
-
-def _multiply_into(expr: Expr, factor: int) -> Expr:
-    """Multiply *expr* by an integer, pushing the factor into inner Products.
-
-    Descends through :class:`SumOverIndex`, :class:`IntegralOver`, and
-    :class:`Sum` wrappers so that the factor lands next to the existing
-    :class:`Rational` coefficient, enabling :func:`simplify` to absorb
-    it in a single pass.
-    """
-    if isinstance(expr, Rational):
-        return Rational(factor * expr.numerator, expr.denominator)
-    if isinstance(expr, Product):
-        return Product((Rational(factor, 1),) + expr.factors)
-    if isinstance(expr, SumOverIndex):
-        return SumOverIndex(
-            expr.index_name, expr.dimension, _multiply_into(expr.body, factor),
-        )
-    if isinstance(expr, IntegralOver):
-        return IntegralOver(expr.variable, _multiply_into(expr.body, factor))
-    if isinstance(expr, Sum):
-        return Sum(tuple(_multiply_into(t, factor) for t in expr.terms))
-    return Product((Rational(factor, 1), expr))
-
-
-def _expr_uses_index(expr: Expr, name: str) -> bool:
-    """Check whether *expr* references index *name* anywhere."""
-    if isinstance(expr, Propagator):
-        return name == expr.index_left or name == expr.index_right
-    if isinstance(expr, Symbol):
-        return name in expr.indices
-    if isinstance(expr, Product):
-        return any(_expr_uses_index(f, name) for f in expr.factors)
-    if isinstance(expr, Sum):
-        return any(_expr_uses_index(t, name) for t in expr.terms)
-    if isinstance(expr, SumOverIndex):
-        if expr.index_name == name:
-            return False  # shadowed by inner sum
-        return _expr_uses_index(expr.body, name)
-    if isinstance(expr, IntegralOver):
-        return _expr_uses_index(expr.body, name)
-    if isinstance(expr, KroneckerDelta):
-        return name == expr.index1 or name == expr.index2
-    return False

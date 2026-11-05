@@ -19,6 +19,7 @@ Design choices:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Any, Callable
@@ -26,7 +27,8 @@ from typing import Any, Callable
 import numpy as np
 
 from .._util import require_bool
-from ..evaluate import _TABLE_EDGE_RTOL
+from ..evaluate import _departs_relative, _separation, _table_slack
+from ..expressions import i_power
 
 from ._messages import shown
 
@@ -88,6 +90,25 @@ class FieldSpec:
 #
 # Each class stores its parameters as instance attributes and implements
 # ``__call__`` with the same signature the closure version had.
+
+
+def _flag(value: Any, name: str, where: str) -> bool:
+    """A flag: a bool, or 0 or 1, as a config file writes one.  Anything else
+    is refused: ``'false'`` is truthy, and was read as on."""
+    if isinstance(value, (int, np.integer)) and value in (0, 1):
+        value = bool(value)
+    return require_bool(value, name, where)
+
+
+def _require_width(owner: Any, name: str) -> None:
+    """Refuse a kernel width that is not positive: a negative one gives a
+    kernel growing with the separation, and zero ends in a division by it."""
+    value = getattr(owner, name)
+    if not float(value) > 0.0:
+        raise ValueError(
+            f"{name} must be positive; got {shown(value)} in "
+            f"{type(owner).__name__}."
+        )
 
 
 def _is_scalar_pair(t1, t2) -> bool:
@@ -153,6 +174,27 @@ class _StaticMatR:
         return out
 
 
+def _rates_agree(rates: np.ndarray, reference: np.ndarray) -> bool:
+    """True iff ``rates`` are finite and equal ``reference`` to the relative
+    tolerance of an index-free C.
+
+    Rates that agree lower to one scalar R, the first component's.  The
+    test has no absolute floor: ``np.allclose`` called ``[1e-9, 5e-9]``
+    equal, and R of the second component came out 55 times too large at
+    ``t = 1e9``.
+    """
+    return bool(
+        np.all(np.isfinite(rates))
+        and not np.any(_departs_relative(rates, reference))
+    )
+
+
+def _msr_factor(m: int) -> complex:
+    """``-(i^m) / m!``, the factor of a vertex with ``m`` ψ legs.  It is real
+    for even ``m``, and an exact quarter turn at every ``m``."""
+    return -i_power(m) / math.factorial(m)
+
+
 def _spline_range(spline) -> tuple[float, float]:
     """The ``(first, last)`` time of a cumulative-rate spline, read from its
     breakpoints, so that a wrapper pickled earlier has them too."""
@@ -170,7 +212,7 @@ def _refuse_past_spline(spline, t1, t2, causal=True) -> None:
         ValueError: naming the first such time.
     """
     lo, hi = _spline_range(spline)
-    slack = _TABLE_EDGE_RTOL * max(abs(lo), abs(hi))
+    slack = _table_slack(lo, hi)
     late = (t1 > hi + slack) & causal
     if np.any(late):
         t = float(np.broadcast_to(t1, np.shape(late))[late].flat[0])
@@ -295,6 +337,8 @@ class _SeparableTranslationKappa2:
     #: ``κ²(1, 2) = κ_t(t1 − t2) · κ_x(r)``; the L0 lazy cache uses this to
     #: build one temporal table and scale it by ``κ_x(r)`` per separation.
     separable_translation: bool = True
+    #: Positions change this kernel by a factor: one rule of C holds at all.
+    _time_shape_is_shared: bool = True
 
     @property
     def symmetric_in_time(self) -> bool:
@@ -311,13 +355,8 @@ class _SeparableTranslationKappa2:
         return float(self.spatial(float(r)))
 
     def __call__(self, n1, t1, n2, t2):
-        diff = np.asarray(n1, dtype=float) - np.asarray(n2, dtype=float)
-        if diff.ndim == 0:
-            dr = float(abs(diff))
-        else:
-            dr = float(np.linalg.norm(diff))
         kt = _owned(self.temporal(t1 - t2))
-        return kt * self.spatial(dr) * np.eye(self._n)
+        return kt * self.spatial(_separation(n1, n2)) * np.eye(self._n)
 
 
 class _SeparableRotationKappa2:
@@ -325,6 +364,9 @@ class _SeparableRotationKappa2:
     for ``SeparableRotation``."""
 
     __slots__ = ("temporal", "angular", "_n")
+
+    #: Positions change this kernel by a factor: one rule of C holds at all.
+    _time_shape_is_shared: bool = True
 
     def __init__(self, temporal: Callable, angular: Callable, n_components: int):
         self.temporal = temporal
@@ -350,6 +392,7 @@ class _ConstantImpulseIso:
     """Time- and position-independent isotropic white-noise sigma^2."""
 
     __slots__ = ("amp", "_n")
+    is_symmetric = True
 
     def __init__(self, amplitude: float, n_components: int):
         self.amp = float(amplitude)
@@ -360,9 +403,11 @@ class _ConstantImpulseIso:
 
 
 class _ConstantImpulseMat:
-    """Time- and position-independent matrix-valued white-noise sigma^2."""
+    """Time- and position-independent matrix-valued white-noise sigma^2,
+    symmetric by :class:`ConstantImpulse`."""
 
     __slots__ = ("mat",)
+    is_symmetric = True
 
     def __init__(self, matrix: np.ndarray):
         self.mat = np.asarray(matrix)
@@ -464,8 +509,10 @@ class DiagonalA(LinearOp):
             ``t_min`` when that is lower, so this needs setting only
             when the operator is used on its own.
 
-    For a callable ``gamma``, R is a scalar only if every component
-    equals component 0 at every time of the spline grid.  Up to 0.4.2
+    Rates equal to 1e-9 relative lower to one scalar R, component 0's;
+    other rates give a matrix R.  For a callable ``gamma``, R is a scalar
+    only if every component equals component 0 in this sense at every time
+    of the spline grid.  Up to 0.4.2
     only ``t = 0`` and ``t = 1`` were compared, and a rate whose
     components agreed there got component 0's rate for every component.
     """
@@ -538,14 +585,18 @@ class DiagonalA(LinearOp):
 
     @staticmethod
     def _iso_from_array(arr: np.ndarray) -> bool:
+        """True iff every rate equals the first, by the relative test of
+        :func:`_rates_agree`."""
         arr = np.atleast_1d(arr)
-        return bool(arr.shape[0] == 1 or np.allclose(arr, arr[0]))
+        return arr.shape[0] == 1 or _rates_agree(arr, arr[0])
 
     @staticmethod
     def _iso_from_grid(gamma_vals: np.ndarray) -> bool:
-        """True iff every component equals component 0 at every grid time."""
-        return bool(gamma_vals.shape[1] == 1
-                    or np.allclose(gamma_vals, gamma_vals[:, :1]))
+        """True iff every component equals component 0 at every grid time,
+        by the relative test of :func:`_rates_agree`."""
+        return gamma_vals.shape[1] == 1 or _rates_agree(
+            gamma_vals, gamma_vals[:, :1]
+        )
 
 
 @dataclass(frozen=True)
@@ -553,8 +604,9 @@ class ExplicitR(LinearOp):
     """Escape hatch: user provides R directly, bypassing A.
 
     Args:
-        R_time: ``(t1, t2) -> float | (N, N)`` callable.  Must enforce
-            causality (return 0 when ``t1 < t2``).
+        R_time: ``(t1, t2) -> float | (N, N)`` callable.  It need not
+            vanish for ``t1 < t2``: the integrators apply Θ, as
+            :class:`~sft_wick.evaluate.PropagatorModel` states.
         iso_R: True if the callable returns a scalar, False if matrix.
         vectorized: True if ``R_time`` also accepts two arrays of equal
             shape ``(n,)`` and returns shape ``(n,)`` (``iso_R``) or
@@ -569,6 +621,9 @@ class ExplicitR(LinearOp):
     vectorized: bool = False
 
     def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "iso_R", _flag(self.iso_R, "iso_R", "ExplicitR")
+        )
         if not isinstance(self.vectorized, (bool, np.bool_)):
             raise TypeError(
                 f"ExplicitR.vectorized must be a bool; got "
@@ -603,18 +658,38 @@ class ExponentialTemporal:
     #: splits the integration rectangle there.
     has_diagonal_cusp: bool = True
 
+    def __post_init__(self) -> None:
+        _require_width(self, "sigma_t")
+        if not np.isfinite(1.0 / float(self.sigma_t)):
+            raise ValueError(
+                f"sigma_t must have a finite reciprocal, the rate of the "
+                f"closed form of C; got {shown(self.sigma_t)} in "
+                f"{type(self).__name__}.  For a kernel this narrow use white "
+                f"noise, sigma2."
+            )
+
     def __call__(self, dt: float) -> float:
         return self.lam * float(np.exp(-abs(dt) / self.sigma_t))
 
 
 @dataclass(frozen=True)
 class GaussianTemporal:
-    """``κ²_t(Δt) = λ · exp(−Δt² / (2 σ_t²))`` (Gaussian kernel)."""
+    """``κ²_t(Δt) = λ · exp(−Δt² / (2 σ_t²))`` (Gaussian kernel).
+
+    Declares no cusp, so a table built from it is not split on the diagonal.
+    At ``σ_t`` well below the node spacing of ``gauss_legendre`` the moment
+    converges algebraically: at order 2, ``T = 3``, 6e-3 at ``n_gauss = 8``
+    and ``σ_t = 0.05``, 1e-2 at ``σ_t = 0.003``, with no warning.  Raise
+    ``n_gauss``, or use ``qmc_vectorized`` (5e-6 at ``σ_t = 0.05``).
+    """
 
     lam: float
     sigma_t: float
     is_even: bool = True
     has_diagonal_cusp: bool = False
+
+    def __post_init__(self) -> None:
+        _require_width(self, "sigma_t")
 
     def __call__(self, dt: float) -> float:
         return self.lam * float(np.exp(-(dt * dt) / (2.0 * self.sigma_t ** 2)))
@@ -626,6 +701,9 @@ class ExponentialSpatial:
 
     sigma_x: float
 
+    def __post_init__(self) -> None:
+        _require_width(self, "sigma_x")
+
     def __call__(self, dr: float) -> float:
         return float(np.exp(-abs(dr) / self.sigma_x))
 
@@ -635,6 +713,9 @@ class GaussianSpatial:
     """``κ²_x(|Δx|) = exp(−Δx² / (2 σ_x²))``."""
 
     sigma_x: float
+
+    def __post_init__(self) -> None:
+        _require_width(self, "sigma_x")
 
     def __call__(self, dr: float) -> float:
         return float(np.exp(-(dr * dr) / (2.0 * self.sigma_x ** 2)))
@@ -799,7 +880,7 @@ class GeneralKappa2(Kappa2):
 
 @dataclass(frozen=True)
 class Sigma2:
-    """Base class for the white-noise ``δ(t1 − t2)·σ²(t; n1, n2)`` term."""
+    """Base class for the white-noise ``δ(t1 − t2)·σ²(n1, t, n2)`` term."""
 
     def build_callable(self, n_components: int) -> Callable:
         """Lower to a ``sigma2(n1, t, n2) -> (N, N)`` callable."""
@@ -811,10 +892,28 @@ class ConstantImpulse(Sigma2):
     """Time- and position-independent white-noise amplitude.
 
     Args:
-        amplitude: scalar (isotropic) or ``(N, N)`` matrix.
+        amplitude: scalar (isotropic) or symmetric ``(N, N)`` matrix.  It is
+            the covariance of the white noise, and the action term
+            ``ψ σ² ψ / 2`` reads only its symmetric part.
     """
 
     amplitude: Any  # float or array
+
+    def __post_init__(self) -> None:
+        amp = np.asarray(self.amplitude)
+        if amp.ndim == 0:
+            return
+        if amp.ndim != 2 or amp.shape[0] != amp.shape[1] or amp.size == 0:
+            raise ValueError(
+                f"amplitude has shape {amp.shape}; a matrix amplitude must "
+                f"be N x N with N >= 1."
+            )
+        if np.abs(amp - amp.T).max() > 1e-12 * np.abs(amp).max():
+            raise ValueError(
+                f"amplitude must be symmetric: it is the covariance of the "
+                f"white noise, and the action term psi sigma2 psi / 2 reads "
+                f"only its symmetric part.  Got {shown(amp.tolist())}."
+            )
 
     def build_callable(self, n_components: int) -> Callable:
         amp = self.amplitude
@@ -827,7 +926,7 @@ class ConstantImpulse(Sigma2):
 
 @dataclass(frozen=True)
 class CustomImpulse(Sigma2):
-    """Escape hatch: arbitrary ``σ²(t; n1, n2) -> (N, N)`` callable."""
+    """Escape hatch: a callable ``fn(n1, t, n2) -> (N, N)`` for ``σ²``."""
 
     fn: Callable
 
@@ -859,7 +958,7 @@ class MultiplicativeVertex:
     """A local vertex that :class:`MultiplicativeImpulse` lowers to.
 
     Read-only; produced by :meth:`MultiplicativeImpulse.vertices` and
-    added to the action by :class:`~sft_wick.workflow.System`.
+    added to the action by :class:`~sft_wick.workflow.system.System`.
 
     Attributes:
         name: coupling-symbol name, a key of
@@ -918,8 +1017,7 @@ class MultiplicativeImpulse(Sigma2):
     (``"L"``).  R and C stay those of the Itô part, so every integrator
     that runs the Itô model runs the Stratonovich one.  Folding ``L`` into
     the linear operator would resum it, but a generic ``L`` is not
-    diagonal, and a dense R runs only on the scalar-loop integrators and
-    has no closed-form C.
+    diagonal, and a dense R has no built-in closed-form C.
 
     **Orders count vertices.**  Each vertex is one order, whatever power
     of ``g1`` it carries:
@@ -941,10 +1039,6 @@ class MultiplicativeImpulse(Sigma2):
     concatenated, so the order-2 label ``G`` is two ``G`` vertices and
     ``BG`` is one of each.  A vertex whose coupling is identically zero is
     not generated.
-
-    Expand with ``ito=True`` (the default): the Itô form is what the
-    numerical layer evaluates, and under ``ito=False`` it refuses the
-    equal-point R of a two-ψ vertex.
 
     The vertices are local, so the model is one SDE per spatial point:
     :meth:`Expansion.evaluate` refuses external points at different
@@ -1057,14 +1151,14 @@ class MultiplicativeImpulse(Sigma2):
         Vertices with an identically zero coupling are omitted."""
         g_name, h_name = self.vertex_names
         out = [
-            MultiplicativeVertex(g_name, 2, self.D1, 0.5, 1),
-            MultiplicativeVertex(h_name, 2, self.D2, 0.5, 2),
+            MultiplicativeVertex(g_name, 2, self.D1, _msr_factor(2), 1),
+            MultiplicativeVertex(h_name, 2, self.D2, _msr_factor(2), 2),
         ]
         if self.interpretation == "stratonovich":
             b, L = self.noise_induced_drift
             b_name, l_name = self.drift_names
-            out += [MultiplicativeVertex(b_name, 1, b, -1j, 1),
-                    MultiplicativeVertex(l_name, 1, L, -1j, 2)]
+            out += [MultiplicativeVertex(b_name, 1, b, _msr_factor(1), 1),
+                    MultiplicativeVertex(l_name, 1, L, _msr_factor(1), 2)]
         return tuple(v for v in out if np.any(np.asarray(v.coupling) != 0.0))
 
     def build_callable(self, n_components: int) -> Callable:
@@ -1098,6 +1192,16 @@ class GaussianNoise:
 # =========================================================================
 # Interaction vertices
 # =========================================================================
+
+
+def _shape_problem(shape: tuple, want: tuple, n_components: int) -> str | None:
+    """Why a coupling of ``shape`` is not of shape ``want``, or ``None``."""
+    if shape == want:
+        return None
+    return (
+        f"the coupling has shape {shape}; with n_components = {n_components} "
+        f"it must be {want}"
+    )
 
 
 @dataclass(frozen=True)
@@ -1145,7 +1249,23 @@ class LocalVertex:
     rank: int | None = None
     coupling_vectorized: bool = False
 
+    def shape_problem(self, n_components: int) -> str | None:
+        """Why a tensor coupling does not suit ``n_components``, or ``None``:
+        every axis has length ``N``, and a tensor has at least one axis."""
+        if callable(self.coupling):
+            return None
+        shape = np.shape(self.coupling)
+        if not shape:
+            return (
+                "a local coupling F^(n) is a tensor with n >= 1 axes, the "
+                "first the psi leg; got a scalar"
+            )
+        return _shape_problem(shape, (int(n_components),) * len(shape), n_components)
+
     def __post_init__(self) -> None:
+        object.__setattr__(self, "coupling_vectorized", _flag(
+            self.coupling_vectorized, "coupling_vectorized",
+            f"LocalVertex(name={shown(self.name)})"))
         if callable(self.coupling):
             if self.rank is None:
                 raise ValueError(
@@ -1183,10 +1303,10 @@ class LocalVertex:
         """
         if callable(self.coupling):
             return _MSRWrappedCoupling(
-                factor=-1j, bare=self.coupling,
+                factor=_msr_factor(1), bare=self.coupling,
                 vectorized=self.coupling_vectorized,
             )
-        return (-1j) * np.asarray(self.coupling)
+        return _msr_factor(1) * np.asarray(self.coupling)
 
 
 @dataclass(frozen=True)
@@ -1301,8 +1421,27 @@ class NonLocalVertex:
     # ``docs/notes/R_contracted_nonlocal_vertex.md`` for the design
     # rationale and validation strategy.
 
+    def shape_problem(self, n_components: int) -> str | None:
+        """Why a tensor coupling does not suit ``n_components``, or ``None``:
+        it has shape ``(N,)*order``."""
+        if callable(self.coupling):
+            return None
+        want = (int(n_components),) * int(self.order)
+        return _shape_problem(np.shape(self.coupling), want, n_components)
+
     def __post_init__(self) -> None:
         where = f"NonLocalVertex(name={shown(self.name)})"
+        if (
+            isinstance(self.order, (bool, np.bool_))
+            or not isinstance(self.order, (int, np.integer))
+            or self.order < 1
+        ):
+            raise ValueError(
+                f"{where}: order (m, the number of psi legs) must be an "
+                f"integer >= 1; got {shown(self.order)}."
+            )
+        object.__setattr__(self, "coupling_vectorized", _flag(
+            self.coupling_vectorized, "coupling_vectorized", where))
         for flag in ("equal_time", "already_R_contracted"):
             object.__setattr__(self, flag, require_bool(
                 getattr(self, flag), flag, where))
@@ -1319,9 +1458,7 @@ class NonLocalVertex:
     def msr_factor(self) -> complex:
         """The ``−(i^m) / m!`` prefactor applied to the bare
         ``κ^(m)``."""
-        import math
-
-        return -(1j ** self.order) / math.factorial(self.order)
+        return complex(_msr_factor(self.order))
 
     @property
     def msr_coupling(self) -> Any:

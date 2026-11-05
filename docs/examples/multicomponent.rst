@@ -33,7 +33,7 @@ operators.
 Mixed Physical and Response Fields
 ------------------------------------
 
-:math:`\langle\psi_a(x)\,\phi_b(x)\,\phi_c(x)\,\phi_d(x)\rangle_{S_0}`:
+:math:`\langle\psi_a(w)\,\phi_b(x)\,\phi_c(y)\,\phi_d(z)\rangle_{S_0}`:
 
 .. code-block:: python
 
@@ -41,13 +41,13 @@ Mixed Physical and Response Fields
    phi = Field('phi', 'physical', n_components=3)
    psi = Field('psi', 'response', n_components=3)
 
-   obs = [psi('a', 'x'), phi('b', 'x'), phi('c', 'x'), phi('d', 'x')]
+   obs = [psi('a', 'w'), phi('b', 'x'), phi('c', 'y'), phi('d', 'z')]
    result = compute_moment(obs, Action(vertices=[]), order=0)
    print(result.order(0).to_latex())
 
 Each :math:`R` propagator now has the convention that the physical-field
-index is on the left: :math:`R_{ba}(x,x)` means
-:math:`\langle\phi_b(x)\,\psi_a(x)\rangle_{S_0}`.
+index is on the left: :math:`R_{ba}(x,w)` means
+:math:`\langle\phi_b(x)\,\psi_a(w)\rangle_{S_0}`.
 
 
 First-Order with Coupling Tensor
@@ -61,7 +61,7 @@ With a vertex :math:`\int F_{ijk}\,\phi_i\,\phi_j\,\psi_k\,\mathrm{d}z`:
    v = Vertex(fields=[phi, phi, psi], coupling='F')
    action = Action(vertices=[v])
 
-   obs = [phi('a', 'x'), phi('b', 'y')]
+   obs = [phi('a', 'x'), phi('b', 'y'), phi('c', 'z')]
    result = compute_moment(obs, action, order=1)
    print(result.order(1).to_latex())
 

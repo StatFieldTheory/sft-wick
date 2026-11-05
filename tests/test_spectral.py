@@ -222,7 +222,7 @@ def test_SP5_order0_through_the_integrators_is_C_star(method):
     res = compute_moment(
         [phi("x"), phi("y")],
         Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
-        order=0, ito=True, response_phase=True, collect_topology=True,
+        order=0, response_phase=True, collect_topology=True,
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
     T = 3.0
@@ -246,7 +246,7 @@ def test_SP5_two_time_response_is_the_spectral_R():
     res = compute_moment(
         [phi("x"), psi("y")],
         Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
-        order=0, ito=True, response_phase=True, collect_topology=True,
+        order=0, response_phase=True, collect_topology=True,
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
     T, tp = 4.0, 1.5
@@ -402,7 +402,7 @@ def test_SP8_two_point_at_a_separation_is_not_silently_zero():
     res = compute_moment(
         [phi("x"), phi("y")],
         Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
-        order=0, ito=True, response_phase=True, collect_topology=True,
+        order=0, response_phase=True, collect_topology=True,
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
     igs = [dt.build_integrand({"g": np.array(1j)})
@@ -631,3 +631,135 @@ def test_SP9_a_mismatched_component_count_raises_at_use():
     with pytest.raises(ValueError, match="n_components=1"):
         exp.evaluate(props, positions={"x": 0.0, "y": 0.0}, t_final=2.0,
                      component_pair=(0, 0), orders=[0], method="nquad")
+
+
+# --------------------------------------------------------------------- #
+# SP10 - the kink of C on t1 == t2 reaches the time-domain split.  The
+# reference writes the second iteration of the equation of motion on the
+# triangle s' < s, where R and C are smooth, with its own quadrature; it
+# calls neither the integrators nor the spectral module.
+# --------------------------------------------------------------------- #
+
+_SP10_F = np.zeros((2, 2, 2))
+_SP10_F[0, 0, 1] = _SP10_F[0, 1, 0] = 0.7
+_SP10_F[1, 1, 1] = -0.4
+_SP10_F[1, 0, 0] = 0.3
+_SP10_F[0, 0, 0] = 0.2
+
+
+def _sp10_reference(nodes, weights, D, t_min, t_f, a, b, n=700):
+    """Order-2 ``<phi_a(t_f) phi_b(t_f)>`` with averaged R and C."""
+    nodes, weights = np.asarray(nodes, float), np.asarray(weights, float)
+
+    def r(dt):
+        return np.exp(-np.multiply.outer(dt, nodes)) @ weights
+
+    def c(late, early):
+        """C for ``late >= early``."""
+        k = np.where(
+            nodes < 1e-12,
+            2.0 * D * (early - t_min)[..., None],
+            D * np.exp(-np.multiply.outer(late - early, nodes))
+            * -np.expm1(-np.multiply.outer(2.0 * (early - t_min), nodes))
+            / np.where(nodes < 1e-12, 1.0, nodes),
+        )
+        return k @ weights
+
+    x, w = np.polynomial.legendre.leggauss(n)
+    x, w = 0.5 * (x + 1.0), 0.5 * w
+    span = t_f - t_min
+    # t_f - s = span u^3 clusters the nodes where R(t_f, s) decays.
+    s = (t_f - span * x ** 3)[:, None]
+    sp = t_min + (s - t_min) * x[None, :]
+    area = (3.0 * span * x ** 2 * w)[:, None] * (s - t_min) * w[None, :]
+    t = np.full_like(s, t_f)
+    r_ss, r_ts, r_tp = r(s - sp), r(t_f - s), r(t_f - sp)
+    c_mid, c_ts, c_tp = c(s, sp), c(t, s), c(t + 0.0 * sp, sp)
+    c_s0, c_p0 = c(s, s), c(sp, sp)
+
+    F = _SP10_F
+    G = np.einsum("ajk,jlm->aklm", F, F) + np.einsum("ajk,klm->ajlm", F, F)
+
+    def phi0_phi2(p, q):
+        A = np.einsum("ll->", G[p][q])
+        B = np.einsum("kqk->", G[p][:, [q], :]) + np.einsum(
+            "kkq->", G[p][:, :, [q]]
+        )
+        return np.sum(area * r_ts * r_ss * (A * c_ts * c_p0 + B * c_tp * c_mid))
+
+    tadpoles = np.trace(F[a]) * np.trace(F[b])
+    crossed = np.sum(F[a] * F[b]) + np.sum(F[a] * F[b].T)
+    phi1_phi1 = 2.0 * np.sum(
+        area * r_ts * r_tp * (tadpoles * c_s0 * c_p0 + crossed * c_mid ** 2)
+    )
+    return phi1_phi1 + phi0_phi2(a, b) + phi0_phi2(b, a)
+
+
+@pytest.mark.parametrize(
+    "nodes, weights, D, t_min, t_f, pair",
+    [
+        ([0.4, 1.1, 3.0], [0.2, 0.5, 0.3], 0.35, 0.5, 3.5, (0, 1)),
+        ([0.4, 1.1, 3.0], [0.2, 0.5, 0.3], 0.35, 0.5, 3.5, (0, 0)),
+        ([0.4, 1.1, 3.0], [0.2, 0.5, 0.3], 1e-6, 0.5, 3.5, (0, 1)),
+        ([0.4, 1.1, 3.0], [0.2, 0.5, 0.3], 1e6, 0.5, 3.5, (0, 1)),
+        ([0.0, 1.0], [0.5, 0.5], 0.35, 0.0, 3.5, (0, 1)),
+        ([1e-4, 40.0], [0.5, 0.5], 0.35, 0.5, 3.5, (0, 1)),
+        ([0.4, 1.1, 3.0], [0.2, 0.5, 0.3], 0.35, 0.5, 0.501, (0, 1)),
+        ([0.4, 1.1, 3.0], [0.2, 0.5, 0.3], 0.35, 0.5, 60.0, (0, 1)),
+    ],
+    ids=["generic", "diagonal_pair", "D_small", "D_large", "zero_mode",
+         "rates_far_apart", "t_short", "t_long"],
+)
+def test_SP10_kinked_C_keeps_gauss_legendre_spectral(
+    nodes, weights, D, t_min, t_f, pair
+):
+    expansion, props = _sp10_expansion(nodes, weights, D, t_min)
+    got = expansion.evaluate(
+        props, positions={"x": 0.0, "y": 0.0}, t_final=t_f, orders=[2],
+        component_pair=pair, method="gauss_legendre", n_gauss=48,
+    ).total
+    want = _sp10_reference(nodes, weights, D, t_min, t_f, *pair)
+    assert got == pytest.approx(want, rel=1e-9, abs=0.0)
+
+
+def test_SP10_nquad_cuts_at_the_same_kink():
+    nodes, weights = [0.4, 1.1, 3.0], [0.2, 0.5, 0.3]
+    expansion, props = _sp10_expansion(nodes, weights, 0.35, 0.5)
+    got = expansion.evaluate(
+        props, positions={"x": 0.0, "y": 0.0}, t_final=3.5, orders=[2],
+        component_pair=(0, 1), method="nquad",
+    ).total
+    want = _sp10_reference(nodes, weights, 0.35, 0.5, 3.5, 0, 1)
+    assert got == pytest.approx(want, rel=1e-10, abs=0.0)
+
+
+def _sp10_expansion(nodes, weights, D, t_min):
+    import sft_wick as sw
+    from sft_wick.workflow import propagators_from_cache
+
+    system = sw.System(
+        field=sw.FieldSpec("phi", n_components=2),
+        linear=sw.DiagonalA(gamma=[1.0, 1.0]),
+        vertices=[sw.LocalVertex("F", coupling=_SP10_F)],
+        t_min=t_min,
+        noise=sw.GaussianNoise(kappa2=sw.SeparableTranslation(
+            temporal=sw.ExponentialTemporal(lam=0.0, sigma_t=1.0),
+            spatial=sw.ExponentialSpatial(sigma_x=1.0),
+        )),
+    )
+    expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=[2])
+    props = propagators_from_cache(spectral_cache(
+        SpectralDensity(np.array(nodes), np.array(weights)), D,
+        n_components=2, t_min=t_min,
+    ))
+    return expansion, props
+
+
+def test_SP10_kink_needs_noise():
+    """Each side of the boundary: ``D = 0`` makes C zero, any ``D > 0`` kinks
+    it, and the split reads one predicate either way."""
+    from sft_wick.evaluate import _c_has_diagonal_kink
+
+    dens = SpectralDensity(np.array([1.0]), np.array([1.0]))
+    assert not _c_has_diagonal_kink(spectral_cache(dens, 0.0))
+    assert _c_has_diagonal_kink(spectral_cache(dens, 1e-300))

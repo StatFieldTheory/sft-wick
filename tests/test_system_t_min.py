@@ -18,6 +18,8 @@ import numpy as np
 import pytest
 
 import sft_wick as sw
+from sft_wick.evaluate import integrate_diagrams
+from sft_wick.workflow.specs import ConstantImpulse
 
 N = 2
 SHIFT = 0.75
@@ -96,3 +98,71 @@ def test_a_cache_built_for_another_t_min_is_refused():
     with pytest.raises(ValueError, match="t_min"):
         exp.evaluate(other, positions=POS, t_final=T_FINAL + SHIFT,
                      component_pair=(0, 0), orders=[0])
+
+
+@pytest.mark.parametrize("t_min", [-5.0, -1.0, 0.25])
+def test_l0_integrals_start_at_the_t_min_of_the_model(t_min):
+    """L0 defaulted to 0 whatever the model said: 2.8 % low at t_min = -1,
+    and a refused table read at t_min = 0.25.
+
+    Order 1 of ``dφ = (-γ φ + g φ + √(2D) ξ) dt`` from ``φ(t_min) = 0``:
+    ``2 g ∫_{t_min}^{T} e^{-γ(T-s)} c(s, T) ds``, with the Ornstein-Uhlenbeck
+    ``c`` written out and the integral done by scipy alone.
+    """
+    from scipy.integrate import quad
+
+    gamma, g, diff, t_f = 1.1, 0.4, 0.7, 2.0
+    system = sw.System(
+        field=sw.FieldSpec("phi", 1),
+        linear=sw.DiagonalA(gamma=[gamma]),
+        vertices=[sw.LocalVertex("L", coupling=np.array([[g]]))],
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.ExponentialTemporal(lam=0.0, sigma_t=1.0),
+                spatial=sw.ExponentialSpatial(sigma_x=1.0),
+            ),
+            sigma2=ConstantImpulse(np.array([[2.0 * diff]])),
+        ),
+        t_min=t_min,
+    )
+    props = system.propagators(t_max=t_f, n_grid_t=64, progress=False)
+    terms = system.expand(("phi(x)", "phi(y)"), orders=[1]).diagrams(1)
+
+    def ou(s, t):
+        return (
+            diff
+            / gamma
+            * np.exp(-gamma * (t - s))
+            * -np.expm1(-2.0 * gamma * (s - t_min))
+        )
+
+    ref, _ = quad(
+        lambda s: 2.0 * g * np.exp(-gamma * (t_f - s)) * ou(s, t_f),
+        t_min,
+        t_f,
+        epsabs=1e-12,
+    )
+    got, _ = integrate_diagrams(
+        terms,
+        system.build_coupling_values(),
+        t_f,
+        props.cache,
+        method="gauss_legendre",
+        n_gauss=48,
+    )
+    assert got == pytest.approx(ref, rel=2e-5, abs=0.0)
+
+
+def test_an_explicit_t_min_other_than_the_models_is_refused():
+    system = _system(0.25)
+    props = system.propagators(t_max=2.0, n_grid_t=12, progress=False)
+    terms = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0]).diagrams(0)
+    with pytest.raises(ValueError, match="t_min"):
+        integrate_diagrams(
+            terms,
+            system.build_coupling_values(),
+            1.0,
+            props.cache,
+            t_min=0.0,
+            fixed_indices={"a": 0, "b": 0},
+        )

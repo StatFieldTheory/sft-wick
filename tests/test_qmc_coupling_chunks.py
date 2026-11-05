@@ -262,19 +262,9 @@ def test_full_reality_scale_is_checked_once_after_coupling_assembly(monkeypatch,
     calls = []
     original = DiagramIntegrand._dynamic_values
 
-    def observe(
-        self, couplings, c_batches, r_product, jacobians=None, *, where="", r_batches=()
-    ):
+    def observe(self, couplings, c_batches, r_product, *args, **kwargs):
         calls.append((np.asarray(couplings).copy(), len(r_product)))
-        return original(
-            self,
-            couplings,
-            c_batches,
-            r_product,
-            jacobians,
-            where=where,
-            r_batches=r_batches,
-        )
+        return original(self, couplings, c_batches, r_product, *args, **kwargs)
 
     monkeypatch.setattr(DiagramIntegrand, "_dynamic_values", observe)
 
@@ -663,20 +653,27 @@ def test_matrix_support_and_nonfinite_selection_remain_global(monkeypatch, cap, 
                     qmc_coupling_chunk_size=bound,
                     **kw,
                 )
-    else:
-        with np.errstate(invalid="ignore"):
-            eager = ig.integrate_moment_qmc_vectorized(1.0, Cache(), **kw)
-            got = ig.integrate_moment_qmc_vectorized(
-                1.0,
-                Cache(),
-                qmc_coupling_chunk_size=cap,
-                **kw,
-            )
-        if kind == "all_R_zero":
-            np.testing.assert_array_equal(got, (0.0, 0.0))
-        else:
-            assert np.isnan(got).all()  # Whole-support 0*NaN remains observable.
+    elif kind == "all_R_zero":
+        eager = ig.integrate_moment_qmc_vectorized(1.0, Cache(), **kw)
+        got = ig.integrate_moment_qmc_vectorized(
+            1.0,
+            Cache(),
+            qmc_coupling_chunk_size=cap,
+            **kw,
+        )
+        np.testing.assert_array_equal(got, (0.0, 0.0))
         np.testing.assert_array_equal(got, eager)
+    else:
+        # Whole-support 0*NaN stays observable: the total is refused.
+        for bound in (None, cap):
+            with np.errstate(invalid="ignore"):
+                with pytest.raises(ValueError, match="evaluated to nan"):
+                    ig.integrate_moment_qmc_vectorized(
+                        1.0,
+                        Cache(),
+                        qmc_coupling_chunk_size=bound,
+                        **kw,
+                    )
     assert events == [("R", 17), ("C", 17)] * 2
 
 

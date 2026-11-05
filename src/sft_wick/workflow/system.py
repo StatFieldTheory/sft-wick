@@ -14,7 +14,12 @@ from typing import Any, Callable, Iterable
 import numpy as np
 
 from sft_wick.action import Action
-from sft_wick.evaluate import PropagatorModel
+from sft_wick.evaluate import (
+    DEFAULT_C_N_GAUSS,
+    DEFAULT_N_GRID_T,
+    PropagatorModel,
+    _table_slack,
+)
 from sft_wick.fields import Field, FieldOperator
 from sft_wick.indices import (
     is_generated_name,
@@ -26,6 +31,7 @@ from sft_wick.vertices import Vertex
 
 from ._messages import shown
 from .specs import (
+    _flag,
     ConstantImpulse,
     DiagonalA,
     FieldSpec,
@@ -61,6 +67,12 @@ _DIAG_C_REFUSAL = (
     "an error.  Pass diag_C=False to System.expand and to "
     "System.propagators: the propagator tables then hold every C_ab, by "
     "quadrature or from a closed form that returns the full (N, N) C."
+)
+
+_COLLECT_TOPOLOGY_REFUSAL = (
+    "collect_topology=False builds no diagrams above order 0, so those "
+    "orders would evaluate to 0 without an error.  Keep collect_topology "
+    "on, or call compute_moment at L0, which still gives the expression."
 )
 
 
@@ -170,6 +182,44 @@ class System:
                     f"drift_names=...)).  Coupling values are keyed by name."
                 )
         self._check_vertex_names()
+        self._check_component_shapes()
+
+    def _check_component_shapes(self) -> None:
+        """Refuse a tensor that does not fit ``n_components``.
+
+        A coupling of another shape was indexed without an error, dropping
+        the entries outside its leading block, and a white-noise matrix or a
+        rate list of another length ended in a matmul error.  Two spellings
+        that give the right number stay: a 0-d coupling at ``N = 1``, and
+        equal rates of any number, which lower to one scalar R.
+        """
+        n = self.n_components
+        for v in (*self.vertices, *self.nonlocal_vertices):
+            problem = v.shape_problem(n)
+            if problem and not (n == 1 and np.ndim(v.coupling) == 0):
+                raise ValueError(f"vertex {shown(v.name)}: {problem}.")
+        sigma2 = self.noise.sigma2
+        if isinstance(sigma2, ConstantImpulse):
+            shape = np.shape(sigma2.amplitude)
+            if shape not in ((), (n, n)):
+                raise ValueError(
+                    f"ConstantImpulse amplitude has shape {shape}; with "
+                    f"n_components = {n} a matrix amplitude must be {n} x {n}."
+                )
+        lin = self.linear
+        if self.explicit_R is not None or not isinstance(lin, DiagonalA):
+            return
+        gamma = lin.gamma
+        # An object of any other kind is not read here: its protocols are
+        # the user's, and the rates are read when R is first evaluated.
+        if not isinstance(gamma, (list, tuple, np.ndarray)):
+            return
+        count = gamma.size if isinstance(gamma, np.ndarray) else len(gamma)
+        if count not in (1, n) and not lin.is_iso_R:
+            raise ValueError(
+                f"DiagonalA has {count} rates; with n_components = {n} give "
+                f"{n}, or one for all."
+            )
 
     def _check_vertex_names(self) -> None:
         """Refuse two vertices with one name, and vertex names for which
@@ -338,7 +388,8 @@ class System:
             self.explicit_R is None
             and isinstance(lin, DiagonalA)
             and callable(lin.gamma)
-            and t_max > lin.t_max_cache
+            and t_max
+            > lin.t_max_cache + _table_slack(lin.t_min_cache, lin.t_max_cache)
         ):
             raise ValueError(
                 f"t_max={t_max} exceeds DiagonalA.t_max_cache="
@@ -346,6 +397,14 @@ class System:
                 f"would be extrapolated.  Raise t_max_cache (and "
                 f"n_grid_cache with it)."
             )
+
+    def _require_buildable(self, t_max: float, diag_C: bool) -> None:
+        """Refuse a table :meth:`Propagators.build` cannot make faithfully:
+        a ``t_max`` past the spline behind R, or a diagonal C on a system
+        whose C has off-diagonal entries."""
+        self._require_gamma_grid(t_max)
+        if diag_C and self._c_offdiagonal():
+            raise ValueError(_DIAG_C_REFUSAL)
 
     def build_propagator_model(self, diag_C: bool = True) -> PropagatorModel:
         """Lower the spec to a :class:`PropagatorModel`.
@@ -459,7 +518,6 @@ class System:
         orders: int | Iterable[int],
         *,
         response_phase: bool = True,
-        ito: bool = True,
         collect_topology: bool = True,
         iso_R: bool | None = None,
         diag_R: bool = True,
@@ -489,7 +547,7 @@ class System:
             orders: the perturbative orders to compute, as one integer or
                 a list of them.  A boolean, a string, a float, a non-integer
                 entry and an empty list raise.
-            response_phase, ito, collect_topology, iso_R, diag_R, diag_C, iso_C: forwarded to :func:`~sft_wick.perturbation.compute_moment`.  When ``iso_R`` is ``None`` the value is inferred from ``self.linear``.
+            response_phase, collect_topology, iso_R, diag_R, diag_C, iso_C: forwarded to :func:`~sft_wick.perturbation.compute_moment`.  When ``iso_R`` is ``None`` the value is inferred from ``self.linear``.
             cache_path: directory (or file) for on-disk caching.
                 ``None`` disables caching (prints a one-shot
                 reminder).
@@ -514,7 +572,8 @@ class System:
                 operators share a spatial label at an interacting order,
                 for an empty ``orders``, for an empty or a set observable,
                 and for a ``FieldOperator`` of another field or with a
-                numeric literal component label.
+                numeric literal component label, and for
+                ``collect_topology=False`` at an order above 0.
             TypeError: when ``orders`` is missing, or is or holds
                 something other than an integer.
         """
@@ -523,6 +582,14 @@ class System:
 
         from .cache import load_or_compute
         from .expansion import Expansion, _order_selection
+
+        flag = "System.expand"
+        response_phase = _flag(response_phase, "response_phase", flag)
+        collect_topology = _flag(collect_topology, "collect_topology", flag)
+        diag_R = _flag(diag_R, "diag_R", flag)
+        diag_C = _flag(diag_C, "diag_C", flag)
+        iso_C = _flag(iso_C, "iso_C", flag)
+        iso_R = None if iso_R is None else _flag(iso_R, "iso_R", flag)
 
         # The rules of Expansion.evaluate: one integer is one order, and a
         # string, a float or a boolean raises ("02" used to give (0, 2)).
@@ -534,6 +601,11 @@ class System:
             )
         orders_list = list(selected)
         iso_R_val = self.iso_R if iso_R is None else iso_R
+
+        # The operator path builds no DiagramTerm past order 0, and an order
+        # without diagrams evaluates to 0.
+        if not collect_topology and max(orders_list) > 0:
+            raise ValueError(_COLLECT_TOPOLOGY_REFUSAL)
 
         # diag_R / diag_C collapse R and C onto their diagonals; a dense R
         # or a component-mixing noise has entries off it.
@@ -557,7 +629,6 @@ class System:
             "orders": tuple(orders_list),
             "flags": (
                 response_phase,
-                ito,
                 collect_topology,
                 iso_R_val,
                 diag_R,
@@ -567,7 +638,7 @@ class System:
         }
 
         max_order = max(orders_list)
-        # Keep the preexisting moment cache key exactly unchanged.
+        # A moment adds no field: the default target stays out of the key.
         if target != "moment":
             spec_key["target"] = target
         # An observable label spelled like a generated name (``y_0``,
@@ -584,7 +655,6 @@ class System:
                 action,
                 order=max_order,
                 response_phase=response_phase,
-                ito=ito,
                 collect_topology=collect_topology,
                 diag_R=diag_R,
                 diag_C=diag_C,
@@ -617,7 +687,7 @@ class System:
     def propagators(
         self,
         t_max: float,
-        n_grid_t: int = 60,
+        n_grid_t: int = DEFAULT_N_GRID_T,
         *,
         homogeneity: str | None = None,
         r_max: float | None = None,
@@ -632,7 +702,7 @@ class System:
         c_closed_form_only: bool = False,
         c_closed_form_vectorized: bool = False,
         c_method: str = "auto",
-        c_n_gauss: int = 20,
+        c_n_gauss: int = DEFAULT_C_N_GAUSS,
         diag_C: bool = True,
         progress: Any = None,
     ) -> "Propagators":
@@ -648,8 +718,8 @@ class System:
         family has one: diagonal constant drift with a separable
         exponential-temporal noise, the demo1/demo2 family, so no
         quadrature at all), then ``c_method`` (Gauss-Legendre with a
-        converged node count for the package's own kernels, ``dblquad``
-        for user callables).  The result is reported in
+        converged node count, for user callables too).  The result is
+        reported in
         :attr:`Propagators.c_source`.
 
         Args:
@@ -657,6 +727,8 @@ class System:
             n_grid_t: number of time grid points.
             homogeneity: override the inferred homogeneity
                 (``'translation' | 'rotation' | 'general'``).
+                ``'translation'`` keys C on ``|x1 − x2|`` and refuses noise
+                that is not even in ``x1 − x2``.
             r_max, n_grid_r: translation full-grid parameters
                 (both given ⇒ full 3-D spline; either ``None`` ⇒
                 lazy).
@@ -690,9 +762,11 @@ class System:
 
                 - ``'auto'`` (default): Gauss-Legendre with a node
                   count refined from ``c_n_gauss`` until the rule is
-                  converged at the table's extreme cells (falling back
-                  to ``dblquad`` if it never is) for the package's own
-                  kernel families; ``dblquad`` for any user callable.
+                  converged at the table's probe cells (falling back
+                  to a graded rule if it never is, then to ``dblquad``
+                  with a warning), for the package's own kernels and
+                  user callables alike.  See
+                  :meth:`Propagators.build` for what the check can miss.
                 - ``'gauss_legendre'``: tensor-product GL with a
                   diagonal-aware sub-region split and exactly
                   ``c_n_gauss`` nodes.  18-100× faster than dblquad on
@@ -701,8 +775,9 @@ class System:
                   tool for non-smooth κ² (discontinuous, oscillatory
                   at high frequency, integrable singularities like
                   ``1/√t``).
-                - ``'dblquad'``: adaptive Gauss-Kronrod; robust on
-                  any κ² but slow (10-250 ms / cell).
+                - ``'dblquad'``: adaptive Gauss-Kronrod, 10-250 ms / cell,
+                  with no convergence check: a kernel far narrower than
+                  the interval can come back wrong by any factor.
 
                 Ignored when a closed form is in use.  See
                 :doc:`/user_guide/workflow` "Choosing an integrator"
@@ -740,9 +815,12 @@ class System:
 
         from .propagators import Propagators
 
-        self._require_gamma_grid(t_max)
-        if diag_C and self._c_offdiagonal():
-            raise ValueError(_DIAG_C_REFUSAL)
+        where = "System.propagators"
+        c_closed_form_only = _flag(c_closed_form_only, "c_closed_form_only", where)
+        c_closed_form_vectorized = _flag(
+            c_closed_form_vectorized, "c_closed_form_vectorized", where
+        )
+        diag_C = _flag(diag_C, "diag_C", where)
 
         with _progress_scope(progress):
             return Propagators.build(

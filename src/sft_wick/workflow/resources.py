@@ -9,8 +9,25 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
+from .expansion import nested_jobs, sweep_runs_serially
+
 if TYPE_CHECKING:
     from .config import WorkflowConfig
+
+
+def runs_scalar_loop(method: str) -> bool:
+    """Whether a workflow ``sweep.method`` integrates point by point, without
+    the batched propagator and contraction paths.  ``qmc`` is among them: it
+    is vectorized only on a cache with a legacy ``_c_splines`` table, which
+    ``Propagators.build`` never makes."""
+    return method in ("qmc", "qmc_scalar", "nquad")
+
+
+def grid_points(sweep) -> int:
+    """The Cartesian grid points of a :class:`SweepConfig`."""
+    axes = [*sweep.positions_grid.values(), sweep.t_final_grid, sweep.component_tuples]
+    axes += (sweep.external_times_grid or {}).values()
+    return math.prod(len(axis) for axis in axes)
 
 
 def resource_controls(cfg: WorkflowConfig) -> list[dict]:
@@ -23,9 +40,7 @@ def resource_controls(cfg: WorkflowConfig) -> list[dict]:
     sw = cfg.sweep
     vertices = cfg.system.vertices + cfg.system.nonlocal_vertices
     dynamic = any(callable(v["coupling"]) for v in vertices)
-    axes = list(sw.positions_grid.values()) + [sw.t_final_grid, sw.component_tuples]
-    axes += list((sw.external_times_grid or {}).values())
-    grid_points = math.prod(len(axis) for axis in axes)
+    n_points = grid_points(sw)
     out = []
 
     def add(name, requested, scope, status, reason):
@@ -66,7 +81,7 @@ def resource_controls(cfg: WorkflowConfig) -> list[dict]:
         )
     )
     if qmc is not None:
-        if sw.method not in {"qmc", "qmc_vectorized"}:
+        if sw.method != "qmc_vectorized":
             status, reason = (
                 "ignored",
                 "method does not use vectorized QMC coupling batches",
@@ -113,7 +128,7 @@ def resource_controls(cfg: WorkflowConfig) -> list[dict]:
             "invalid",
             "positive budget requires the fixed_model caller promise",
         )
-    elif cache_bytes and sw.method in {"qmc_scalar", "nquad"}:
+    elif cache_bytes and runs_scalar_loop(sw.method):
         status, reason = (
             "ignored",
             "method does not use cached propagator batch methods",
@@ -149,9 +164,9 @@ def resource_controls(cfg: WorkflowConfig) -> list[dict]:
             "underflow risk, budget or cost-rule cases materialize the coefficient and "
             "run the ordered fold; oversized dense fallback fails before allocation"
         )
-    if backend == "einsum" and sw.method in {"qmc_scalar", "nquad"}:
+    if backend == "einsum" and runs_scalar_loop(sw.method):
         status, reason = "ignored", "method does not use the static batch contraction"
-    if backend == "factorized" and sw.method in {"qmc_scalar", "nquad"}:
+    if backend == "factorized" and runs_scalar_loop(sw.method):
         reason = (
             "method materializes the static coefficient instead of batch fusion; "
             "native preparation and materialization budget remain active; "
@@ -181,7 +196,7 @@ def resource_controls(cfg: WorkflowConfig) -> list[dict]:
         ),
     )
 
-    conflicting = cfg.expand.n_jobs != 1 and sw.n_jobs != 1
+    conflicting = nested_jobs(cfg.expand.n_jobs, sw.n_jobs)
     for name, jobs, scope in (
         (
             "expand",
@@ -189,7 +204,7 @@ def resource_controls(cfg: WorkflowConfig) -> list[dict]:
             "diagrams within each sweep point (not symbolic expansion)",
         ),
         ("propagators", cfg.propagators.n_jobs, "eager C-table cells"),
-        ("sweep", sw.n_jobs, f"{grid_points} Cartesian grid points"),
+        ("sweep", sw.n_jobs, f"{n_points} Cartesian grid points"),
     ):
         status = "serial" if jobs == 1 else "conditional"
         reason = (
@@ -205,7 +220,7 @@ def resource_controls(cfg: WorkflowConfig) -> list[dict]:
                 "invalid",
                 "expand.n_jobs and sweep.n_jobs cannot both request parallelism",
             )
-        elif name == "sweep" and jobs != 1 and grid_points <= 2:
+        elif name == "sweep" and jobs != 1 and sweep_runs_serially(jobs, n_points):
             status, reason = (
                 "ignored",
                 "at most two grid points: sweep executes serially",

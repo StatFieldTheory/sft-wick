@@ -49,7 +49,8 @@ Key Features
   homogeneity modes; optional closed-form C bypass.
 - **Matrix-valued R and off-diagonal C**: every integrator evaluates
   a dense response, and the C tables hold all :math:`C_{ab}`.
-- **Multiplicative noise**: Itô and Stratonovich, at L0 and L1.
+- **Multiplicative noise**: Itô at L0 and L1, Stratonovich at L1 through
+  its Itô form.
 - **n-point observables**: swept from the L1 API and from YAML, one
   component index per operator.
 - **Time-dependent linear operator** and **spacetime-dependent

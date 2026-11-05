@@ -289,6 +289,10 @@ def test_NQ5_make_scipy_integrand_drives_scipy_nquad():
         f = ig.make_scipy_integrand(ext, dirs, props.cache)
         val, _ = scipy_nquad(f, ig.integration_bounds(ext, t_min=T_MIN),
                              opts={"epsabs": 1e-12, "epsrel": 1e-10})
+        # evaluate() takes the point-keyed spelling, so the closure does too.
+        by_point = {lab: POS[lab] for lab in ext}
+        at = [T_MIN + 0.2 * (k + 1) for k in range(len(ig.spatial.time_integration_vars))]
+        assert ig.make_scipy_integrand(ext, by_point, props.cache)(*at) == f(*at)
         total_scipy += val
         total_pkg += ig.integrate_moment_nquad(
             lambda_f=max(TIMES.values()), cache=props.cache, t_min=T_MIN,

@@ -679,3 +679,139 @@ def test_WF12_the_guard_does_not_fire_on_the_ordinary_cases():
     assert not _spatial_warnings(lambda: exp2.sweep(
         spatial_props, positions_grid={"x": [0.0], "y": [0.0, 0.5]},
         t_final_grid=[1.0], component_pairs=[(0, 0)], orders=[0]))
+
+
+# ---------------------------------------------------------------------------
+# WF13 -- collect_topology=False has no diagrams to evaluate past order 0
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("orders", [1, [2], [0, 2]])
+def test_WF13_collect_topology_false_is_refused_at_an_interacting_order(
+        demo1_system, orders):
+    """It builds no DiagramTerm, and the order used to evaluate to 0.0."""
+    with pytest.raises(ValueError, match="collect_topology=False") as caught:
+        demo1_system.expand(("phi_a(x)", "phi_b(y)"), orders=orders,
+                            collect_topology=False)
+    assert "compute_moment" in str(caught.value)
+
+
+def test_WF13_collect_topology_false_at_order_0_is_the_default_expansion(
+        demo1_system):
+    observable = ("phi_a(x)", "phi_b(y)")
+    off = demo1_system.expand(observable, orders=[0], collect_topology=False)
+    on = demo1_system.expand(observable, orders=[0])
+    assert off.diagrams(0) == on.diagrams(0)
+    assert off.diagrams(0)
+
+
+# ---------------------------------------------------------------------------
+# Point names of ``positions``
+# ---------------------------------------------------------------------------
+
+
+def _named_points_system():
+    return sw.System(
+        field=sw.FieldSpec("phi", n_components=2),
+        linear=sw.DiagonalA(gamma=[1.0, 1.3]),
+        noise=sw.GaussianNoise(kappa2=sw.SeparableTranslation(
+            temporal=sw.ExponentialTemporal(lam=0.3, sigma_t=0.4),
+            spatial=sw.GaussianSpatial(sigma_x=0.8))),
+        t_min=0.25,
+    )
+
+
+@pytest.mark.parametrize("positions", [{"x": 0.1}, {"x": 0.1, "z": 0.9},
+                                       {"x": 0.0, "z": 0.9}])
+def test_a_point_left_out_beside_a_located_one_is_refused(positions):
+    """The omission used to return the value at the separation from 0, 30 %
+    off at order 0, and a misspelt key was ignored the same way."""
+    system = _named_points_system()
+    exp = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0], progress=False)
+    props = system.propagators(t_max=3.0, n_grid_t=8, progress=False)
+    kw = dict(t_final=2.3, component_pair=(0, 0))
+    with pytest.raises(ValueError, match=r"no position for \['y'\]"):
+        exp.evaluate(props, positions=positions, **kw)
+    with pytest.raises(ValueError, match=r"no position for \['y'\]"):
+        exp.sweep(props, positions_grid={k: [v] for k, v in positions.items()},
+                  t_final_grid=[2.3], component_tuples=[(0, 0)])
+
+
+def _unit_coupling(n_list, t_list):
+    return np.exp(-0.5 * np.sum(np.asarray(n_list, dtype=float) ** 2)) * np.ones((2, 2, 2))
+
+
+def test_a_callable_coupling_refuses_a_point_left_out_with_no_spatial_table():
+    """A cache with no spatial table reads no position, but the coupling does:
+    a left-out point read 0, 60 % above the value at ``y = 0.9``."""
+    from sft_wick.evaluate import PropagatorCache
+
+    system = sw.System(
+        field=sw.FieldSpec("phi", 2),
+        linear=sw.DiagonalA(gamma=[1.0, 1.0]),
+        vertices=[sw.LocalVertex("F", coupling=np.ones((2, 2, 2)))],
+        nonlocal_vertices=[sw.NonLocalVertex("K", order=3, coupling=_unit_coupling)],
+        noise=sw.GaussianNoise(kappa2=sw.SeparableTranslation(
+            temporal=sw.ExponentialTemporal(lam=1.0, sigma_t=0.5),
+            spatial=sw.CustomKernel(fn=lambda r: 1.0))),
+    )
+    cache = PropagatorCache(system.build_propagator_model(), n_gauss=8)
+    cache.precompute_C_table(2.0, n_grid=8)
+    expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=[2], progress=False)
+    with pytest.raises(ValueError, match=r"no position for \['y'\]"):
+        expansion.evaluate(sw.propagators_from_cache(cache), positions={"x": 0.7},
+                           t_final=2.0, component_pair=(0, 0), orders=[2],
+                           method="gauss_legendre", n_gauss=4)
+
+
+def test_positions_that_gave_the_right_number_stay():
+    """A name the observable does not use, every position at 0, nothing at
+    all, and a point an R chain ties to a located point."""
+    system = _named_points_system()
+    exp = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0], progress=False)
+    props = system.propagators(t_max=3.0, n_grid_t=8, progress=False)
+    kw = dict(t_final=2.3, component_pair=(0, 0))
+    both = exp.evaluate(props, positions={"x": 0.1, "y": 0.9}, **kw).total
+    assert exp.evaluate(props, positions={"x": 0.1, "y": 0.9, "z": 7.0}, **kw).total == both
+    origin = exp.evaluate(props, positions={"x": 0.0, "y": 0.0}, **kw).total
+    assert exp.evaluate(props, positions={"x": 0.0}, **kw).total == origin
+    assert exp.evaluate(props, positions={}, **kw).total == origin
+
+    response = system.expand(("phi_a(x)", "psi_b(y)"), orders=[0], progress=False)
+    times = {"x": 2.3, "y": 1.1}
+    tied = response.evaluate(props, positions={"x": 0.1}, external_times=times, **kw)
+    both = response.evaluate(props, positions={"x": 0.1, "y": 0.1},
+                             external_times=times, **kw)
+    assert tied.total == both.total != 0.0
+
+
+@pytest.mark.parametrize("field,value", [("diag_R", "false"), ("iso_C", "no"),
+                                         ("collect_topology", "off")])
+def test_a_flag_word_is_refused_at_L1(field, value):
+    """``'false'`` is truthy, and meant on."""
+    with pytest.raises(TypeError, match=f"{field} must be a bool"):
+        _named_points_system().expand(("phi_a(x)",), orders=[0], **{field: value})
+
+
+@pytest.mark.parametrize("build", [
+    lambda: sw.ExplicitR(lambda t, s: np.eye(2), iso_R="false"),
+    lambda: _named_points_system().propagators(1.0, 4, diag_C="false"),
+    lambda: _named_points_system().propagators(
+        1.0, 4, c_closed_form_only="false"),
+    lambda: sw.workflow.propagators.Propagators.build(
+        _named_points_system(), t_max=1.0, n_grid_t=4, diag_C="false"),
+], ids=["ExplicitR", "propagators", "c_closed_form_only", "build"])
+def test_a_flag_word_is_refused_past_expand(build):
+    """Each is its own guard, and a word that reached ``ExplicitR`` meant a
+    scalar R."""
+    with pytest.raises(TypeError, match="must be a bool"):
+        build()
+
+
+def test_a_flag_written_as_0_or_1_stays():
+    system = _named_points_system()
+    assert system.expand(("phi_a(x)",), orders=[0], diag_R=1, iso_C=0, progress=False)
+    with pytest.raises(TypeError, match="coupling_vectorized must be a bool"):
+        sw.NonLocalVertex("K", 3, lambda n, t: 0.0, coupling_vectorized="false")
+    assert sw.NonLocalVertex("K", 3, np.ones((2, 2, 2)),
+                             coupling_vectorized=0).coupling_vectorized is False

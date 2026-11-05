@@ -46,9 +46,9 @@ and `collections`.  Every `sft_wick` output is tested against it.
 | ID  | Scope                              | Module under test                                              |
 |-----|------------------------------------|----------------------------------------------------------------|
 | T1  | pairing enumeration count          | `wick.generate_valid_pairings`                                 |
-| T2  | per-pairing vanishing rules        | `wick`, `propagators.contract_pair`, Itô, causal DFS           |
+| T2  | per-pairing vanishing rules        | `wick.r_vanishes`, `propagators.contract_pair`                 |
 | T3  | operator-level Wick sum            | `wick.wick_contract`                                           |
-| T4  | spatial multiplicity               | `wick._compute_multiplicity`, symmetry factor formula          |
+| T4  | routing count of a topology        | `wick_contract_spatial`, `_enumerate_component_routings`       |
 | T5  | engine agreement (op vs spatial)   | hybrid engine, `_enumerate_component_routings`                 |
 | T6  | Taylor / multinomial prefactor     | `perturbation.compute_moment` prefactor assembly               |
 | T7  | response phase $(-i)^{n_R}$        | `expressions.apply_response_phase`, `DiagramTerm`              |
@@ -292,7 +292,7 @@ equivalence: the alternatives are not all drop-in replacements.
 Known capability differences:
 
 - ``compute_moment`` and ``compute_moment_numerical`` have different
-  signatures.  ``_numerical`` requires ``coupling_values`` upfront and
+  signatures.  ``_numerical`` takes no coupling values and
   returns only ``DiagramTerm`` dicts; it has no ``response_phase`` or
   ``collect_topology`` flags and no access to the symbolic expression
   tree (``PerturbativeResult.order_terms``).  If you need the
@@ -371,12 +371,12 @@ the scalar implementation for explicit opt-out.
 | N5  | α=0 two-kernel vs single-kernel      | identical to machine precision when α=0                     |
 | N6  | two-kernel κ²_eff shape              | B-term closed form vs direct dblquad integration            |
 | N7  | spline-table acceleration            | `precompute_C_table` spline values vs closed form           |
-| N8  | Itô flag end-to-end                  | `compute_moment(ito=True/False)` on equal-point φψ observable |
+| N8  | Itô rule end-to-end                  | `compute_moment` on equal-point and two-point φψ observables |
 | N9  | off-diagonal κ² → non-diagonal C     | `PropagatorCache.C_value` with `diag_C=False` and cross-component kappa2 |
 | P1  | `scipy.nquad(make_scipy_integrand)` = coupling·A² | double-tadpole fixed-time ξ, closed-form reference to 1e-6 |
 | P2  | `integrate_moment_qmc` = coupling·B² | same diagram time-integrated moment, QMC within 3σ |
 | P3  | QMC convergence monotone vs n_samples | Sobol QMC regression guard |
-| C1  | `compute_moment` vs `compute_moment_numerical` | 2 independent symbolic engines produce equal integrated totals |
+| C1  | `compute_moment` vs `compute_moment_numerical` | 2 engines with different canonicalisation (they share the sequence and term builder and the pairing loop) produce equal integrated totals |
 | C2  | `compute_moment_numerical` parallel vs serial | joblib parallelisation preserves DiagramTerms bit-identically |
 | C3  | `integrate_moment_qmc` vs `integrate_moment_qmc_vectorized` | scalar-loop vs batch QMC, same seed → bit-identical |
 | C4  | `integrate_two_point_qmc` vs `scipy.nquad(make_scipy_integrand)` | alternative 2-point QMC matches independent integrator |
@@ -463,8 +463,9 @@ Because every test isolates a single transformation, a failure
 diagnoses a specific module:
 
 - **T2 fails** → `contract_pair` or the vanishing-rule logic in `wick.py`.
-- **T4 or T5 fails** → multiplicity formula in `_compute_multiplicity`
-  or component-routing logic in `_enumerate_component_routings`.
+- **T4 or T5 fails** → topology enumeration in `wick_contract_spatial`
+  or component-routing logic in `_enumerate_component_routings`, which
+  gives the operator-level count of each topology.
 - **T8 fails** → `_canonical_diagram_form` (brute permutation search)
   or `_canonical_key_nauty` (nauty-based) disagree on a pair of
   topologies; one of them has a bug.

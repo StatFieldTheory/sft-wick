@@ -18,7 +18,7 @@ Basic Usage
    v = Vertex(fields=[phi, phi, psi], coupling='F')
    action = Action(vertices=[v])
 
-   obs = [psi('a', 'x'), phi('b', 'x'), phi('c', 'x'), phi('d', 'x')]
+   obs = [psi('a', 'w'), phi('b', 'x'), phi('c', 'y'), phi('d', 'z')]
    result = compute_moment(obs, action, order=2)
 
 This computes:
@@ -85,15 +85,19 @@ For each order *n* from 0 to the requested maximum:
    (the default), the **spatial-level engine**
    :func:`~sft_wick.wick.wick_contract_spatial` is used: it enumerates
    *spatial topologies* (R-edge and C-edge assignments between spatial
-   points) rather than individual operator-level pairings, and computes
-   a **multiplicity** for each topology.  That avoids the combinatorial
-   explosion from component-index routing at higher orders.  When
+   points) rather than individual operator-level pairings.  That avoids
+   the combinatorial explosion from component-index routing at higher
+   orders.  The component routings of a topology are then enumerated,
+   and their number is its count of operator-level pairings.  When
    ``collect_topology=False``, the operator-level engine
    :func:`~sft_wick.wick.wick_contract` is used instead, enumerating
-   all non-vanishing pairings explicitly.
+   all non-vanishing pairings explicitly.  That path builds the
+   expression and no diagrams above order 0, so
+   :meth:`~sft_wick.workflow.system.System.expand` and the YAML field
+   ``expand.collect_topology`` refuse it there.
 
-4. **Expression assembly:** each non-zero contraction (or spatial
-   topology with its multiplicity) is multiplied by the coupling
+4. **Expression assembly:** each non-zero contraction (or the routings
+   of a spatial topology) is multiplied by the coupling
    symbols, wrapped in spatial integrals and component summations, and
    scaled by the prefactor
    :math:`(-1)^n / n! \times \text{multinomial coeff}`.
@@ -127,8 +131,8 @@ factorial series.
 Itô Prescription and Causality
 -------------------------------
 
-When ``ito=True`` (the default), two rules eliminate vanishing
-contributions at contraction time:
+The engine is Itô.  Two rules eliminate vanishing contributions at
+contraction time:
 
 **Equal-point R vanishes:**
 :math:`R(x,x) = 0`, the Itô discretisation convention
@@ -142,55 +146,29 @@ since the retarded propagator :math:`R \propto \Theta(t - t')` would
 require a cyclic time ordering :math:`t_a > t_b > \cdots > t_a`, which
 is impossible.
 
-Pass ``ito=False`` to keep all R terms symbolic.  The numerical layer
-applies :math:`\Theta(0)=0` at every R evaluation, so it computes the
-Itô SDE.  Whether that is also the value ``ito=False`` asks for depends
-on where the equal-point R sits, and the numerical layer applies this
-rule:
+Both rules are one function, :func:`~sft_wick.wick.r_vanishes`, which
+both Wick engines call: an equal-point R is the shortest closed loop.  The
+numerical layer applies :math:`\Theta(0)=0` at every R evaluation, so it
+computes the Itô SDE.
 
-.. list-table::
-   :header-rows: 1
-   :widths: 34 66
+For additive noise the Itô and Stratonovich moments coincide.  The
+equal-point term of a drift vertex is :math:`\Theta(0)\,\partial_a f_a`,
+which the Jacobian of the Stratonovich path integral
+:math:`-\tfrac12\int\mathrm{d}s\,\partial f/\partial\varphi` cancels, and
+sft-wick emits neither.
 
-   * - Equal-point ``R(y, y)``
-     - What happens
-   * - on a local vertex with **one** ψ leg (a drift term
-       :math:`\psi_a f_a(\varphi)`)
-     - Evaluated (it gives 0).  The term is
-       :math:`\Theta(0)\,\partial_a f_a`, which the Jacobian of the
-       Stratonovich path integral
-       :math:`-\tfrac12\int\mathrm{d}s\,\partial f/\partial\varphi`
-       cancels; sft-wick emits neither, so the number equals the
-       ``ito=True`` one.
-   * - on a local vertex with **two or more** ψ legs (a
-       :math:`\varphi`-dependent noise covariance: multiplicative noise)
-     - ``ValueError``.  The term is the drift
-       :math:`\Theta(0)\,\partial_b D_{ab}(\varphi)`, which no Jacobian
-       cancels; the Itô and Stratonovich moments differ, and the
-       Stratonovich value needs the amplitude :math:`g` of
-       :math:`D = g g^{\mathsf T}`, which the diagram does not carry.
-   * - between two **external** operators at one label
-     - ``ValueError``.  It is the equal-time response
-       :math:`\Theta(0)` itself: 0 under Itô, 1/2 under Stratonovich.
-
-The refusals come from
-:meth:`~sft_wick.perturbation.DiagramTerm.build_integrand` and
-:func:`~sft_wick.evaluate.integrate_diagrams`, so every integrator
-raises the same message rather than returning the Itô value under
-another name.
-
-A Stratonovich SDE is therefore computed in its Itô form, with the
-noise-induced drift
-:math:`\tfrac12\sum_{jk} g_{jk}\,\partial_j g_{ik}` written into the
-drift, and expanded with ``ito=True``.  At L1
-:class:`~sft_wick.workflow.MultiplicativeImpulse` with
-``interpretation='stratonovich'`` does that conversion; see
-:doc:`workflow`.
+With multiplicative noise they differ.  The equal-point term of a vertex with
+two or more ψ legs is the drift :math:`\Theta(0)\,\partial_b D_{ab}(\varphi)`,
+and the Stratonovich value needs the amplitude :math:`g` of
+:math:`D = g g^{\mathsf T}`, which a diagram does not carry.  A Stratonovich
+SDE is therefore computed in its Itô form, with the noise-induced drift
+:math:`\tfrac12\sum_{jk} g_{jk}\,\partial_j g_{ik}` written into the drift.
+At L1 :class:`~sft_wick.workflow.specs.MultiplicativeImpulse` with
+``interpretation='stratonovich'`` does that conversion; see :doc:`workflow`.
 
 Do **not** set :math:`\Theta(0)=1/2` without the Jacobian: for the
 linear vertex that adds a spurious :math:`-k\,C(T,T)\,T/2`, 200 % /
-400 % / 800 % of the exact answer at :math:`T = 4/8/16`
-(``test_F15_ito_false_changes_the_expression_not_the_number``).
+400 % / 800 % of the exact answer at :math:`T = 4/8/16`.
 
 
 Response Phase Convention
@@ -206,7 +184,9 @@ response propagators in that term.  This implements the MSR convention:
 
 The phase is applied **after** simplification so that like-term
 collection is unaffected.  Pass ``response_phase=False`` to get raw
-*R* propagators.
+*R* propagators.  The flag changes the symbolic output only: ``order(n)``,
+``to_latex`` and the rendered terms.  ``DiagramTerm.evaluate_coupling`` and
+the integrators always use the physical phase, so numbers do not depend on it.
 
 The phase can also be applied manually to any expression:
 
@@ -220,9 +200,9 @@ Diagram-Based Term Collection
 -------------------------------
 
 When ``collect_topology=True`` (the default), the spatial-level
-contraction engine first enumerates spatial topologies with
-multiplicities, which reduces the number of terms.  These terms are
-then grouped by Feynman diagram isomorphism: two diagrams
+contraction engine first enumerates spatial topologies, which reduces
+the number of terms.  These terms are then grouped by Feynman diagram
+isomorphism: two diagrams
 are considered isomorphic when there exists a relabeling of dummy
 integration variables (and, for C propagators, a spatial-argument
 swap exploiting :math:`C(x,y) = C(y,x)`) that maps one propagator
@@ -255,8 +235,11 @@ At second order and above, spatial-variable relabeling (e.g. swapping
 merges additional equivalent pairings, further reducing the number of
 terms.
 
-Pass ``collect_topology=False`` to keep all pairings expanded
-individually.  The function can also be called directly:
+Pass ``collect_topology=False`` to :func:`~sft_wick.perturbation.compute_moment`
+to contract at the operator level, which builds no ``DiagramTerm``.  The result
+still goes through :func:`~sft_wick.simplify.collect_by_diagram`, and
+:func:`~sft_wick.wick.wick_contract` gives the raw sum over pairings.
+:func:`~sft_wick.simplify.collect_by_diagram` can also be called directly:
 
 .. code-block:: python
 

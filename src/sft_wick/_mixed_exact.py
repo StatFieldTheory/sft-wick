@@ -74,7 +74,7 @@ import warnings
 
 import numpy as np
 
-from ._mixed_contraction import PairCache, Word, ring_pairs, word_classes
+from ._mixed_contraction import PairCache, Word, mixed_weights, ring_pairs, word_classes
 
 # Refusal limits, checked before any product is formed. Work counts BLAS
 # multiply-adds plus _LOOP_WEIGHT per multiply-add in NumPy's own loops,
@@ -664,10 +664,8 @@ def evaluate_query(
     contraction = _Contraction(limbs, vectors, width, symmetric)
     ring = contraction.rings(query.rings)
     chain = contraction.chains(query.chains)
-    order = query.order
-    return (
-        Fraction(2 ** (order - 1), order) * ring + Fraction(2) ** (order - 3) * chain
-    ) / divisor
+    ring_weight, chain_weight = mixed_weights(query.order)
+    return (ring_weight * ring + chain_weight * chain) / divisor
 
 
 def exact_mixed_statistic(

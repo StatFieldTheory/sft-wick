@@ -27,11 +27,14 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from sft_wick.action import Action
 from sft_wick.evaluate import SpatialStructure, analyze_spatial
 from sft_wick.expressions import Symbol
 from sft_wick.fields import Field, reset_uid_counter
 from sft_wick.indices import IndexContext
-from sft_wick.perturbation import DiagramTerm, Propagator, Rational
+from sft_wick.perturbation import (
+    DiagramTerm, Propagator, Rational, compute_moment,
+)
 from sft_wick.vertices import Vertex, VertexInstance
 from sft_wick.workflow.specs import NonLocalVertex
 
@@ -340,8 +343,8 @@ def test_equal_time_jacobian_ratio_qmc_vectorized():
     """Same Jacobian-ratio check as above, but exercising the
     ``integrate_moment_qmc_vectorized`` path — the production default
     integrator (``SweepConfig.method='qmc_vectorized'``). The GL test
-    above does NOT cover this code path; the ``_times`` resolver in
-    the QMC kernel has its own alias-redirect block."""
+    above reaches the shared ``_batch_time_reader`` through another
+    integrator."""
     span = 2.0
     dt_full = _make_diagram_with_equal_time_aliases(())
     dt_equal_time = _make_diagram_with_equal_time_aliases(
@@ -371,7 +374,7 @@ def test_equal_time_jacobian_ratio_qmc_vectorized():
 
 
 def test_equal_time_qmc_vectorized_alias_redirect_in_times():
-    """Check the ``_times`` resolver inside the QMC-vectorized kernel
+    """Check that ``_batch_time_reader`` inside the QMC-vectorized kernel
     actually redirects aliased leg labels to their canonical rep —
     not just produces the right total. Uses a tracking cache that
     records every ``R_time_batch`` (left, right) pair; for the
@@ -488,7 +491,6 @@ def test_equal_time_collapses_time_integrations_in_diagram_term():
         observable=["phi(x)", "phi(y)", "phi(z)"],
         orders=[1],
         response_phase=True,
-        ito=True,
         collect_topology=True,
         iso_R=True,
         diag_R=True,
@@ -650,7 +652,7 @@ def test_two_equal_time_copies_agree_between_the_l0_engines(_two_copies):
             dts = engine(obs, system.build_action(), order=2,
                          **flags).diagram_terms(2)
         else:
-            dts = engine(obs, system.build_action(), 2, cv, **flags)[2]
+            dts = engine(obs, system.build_action(), 2, **flags)[2]
         total, _ = integrate_diagrams(
             dts, cv, lambda_f=2.3, cache=props.cache, t_min=_TC_T_MIN,
             method="gauss_legendre", n_gauss=12,
@@ -686,3 +688,25 @@ def test_canonical_form_keeps_equal_time_groups():
     assert form(first) == form(other)
     assert form(first, groups) != form(other, groups)
     assert form(first, groups) == form(same, groups)
+
+
+def test_equal_time_vertex_closing_a_time_loop_is_refused():
+    """R(y_1, y_0) R(y_0, y_2) is open as labels, and closes once y_2 shares
+    the time of y_1.  Only an L0 vertex with a phi leg reaches this: L1 legs
+    are all psi."""
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    action = Action([
+        Vertex(fields=[phi, phi, psi], coupling="F"),
+        Vertex(fields=[phi, psi], coupling="K", local=False, equal_time=True),
+    ])
+    terms = compute_moment([phi("x")], action, 2,
+                           iso_R=True, iso_C=True).diagram_terms(2)
+    refused = []
+    for term in terms:
+        try:
+            term.analyze_spatial()
+        except ValueError as exc:
+            refused.append(str(exc))
+    assert len(terms) == 4 and len(refused) == 1
+    assert "time loop through y_0, y_1" in refused[0]

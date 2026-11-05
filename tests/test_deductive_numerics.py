@@ -501,11 +501,6 @@ class TestSplineTable:
             )
 
 
-# --------------------------------------------------------------------- #
-# N8 — Itô on/off: equal-point R contribution
-# --------------------------------------------------------------------- #
-
-
 class TestNonDiagonalKappa2:
     """N9 (new): a genuinely off-diagonal κ²_{ab} produces an
     off-diagonal C propagator, reflecting component-mixing correctly.
@@ -771,7 +766,7 @@ class TestFeynmanDiagramQMC:
         action = Action(vertices=[Vertex([psi, phi, phi], coupling="F")])
         obs = [phi("a", "x"), phi("b", "y")]
         result = compute_moment(
-            obs, action, order=2, response_phase=True, ito=True,
+            obs, action, order=2, response_phase=True,
             diag_R=True, diag_C=True, iso_R=True, iso_C=True,
         )
 
@@ -940,7 +935,7 @@ class TestAlternativePathConsistency:
 
         # Baseline compute_moment (hybrid engine)
         result = compute_moment(
-            obs, action, order=2, response_phase=True, ito=True,
+            obs, action, order=2, response_phase=True,
             diag_R=True, diag_C=True, iso_R=True, iso_C=True,
         )
         dts_cm = result.diagram_terms(2)
@@ -979,8 +974,6 @@ class TestAlternativePathConsistency:
         reset_uid_counter()
         dts_num = compute_moment_numerical(
             _shared["obs"], _shared["action"], order=2,
-            coupling_values={"F": _shared["F_MSR"]},
-            fixed_indices=_shared["fixed"],
             diag_R=True, diag_C=True, iso_R=True, iso_C=True,
             n_jobs=1,
         )[2]
@@ -1024,16 +1017,12 @@ class TestAlternativePathConsistency:
         reset_uid_counter()
         dts_s = compute_moment_numerical(
             _shared["obs"], _shared["action"], order=2,
-            coupling_values={"F": _shared["F_MSR"]},
-            fixed_indices=_shared["fixed"],
             diag_R=True, diag_C=True, iso_R=True, iso_C=True,
             n_jobs=1,
         )[2]
         reset_uid_counter()
         dts_p = compute_moment_numerical(
             _shared["obs"], _shared["action"], order=2,
-            coupling_values={"F": _shared["F_MSR"]},
-            fixed_indices=_shared["fixed"],
             diag_R=True, diag_C=True, iso_R=True, iso_C=True,
             n_jobs=-1,
         )[2]
@@ -1234,60 +1223,27 @@ class TestAlternativePathConsistency:
             )
 
 
-class TestItoDifference:
-    """N8: comparing compute_moment with ``ito=True`` vs ``ito=False``
-    on a trivial observable where the only surviving pairing is an
-    equal-point R.
+class TestItoRule:
+    """N8: the Itô rule end-to-end in ``compute_moment`` on the observable
+    ``[phi(x), psi(y)]`` at order 0, whose one pairing is the R of the two
+    points."""
 
-    The simplest such setup: observable ``[phi(x), psi(x)]`` at order 0
-    — with ``ito=True`` the result is zero (R(x,x)=0); with
-    ``ito=False`` it is the bare R(x,x) propagator.  This exercises the
-    ``ito`` flag end-to-end in ``compute_moment``.
-    """
-
-    def test_zero_order_equal_point_phi_psi_with_ito(self):
+    def test_zero_order_equal_point_phi_psi_vanishes(self):
         phi = Field("phi", "physical")
         psi = Field("psi", "response")
-        obs = [phi("x"), psi("x")]
-        action = Action(vertices=[])
-
         reset_uid_counter()
-        with_ito = compute_moment(obs, action, order=0, ito=True)
-        reset_uid_counter()
-        without_ito = compute_moment(obs, action, order=0, ito=False)
+        result = compute_moment([phi("x"), psi("x")], Action(vertices=[]), order=0)
+        assert result.diagram_terms(0) == []
 
-        # With Itô: zero (no surviving DiagramTerm)
-        assert with_ito.diagram_terms(0) == []
-
-        # Without Itô: one surviving DiagramTerm with one R propagator
-        dts = without_ito.diagram_terms(0)
-        assert len(dts) == 1, f"expected 1 DiagramTerm, got {len(dts)}"
-        dt = dts[0]
-        assert len(dt.propagators) == 1
-        p = dt.propagators[0]
-        assert p.kind == "R"
-        assert p.spatial_left == p.spatial_right == "x"
-
-    def test_different_point_phi_psi_ito_agnostic(self):
-        """Itô only kills equal-point R; R(x, y) survives regardless."""
+    def test_zero_order_different_point_phi_psi_survives(self):
         phi = Field("phi", "physical")
         psi = Field("psi", "response")
-        obs = [phi("x"), psi("y")]
-        action = Action(vertices=[])
-
         reset_uid_counter()
-        with_ito = compute_moment(obs, action, order=0, ito=True)
-        reset_uid_counter()
-        without_ito = compute_moment(obs, action, order=0, ito=False)
-
-        assert len(with_ito.diagram_terms(0)) == 1
-        assert len(without_ito.diagram_terms(0)) == 1
-
-        for result in (with_ito, without_ito):
-            dt = result.diagram_terms(0)[0]
-            assert dt.propagators[0].kind == "R"
-            assert dt.propagators[0].spatial_left == "x"
-            assert dt.propagators[0].spatial_right == "y"
+        result = compute_moment([phi("x"), psi("y")], Action(vertices=[]), order=0)
+        dt, = result.diagram_terms(0)
+        assert dt.propagators[0].kind == "R"
+        assert dt.propagators[0].spatial_left == "x"
+        assert dt.propagators[0].spatial_right == "y"
 
 
 # --------------------------------------------------------------------- #
@@ -1553,7 +1509,7 @@ class TestSpatialAwareCache:
         action = Action(vertices=[Vertex([psi, phi, phi], coupling="F")])
         obs = [phi("x"), phi("y")]
         result = compute_moment(
-            obs, action, order=2, response_phase=True, ito=True,
+            obs, action, order=2, response_phase=True,
             diag_R=True, diag_C=True, iso_R=True, iso_C=True,
         )
         return result.diagram_terms(2), F_MSR
@@ -2235,7 +2191,7 @@ class TestWhiteNoiseComponent:
         action = Action(vertices=[Vertex([psi, phi, phi], coupling="F")])
         obs = [phi("x"), phi("y")]
         result = compute_moment(
-            obs, action, order=2, response_phase=True, ito=True,
+            obs, action, order=2, response_phase=True,
             diag_R=True, diag_C=True, iso_R=True, iso_C=True,
         )
         dts = result.diagram_terms(2)

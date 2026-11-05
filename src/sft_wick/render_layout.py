@@ -30,6 +30,9 @@ import numpy as np
 from .diagrams import FeynmanDiagram
 from .render_style import LayoutParams
 
+#: Angle in radians between neighbouring self-loops of one node.
+SELF_LOOP_SPREAD: float = np.pi / 3
+
 
 def compute_layout(
     diagram: FeynmanDiagram,
@@ -297,6 +300,67 @@ def neighbor_center(
     if not neighbors:
         return pos[node] + np.array([0.0, -1.0])
     return np.mean(np.array([pos[n] for n in neighbors]), axis=0)
+
+
+def edge_slots(g: nx.MultiGraph) -> dict[tuple[str, str, int], tuple[int, int]]:
+    """Return ``{(u, v, key): (index, total)}`` for every edge of ``g``.
+
+    ``total`` counts the edges joining the same two nodes, in either
+    storage order, and ``index`` numbers them in iteration order.  The
+    self-loops of a node form one group.
+    """
+    groups: dict[tuple[str, str], list[tuple[str, str, int]]] = {}
+    for u, v, key in g.edges(keys=True):
+        groups.setdefault((min(u, v), max(u, v)), []).append((u, v, key))
+    return {
+        edge: (index, len(group))
+        for group in groups.values()
+        for index, edge in enumerate(group)
+    }
+
+
+def bundle_rad(index: int, total: int, curvature: float) -> float:
+    """Bow of edge ``index`` of a bundle of ``total`` parallel edges.
+
+    This is the ``rad`` of a matplotlib ``arc3`` connection: the control
+    point sits ``rad`` chords from the midpoint, to the right of the
+    direction of travel when ``rad`` is positive.
+    """
+    return (index - (total - 1) / 2.0) * curvature
+
+
+def self_loop_direction(
+    center: np.ndarray,
+    away_from: np.ndarray | None,
+    index: int = 0,
+    total: int = 1,
+) -> np.ndarray:
+    """Unit vector from a node to the centre of its self-loop ``index``.
+
+    The ``total`` loops of a node fan out around the direction away from
+    ``away_from``, which falls back to straight up when that direction is
+    undefined.
+    """
+    base = np.array([0.0, 1.0])
+    if away_from is not None:
+        offset = center - away_from
+        norm = np.linalg.norm(offset)
+        if norm > 1e-8:
+            base = offset / norm
+    angle = (index - (total - 1) / 2.0) * SELF_LOOP_SPREAD
+    cos_a, sin_a = np.cos(angle), np.sin(angle)
+    return np.array([
+        base[0] * cos_a - base[1] * sin_a,
+        base[0] * sin_a + base[1] * cos_a,
+    ])
+
+
+def head_at_start(arrow: bool, phi_end: str | None, start: str) -> bool:
+    """Whether a directed edge stored from ``start`` carries its arrowhead
+    at ``start``: the arrow of R points from psi to phi, so the head lands
+    on ``phi_end``.  An edge with no ``phi_end`` keeps the head at its end.
+    """
+    return arrow and phi_end == start
 
 
 def label_offset(

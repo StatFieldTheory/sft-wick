@@ -51,7 +51,8 @@ Limitations (v1)
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+import math
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -62,7 +63,14 @@ from .render_labels import (
     default_vertex_label,
     resolve_label,
 )
-from .render_layout import compute_layout, neighbor_center
+from .render_layout import (
+    bundle_rad,
+    compute_layout,
+    edge_slots,
+    head_at_start,
+    neighbor_center,
+    self_loop_direction,
+)
 from .render_style import (
     NodeStyle,
     PropagatorStyle,
@@ -365,9 +373,10 @@ class TikzRenderer:
 
         # Edges
         lines.append("  % propagators")
-        for u, v, _key, data in g.edges(keys=True, data=True):
+        slots = edge_slots(g)
+        for u, v, key, data in g.edges(keys=True, data=True):
             kind = data.get("kind", "C")
-            line = self._edge_line(u, v, kind, data, g, pos)
+            line = self._edge_line(u, v, kind, data, g, pos, slots[u, v, key])
             lines.append(line)
 
         lines.append("\\end{tikzpicture}")
@@ -387,31 +396,43 @@ class TikzRenderer:
         data: Mapping[str, Any],
         g: Any,
         pos: Any,
+        slot: tuple[int, int] = (0, 1),
     ) -> str:
         prop = self.style.propagators.get(kind)
         u_id = _safe_node_id(u)
         v_id = _safe_node_id(v)
+        index, total = slot
 
         if u == v:
             # Self-loop direction informed by neighbour centroid.
-            ncenter = neighbor_center(g, u, pos)
-            direction = pos[u] - ncenter
+            direction = self_loop_direction(
+                pos[u], neighbor_center(g, u, pos), index, total,
+            )
             angle = _atan2_deg(direction)
-            anchor = _angle_to_loop_anchor(angle)
+            if total == 1:
+                placement = f"loop {_angle_to_loop_anchor(angle)}"
+            else:
+                placement = f"loop, out={angle + 15:.2f}, in={angle - 15:.2f}"
             return (
                 f"  \\draw[{kind}] ({u_id}) "
-                f"edge[loop {anchor}, looseness=10] ({u_id});"
+                f"edge[{placement}, looseness=10] ({u_id});"
             )
 
-        # Reverse for arrow direction (R: arrow points psi → phi).
-        if prop is not None and prop.arrow:
-            phi_end = data.get("phi_end")
-            if phi_end is not None and phi_end == u:
-                # arrow goes psi (=v) -> phi (=u)
-                return f"  \\draw[{kind}] ({v_id}) -- ({u_id});"
-            return f"  \\draw[{kind}] ({u_id}) -- ({v_id});"
+        start, end = u_id, v_id
+        rad = bundle_rad(index, total, self.style.layout.parallel_edge_curvature)
+        arrow = prop is not None and prop.arrow
+        if head_at_start(arrow, data.get("phi_end"), u):
+            # The tip sits at the end of the path, and reversing the path
+            # mirrors which side counts as its right.
+            start, end, rad = v_id, u_id, -rad
 
-        return f"  \\draw[{kind}] ({u_id}) -- ({v_id});"
+        if rad == 0:
+            return f"  \\draw[{kind}] ({start}) -- ({end});"
+        side = "right" if rad > 0 else "left"
+        # A bend of this angle leaves the node along the tangent of the
+        # matplotlib arc3 curve with the same rad.
+        bend = math.degrees(math.atan(2 * abs(rad)))
+        return f"  \\draw[{kind}] ({start}) to[bend {side}={bend:.2f}] ({end});"
 
     def _empty_picture(self) -> str:
         return (

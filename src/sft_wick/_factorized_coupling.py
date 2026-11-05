@@ -59,7 +59,7 @@ from ._factorized_lowering import (
     lower_coupling,
     prefactor,
 )
-from .expressions import _NATIVE_NUMERIC_EXPRESSION_CLASSES
+from .expressions import _NATIVE_NUMERIC_EXPRESSION_CLASSES, i_power
 
 # Definition-time class binding, as the ordered numerical evaluators use.
 Propagator = _NATIVE_NUMERIC_EXPRESSION_CLASSES[-1]
@@ -673,7 +673,7 @@ def _monomials(groups, components, scalar, e_psi):
     """
     monomials = []
     for factors in groups:
-        phase_value = complex(scalar) * (1j**e_psi)
+        phase_value = complex(scalar) * i_power(e_psi)
         operands = []
         magnitudes = [abs(scalar)]
         for factor in factors:

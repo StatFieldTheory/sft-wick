@@ -1,9 +1,16 @@
 """Tests for perturbative expansion."""
 
 from sft_wick import (
-    Field, Vertex, Action, compute_moment, Rational, reset_uid_counter
+    Field, Vertex, Action, compute_moment, compute_moment_numerical, Rational,
+    reset_uid_counter, wick_contract,
 )
-from sft_wick.expressions import ZERO
+from sft_wick.propagators import contract_pair
+from sft_wick.expressions import (
+    ZERO, ImaginaryUnit, IntegralOver, Product, Propagator, Sum, SumOverIndex,
+    Symbol,
+)
+import math
+import numpy as np
 import pytest
 
 
@@ -25,26 +32,6 @@ def test_zeroth_order_two_phi():
 
     zeroth = result.order(0)
     assert zeroth.to_latex() == "C_{ab}(x, y)"
-
-
-def test_zeroth_order_scalar_psi_phi_phi_phi():
-    """<psi(x) phi(x) phi(x) phi(x)>_S at order 0 = 3 R(x,x) C(x,x) without Itô."""
-    phi = Field("phi", "physical")
-    psi = Field("psi", "response")
-
-    v = Vertex(fields=[phi, phi, psi], coupling="F")
-    action = Action(vertices=[v])
-
-    obs = [psi("x"), phi("x"), phi("x"), phi("x")]
-    result = compute_moment(obs, action, order=0, ito=False, response_phase=False)
-
-    zeroth = result.order(0)
-    latex = zeroth.to_latex()
-    # After simplification, we should have 3 identical terms combined
-    # The exact format depends on simplification, but there should be 3 terms
-    # or a coefficient of 3
-    assert "R(x, x)" in latex
-    assert "C(x, x)" in latex
 
 
 def test_first_order_odd_total_vanishes():
@@ -137,13 +124,9 @@ def test_ito_zeroth_order_equal_point_vanishes():
 
     obs = [psi("x"), phi("x"), phi("x"), phi("x")]
 
-    # Without Itô: 3 R(x,x) C(x,x)
-    result_no_ito = compute_moment(obs, action, order=0, ito=False, response_phase=False)
-    assert "R(x, x)" in result_no_ito.order(0).to_latex()
-
-    # With Itô (default): all pairings produce R(x,x) which vanishes
-    result_ito = compute_moment(obs, action, order=0)
-    assert isinstance(result_ito.order(0), Rational) and result_ito.order(0).is_zero
+    # All pairings produce R(x,x), which vanishes
+    result = compute_moment(obs, action, order=0)
+    assert isinstance(result.order(0), Rational) and result.order(0).is_zero
 
 
 def test_ito_first_order_eliminates_intravertex_R():
@@ -162,21 +145,14 @@ def test_ito_first_order_eliminates_intravertex_R():
 
     obs = [phi("x"), phi("y")]
 
-    result_no_ito = compute_moment(obs, action, order=1, ito=False, response_phase=False)
-    result_ito = compute_moment(obs, action, order=1, response_phase=False)
+    result = compute_moment(obs, action, order=1, response_phase=False)
 
-    n_no_ito = len(result_no_ito.diagrams_by_order.get(1, []))
-    n_ito = len(result_ito.diagrams_by_order.get(1, []))
-
-    # Itô should eliminate the R(z,z) diagram(s)
-    assert n_ito < n_no_ito
+    # R(x,z) C(y,z) and R(y,z) C(x,z) survive; R(z,z) C(x,y) does not.
+    assert len(result.diagrams_by_order[1]) == 2
 
 
-def test_ito_zeroth_order_different_points_unaffected():
-    """<phi(x) phi(y)>_S at order 0 = C(x,y) — unaffected by Itô.
-
-    No R propagators at all, so ito flag has no effect.
-    """
+def test_zeroth_order_at_different_points_is_one_C():
+    """<phi(x) phi(y)>_S at order 0 = C(x,y), with no R propagator."""
     phi = Field("phi", "physical", n_components=3)
     psi = Field("psi", "response", n_components=3)
     v = Vertex(fields=[phi, phi, psi], coupling="F")
@@ -184,8 +160,48 @@ def test_ito_zeroth_order_different_points_unaffected():
 
     obs = [phi("a", "x"), phi("b", "y")]
 
-    result_ito = compute_moment(obs, action, order=0, ito=True)
-    assert result_ito.order(0).to_latex() == "C_{ab}(x, y)"
+    result = compute_moment(obs, action, order=0)
+    assert result.order(0).to_latex() == "C_{ab}(x, y)"
+
+
+def test_flags_are_keyword_only():
+    """The fourth argument was ``ito``; a boolean there must not be read as
+    ``response_phase``."""
+    phi = Field("phi", "physical")
+    with pytest.raises(TypeError):
+        compute_moment([phi("x"), phi("y")], Action(vertices=[]), 0, True)
+
+
+@pytest.mark.parametrize("call", [
+    lambda obs, a: compute_moment(obs, a, 0, ito=True),
+    lambda obs, a: compute_moment(obs, a, 0, ito=False),
+    lambda obs, a: compute_moment_numerical(obs, a, 0, ito=False),
+    # The sixth positional was ``ito``, and would now be read as a flag.
+    lambda obs, a: compute_moment_numerical(obs, a, 0, {}, None, True),
+    lambda obs, a: wick_contract(obs, ito=False),
+    # ``keep`` took the second slot, where a positional ``ito`` was.
+    lambda obs, a: wick_contract(
+        [obs[0], Field("psi", "response")("x")], False),
+    lambda obs, a: contract_pair(obs[0], obs[1], ito=False),
+])
+def test_the_ito_switch_is_gone(call):
+    """A silently ignored ``ito=False`` would look like a Stratonovich run."""
+    phi = Field("phi", "physical")
+    with pytest.raises(TypeError):
+        call([phi("x"), phi("y")], Action(vertices=[]))
+
+
+def test_iso_flags_strip_a_term_with_nothing_to_merge():
+    """The term kept ``R_{aa}`` where the expression of the same contraction
+    had an index-free R, and skipped the refusal of an R that is no multiple
+    of the identity."""
+    phi = Field("phi", "physical", n_components=2)
+    psi = Field("psi", "response", n_components=2)
+    result = compute_moment(
+        [phi("a", "x"), psi("a", "y")], Action(vertices=[]), 0, iso_R=True)
+    term = result.diagram_terms(0)[0]
+    assert (term.propagators[0].index_left, term.propagators[0].index_right) == (
+        None, None)
 
 
 # --- Response phase tests ---
@@ -211,12 +227,12 @@ def test_response_phase_with_r():
     obs = [phi("x"), psi("y")]
 
     # With response_phase (default)
-    result = compute_moment(obs, action, order=0, ito=False)
+    result = compute_moment(obs, action, order=0)
     latex = result.order(0).to_latex()
     assert r"\mathrm{i}" in latex
 
     # Without response_phase
-    result_raw = compute_moment(obs, action, order=0, ito=False, response_phase=False)
+    result_raw = compute_moment(obs, action, order=0, response_phase=False)
     latex_raw = result_raw.order(0).to_latex()
     assert r"\mathrm{i}" not in latex_raw
     assert "R(x, y)" in latex_raw
@@ -464,21 +480,105 @@ def test_diagram_term_order2_has_coupling_sums():
     assert has_sum, "Expected at least one diagram with a coupling permutation sum"
 
 
-def test_diagram_term_empty_for_operator_level():
-    """collect_topology=False does not populate diagram_terms."""
+def test_diagram_terms_refuses_an_order_the_operator_level_built_none_for():
+    """collect_topology=False builds no diagrams above order 0, and an empty
+    list would integrate to 0 where the expression is not."""
     phi = Field("phi", "physical")
     psi = Field("psi", "response")
     v = Vertex(fields=[phi, psi], coupling="g")
-    action = Action(vertices=[v])
+    cubic = Vertex(fields=[phi, phi, psi], coupling="F")
 
     obs = [phi("x"), phi("y")]
-    result = compute_moment(obs, action, order=1,
+    result = compute_moment(obs, Action(vertices=[v]), order=1,
                             response_phase=False, collect_topology=False)
 
     # Order 0 still has diagram terms (uses wick_contract directly)
     assert len(result.diagram_terms(0)) == 1
-    # Order 1 with collect_topology=False does NOT populate diagram_terms
-    assert len(result.diagram_terms(1)) == 0
+    with pytest.raises(ValueError, match="no numerical evaluation"):
+        result.diagram_terms(1)
+    assert 1 not in result.diagram_terms_by_order
+
+    # An order that is 0 has no diagrams to miss.
+    zero = compute_moment(obs, Action(vertices=[cubic]), order=1,
+                          response_phase=False, collect_topology=False)
+    assert zero.diagram_terms(1) == []
+    assert result.diagram_terms(7) == []
+
+
+def _on_points(expr, C, R, couplings, points):
+    """Value of a one-component expression on a finite set of points: each
+    integral is a sum over the rows of the tables."""
+    if isinstance(expr, Rational):
+        return expr.numerator / expr.denominator
+    if isinstance(expr, ImaginaryUnit):
+        return 1j
+    if isinstance(expr, Symbol):
+        return couplings[expr.name]
+    if isinstance(expr, Propagator):
+        table = C if expr.kind == "C" else R
+        return table[points[expr.spatial_left], points[expr.spatial_right]]
+    if isinstance(expr, Sum):
+        return sum(_on_points(t, C, R, couplings, points) for t in expr.terms)
+    if isinstance(expr, Product):
+        return math.prod(
+            _on_points(f, C, R, couplings, points) for f in expr.factors
+        )
+    if isinstance(expr, SumOverIndex):
+        return expr.dimension * _on_points(expr.body, C, R, couplings, points)
+    if isinstance(expr, IntegralOver):
+        return sum(
+            _on_points(expr.body, C, R, couplings, {**points, expr.variable: z})
+            for z in range(len(C))
+        )
+    raise TypeError(type(expr))
+
+
+def _linear_series(C, G, g, order, x, w):
+    """Truncated Dyson series of <phi(x) phi(w)> under S_int = g sum phi psi,
+    with G = <phi psi>: order n is (-g)^n sum_{a+b=n} G^a C (G^T)^b."""
+    powers = [np.linalg.matrix_power(G, k) for k in range(order + 1)]
+    return sum(
+        (-g) ** (a + b) * (powers[a] @ C @ powers[b].T)[x, w]
+        for a in range(order + 1)
+        for b in range(order + 1 - a)
+    )
+
+
+@pytest.mark.parametrize("response_phase", [True, False])
+@pytest.mark.parametrize("g", [1e-8, 0.7, 1e8])
+@pytest.mark.parametrize("order", [1, 2, 3, 4])
+def test_total_is_the_series_with_each_phase_applied_once(order, g, response_phase):
+    """Orders up to 4 hold terms with 1 to 4 R, so a phase applied twice shows
+    in three of the four residues of n_R mod 4.  The tables have no symmetry
+    and the reference is matrix algebra, with no contraction in it."""
+    rng = np.random.default_rng(23)
+    C = rng.normal(size=(4, 4))
+    C = C + C.T
+    R = rng.normal(size=(4, 4))
+    phi, psi = Field("phi", "physical"), Field("psi", "response")
+    action = Action(vertices=[Vertex(fields=[phi, psi], coupling="g")])
+
+    result = compute_moment(
+        [phi("x"), phi("w")], action, order=order, response_phase=response_phase
+    )
+
+    points = {"x": 0, "w": 2}
+    G = -1j * R if response_phase else R
+    expected = _linear_series(C, G, g, order, 0, 2)
+    assert _on_points(result.total, C, R, {"g": g}, points) == pytest.approx(
+        expected, rel=1e-12, abs=0.0
+    )
+
+
+def test_total_of_a_single_nonzero_order_keeps_its_phase():
+    """One nonzero order takes the branch that never reapplied the phase."""
+    R = np.array([[0.0, 3.0], [5.0, 0.0]])
+    phi, psi = Field("phi", "physical"), Field("psi", "response")
+
+    result = compute_moment([phi("x"), psi("w")], Action(vertices=[]), 0)
+
+    value = _on_points(result.total, 0 * R, R, {}, {"x": 0, "w": 1})
+    assert value == pytest.approx(-3j, rel=1e-15, abs=0.0)
 
 
 # =====================================================================
@@ -538,3 +638,147 @@ def test_apply_diagonal_keeps_delta_for_external_indices():
         f"C[a, a] is being dropped during diagonal simplification."
     )
     assert val_10 == 0.0
+
+
+# ---------------------------------------------------------------------------
+# One rule per vertex copy, in both engines
+# ---------------------------------------------------------------------------
+
+
+def _unit_weight(expr) -> float:
+    """``expr`` with every coupling set to 1."""
+    if isinstance(expr, Sum):
+        return sum(_unit_weight(t) for t in expr.terms)
+    if isinstance(expr, Product):
+        return math.prod(_unit_weight(f) for f in expr.factors)
+    if isinstance(expr, Rational):
+        return expr.numerator / expr.denominator
+    return 1.0
+
+
+def _weight_by_flagged_legs(terms) -> dict:
+    """Unit-coupling weight of the terms, by the legs that carry an alias."""
+    weights = {}
+    for dt in terms:
+        aliased = len(dt.equal_time_aliases)
+        prefactor = dt.rational_prefactor
+        weights[aliased] = weights.get(aliased, 0.0) + _unit_weight(
+            dt.coupling_sum
+        ) * prefactor.numerator / prefactor.denominator
+    return weights
+
+
+@pytest.mark.parametrize("flag, legs_per_flagged_copy", [
+    ("equal_time", 1),
+    ("already_R_contracted", 2),
+])
+def test_a_flagged_and_a_plain_vertex_may_share_a_coupling_name(
+    flag, legs_per_flagged_copy
+):
+    """Four externals on two two-leg vertices give 4! routings.  Hand count of
+    the prefactors of S_int^2 = KK + 2 KQ + QQ, each over 2!: 12 with two
+    flagged copies, 24 with one, 12 with none.  The name used to mark the
+    plain copy as flagged, which put all 36 on the two-copy measure."""
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    observable = [phi(s) for s in ("a1", "a2", "a3", "a4")]
+    action = Action([
+        Vertex([psi, psi], "K", local=False, **{flag: True}),
+        Vertex([psi, psi], "K", local=False),
+    ])
+    want = {
+        2 * legs_per_flagged_copy: 12.0,
+        legs_per_flagged_copy: 24.0,
+        0: 12.0,
+    }
+    terms = compute_moment(observable, action, 2).diagram_terms(2)
+    assert _weight_by_flagged_legs(terms) == want
+    assert _weight_by_flagged_legs(
+        compute_moment_numerical(observable, action, 2)[2]
+    ) == want
+
+
+def test_numerical_terms_evaluate_a_callable_coupling_at_its_legs():
+    r"""<phi(x) phi(y) phi(z)> at order 1 on one three-leg vertex, with
+    kappa(s) = exp(c . s), R(t, s) = exp(-g (t - s)) and three distinct
+    external times, is a sum over the 3! routings of
+    prod_k (e^(c_k T_k) - e^(-g T_k)) / (c_k + g).  The factor i/6 cancels the
+    (-1) (-i)^3 of the expansion and the 3! of the sum."""
+    from sft_wick.evaluate import (
+        PropagatorCache,
+        PropagatorModel,
+        integrate_moment,
+    )
+    from itertools import permutations
+
+    gamma, rates = 0.7, (-0.4, 0.3, -1.1)
+    times = {"x": 0.02, "y": 1.3, "z": 6.0}
+
+    def leg(rate, t):
+        return (np.exp(rate * t) - np.exp(-gamma * t)) / (rate + gamma)
+
+    want = sum(
+        math.prod(leg(c, t) for c, t in zip(rates, order))
+        for order in permutations(times.values())
+    ) / 6.0
+
+    def kappa(_points, leg_times):
+        return 1j / 6.0 * np.exp(np.dot(rates, leg_times))
+
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    action = Action([Vertex([psi, psi, psi], "K", local=False)])
+    observable = [phi(s) for s in times]
+    cache = PropagatorCache(PropagatorModel(
+        R_time=lambda t1, t2: np.exp(-gamma * (t1 - t2)),
+        kappa2=lambda n1, t1, n2, t2: 0.0,
+        n_components=1,
+    ))
+    terms = compute_moment_numerical(observable, action, 1)[1]
+    assert len(terms) == 6
+    total = sum(
+        integrate_moment(
+            term.build_integrand({"K": kappa}),
+            6.0,
+            cache,
+            method="gauss_legendre",
+            n_gauss=48,
+            external_times=times,
+        )[0]
+        for term in terms
+    )
+    assert total == pytest.approx(want, rel=1e-10, abs=0.0)
+
+
+@pytest.mark.parametrize("shown", [True, False])
+def test_response_phase_flag_changes_the_display_and_no_number(shown):
+    phi = Field("phi", "physical")
+    psi = Field("psi", "response")
+    action = Action([Vertex([phi, psi], "L")])
+    result = compute_moment(
+        [phi("x"), phi("w")], action, 1, response_phase=shown
+    )
+    ((term, *_)) = result.diagram_terms(1)
+    values = {"L": np.array(2.0)}
+    assert (r"\mathrm{i}" in result.order(1).to_latex()) is shown
+    assert (r"\mathrm{i}" in result.to_latex()) is shown
+    assert (r"\mathrm{i}" in term.to_latex()) is shown
+    assert ("j" in term.to_latex_evaluated(values)) is shown
+    assert term.evaluate_coupling(values) == 2j
+
+
+def test_an_imaginary_factor_survives_a_real_coupling_array():
+    """A hand-built ``I K`` with a real K: the batched entry returned zeros
+    with a ComplexWarning, and the scalar entry raised TypeError."""
+    from sft_wick.expressions import I, Product, Rational, Symbol
+    from sft_wick.perturbation import DiagramTerm
+
+    term = DiagramTerm(
+        propagators=(), coupling_sum=Product((I, Symbol("K"))),
+        rational_prefactor=Rational(1), integration_vars=(), summation_indices=(),
+        n_response=0,
+    )
+    assert term.evaluate_coupling({"K": 2.0}) == 2j
+    np.testing.assert_array_equal(
+        term.evaluate_coupling_batched({"K": np.array([2.0, 3.0])}, 2), [2j, 3j]
+    )

@@ -186,7 +186,7 @@ def main() -> int:
     obs = [phi("a", "x"), phi("b", "y")]
     result = compute_moment(
         obs, action, order=4,
-        ito=True, response_phase=True, collect_topology=True,
+        response_phase=True, collect_topology=True,
         diag_R=True, diag_C=True, iso_R=True,
     )
     print(f"      compute_moment(order=4): {time.perf_counter() - t0:.1f}s")

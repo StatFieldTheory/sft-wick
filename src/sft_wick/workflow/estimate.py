@@ -2,13 +2,17 @@
 
 The estimate is built from what the config implies.  The expansion is
 run (the only way to know the diagram counts), the grid is enumerated,
-and the C-propagator path is resolved exactly as
-:meth:`~sft_wick.workflow.Propagators.build` would resolve it.  Two
-micro-benchmarks of about a second in total follow: one C-propagator
-evaluation under the chosen quadrature (skipped when a closed form is in
-use) and one diagram evaluation per order at a single grid point.  The
-result is a wall-clock figure good to a factor of ~2, reported BEFORE a
-run.
+and the C-propagator path is resolved by
+:meth:`~sft_wick.workflow.Propagators.build` with the arguments the run
+passes (:mod:`.config`), on a table of few nodes.  Two micro-benchmarks of
+about a second in total follow: one C-propagator evaluation under the
+chosen quadrature (skipped when a closed form is in use) and one diagram
+evaluation per order at a single grid point, with the execution options of
+the run.  The result is a wall-clock figure good to a factor of ~2,
+reported BEFORE a run.  The exception is the search for a C rule at each
+position when the time shape of the kernel depends on position: it is left
+out of the total, measured at 160 and 600 times the printed figure, and it
+runs in the dry run too when the table is a full grid.
 """
 
 from __future__ import annotations
@@ -16,9 +20,15 @@ from __future__ import annotations
 import itertools
 import time
 from dataclasses import dataclass, field
-from typing import Any
 
 import numpy as np
+
+from sft_wick.evaluate import _lazy_key_separation
+
+from .expansion import sweep_runs_serially
+
+#: Time nodes of the table the benchmarks read.
+_BENCH_TIME_NODES = 6
 
 
 @dataclass(frozen=True)
@@ -93,10 +103,10 @@ class CostEstimate:
             f"[sft-wick]   sweep: {self.n_grid_points} x {n_diag} diagram "
             f"evaluations = {self.est_sweep_serial_s:.0f} s serial"
             + (
-                f" (~{self.est_sweep_serial_s / max(1, self._n_workers()):.0f} s "
+                ""
+                if sweep_runs_serially(self.sweep_n_jobs, self.n_grid_points)
+                else f" (~{self.est_sweep_serial_s / self._n_workers():.0f} s "
                 f"on {self._n_workers()} workers)"
-                if self.sweep_n_jobs != 1
-                else ""
             )
         )
         lines.append(
@@ -108,11 +118,9 @@ class CostEstimate:
         return "\n".join(lines)
 
     def _n_workers(self) -> int:
-        import os
+        from joblib import effective_n_jobs
 
-        if self.sweep_n_jobs == -1:
-            return os.cpu_count() or 1
-        return max(1, int(self.sweep_n_jobs))
+        return effective_n_jobs(int(self.sweep_n_jobs))
 
 
 def _fmt_duration(seconds: float) -> str:
@@ -130,7 +138,7 @@ def _distinct_separations(positions_grid: dict) -> int:
         pts = [np.atleast_1d(np.asarray(c, dtype=float)) for c in combo]
         for i in range(len(pts)):
             for j in range(i + 1, len(pts)):
-                seps.add(round(float(np.linalg.norm(pts[i] - pts[j])), 10))
+                seps.add(_lazy_key_separation(pts[i], pts[j]))
     return len(seps)
 
 
@@ -138,30 +146,38 @@ def estimate_cost(cfg, bench_seconds: float = 1.0) -> CostEstimate:
     """Estimate the cost of ``run_workflow(cfg)`` without running it."""
     from sft_wick.progress import progress as _progress_scope
 
-    from .config import _load_c_closed_form, build_system
-
     with _progress_scope(False):
-        return _estimate(cfg, bench_seconds, build_system, _load_c_closed_form)
+        return _estimate(cfg, bench_seconds)
 
 
-def _estimate(cfg, bench_seconds, build_system, load_c) -> CostEstimate:
+def _few_nodes(kwargs: dict) -> dict:
+    """The run's :meth:`System.propagators` arguments on a table of few
+    nodes, in this process and with no cache file: the range, homogeneity,
+    interpolation and C path stay, and the build takes no time."""
+    from ._run_checks import _TABLE_NODES
+
+    nodes = max(2, _TABLE_NODES.get(kwargs["interp_method"], 2))
+    few = dict(kwargs, n_jobs=1, cache_path=None)
+    few["n_grid_t"] = min(kwargs["n_grid_t"], max(nodes, _BENCH_TIME_NODES))
+    for key in ("n_grid_r", "n_grid_cos", "n_grid_x"):
+        if kwargs[key] is not None:
+            few[key] = min(kwargs[key], nodes)
+    return few
+
+
+def _estimate(cfg, bench_seconds) -> CostEstimate:
     from ._run_checks import check_after_expansion
+    from .config import (
+        _load_c_closed_form,
+        build_system,
+        evaluate_kwargs,
+        expand_kwargs,
+        propagators_kwargs,
+    )
+    from .resources import grid_points
 
     system = build_system(cfg.system)
-    expand_diag_C = cfg.expand.diag_C and cfg.propagators.diag_C
-    expansion = system.expand(
-        observable=cfg.expand.observable,
-        orders=cfg.expand.orders,
-        response_phase=cfg.expand.response_phase,
-        ito=cfg.expand.ito,
-        collect_topology=cfg.expand.collect_topology,
-        iso_R=cfg.expand.iso_R,
-        diag_R=cfg.expand.diag_R,
-        diag_C=expand_diag_C,
-        iso_C=cfg.expand.iso_C,
-        cache_path=cfg.expand.cache_path,
-        target=cfg.expand.target,
-    )
+    expansion = system.expand(**expand_kwargs(cfg))
     sw = cfg.sweep
     # The selection the sweep will make, refused as the run would refuse it.
     orders, vt, tasks = check_after_expansion(cfg, expansion)
@@ -182,62 +198,55 @@ def _estimate(cfg, bench_seconds, build_system, load_c) -> CostEstimate:
         system.n_components,
         "sweep.component_tuples",
     )
-    n_pos = int(np.prod([len(v) for v in sw.positions_grid.values()]))
-    n_et = (
-        int(np.prod([len(v) for v in (sw.external_times_grid or {}).values()]))
-        if sw.external_times_grid
-        else 1
-    )
-    n_grid = n_pos * len(sw.t_final_grid) * n_et * len(comps)
+    n_grid = grid_points(sw)
     n_sep = _distinct_separations(sw.positions_grid)
 
-    # Resolve the C path exactly as the run would (lazy mode builds
-    # nothing until the first lookup, so this is cheap).
+    # Resolve the C path as the run would.
     pc = cfg.propagators
-    c_fn = load_c(pc)
-    props = system.propagators(
-        t_max=pc.t_max,
-        n_grid_t=pc.n_grid_t,
-        homogeneity=pc.homogeneity,
-        r_max=pc.r_max,
-        n_grid_r=pc.n_grid_r,
-        n_grid_cos=pc.n_grid_cos,
-        x_max=pc.x_max,
-        n_grid_x=pc.n_grid_x,
-        n_jobs=1,
-        c_closed_form=c_fn,
-        interp_method=pc.interp_method,
-        c_closed_form_only=pc.c_closed_form_only,
-        c_closed_form_vectorized=pc.c_closed_form_vectorized,
-        c_method=pc.c_method,
-        c_n_gauss=pc.c_n_gauss,
-        diag_C=pc.diag_C,
-    )
+    few_nodes = _few_nodes(propagators_kwargs(cfg, _load_c_closed_form(pc)))
+    props = system.propagators(**few_nodes)
     notes: list[str] = []
     cache = props.cache
     if props.c_source.startswith("closed_form") or pc.c_closed_form_only:
         n_c_calls, t_c = 0, None
     else:
         n_cells = pc.n_grid_t**2
-        # Half the cells when the table is fixed by its t2 >= t1 half: an
-        # even kernel for a diagonal table, the transposition
-        # C_ab(t1, t2) = C_ba(t2, t1) for a full one.
-        if cache._c_half_grid(*cache._probe_positions(), pc.t_max):
+        # Half the cells when the table is fixed by its t2 >= t1 half.
+        if not cache._need_earlier_first(props.homogeneity):
             n_cells = pc.n_grid_t * (pc.n_grid_t + 1) // 2
         if props.is_lazy:
             n_tables = 1 if cache._lazy_spatial_factor() is not None else n_sep
             if n_tables > 1:
                 notes.append(
                     f"lazy table rebuilt for each of the {n_sep} "
-                    f"distinct separations (kernel not separable)"
+                    f"distinct separations (kernel not separable); the C "
+                    f"rule shown is the origin's, and the rule of each "
+                    f"separation is worked out in the run, which is not in "
+                    f"this estimate and can take minutes a separation"
                 )
         else:
             n_tables = int(pc.n_grid_r or pc.n_grid_cos or (pc.n_grid_x or 1) ** 2)
+            if (
+                n_tables > 1
+                and pc.c_method == "auto"
+                and cache._c_time_shape_depends_on_position()
+            ):
+                notes.append(
+                    f"the C rule is checked at each of the {n_tables} "
+                    f"positions of the grid, which is not in this estimate "
+                    f"and can take minutes a position; this dry run has "
+                    f"done that for a grid of few nodes"
+                )
         n_c_calls = n_cells * n_tables
-        method, n_g = cache.resolve_c_method(pc.t_max)
-        kw = cache._direct_kwargs(method, n_g)
-        mid = 0.5 * (system.t_min + pc.t_max)
         n1, n2 = cache._probe_positions()
+        if cache.c_method_resolved == "auto":
+            # The origin settled nothing: time a position the sweep reads.
+            first = [np.asarray(v[0], dtype=float) for v in sw.positions_grid.values()]
+            n1, n2 = first[0], first[-1]
+            kw = cache._direct_kwargs(*cache._c_rule(n1, n2, pc.t_max))
+        else:
+            kw = cache._direct_kwargs(*cache.resolve_c_method(pc.t_max))
+        mid = 0.5 * (system.t_min + pc.t_max)
         # Warm-up, then time the deep cell, slowest for adaptive rules.
         cache._C_value_direct(n1, mid, n2, mid, **kw)
         t0 = time.perf_counter()
@@ -253,17 +262,18 @@ def _estimate(cfg, bench_seconds, build_system, load_c) -> CostEstimate:
             )
 
     # One diagram per order at one grid point, on a small throw-away
-    # table so a slow quadrature does not dominate the benchmark.
+    # table so a slow quadrature does not dominate the benchmark.  An
+    # explicit rule: under 'auto' the table would run the selection again.
+    bench_method = {
+        "gauss_legendre": "gauss_legendre",
+        "graded": "gauss_legendre",
+        "dblquad": "dblquad",
+        "auto": "dblquad",
+    }.get(cache.c_method_resolved, pc.c_method)
     bench_props = system.propagators(
-        t_max=pc.t_max,
-        n_grid_t=6,
-        n_jobs=1,
-        c_closed_form=c_fn,
-        c_closed_form_only=pc.c_closed_form_only,
-        c_closed_form_vectorized=pc.c_closed_form_vectorized,
-        c_method=pc.c_method,
-        c_n_gauss=min(pc.c_n_gauss, 12),
-        diag_C=pc.diag_C,
+        **dict(
+            few_nodes, c_method=bench_method, c_n_gauss=min(pc.c_n_gauss, 12)
+        )
     )
     n_bench = min(int(sw.n_samples), 2048)
     pos = {k: v[0] for k, v in sw.positions_grid.items()}
@@ -284,17 +294,8 @@ def _estimate(cfg, bench_seconds, build_system, load_c) -> CostEstimate:
             component_pair=comps[0],
             orders=[o],
             vertex_types=None if vt is None else labels_at[o],
-            integrate_over=sw.integrate_over,
-            method=sw.method,
             n_samples=n,
-            seed=sw.seed,
-            n_gauss=sw.n_gauss,
-            gl_chunk_size=sw.gl_chunk_size,
-            **(
-                {}
-                if sw.qmc_coupling_chunk_size is None
-                else {"qmc_coupling_chunk_size": sw.qmc_coupling_chunk_size}
-            ),
+            **evaluate_kwargs(cfg),
         )
 
     # Warm up on the cheapest order: the first evaluation at a separation

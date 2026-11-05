@@ -75,6 +75,18 @@ this optimised enumeration.  It skips all vanishing
 :math:`\psi`-:math:`\psi` pairings at construction time rather than
 generating and discarding them.
 
+:func:`~sft_wick.wick.r_vanishes` holds the vanishing rule, on the edges
+of the :math:`R` part: a directed cycle, of which an equal-point edge is the
+shortest.  :func:`~sft_wick.wick.r_classes` gives each way to join every
+:math:`\psi` to a :math:`\phi` as a multiset of edges between labels, depth
+first, and stops a branch at the first edge the rule rejects.  This is the
+one enumeration of :math:`R` assignments.
+:func:`~sft_wick.wick.wick_contract_spatial` crosses each class with the
+:math:`C` pairings between labels, and
+:func:`~sft_wick.wick.generate_valid_pairings` lifts each class to its
+operator assignments and crosses them with the :math:`C` pairings between
+operators.  Both steps are lazy, and the two engines hold the same sum.
+
 
 Worked Example
 --------------
@@ -83,7 +95,7 @@ Consider the four-operator expectation value:
 
 .. math::
 
-   \langle \psi(x)\,\phi(x)\,\phi(x)\,\phi(x) \rangle_{S_0}
+   \langle \psi(y)\,\phi(x)\,\phi(x)\,\phi(x) \rangle_{S_0}
 
 We have :math:`n_\psi = 1` and :math:`n_\phi = 3`, so the single
 :math:`\psi` must pair with one of the three :math:`\phi`'s (producing
@@ -91,12 +103,16 @@ We have :math:`n_\psi = 1` and :math:`n_\phi = 3`, so the single
 (producing :math:`C`).  There are :math:`\binom{3}{1} = 3` ways to
 choose which :math:`\phi` partners the :math:`\psi`, and
 :math:`(2-1)!! = 1` way to pair the remaining two :math:`\phi`'s.
-This gives **3 pairings**, all contributing :math:`R(x,x)\,C(x,x)`:
+This gives **3 pairings**, all contributing :math:`R(x,y)\,C(x,x)`, each
+with the response phase :math:`-\mathrm{i}`:
 
 .. math::
 
-   \langle \psi(x)\,\phi(x)\,\phi(x)\,\phi(x) \rangle_{S_0}
-   = 3\,R(x,x)\,C(x,x)
+   \langle \psi(y)\,\phi(x)\,\phi(x)\,\phi(x) \rangle_{S_0}
+   = -3\mathrm{i}\,R(x,y)\,C(x,x)
+
+With :math:`\psi` at :math:`x` every pairing carries :math:`R(x,x) = 0`, and
+the moment is 0.
 
 In **sft-wick**:
 
@@ -107,10 +123,10 @@ In **sft-wick**:
    phi = Field('phi', 'physical')
    psi = Field('psi', 'response')
 
-   obs = [psi('x'), phi('x'), phi('x'), phi('x')]
+   obs = [psi('y'), phi('x'), phi('x'), phi('x')]
    result = compute_moment(obs, Action(vertices=[]), order=0)
    print(result.order(0).to_latex())
-   # 3 R(x, x) C(x, x)
+   # -3 \mathrm{i} R(x, y) C(x, x)
 
 
 Low-Level Access

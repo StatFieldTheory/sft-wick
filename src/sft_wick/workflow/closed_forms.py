@@ -53,6 +53,7 @@ scalar times give an ``(N, N)`` matrix, batched ``(n,)`` times give
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import factorial
 from typing import Any, Callable
 
 import numpy as np
@@ -71,12 +72,22 @@ from .specs import (
 # --------------------------------------------------------------------- #
 
 
+#: Below this ``(γ + a) t`` the closed form of ``Φ`` loses it to cancellation
+#: (:func:`ou_exponential_phi`).
+_PHI_SMALL_RATE = 1.0
+
+#: Taylor coefficients of ``ψ(x) = (1 − e^{−x}) / x``.  Truncating here leaves
+#: less than ``2e−19`` over ``0 ≤ x ≤ 2`` (and over its divided differences),
+#: the range :func:`_phi_at_small_rates` reads.
+_PSI_TAYLOR = tuple((-1.0) ** k / factorial(k + 1) for k in range(25))
+
+
 def _psi(x: np.ndarray) -> np.ndarray:
-    """``(1 − e^{−x}) / x`` with ``ψ(0) = 1``; accurate for all ``x ≥ −0.5``."""
+    """``(1 − e^{−x}) / x`` with ``ψ(0) = 1``; accurate for all ``x ≥ −1``."""
     x = np.asarray(x, dtype=float)
-    small = np.abs(x) < 1e-12
-    xs = np.where(small, 1.0, x)
-    return np.where(small, 1.0, -np.expm1(-xs) / xs)
+    zero = x == 0.0
+    xs = np.where(zero, 1.0, x)
+    return np.where(zero, 1.0, -np.expm1(-xs) / xs)
 
 
 def _dexp(p: Any, q: Any, T: Any) -> np.ndarray:
@@ -88,36 +99,90 @@ def _dexp(p: Any, q: Any, T: Any) -> np.ndarray:
     p = np.asarray(p, dtype=float)
     q = np.asarray(q, dtype=float)
     T = np.asarray(T, dtype=float)
+    if not p.shape == q.shape == T.shape:
+        p, q, T = np.broadcast_arrays(p, q, T)
     x = (q - p) * T
     near = np.abs(x) < 0.5
-    series = T * np.exp(-p * T) * _psi(np.clip(x, -0.5, 0.5))
-    denom = np.where(near, 1.0, q - p)
-    direct = (np.exp(-p * T) - np.exp(-q * T)) / denom
-    return np.where(near, series, direct)
+    e_p = np.exp(-p * T)
+    out = np.asarray((e_p - np.exp(-q * T)) / np.where(near, 1.0, q - p))
+    if near.any():
+        out[near] = T[near] * e_p[near] * _psi(x[near])
+    return out
+
+
+def _phi_at_small_rates(
+    gamma: np.ndarray, a: np.ndarray, tl: np.ndarray, d: np.ndarray
+) -> np.ndarray:
+    """``Φ`` at ``t₁ = tl + d``, ``t₂ = tl`` as a sum of positive terms, for
+    ``(γ + a)(tl + d) < 1``.
+
+    The strip of the later time past ``tl`` gives
+    ``D(γ, a; d) tl ψ((γ + a) tl)`` and the square gives
+    ``2 e^{−γd} ∫₀^{tl} D(γ + a, 2γ; v) dv``.  With ``x₁ = (γ + a) tl`` and
+    ``x₂ = 2γ tl`` that integral is ``tl²`` times minus the divided difference
+    ``(ψ(x₂) − ψ(x₁)) / (x₂ − x₁)``, which has no ``0 / 0`` at ``γ = a``.  One
+    Horner recurrence on the Taylor series gives ``ψ(x₁)``, and a second
+    gives the divided difference from the first one's partial values.
+    """
+    x1 = (gamma + a) * tl
+    x2 = 2.0 * gamma * tl
+    psi_x1 = np.full(x1.shape, _PSI_TAYLOR[-1])
+    slope = np.zeros(x1.shape)
+    for coefficient in reversed(_PSI_TAYLOR[:-1]):
+        slope = slope * x2 + psi_x1
+        psi_x1 = psi_x1 * x1 + coefficient
+    square = -2.0 * np.exp(-gamma * d) * tl * tl * slope
+    return _dexp(gamma, a, d) * tl * psi_x1 + square
+
+
+def _phi_closed(
+    gamma: np.ndarray, a: np.ndarray, tl: np.ndarray, th: np.ndarray, d: np.ndarray
+) -> np.ndarray:
+    """``Φ`` from its closed form, for ``(γ + a) th ≥ 1`` (module docstring)."""
+    egd = np.exp(-gamma * d)
+    term = (
+        egd * 2.0 * tl * _psi(2.0 * gamma * tl)
+        - np.exp(-gamma * th) * _dexp(gamma, a, tl)
+        + _dexp(gamma, a, d) * (-np.expm1(-(gamma + a) * tl))
+        - egd * _dexp(2.0 * gamma, gamma + a, tl)
+    )
+    return term / (gamma + a)
 
 
 def ou_exponential_phi(gamma: Any, a: Any, t1: Any, t2: Any) -> np.ndarray:
     """``Φ(γ, a; t₁, t₂) = ∫₀^{t₁}∫₀^{t₂} e^{−γ(t₁−λ₁)} e^{−a|λ₁−λ₂|} e^{−γ(t₂−λ₂)} dλ₁ dλ₂``.
 
-    All arguments broadcast; ``gamma ≥ 0``, ``a > 0``.  Zero when either
+    All arguments broadcast; ``gamma ≥ 0``, ``a ≥ 0``.  Zero when either
     time is ``≤ 0`` (empty domain).
+
+    The closed form divides by ``γ + a`` a sum that cancels to ``(γ + a) t²``,
+    so it loses ``1 / ((γ + a) t)`` of its digits, and is ``0 / 0`` at
+    ``γ = a = 0``.  Below ``(γ + a) t = 1`` :func:`_phi_at_small_rates` holds
+    instead.
     """
-    gamma = np.asarray(gamma, dtype=float)
-    a = np.asarray(a, dtype=float)
-    t1 = np.asarray(t1, dtype=float)
-    t2 = np.asarray(t2, dtype=float)
+    gamma, a, t1, t2 = np.broadcast_arrays(
+        *(np.asarray(v, dtype=float) for v in (gamma, a, t1, t2))
+    )
     tl = np.minimum(t1, t2)
     th = np.maximum(t1, t2)
     tl_pos = np.where(tl > 0, tl, 0.0)
     d = th - tl_pos
-    egd = np.exp(-gamma * d)
-    term = (
-        egd * 2.0 * tl_pos * _psi(2.0 * gamma * tl_pos)
-        - np.exp(-gamma * th) * _dexp(gamma, a, tl_pos)
-        + _dexp(gamma, a, d) * (-np.expm1(-(gamma + a) * tl_pos))
-        - egd * _dexp(2.0 * gamma, gamma + a, tl_pos)
-    )
-    out = term / (gamma + a)
+    small = (gamma + a) * th < _PHI_SMALL_RATE
+    if small.all():
+        out = _phi_at_small_rates(gamma, a, tl_pos, d)
+    elif not small.any():
+        out = _phi_closed(gamma, a, tl_pos, th, d)
+    else:
+        # Each path on its own elements: _psi overflows far outside the small
+        # branch, and the closed form is 0 / 0 at γ = a = 0.
+        large = ~small
+        out = np.empty(small.shape)
+        out[small] = _phi_at_small_rates(
+            gamma[small], a[small], tl_pos[small], d[small]
+        )
+        out[large] = _phi_closed(
+            gamma[large], a[large], tl_pos[large], th[large], d[large]
+        )
     return np.where(tl > 0, out, 0.0)
 
 
@@ -280,10 +345,9 @@ def builtin_closed_form_for(system: Any) -> ClosedFormC | None:
     if gamma.ndim != 1 or not np.all(np.isfinite(gamma)) or np.any(gamma < 0):
         return None
     # Mirror the model that ``System.build_propagator_model`` builds: when
-    # ``DiagonalA`` judges the rates equal (``np.allclose``) it lowers to a
-    # scalar R with ``gamma[0]`` for EVERY component.  The closed form must
-    # describe that model, not the raw list, or the two disagree at the
-    # ``allclose`` tolerance, caught by the boundary tests at 1e-8.
+    # ``DiagonalA`` judges the rates equal it lowers to a scalar R with
+    # ``gamma[0]`` for EVERY component.  The closed form must describe that
+    # model, not the raw list.
     if linear.is_iso_R:
         gamma = np.full(gamma.shape[0], float(gamma[0]))
     kappa2 = system.noise.kappa2
@@ -292,7 +356,7 @@ def builtin_closed_form_for(system: Any) -> ClosedFormC | None:
     temporal = kappa2.temporal
     if not isinstance(temporal, ExponentialTemporal):
         return None
-    if not (np.isfinite(temporal.lam) and temporal.sigma_t > 0):
+    if not np.isfinite(temporal.lam):
         return None
 
     N = int(system.n_components)
@@ -310,8 +374,6 @@ def builtin_closed_form_for(system: Any) -> ClosedFormC | None:
         # φ-dependent part is vertices.
         amp = np.asarray(sigma2.amplitude, dtype=float)
         mat = float(amp) * np.eye(N) if amp.ndim == 0 else amp
-        if mat.shape != (N, N):
-            return None
         sigma2_tuple = tuple(tuple(float(v) for v in row) for row in mat)
     else:
         return None

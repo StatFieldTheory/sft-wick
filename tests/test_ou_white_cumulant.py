@@ -348,8 +348,8 @@ def _base_system(gamma=(0.7, 1.3), lower=0.2, *, field_size=2):
     )
 
 
-def test_factory_uses_actual_allclose_collapsed_rates_and_bare_phase():
-    system = _base_system(gamma=(1.0, 1.0 + 1e-7))
+def test_factory_uses_actual_collapsed_rates_and_bare_phase():
+    system = _base_system(gamma=(1.0, 1.0 + 1e-10))
     amplitude = np.arange(8).reshape((2,) * 3).astype(float)
     law = OUWhiteCumulant.from_system(amplitude, system)
     np.testing.assert_array_equal(law.gamma, [1.0, 1.0])
@@ -362,7 +362,7 @@ def test_factory_uses_actual_allclose_collapsed_rates_and_bare_phase():
         vertex.msr_coupling([0] * 3, times), vertex.msr_factor * law([0] * 3, times)
     )
     with pytest.raises(ValueError, match="lowered R"):
-        OUWhiteCumulant(amplitude, [1.0, 1.0 + 1e-7], t_min=0.2).as_vertex(
+        OUWhiteCumulant(amplitude, [1.0, 1.0 + 1e-10], t_min=0.2).as_vertex(
             "K", system=system
         )
 

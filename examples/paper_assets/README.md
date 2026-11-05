@@ -51,8 +51,8 @@ vanish under the Itô prescription (`R(x, x) = 0`), leaving nine, which
 group into these six topologies with multiplicities 2, 1, 2, 1, 1, 2,
 folded into the rational prefactors.  ⟨ψψ⟩ = 0 removes nothing at order
 1: the expression contains a single ψ, so no ψψ pairing exists.  It
-starts pruning at order 2.  (Checked by re-running with `ito=False`,
-which restores all fifteen.)  Files:
+starts pruning at order 2.  (`generate_table1.py` counts the six from
+the fifteen pairings of `generate_all_pairings`.)  Files:
 `order1_diagram_{1..6}.tex` (TikZ, the styles of
 `fig_example_diagrams_order2.pdf`: blue solid C, red dashed R, circles
 for external points, squares for vertices), `order1_diagram_{k}_standalone.pdf`

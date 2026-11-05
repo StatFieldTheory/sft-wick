@@ -35,7 +35,7 @@ from .expressions import (
     Sum,
     Symbol,
 )
-from .indices import literal_component
+from .indices import is_literal_component, literal_component
 
 
 @dataclass(frozen=True)
@@ -774,13 +774,11 @@ def compile_coupling_plan(expression: Expr) -> _CouplingPlan | None:
 
         def label_slot(label):
             if label not in classified:
-                try:
-                    int(label)
-                except ValueError:
+                if is_literal_component(label):
+                    classified[label] = label
+                else:
                     classified[label] = len(witness)
                     witness.append(label)
-                else:
-                    classified[label] = label
             return classified[label]
 
         canonical = []

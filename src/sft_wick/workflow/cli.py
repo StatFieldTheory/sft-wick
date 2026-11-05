@@ -47,6 +47,10 @@ import time
 import warnings
 from pathlib import Path
 
+from sft_wick.progress import env_flag
+
+from .resource_compare import _THREAD_ENV
+
 #: Exit status of a config the parser refuses (argparse uses 2 as well).
 CONFIG_ERROR_STATUS = 2
 
@@ -263,8 +267,7 @@ def _progress_setting(args) -> bool:
     ``--quiet`` or ``SFT_WICK_PROGRESS=0``."""
     if getattr(args, "quiet", False):
         return False
-    raw = os.environ.get("SFT_WICK_PROGRESS", "").strip().lower()
-    return raw not in ("0", "false", "off", "no")
+    return env_flag("SFT_WICK_PROGRESS", True)
 
 
 def _cmd_compare_resources(args) -> int:
@@ -373,11 +376,9 @@ def _cmd_run(args) -> int:
 
 
 def _parse_overrides(strs: list[str]) -> dict:
-    """Parse ``key=value`` strings, auto-coercing values with
-    conservative, safe rules (bool → int → float → string).
-
-    No arbitrary-expression parsing: only scalar literals are
-    accepted.
+    """Parse ``key=value`` strings; each value is read by
+    :func:`_coerce_scalar`.  Only scalars are read, with no expression
+    parsing.
     """
     from .config import OverrideError
 
@@ -393,37 +394,38 @@ def _parse_overrides(strs: list[str]) -> dict:
 
 
 def _coerce_scalar(s: str):
-    """Try bool → int → float → string."""
-    low = s.lower()
-    if low == "true":
-        return True
-    if low == "false":
-        return False
-    if low in ("null", "none", "~"):
-        return None
+    """The scalar YAML reads ``s`` as the value of a key, by the loader of a
+    config file, so one written token has one value in a file and on the
+    command line.  What is no YAML scalar (a list, a mapping, text YAML cannot
+    read) stays the string as written, which the parser then reads or refuses.
+    So does a value with nothing in it, which a file would read as null: an
+    unset variable in ``key=$VALUE`` states no null, and deleting a key on
+    that changes the run with no error."""
+    import yaml
+
+    from .config import ConfigError, _load_yaml
+
+    if not s.partition("#")[0].strip():
+        return s
     try:
-        return int(s)
-    except ValueError:
-        pass
-    try:
-        return float(s)
-    except ValueError:
-        pass
-    # strip surrounding quotes if present
-    if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
-        return s[1:-1]
-    return s
+        document = _load_yaml(f"k: {s}")
+    except (yaml.YAMLError, ConfigError):
+        return s
+    if not isinstance(document, dict) or len(document) != 1:
+        return s
+    value = document.get("k", s)
+    return s if isinstance(value, (dict, list)) else value
 
 
 def _maybe_warn_blas_oversubscription(cfg) -> None:
     """Print a one-line tip if any layer requested ``n_jobs > 1``
-    without one of OPENBLAS / MKL / OMP thread caps set.
+    without any BLAS thread cap set (``resource_compare._THREAD_ENV``).
 
     BLAS libraries default to using all cores; combining that with
     ``n_jobs = N_cores`` worker processes yields ``N_cores ** 2``
     threads and is usually slower than running serially. The tip
-    suppresses itself once any of the three env vars is set, so users
-    who tune their thread budget see no noise.
+    suppresses itself once any of these env vars is set, so users who
+    tune their thread budget see no noise.
     """
     requested = (
         int(getattr(cfg.propagators, "n_jobs", 1)) != 1
@@ -432,11 +434,7 @@ def _maybe_warn_blas_oversubscription(cfg) -> None:
     )
     if not requested:
         return
-    capped = any(
-        os.environ.get(name)
-        for name in ("OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS", "OMP_NUM_THREADS")
-    )
-    if capped:
+    if any(os.environ.get(name) for name in _THREAD_ENV):
         return
     print(
         "[sft-wick] tip: n_jobs > 1 was requested. To avoid BLAS "
@@ -477,10 +475,7 @@ def _print_summary(cfg) -> None:
     if sw.method == "gauss_legendre":
         gl_bound = "eager" if sw.gl_chunk_size is None else sw.gl_chunk_size
         method_detail += f", gl_chunk_size={gl_bound}"
-    if (
-        sw.method in {"qmc", "qmc_vectorized"}
-        and sw.qmc_coupling_chunk_size is not None
-    ):
+    if sw.method == "qmc_vectorized" and sw.qmc_coupling_chunk_size is not None:
         method_detail += f", qmc_coupling_chunk_size={sw.qmc_coupling_chunk_size}"
     print(
         f"[sft-wick] sweep: positions_grid={sw.positions_grid}, "

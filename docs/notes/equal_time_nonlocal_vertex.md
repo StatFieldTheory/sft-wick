@@ -65,8 +65,8 @@ sample of the single integration variable.
   representative so causality between the equal-time vertex and the
   rest of the diagram is preserved on the surviving legs.
 * `integrate_moment_qmc_vectorized`, `integrate_moment_gauss_legendre`:
-  extended their inner `_times(var)` lookup to first consult the
-  `equal_time_aliases` map, so R-propagator lookups, C-propagator
+  read times through `_batch_time_reader`, which consults the
+  `equal_time_aliases` map first, so R-propagator lookups, C-propagator
   lookups, and the dynamic-coupling `label_t` dict all see the
   collapsed time transparently. No change to how `times_arr` /
   `jacobians` are generated; the alias is purely a *lookup-time*
@@ -159,7 +159,7 @@ sample of the single integration variable.
    collapsed measure correctly. A future refactor could collapse the
    `IntegralOver` chain at LaTeX time by inspecting the alias map.
 4. **Vectorised dynamic-coupling path** (`coupling_vectorized=True`)
-   is exercised through `_times(lab)` aliasing in the same way as
+   is exercised through `_batch_time_reader` in the same way as
    the per-sample path. The `coupling_vectorized=True, equal_time=True`
    combination is pinned by the `equal_time` route of
    `tests/test_nonlocal_leg_order.py::test_LO1_order1_matches_hand_on_every_route`
@@ -219,10 +219,10 @@ linear-ramp shape of R.
     measure zero, and the GL and QMC-vectorised integrators return
     exactly 0
 
-**Layer 3: `_times` alias redirect inside QMC kernel (1) + diagram-term
+**Layer 3: `_batch_time_reader` alias redirect inside QMC kernel (1) + diagram-term
 end-to-end (1):**
 
-16. The QMC-vectorized `_times` resolver redirects aliased labels:
+16. The QMC-vectorized time reader redirects aliased labels:
     a tracking cache asserts the three R-propagator left-time arrays
     are bit-identical after redirect
 17. End-to-end: `System(equal_time NonLocalVertex).expand(...)`

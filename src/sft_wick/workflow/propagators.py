@@ -7,17 +7,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-import numpy as np
-
-from sft_wick.evaluate import PropagatorCache
+from sft_wick.evaluate import (
+    C_METHODS,
+    DEFAULT_C_N_GAUSS,
+    DEFAULT_N_GRID_T,
+    HOMOGENEITIES,
+    PropagatorCache,
+)
 
 from ._messages import shown
+from .specs import _flag
 
 
 @dataclass(frozen=True)
 class Propagators:
     """Holds a :class:`PropagatorCache` preconfigured for a
-    :class:`~sft_wick.workflow.System`.  Opaque to the user: the
+    :class:`~sft_wick.workflow.system.System`.  Opaque to the user: the
     only thing they do with this object is pass it to
     :meth:`Expansion.evaluate` / :meth:`Expansion.sweep`.
 
@@ -28,9 +33,15 @@ class Propagators:
             spatial dimension.
         c_source: how C is evaluated, after the ``'auto'`` choices were
             resolved: ``'closed_form:builtin'``, ``'closed_form:user'``,
-            ``'quadrature:gauss_legendre(n=20)'`` or
-            ``'quadrature:dblquad'``.  This is what the CLI banner and
-            ``--dry-run`` report.
+            ``'quadrature:gauss_legendre(n=20)'``,
+            ``'quadrature:graded(levels=12)'``, ``'quadrature:dblquad'`` or
+            ``'quadrature:per_position'``, as of the build.  This is what the
+            CLI banner and ``--dry-run`` report.  A table's pairs of positions
+            each have a rule: the label names the largest count or depth, and
+            ``per_position`` when only some pairs take ``dblquad``.  A lazy
+            table has only the origin to report, or ``per_position`` when the
+            origin settles nothing, and it can use a finer rule at a position
+            later; ``cache.c_method_resolved`` follows the positions read.
     """
 
     cache: PropagatorCache
@@ -44,7 +55,7 @@ class Propagators:
         system,
         *,
         t_max: float,
-        n_grid_t: int = 60,
+        n_grid_t: int = DEFAULT_N_GRID_T,
         homogeneity: str | None = None,
         r_max: float | None = None,
         n_grid_r: int | None = None,
@@ -58,11 +69,12 @@ class Propagators:
         c_closed_form_only: bool = False,
         c_closed_form_vectorized: bool = False,
         c_method: str = "auto",
-        c_n_gauss: int = 20,
+        c_n_gauss: int = DEFAULT_C_N_GAUSS,
         diag_C: bool = True,
     ) -> "Propagators":
-        """Construct a ``Propagators`` for ``system``.  Called
-        indirectly via :meth:`System.propagators`.
+        """Construct a ``Propagators`` for ``system``.
+        :meth:`System.propagators` is the usual route; this method holds
+        its refusals (under ``Raises``), so a direct call has them too.
 
         Args:
             c_closed_form: how C is obtained without quadrature.
@@ -82,7 +94,10 @@ class Propagators:
                   closed form, which takes precedence over the built-in
                   one.  Under ``c_closed_form_only=True`` it may also
                   be batched (``(n,)`` times → ``(n, N, N)``); the
-                  built-in form supports both contracts.
+                  built-in form supports both contracts.  A
+                  ``has_diagonal_kink`` attribute says whether it has a
+                  derivative jump on ``t1 = t2``; without one the
+                  integrators that split probe it for the jump.
 
                 Either closed form cuts the spline-table build from
                 minutes (``dblquad`` on a fine grid) to milliseconds.
@@ -114,17 +129,35 @@ class Propagators:
             c_method: How the inner 2-D C-propagator integral
                 ``∫ R κ² R`` is evaluated when no closed form applies.
 
-                - ``'auto'`` (default): Gauss-Legendre for the package's
-                  structured kernels (``SeparableTranslation`` /
-                  ``SeparableRotation`` built from the built-in temporal
-                  and spatial kernels), with the node count chosen by
-                  :func:`~sft_wick.evaluate.select_gl_node_count`,
+                - ``'auto'`` (default): for every kernel, the package's
+                  and a user callable alike (``GeneralKappa2``,
+                  ``CustomKernel``, ``CustomImpulse``, ``ExplicitR``,
+                  callable ``gamma``), Gauss-Legendre with the node count
+                  chosen by :func:`~sft_wick.evaluate.select_gl_node_count`,
                   refined from ``c_n_gauss`` until the rule agrees with
-                  itself at the table's extreme cells, ``dblquad`` if it
-                  never does; plain ``'dblquad'`` for any user callable
-                  (``GeneralKappa2``, ``CustomKernel``, ``CustomImpulse``,
-                  ``ExplicitR``, callable ``gamma``), whose smoothness
-                  is unknown.
+                  itself at the table's probe cells.  When no count
+                  converges, a kernel or a rate far narrower than the
+                  horizon, the rule is a Gauss-Legendre rule on panels
+                  halved towards the ends of each interval
+                  (:func:`~sft_wick.evaluate.select_graded_levels`), with
+                  ``dblquad`` and a warning when that does not converge
+                  either, as for a kink or a step inside the interval.
+                  ``c_source`` reports the rule chosen.  A kernel that is
+                  not separable has a rule per pair of positions, of a full
+                  grid or of a lazy table as it reads them, and one pair
+                  with no converged rule takes ``dblquad`` alone, with a
+                  warning.  ``c_source`` names the largest count or depth of
+                  a full grid, or ``quadrature:per_position`` when only some
+                  pairs take ``dblquad``.  On a lazy table it is the rule at
+                  the origin, or ``quadrature:per_position`` when the kernel
+                  raises at the origin, is not finite there or vanishes
+                  there, or, on a kernel that is not separable, no rule
+                  converges there.  The check compares two rules: a feature narrower than the
+                  node spacing that both miss passes it, and that includes
+                  a spike on the diagonal narrower than about ``1e-8`` of
+                  the horizon, for which white noise is the spelling.
+                  ``c_n_gauss`` is where the refinement starts and is
+                  tested at least once however large.
                 - ``'gauss_legendre'``: tensor-product GL with a
                   diagonal-aware sub-region split at ``λ1 = λ2`` and
                   exactly ``c_n_gauss`` nodes, no convergence check.
@@ -134,16 +167,18 @@ class Propagators:
                   with ``(γ + 1/σ_t) t_max`` (see
                   :class:`~sft_wick.evaluate.PropagatorCache`).
                 - ``'dblquad'``: ``scipy.integrate.dblquad`` adaptive
-                  Gauss-Kronrod, robust on any κ² but slow
-                  (10-250 ms / call).
+                  Gauss-Kronrod, 10-250 ms per call, with no convergence
+                  check: a kernel far narrower than the interval can come
+                  back wrong by any factor.
 
                 Ignored when a closed form is in use.
             c_n_gauss: Per-dimension GL node count for
-                ``c_method='gauss_legendre'`` and the starting count
-                for ``'auto'`` (default 20).  Cost scales as
+                ``c_method='gauss_legendre'``; under ``'auto'`` only the
+                count the refinement starts from (default 20).  Cost scales as
                 ``c_n_gauss²`` per sub-region.
             diag_C: ``True`` (default): the tables hold ``C_aa`` and C
-                lookups return ``(n, N)`` diagonals.  ``False``: every
+                lookups return ``(n, N)`` diagonals, and every read of a
+                closed form takes its diagonal.  ``False``: every
                 table holds all ``N²`` entries ``C_ab``, by quadrature or
                 from the closed form (which must then return the full
                 matrix), and lookups return ``(n, N, N)``.  Needed when C
@@ -151,24 +186,30 @@ class Propagators:
                 κ², a matrix σ².  A Gauss-Legendre cell costs the same
                 either way, since it contracts ``R κ² Rᵀ`` as matrices; a
                 ``dblquad`` cell runs ``N²`` adaptive integrals instead of
-                ``N``.  When κ² and σ² satisfy
-                ``C_ab(t1, t2) = C_ba(t2, t1)`` (checked numerically, see
-                :func:`~sft_wick.evaluate._probe_c_transpose`), half of
-                each table is filled by that relation.
+                ``N``.  When a built-in even temporal kernel with no σ²
+                gives ``C_ab(t1, t2) = C_ba(t2, t1)``, half of each table is
+                filled by that relation.  A custom kernel gets every cell.
+
+        Raises:
+            ValueError: when ``t_max`` exceeds ``t_max_cache`` of a
+                :class:`DiagonalA` with a callable rate; with
+                ``diag_C=True``, when C has off-diagonal entries.
         """
+        diag_C = _flag(diag_C, "diag_C", "Propagators.build")
+        system._require_buildable(t_max, diag_C)
         c_fn, c_fn_source = _resolve_closed_form_flags(
             system, c_closed_form, c_closed_form_only, c_closed_form_vectorized
         )
         from .cache import load_or_compute
 
         hom = homogeneity if homogeneity is not None else system.homogeneity
-        if hom not in ("translation", "rotation", "general"):
+        if hom not in HOMOGENEITIES:
             raise ValueError(
                 f"homogeneity must be one of 'translation', 'rotation', "
                 f"'general'; got {shown(hom)}."
             )
 
-        c_method_resolved = _resolve_c_method_family(system, c_method)
+        _check_c_method(c_method)
 
         system_identity = closed_identity = None
         if cache_path is not None:
@@ -204,7 +245,7 @@ class Propagators:
             "c_closed_form_only": c_closed_form_only,
             "c_closed_form_vectorized": c_closed_form_vectorized,
             "interp_method": interp_method,
-            "c_method": c_method_resolved,
+            "c_method": c_method,
             "c_n_gauss": int(c_n_gauss),
             "diag_C": bool(diag_C),
         }
@@ -212,12 +253,12 @@ class Propagators:
         def _build() -> "Propagators":
             model = system.build_propagator_model(diag_C=diag_C)
             if c_fn is not None:
-                cache = _ClosedFormPropagatorCache(
+                cache = PropagatorCache(
                     model=model,
                     homogeneity=hom,
-                    c_fn=c_fn,
+                    c_value_fn=c_fn,
                     interp_method=interp_method,
-                    c_method=c_method_resolved,
+                    c_method=c_method,
                     n_gauss=int(c_n_gauss),
                 )
             else:
@@ -225,21 +266,24 @@ class Propagators:
                     model=model,
                     homogeneity=hom,
                     interp_method=interp_method,
-                    c_method=c_method_resolved,
+                    c_method=c_method,
                     n_gauss=int(c_n_gauss),
                 )
 
             if c_closed_form_only:
                 # Skip every spline build. C_at_batch uses
                 # ``_closed_form_at_batch_diag`` from now on, which
-                # routes lookups straight through the closed form.
+                # routes lookups straight through the closed form.  The
+                # built-in form takes arrays whatever the flag says, and the
+                # per-sample loop costs it a factor of about 50.
                 cache._closed_form_only = True
-                cache._closed_form_vectorized = c_closed_form_vectorized
+                cache._closed_form_vectorized = (
+                    c_closed_form_vectorized or c_fn_source == "closed_form:builtin"
+                )
                 return cls(
                     cache=cache, homogeneity=hom, is_lazy=False, c_source=c_fn_source
                 )
 
-            is_lazy = False
             if hom == "translation":
                 cache.precompute_C_table_translation(
                     t_max=t_max,
@@ -250,7 +294,6 @@ class Propagators:
                     c_method=c_method,
                     n_gauss=int(c_n_gauss),
                 )
-                is_lazy = (r_max is None) or (n_grid_r is None)
             elif hom == "rotation":
                 cache.precompute_C_table_rotation(
                     t_max=t_max,
@@ -260,7 +303,6 @@ class Propagators:
                     c_method=c_method,
                     n_gauss=int(c_n_gauss),
                 )
-                is_lazy = n_grid_cos is None
             else:  # general
                 cache.precompute_C_table_general(
                     t_max=t_max,
@@ -271,7 +313,6 @@ class Propagators:
                     c_method=c_method,
                     n_gauss=int(c_n_gauss),
                 )
-                is_lazy = (x_max is None) or (n_grid_x is None)
 
             # Pin lazy-cache n_jobs to 1. _LazyTimeSplineCache._build is
             # triggered from inside QMC sampling when a worker hits a new
@@ -281,19 +322,22 @@ class Propagators:
             # n_grid_t**2 independent _C_value_direct calls and typically
             # account for a small fraction of total wall-time, so we let
             # the outer parallelism saturate the cores instead.
-            for lazy_attr in (
-                "_lazy_translation",
-                "_lazy_rotation",
-                "_lazy_general",
-            ):
-                lazy = getattr(cache, lazy_attr, None)
-                if lazy is not None:
-                    lazy.n_jobs = 1
+            lazy_tables = [
+                lazy
+                for lazy in (
+                    cache._lazy_translation,
+                    cache._lazy_rotation,
+                    cache._lazy_general,
+                )
+                if lazy is not None
+            ]
+            for lazy in lazy_tables:
+                lazy.n_jobs = 1
 
             return cls(
                 cache=cache,
                 homogeneity=hom,
-                is_lazy=is_lazy,
+                is_lazy=bool(lazy_tables),
                 c_source=c_fn_source or _quadrature_source(cache),
             )
 
@@ -359,58 +403,13 @@ def _resolve_closed_form(system, c_closed_form):
     )
 
 
-def _kernel_family_is_structured(system) -> bool:
-    """Whether every kernel piece is one of the package's own analytic
-    families (so its smoothness is known and Gauss-Legendre is safe)."""
-    from .specs import (
-        ConstantImpulse,
-        CustomImpulse,
-        CustomKernel,
-        DiagonalA,
-        MultiplicativeImpulse,
-        SeparableRotation,
-        SeparableTranslation,
-    )
-
-    if getattr(system, "explicit_R", None) is not None:
-        return False
-    if not isinstance(system.linear, DiagonalA) or callable(system.linear.gamma):
-        return False
-    k2 = system.noise.kappa2
-    if isinstance(k2, SeparableTranslation):
-        pieces = (k2.temporal, k2.spatial)
-    elif isinstance(k2, SeparableRotation):
-        pieces = (k2.temporal, k2.angular)
-    else:
-        return False
-    if any(isinstance(piece, CustomKernel) for piece in pieces):
-        return False
-    s2 = system.noise.sigma2
-    # MultiplicativeImpulse enters C through its constant part D0 only.
-    if s2 is not None and (
-        isinstance(s2, CustomImpulse)
-        or not isinstance(s2, (ConstantImpulse, MultiplicativeImpulse))
-    ):
-        return False
-    return True
-
-
-def _resolve_c_method_family(system, c_method: str) -> str:
-    """L1 half of the ``c_method='auto'`` decision.
-
-    User callables (whose smoothness is unknown) go straight to
-    ``'dblquad'``; the package's own kernel families stay ``'auto'`` so
-    the L0 cache can pick a converged Gauss-Legendre node count for the
-    actual ``t_max`` (or fall back to dblquad if none converges).
-    """
-    if c_method not in ("auto", "dblquad", "gauss_legendre"):
+def _check_c_method(c_method: str) -> None:
+    """Refuse a ``c_method`` that is not one of the three names."""
+    if c_method not in C_METHODS:
         raise ValueError(
             f"c_method must be 'auto', 'dblquad' or 'gauss_legendre'; "
             f"got {shown(c_method)}."
         )
-    if c_method != "auto":
-        return c_method
-    return "auto" if _kernel_family_is_structured(system) else "dblquad"
 
 
 def _quadrature_source(cache) -> str:
@@ -418,6 +417,10 @@ def _quadrature_source(cache) -> str:
     method = cache.c_method_resolved
     if method == "gauss_legendre":
         return f"quadrature:gauss_legendre(n={cache.n_gauss_resolved})"
+    if method == "graded":
+        return f"quadrature:graded(levels={cache.graded_levels_resolved})"
+    if method == "auto":
+        return "quadrature:per_position"
     return f"quadrature:{method}"
 
 
@@ -472,75 +475,6 @@ def propagators_from_cache(cache) -> "Propagators":
     ``gauss_legendre``, ``qmc_vectorized`` and ``integrate_two_point_qmc``.
     """
     return Propagators(cache=cache, homogeneity="translation", is_lazy=False)
-
-
-class _ClosedFormPropagatorCache(PropagatorCache):
-    """PropagatorCache that delegates ``_C_value_direct`` to a user callable.
-
-    Defined at module level (not inside a function) so that joblib's loky
-    workers can re-import the class when distributing per-cell tasks across
-    subprocesses. The user ``c_fn`` is held as an instance attribute and
-    is itself loaded by :func:`_load_callable_from_module` under the
-    ``.py`` file's bare basename, so it is round-trippable across workers.
-
-    This replaces the earlier ``_make_closed_form_cache_cls`` factory which
-    returned a class defined inside a function and was therefore not
-    transportable across loky boundaries, forcing ``n_jobs = 1``.
-    """
-
-    def __init__(self, *args, c_fn=None, **kwargs):
-        super().__init__(*args, **kwargs)
-        if c_fn is None:
-            raise ValueError("_ClosedFormPropagatorCache requires a c_fn callable.")
-        self._c_fn = c_fn
-
-    # -- structure known to the lazy spline cache --------------------------
-
-    @property
-    def c_method_resolved(self) -> str:
-        return "closed_form"
-
-    def resolve_c_method(self, t_max: float):
-        return "closed_form", None
-
-    def _lazy_spatial_factor(self):
-        """The built-in closed form factorises as ``κ_x(r) · C(0; …)``
-        unless it carries a white-noise term; a user callable is opaque."""
-        cf = self._c_fn
-        if (
-            getattr(cf, "separable_translation", False)
-            and getattr(cf, "sigma2", None) is None
-            and hasattr(cf, "spatial_factor")
-        ):
-            return cf.spatial_factor
-        return None
-
-    def _c_time_symmetric(self) -> bool:
-        return (
-            bool(getattr(self._c_fn, "separable_translation", False))
-            and self.model.diag_C
-        )
-
-    def _c_source_label(self) -> str:
-        return "closed form"
-
-    def _C_value_direct(self, n1, t1, n2, t2, **_quad_kwargs):
-        # Accept (and ignore) the ``method=`` / ``n_gauss=`` quadrature
-        # kwargs that ``precompute_C_table_*`` may forward when the
-        # caller requests ``c_method='gauss_legendre'``.  In closed-form
-        # mode the user-supplied callable is exact, so neither dblquad
-        # nor GL is invoked here.
-        arr = np.asarray(self._c_fn(n1, t1, n2, t2))
-        # When the user supplies a vectorised c_fn (returns
-        # (n, N, N)) but a legacy single-point caller hands in
-        # scalar t1/t2, the result is a 3-D array with a length-1
-        # leading axis. Squeeze only for true scalar-time calls so the
-        # batched no-spline path can keep its required ``(1, N, N)``
-        # shape when t1/t2 arrive as length-1 arrays.
-        scalar_time = np.asarray(t1).ndim == 0 and np.asarray(t2).ndim == 0
-        if scalar_time and arr.ndim == 3 and arr.shape[0] == 1:
-            return arr[0]
-        return arr
 
 
 def _minimal_propagator_spec(system) -> Any:

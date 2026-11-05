@@ -24,12 +24,13 @@ import dataclasses
 from pathlib import Path
 
 import jsonschema
+import numpy as np
 import pytest
 import yaml
 
 from sft_wick.workflow import config as cf
 from sft_wick.workflow import specs as sp
-from sft_wick.workflow.config import ConfigError, build_system
+from sft_wick.workflow.config import ConfigError, build_system, check_before_run
 from sft_wick.workflow.schema import workflow_json_schema
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -491,3 +492,65 @@ def test_SC6_every_pair_of_keys_one_edit_apart_is_listed(blocks):
                     found.add((location, a, b))
     listed = {(loc, *sorted((a, b))) for loc, a, b in _COLLISIONS}
     assert found == listed
+
+
+@pytest.mark.parametrize("block,key,value", [
+    ("sweep", "t_final_grid", ["1e-3"]),
+    ("propagators", "dt", "1e-1"),
+    ("propagators", "t_max", "5"),
+    ("expand", "diag_R", "no"),
+    ("expand", "diag_R", 1),
+    ("sweep", "n_samples", "1e3"),
+    ("propagators", "c_closed_form", "Auto"),
+])
+def test_schema_takes_what_the_parser_reads(tmp_path, block, key, value):
+    doc = yaml.safe_load(QUICKSTART.read_text())
+    doc[block].pop("n_grid_t", None)
+    doc[block][key] = value
+    doc["sweep"]["t_final_grid"] = doc["sweep"]["t_final_grid"][:1]
+    cf._parse_workflow(copy.deepcopy(doc), base_dir=tmp_path)
+    jsonschema.validate(doc, workflow_json_schema())
+
+
+@pytest.mark.parametrize("path,value", [
+    (("sweep", "gl_chunk_size"), "100"),
+    (("sweep", "qmc_coupling_chunk_size"), "100"),
+    (("sweep", "contraction_max_bytes"), "1e9"),
+    (("sweep", "orders"), ["0"]),
+    (("expand", "orders"), "0"),
+    (("sweep", "component_tuples"), [["0", 0]]),
+    (("sweep", "n_samples"), "4096.5"),
+    (("sweep", "seed"), "0.5"),
+])
+def test_schema_refuses_text_the_parser_refuses(tmp_path, path, value):
+    """Text is taken at the integer keys that read it, in integral form.  The
+    other integer keys share their reader with L1, which takes no text."""
+    doc = yaml.safe_load(QUICKSTART.read_text())
+    doc[path[0]].pop("component_pairs", None)
+    doc[path[0]][path[1]] = value
+    with pytest.raises(ConfigError):
+        check_before_run(cf._parse_workflow(copy.deepcopy(doc), base_dir=tmp_path))
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(doc, workflow_json_schema())
+
+
+def test_a_coupling_reads_numeric_text_as_the_other_tensors_do(tmp_path):
+    """PyYAML reads ``1e-3`` as a string, in a file and in ``--override``."""
+    doc = yaml.safe_load(QUICKSTART.read_text())
+    tensor = doc["system"]["vertices"][0]["coupling"]
+    while isinstance(tensor[0], list):
+        tensor = tensor[0]
+    tensor[0] = "1e-3"
+    jsonschema.validate(doc, workflow_json_schema())
+    system = cf._parse_workflow(copy.deepcopy(doc), base_dir=tmp_path).system
+    assert np.ravel(system.vertices[0]["coupling"])[0] == 1e-3
+
+
+@pytest.mark.parametrize("value", [0, 1, "maybe"])
+def test_c_closed_form_words_are_one_list(tmp_path, value):
+    doc = yaml.safe_load(QUICKSTART.read_text())
+    doc["propagators"]["c_closed_form"] = value
+    with pytest.raises(ConfigError):
+        cf._parse_workflow(copy.deepcopy(doc), base_dir=tmp_path)
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(doc, workflow_json_schema())

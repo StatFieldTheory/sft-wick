@@ -102,7 +102,7 @@ def _system_parameters(system: System) -> tuple[np.ndarray, float]:
         raise ValueError("system gamma must have length 1 or n_components")
     if np.any(rates < 0):
         raise ValueError("system gamma must be nonnegative")
-    # DiagonalA collapses allclose rates to component zero's scalar R. The
+    # DiagonalA collapses equal rates to component zero's scalar R. The
     # adapter must integrate that actual lowered response, not the raw list.
     effective = np.full(n, rates[0]) if linear.is_iso_R else rates
     lower = _real_array(system.t_min, "system t_min")

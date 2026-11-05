@@ -152,13 +152,15 @@ class LayoutParams:
                            4:3 ish aspect-ratio panel.
         parallel_edge_curvature:
                            Bow strength for parallel edges between the
-                           same node pair (matplotlib backend).  Each
-                           edge in a bundle is drawn as an ``arc3`` with
+                           same node pair.  Each edge in a bundle has
                            ``rad = (key - (n-1)/2) * parallel_edge_curvature``,
                            so a 2-edge bundle bows by ``±0.5 ×`` this
                            value to opposite sides.  Larger → fuller
                            arcs.  Default ``0.6`` (apex offset ≈ 30 % of
-                           the chord for a 2-edge bundle).
+                           the chord for a 2-edge bundle).  Matplotlib
+                           draws an ``arc3`` with this ``rad``; TikZ uses
+                           ``bend`` with the same end tangents, so a
+                           bundle of more than two edges bows less there.
     """
     ext_radius: float = 2.5
     spring_k: float = 2.0

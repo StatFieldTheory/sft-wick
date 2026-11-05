@@ -64,7 +64,7 @@ from numpy.polynomial import Polynomial
 
 import sft_wick as sw
 from sft_wick.evaluate import integrate_diagrams
-from sft_wick.perturbation import _collect_symbol_spatial_args
+from sft_wick.perturbation import _collect_symbol_occurrences
 
 N = 3
 PERMS = tuple(permutations(range(3)))
@@ -466,7 +466,7 @@ def test_LO3_callable_is_called_at_every_leg_order():
 def _fk_first_occurrence(dt) -> tuple[str, np.ndarray]:
     """(external that F's ψ contracts with, directions of K's legs in the
     first coupling-sum term): the one leg order the old code evaluated."""
-    legs = _collect_symbol_spatial_args(dt.coupling_sum)["K"]
+    legs = _collect_symbol_occurrences(dt.coupling_sum)["K"][0]
     w = next(v for v in dt.integration_vars if v not in legs)
     e = next(p.spatial_left for p in dt.propagators
              if p.kind == "R" and p.spatial_right == w)

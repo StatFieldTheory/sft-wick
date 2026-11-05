@@ -17,8 +17,9 @@ import pytest
 
 from sft_wick import Action, Field, Vertex, compute_moment, reset_uid_counter
 from sft_wick.expressions import Product, Propagator as PropagatorExpr, Sum, Symbol
+from sft_wick.perturbation import _enumerate_component_routings
 from sft_wick.propagators import contract_pair
-from sft_wick.wick import generate_valid_pairings, wick_contract
+from sft_wick.wick import generate_valid_pairings, wick_contract, wick_contract_spatial
 
 from . import brute_wick as brute
 from .brute_wick import Op
@@ -110,7 +111,7 @@ class TestEnumeration:
             phi_idx = list(range(len(ops)))
             psi_idx: list[int] = []
             sft_count = sum(
-                1 for _ in generate_valid_pairings(phi_idx, psi_idx, ops, ito=False)
+                1 for _ in generate_valid_pairings(phi_idx, psi_idx, ops)
             )
             assert sft_count == brute.count_pairings(2 * n)
 
@@ -126,7 +127,7 @@ class TestVanishing:
 
     def test_case_A_classification_counts(self):
         ops = brute.case_A_operators()
-        kept, reasons = brute.classify_all(ops, ito=True)
+        kept, reasons = brute.classify_all(ops)
         # From the analysis in brute_wick's doctest run:
         # 8 ops -> 105 pairings; 15 killed by psi-psi (the 2 ψ's cannot
         # pair with each other in fact they form a *single* bad pair and
@@ -141,7 +142,7 @@ class TestVanishing:
         assert len(kept) == 30
 
     def test_sftwick_kept_set_matches_brute(self):
-        """generate_valid_pairings(ops, ito=True) returns exactly the
+        """generate_valid_pairings(ops) returns exactly the
         brute-force kept set."""
         phi = Field("phi", "physical")
         psi = Field("psi", "response")
@@ -151,7 +152,7 @@ class TestVanishing:
         phi_idx = [i for i, op in enumerate(ops_sft) if op.field.is_physical]
         psi_idx = [i for i, op in enumerate(ops_sft) if op.field.is_response]
         sft_kept_uid_sets = set()
-        for pairing in generate_valid_pairings(phi_idx, psi_idx, ops_sft, ito=True):
+        for pairing in generate_valid_pairings(phi_idx, psi_idx, ops_sft):
             sft_kept_uid_sets.add(_sftwick_pairing_to_uid_set(pairing, ops_sft))
 
         # Build brute ops with the *same* uids as the sft-wick ops so the
@@ -165,7 +166,7 @@ class TestVanishing:
             )
             for op in ops_sft
         ]
-        brute_kept, _ = brute.classify_all(ops_brute, ito=True)
+        brute_kept, _ = brute.classify_all(ops_brute)
 
         assert sft_kept_uid_sets == brute_kept
 
@@ -174,46 +175,8 @@ class TestVanishing:
         ops = brute.case_B_KK_operators()  # 2φ + 6ψ
         # Every pairing must contain a ψ-ψ pair (only 2 φ's to spread
         # across 8 operators), so all 105 die by psi-psi.
-        _, reasons = brute.classify_all(ops, ito=True)
+        _, reasons = brute.classify_all(ops)
         assert reasons == {"psi-psi": 105, "ok": 0}
-
-    def test_ito_prune_equals_post_filter(self):
-        """Itô early pruning in generate_valid_pairings equals post-hoc
-        filter — same pairings survive both paths."""
-        phi = Field("phi", "physical")
-        psi = Field("psi", "response")
-        ops = _sftwick_case_A_ops(phi, psi)
-        phi_idx = [i for i, op in enumerate(ops) if op.field.is_physical]
-        psi_idx = [i for i, op in enumerate(ops) if op.field.is_response]
-
-        with_prune = set(
-            generate_valid_pairings(phi_idx, psi_idx, ops, ito=True)
-        )
-        # Post-hoc: enumerate with ito=False, then filter via contract_pair
-        no_prune_raw = list(
-            generate_valid_pairings(phi_idx, psi_idx, ops, ito=False)
-        )
-        filtered = set()
-        for pairing in no_prune_raw:
-            props = []
-            ok = True
-            for i, j in pairing:
-                p = contract_pair(ops[i], ops[j], ito=True)
-                if p is None:
-                    ok = False
-                    break
-                props.append(p)
-            if not ok:
-                continue
-            # Post-hoc R-loop filter
-            if brute._has_r_cycle(
-                [(p.kind, p.spatial_left, p.spatial_right, None, None) for p in props]
-            ):
-                continue
-            filtered.add(pairing)
-
-        assert with_prune == filtered
-
 
 # =====================================================================
 # T3 — operator-level Wick sum
@@ -228,7 +191,7 @@ class TestOperatorLevelWick:
         phi = Field("phi", "physical")
         psi = Field("psi", "response")
         ops = _sftwick_case_A_ops(phi, psi)
-        expr, pairings = wick_contract(ops, ito=True)
+        expr, pairings = wick_contract(ops)
         assert len(pairings) == 30
         # If expr is a Sum, its term count matches.  If only one
         # surviving pairing, it collapses — here we have 30 so it's a Sum.
@@ -239,24 +202,33 @@ class TestOperatorLevelWick:
         phi = Field("phi", "physical")
         psi = Field("psi", "response")
         ops = _sftwick_case_B_FK_ops(phi, psi)
-        expr, pairings = wick_contract(ops, ito=True)
+        expr, pairings = wick_contract(ops)
         assert len(pairings) == 12  # brute reference
         assert isinstance(expr, Sum)
         assert len(expr.terms) == 12
 
 
 # =====================================================================
-# T4 — spatial multiplicity
+# T4 — spatial routing count
 # =====================================================================
 
 
-class TestSpatialMultiplicity:
-    """T4: sft-wick's spatial topology enumeration has the right
-    per-topology multiplicities."""
+def _routed_pairings(ops) -> int:
+    """Operator pairings the component routings of the topologies give."""
+    points = frozenset(op.spatial_arg for op in ops)
+    return sum(
+        len(_enumerate_component_routings(props, pairing, list(ops), points))
+        for props, pairing in wick_contract_spatial(ops).values()
+    )
+
+
+class TestSpatialRoutingCount:
+    """T4: the component routings of sft-wick's spatial topologies count
+    the operator pairings of each topology."""
 
     def test_case_A_total_count_equals_brute(self):
-        """The sum of multiplicities over spatial topologies equals the
-        number of kept labelled pairings."""
+        """The routings summed over spatial topologies equal the number of
+        kept labelled pairings."""
         phi = Field("phi", "physical")
         psi = Field("psi", "response")
         ops_sft = _sftwick_case_A_ops(phi, psi)
@@ -271,13 +243,14 @@ class TestSpatialMultiplicity:
             )
             for op in ops_sft
         ]
-        brute_topologies = brute.topology_multiplicities(ops_brute, ito=True)
+        brute_topologies = brute.topology_multiplicities(ops_brute)
         total = sum(brute_topologies.values())
         assert total == 30  # Matches brute_wick.classify_all count.
 
         # Cross-check: wick_contract gives 30 pairings too.
-        _, pairings = wick_contract(ops_sft, ito=True)
+        _, pairings = wick_contract(ops_sft)
         assert len(pairings) == 30
+        assert _routed_pairings(ops_sft) == 30
 
     def test_case_B_FK_total_count_equals_brute(self):
         phi = Field("phi", "physical")
@@ -293,12 +266,13 @@ class TestSpatialMultiplicity:
             )
             for op in ops_sft
         ]
-        brute_topologies = brute.topology_multiplicities(ops_brute, ito=True)
+        brute_topologies = brute.topology_multiplicities(ops_brute)
         total = sum(brute_topologies.values())
         assert total == 12
 
-        _, pairings = wick_contract(ops_sft, ito=True)
+        _, pairings = wick_contract(ops_sft)
         assert len(pairings) == 12
+        assert _routed_pairings(ops_sft) == 12
 
 
 # =====================================================================
@@ -333,12 +307,12 @@ class TestEngineAgreement:
         reset_uid_counter()
         r_op = compute_moment(
             obs, action, order=2,
-            collect_topology=False, response_phase=False, ito=True,
+            collect_topology=False, response_phase=False,
         )
         reset_uid_counter()
         r_sp = compute_moment(
             obs, action, order=2,
-            collect_topology=True, response_phase=False, ito=True,
+            collect_topology=True, response_phase=False,
         )
 
         op_keys = Counter(
@@ -367,7 +341,7 @@ class TestEngineAgreement:
         action = Action(vertices=[v1])
         obs = [phi("x"), phi("y")]
         reset_uid_counter()
-        r_sp = compute_moment(obs, action, order=2, response_phase=False, ito=True)
+        r_sp = compute_moment(obs, action, order=2, response_phase=False)
         distinct = {
             d.to_feynman_diagram().canonical_form()
             for d in r_sp.diagrams_by_order.get(2, [])
@@ -391,7 +365,7 @@ class TestPrefactor:
         obs = [phi("x"), phi("y")]
 
         result = compute_moment(
-            obs, action, order=2, response_phase=False, ito=True,
+            obs, action, order=2, response_phase=False,
         )
         # For order=2 with a single vertex type, multinomial = 2!/2! = 1.
         # Prefactor = (-1)^2 / 2! × 1 = 1/2.
@@ -415,7 +389,7 @@ class TestPrefactor:
         obs = [phi("x"), phi("y")]
 
         result = compute_moment(
-            obs, action, order=2, response_phase=False, ito=True,
+            obs, action, order=2, response_phase=False,
         )
 
         expected_FF = brute.taylor_prefactor(n=2, multinomial=1)   # 1/2
@@ -474,7 +448,7 @@ class TestResponsePhase:
         obs = [phi("x"), phi("y")]
 
         result = compute_moment(
-            obs, action, order=2, response_phase=True, ito=True,
+            obs, action, order=2, response_phase=True,
         )
         for dt in result.diagram_terms(2):
             r_count = sum(1 for p in dt.propagators if p.kind == "R")
@@ -558,7 +532,7 @@ class TestCanonicalForm:
         phi = Field("phi", "physical")
         psi = Field("psi", "response")
         ops_sft = _sftwick_case_A_ops(phi, psi)
-        _, pairings = wick_contract(ops_sft, ito=True)
+        _, pairings = wick_contract(ops_sft)
 
         # Extract propagator lists per pairing
         integration = frozenset({"z0", "z1"})
@@ -566,7 +540,7 @@ class TestCanonicalForm:
         for pairing in pairings:
             props: list = []
             for i, j in pairing:
-                pr = contract_pair(ops_sft[i], ops_sft[j], ito=True)
+                pr = contract_pair(ops_sft[i], ops_sft[j])
                 props.append(pr)
             pair_props_list.append(props)
 
@@ -638,14 +612,14 @@ class TestCollectionSoundness:
         phi = Field("phi", "physical")
         psi = Field("psi", "response")
         ops_sft = _sftwick_case_A_ops(phi, psi)
-        _, pairings = wick_contract(ops_sft, ito=True)
+        _, pairings = wick_contract(ops_sft)
 
         integration = frozenset({"z0", "z1"})
         brute_keys: list[tuple] = []
         sft_keys: list[tuple] = []
         for pairing in pairings:
             props = [
-                contract_pair(ops_sft[i], ops_sft[j], ito=True)
+                contract_pair(ops_sft[i], ops_sft[j])
                 for (i, j) in pairing
             ]
             brute_keys.append(self._brute_isomorphism_key(props))
@@ -828,7 +802,7 @@ class TestFKCouplingCollapse:
         obs = [phi("a", "x"), phi("b", "y")]
         reset_uid_counter()
         result = compute_moment(
-            obs, action, order=2, response_phase=True, ito=True,
+            obs, action, order=2, response_phase=True,
             diag_R=True, diag_C=True, iso_R=True,
         )
         # Extract FK DiagramTerms (those referencing both F and K)
@@ -1390,12 +1364,12 @@ class TestNonIsoPropagatorConsistency:
         obs = [phi("a", "x"), phi("b", "y")]
 
         r_full = compute_moment(
-            obs, action, order=2, response_phase=True, ito=True,
+            obs, action, order=2, response_phase=True,
             # No iso or diag flags — full index structure retained
         )
         reset_uid_counter()
         r_iso = compute_moment(
-            obs, action, order=2, response_phase=True, ito=True,
+            obs, action, order=2, response_phase=True,
             diag_R=True, diag_C=True, iso_R=True, iso_C=True,
         )
 
@@ -1435,7 +1409,7 @@ class TestNonIsoPropagatorConsistency:
         obs = [phi("a", "x"), phi("b", "y")]
 
         result = compute_moment(
-            obs, action, order=2, response_phase=True, ito=True,
+            obs, action, order=2, response_phase=True,
         )
         dt0 = result.diagram_terms(2)[0]
         arr = np.asarray(dt0.evaluate_coupling(
@@ -1498,11 +1472,11 @@ class TestAlphaZeroRegression:
 
         reset_uid_counter()
         result_A = compute_moment(
-            obs, Action(vertices=[v1]), order=2, response_phase=False, ito=True,
+            obs, Action(vertices=[v1]), order=2, response_phase=False,
         )
         reset_uid_counter()
         result_B = compute_moment(
-            obs, Action(vertices=[v1, v2]), order=2, response_phase=False, ito=True,
+            obs, Action(vertices=[v1, v2]), order=2, response_phase=False,
         )
 
         # Extract FF-only DiagramTerms from Case B
@@ -1541,7 +1515,7 @@ class TestAlphaZeroRegression:
 
         reset_uid_counter()
         result = compute_moment(
-            obs, action, order=2, response_phase=True, ito=True,
+            obs, action, order=2, response_phase=True,
             diag_R=True, diag_C=True, iso_R=True,
         )
 

@@ -19,7 +19,7 @@ entry.  Checked here:
   zero-dimensional path, ``integrate_two_point_qmc``, and the legacy
   time-only table;
 * the transposition ``C_ab(t1, t2) = C_ba(t2, t1)`` that fills half of
-  each table, including a kernel that does not satisfy it;
+  each table of a kernel that declares it, and a kernel that does not;
 * that the off-diagonal entries change the answer, by the margin
   between the full C and the same C with its off-diagonal entries
   dropped -- which is what every lookup returned before.
@@ -391,27 +391,22 @@ def test_dense_drift_table_matches_the_embedding():
 def test_component_mixing_kappa2_table_and_its_swapped_key():
     """``GeneralKappa2`` puts the cache in general mode, where the table is
     keyed by the ordered pair ``(x1, x2)``.  The table at ``(y, x)`` is the
-    one at ``(x, y)`` transposed, and is filled without a second build."""
+    one at ``(x, y)`` transposed, built on its own."""
     system = sw.System(
         field=sw.FieldSpec("phi", N), linear=sw.DiagonalA(gamma=list(GAMMA)),
         noise=sw.GaussianNoise(kappa2=GeneralKappa2(fn=MixingKappa2())),
         t_min=T_MIN)
     props = _table(system, n_grid_t=21)
     assert props.homogeneity == "general"
-    lazy = props.cache._lazy_general
     cache = props.cache
 
     def _at(x1, u1, x2, u2):
         return cache.C_at_batch(np.array([T_MIN + u1]), np.array([T_MIN + u2]),
                                 np.full(1, x1), np.full(1, x2))[0]
 
-    _at(X, 1.7, Y, 0.3)
-    assert lazy.n_grid_builds == 1
-    assert len(lazy._splines_by_key) == 2, "the swapped key was not filled"
     for u1, u2 in ((1.7, 0.3), (0.3, 1.7)):
         forward = _at(X, u1, Y, u2)
         backward = _at(Y, u2, X, u1)
-        assert lazy.n_grid_builds == 1
         assert _rel(backward, forward.T) < 1e-12, (u1, u2)
         direct = cache._C_value_direct(np.asarray(X), T_MIN + u1,
                                        np.asarray(Y), T_MIN + u2,
@@ -482,11 +477,6 @@ def test_full_grid_builders_hold_every_entry(mode):
         pairs = [(np.asarray(xs[p]), np.asarray(xs[q]))
                  for p, q in ((0, 2), (2, 0), (1, 1))]
 
-    assert cache._c_transpose_ok(pairs[0][0], pairs[0][1], T_MIN + SPAN,
-                                 swap=(mode == "general")), (
-        f"{mode}: the transposition was refused, so every cell was "
-        f"evaluated and this check says less than it looks")
-
     seen_off = False
     for x1, x2 in pairs:
         for i, j in ((1, 5), (5, 1), (3, 3)):
@@ -530,15 +520,33 @@ def _asymmetric_system():
         t_min=T_MIN)
 
 
-def test_the_half_grid_decision_follows_the_kernel():
-    zero, r = np.asarray(0.0), np.asarray(Y)
-    t_max = T_MIN + SPAN
+def test_only_a_declared_kernel_takes_half_a_table():
     assert PropagatorCache(
         mixing_system().build_propagator_model(diag_C=False),
-    )._c_half_grid(zero, r, t_max) is True
+    )._c_time_symmetric() is True
     assert PropagatorCache(
         _asymmetric_system().build_propagator_model(diag_C=False),
-    )._c_half_grid(zero, r, t_max) is False
+    )._c_time_symmetric() is False
+    assert PropagatorCache(
+        mixing_system(sigma2=CustomImpulse(fn=MixingImpulse()))
+        .build_propagator_model(diag_C=False),
+    )._c_time_symmetric() is False
+
+
+def test_a_declared_closed_form_takes_half_a_table_of_c_aa_only():
+    """The half table takes ``C_ab(t1, t2) = C_ba(t2, t1)`` off the mirror, so
+    a closed form that breaks it read 10 times off under ``diag_C=False``."""
+
+    def closed_form(n1, t1, n2, t2):
+        return np.eye(N)
+
+    closed_form.separable_translation = True
+    for diag_C, half in ((True, True), (False, False)):
+        cache = PropagatorCache(
+            mixing_system().build_propagator_model(diag_C=diag_C),
+            c_value_fn=closed_form,
+        )
+        assert cache._c_time_symmetric() is half
 
 
 def test_an_asymmetric_kernel_gets_every_cell():
@@ -778,17 +786,55 @@ def test_a_diagonal_only_batch_cache_is_refused():
 def test_two_point_qmc_refuses_a_time_only_table_at_distinct_positions():
     """The kappa2 ratio that carries a time-only table to a separation is
     defined per diagonal component; with an off-diagonal C it is refused
-    rather than applied to the diagonal alone."""
+    rather than applied to the diagonal alone.  Order 0 took another route and
+    returned the value at x = y, a factor 3.08 at r = 1.5."""
     system = _iso_system()
     cache = PropagatorCache(system.build_propagator_model(diag_C=False),
                             c_method="gauss_legendre", n_gauss=12)
     cache.precompute_C_table(t_max=T_MIN + SPAN, n_grid=15, direction=0.0)
-    exp = system.expand(("phi_a(x)", "phi_b(y)"), orders=[2], diag_C=False)
     cv = system.build_coupling_values()
-    igs = [dt.build_integrand(cv, {"a": 0, "b": 1}) for dt in exp.diagrams(2)]
+    for order in (0, 2):
+        exp = system.expand(("phi_a(x)", "phi_b(y)"), orders=[order],
+                            diag_C=False)
+        igs = [dt.build_integrand(cv, {"a": 0, "b": 1})
+               for dt in exp.diagrams(order)]
+        with pytest.raises(ValueError, match="no spatial table"):
+            integrate_two_point_qmc(igs, T_MIN + SPAN, POS, cache, t_min=T_MIN,
+                                    n_samples=2 ** 6, seed=1)
+
+
+@dataclass(frozen=True)
+class UpperTriangularR:
+    """``exp((t - s) A)`` for an upper triangular ``A``, rates 1.0 and 1.7."""
+
+    def __call__(self, t, s):
+        if t < s:
+            return np.zeros((N, N))
+        early, late = np.exp(-(t - s)), np.exp(-1.7 * (t - s))
+        return np.array([[early, 2.5 * (early - late) / 0.7], [0.0, late]])
+
+
+def test_two_point_qmc_refuses_a_time_only_table_under_a_dense_r():
+    """A dense R with a diagonal kappa2 and no sigma2: the ratio of kappa2 is
+    defined, and the C it would scale mixes components.  Without the refusal
+    the value is the one at ``x = y``, 1.47 times too large at ``r = 0.7``."""
+    system = sw.System(
+        field=sw.FieldSpec("phi", N),
+        linear=sw.ExplicitR(R_time=UpperTriangularR(), iso_R=False),
+        noise=sw.GaussianNoise(kappa2=sw.SeparableTranslation(
+            temporal=sw.ExponentialTemporal(lam=0.35, sigma_t=0.55),
+            spatial=sw.GaussianSpatial(sigma_x=0.8))),
+        t_min=T_MIN)
+    cache = PropagatorCache(system.build_propagator_model(diag_C=False),
+                            c_method="gauss_legendre", n_gauss=12)
+    cache.precompute_C_table(t_max=T_MIN + SPAN, n_grid=11, direction=0.0)
+    exp = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0], diag_R=False,
+                        diag_C=False)
+    igs = [dt.build_integrand(system.build_coupling_values(), {"a": 0, "b": 1})
+           for dt in exp.diagrams(0)]
     with pytest.raises(ValueError, match="no spatial table"):
-        integrate_two_point_qmc(igs, T_MIN + SPAN, POS, cache, t_min=T_MIN,
-                                n_samples=2 ** 6, seed=1)
+        integrate_two_point_qmc(igs, T_MIN + SPAN, {"x": 0.0, "y": 0.7}, cache,
+                                t_min=T_MIN, n_samples=2 ** 6, seed=1)
 
 
 # =====================================================================
@@ -842,3 +888,48 @@ def test_closed_form_only_still_bypasses_the_tables():
         got = _table_C(props, u1, u2, Y)
         ref = cf(np.asarray(0.0), T_MIN + u1, np.asarray(Y), T_MIN + u2)
         assert _rel(got, ref) < 1e-12, (u1, u2)
+
+
+def test_a_time_only_table_hands_the_kernel_the_positions_as_given():
+    """``integrate_two_point_qmc`` rescales a time-only table by κ² at the two
+    points.  It wrapped them in arrays first, and ``np.diag(a(n1) * a(n2))``
+    on a result of shape ``(2, 1)`` kept one entry and broadcast over the
+    components, with no error, at 46 to 94 percent off.  A kernel sees here
+    what every other site hands it.  Reference: a general table, built from
+    scalars."""
+    tau = 0.6
+
+    def amplitude(n):
+        return np.array([1.0 + 0.5 * n, 2.0 - 0.3 * n])
+
+    def kernel(n1, t1, n2, t2):
+        return np.diag(amplitude(n1) * amplitude(n2)) * np.exp(-abs(t1 - t2) / tau)
+
+    system = sw.System(
+        field=sw.FieldSpec("phi", n_components=2),
+        linear=sw.DiagonalA(gamma=[0.7, 1.9]),
+        vertices=[sw.LocalVertex("F", coupling=np.array([[0.2, 0.5], [-0.3, 0.1]]))],
+        noise=sw.GaussianNoise(kappa2=sw.GeneralKappa2(fn=kernel)),
+        t_min=0.4,
+    )
+    expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0], progress=False)
+    couplings = system.build_coupling_values()
+    positions = {"x": 0.2, "y": -0.5}
+
+    def order_zero(cache, component):
+        igs = [
+            term.build_integrand(couplings, {"a": component, "b": component})
+            for term in expansion.diagrams(0)
+        ]
+        return integrate_two_point_qmc(
+            igs, 2.5, positions, cache, t_min=0.4, n_samples=2**8, seed=3
+        )[0]
+
+    time_only = PropagatorCache(system.build_propagator_model(), homogeneity="translation")
+    time_only.precompute_C_table(3.0, n_grid=41, direction=0.7)
+    general = PropagatorCache(system.build_propagator_model(), homogeneity="general")
+    general.precompute_C_table_general(t_max=3.0, n_grid_t=41)
+    for component in (0, 1):
+        assert order_zero(time_only, component) == pytest.approx(
+            order_zero(general, component), rel=1e-5, abs=0.0
+        )

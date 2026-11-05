@@ -42,7 +42,8 @@ from scipy.linalg import expm, solve_continuous_lyapunov
 import sft_wick as sw
 from sft_wick.workflow import specs as sp
 from sft_wick.workflow.closed_forms import builtin_closed_form_for
-from sft_wick.workflow.config import (build_system, load_workflow_config,
+from sft_wick.workflow.config import (ConfigError, build_system,
+                                      check_before_run, load_workflow_config,
                                       run_workflow)
 
 os.environ.setdefault("SFT_WICK_QUIET_CACHE", "1")
@@ -455,14 +456,6 @@ _SCALAR_R_MODULE = '''
         return 0.0 if t1 < t2 else float(np.exp(-(t1 - t2)))
 '''
 
-_ACAUSAL_R_MODULE = '''
-    import numpy as np
-
-
-    def R_time(t1, t2):
-        return float(np.exp(-abs(t1 - t2)))     # the Heaviside is missing
-'''
-
 
 def _dense_config(module: Path) -> dict:
     cfg = _base_config()
@@ -565,9 +558,8 @@ def test_YC4_matrix_explicit_R_three_point_function(tmp_path):
 @pytest.mark.parametrize("module_src,iso_R,match", [
     (_SCALAR_R_MODULE, False, r"has shape \(\), but iso_R: false"),
     (_DENSE_R_MODULE, True, r"has shape \(2, 2\), but iso_R: true"),
-    (_ACAUSAL_R_MODULE, True, "causal"),
 ])
-def test_YC4_explicit_R_is_probed_for_shape_and_causality(
+def test_YC4_explicit_R_is_probed_for_shape(
         tmp_path, module_src, iso_R, match):
     module = _write(tmp_path, "yc_probe_r.py", module_src)
     cfg = _base_config()
@@ -929,6 +921,7 @@ def test_YC10_every_sweep_key_is_accepted_and_read(tmp_path):
                  id="sigma_2"),
     pytest.param(("expand",), "ordrs", r"expand\.", id="ordrs"),
     pytest.param(("expand",), "diag_c", r"expand\.", id="diag_c"),
+    pytest.param(("expand",), "ito", r"expand\.", id="ito"),
     pytest.param(("propagators",), "n_grid_tt", r"propagators\.",
                  id="n_grid_tt"),
     pytest.param(("propagators",), "c_methd", r"propagators\.", id="c_methd"),
@@ -1078,7 +1071,7 @@ def test_YC12_L1_positions_may_name_points_the_observable_does_not_use(tmp_path)
 # ---------------------------------------------------------------------------
 
 _FLAGS = [
-    ("expand", "response_phase"), ("expand", "ito"),
+    ("expand", "response_phase"),
     ("expand", "collect_topology"), ("expand", "diag_R"),
     ("expand", "diag_C"), ("expand", "iso_C"),
     ("propagators", "c_closed_form_only"),
@@ -1106,6 +1099,27 @@ def test_YC13_a_flag_reads_the_words_true_and_false(tmp_path, block, key):
                                              f"or false"):
             load_workflow_config(_write(tmp_path, "c.yaml",
                                         yaml.safe_dump(cfg)))
+
+
+def test_YC13_validate_reads_the_c_the_run_reads_under_iso_C(tmp_path):
+    """The check built its model with ``diag_C=True``, which drops the
+    off-diagonal C that ``iso_C`` refuses, so ``validate`` passed a C with 30
+    percent off the diagonal and ``run`` ended in a traceback."""
+    from sft_wick.workflow.cli import main
+
+    for offdiagonal, status in [(0.3, 2), (0.0, 0)]:
+        cfg = _base_config(
+            system__linear__gamma=[1.0, 1.0],
+            expand__iso_C=True,
+            propagators__diag_C=False,
+            propagators__c_closed_form=None,
+        )
+        cfg["system"]["noise"]["sigma2"] = {
+            "type": "constant",
+            "amplitude": [[1.0, offdiagonal], [offdiagonal, 1.0]],
+        }
+        path = _write(tmp_path, "c.yaml", yaml.safe_dump(cfg))
+        assert main(["validate", str(path)]) == status, offdiagonal
 
 
 def test_YC13_expand_iso_R_is_null_or_a_flag(tmp_path):
@@ -1248,6 +1262,55 @@ def test_YC17_an_isotropy_flag_whose_condition_fails_is_refused(tmp_path,
     cfg["system"]["vertices"] = [{"name": "F", "coupling": _F_TENSOR}]
     with pytest.raises(ValueError, match="iso_C=True|iso_R=True"):
         _run(tmp_path, cfg)
+
+
+@pytest.mark.parametrize("flag, orders", [("iso_R", [2]), ("iso_C", [0])])
+def test_YC17_the_refusal_is_a_config_error_before_the_run(tmp_path, flag, orders):
+    """It reaches ``sft-wick validate``, at the key that states the flag, and
+    ``sft-wick run`` gives status 2 rather than a traceback."""
+    cfg = _base_config(expand__orders=orders)
+    cfg["expand"][flag] = True
+    cfg["system"]["vertices"] = [{"name": "F", "coupling": _F_TENSOR}]
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    with pytest.raises(ConfigError) as caught:
+        check_before_run(load_workflow_config(path))
+    assert caught.value.path == f"expand.{flag}"
+
+
+def test_YC17_iso_R_at_order_zero_reads_no_R_and_is_not_refused(tmp_path):
+    """The other side: an index-free R that no diagram holds is never read."""
+    cfg = _base_config(expand__orders=[0])
+    cfg["expand"]["iso_R"] = True
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    check_before_run(load_workflow_config(path))
+
+
+def test_YC17_iso_R_on_absorbed_R_only_is_not_refused(tmp_path):
+    """The integrators skip an absorbed R, so no matrix R is read, whatever
+    the rates.  The vertex's times are the externals', so no time is
+    integrated and the value is the kernel's mean over the legs' orderings."""
+    (tmp_path / "kernel.py").write_text(
+        "import numpy as np\n\n\n"
+        "def K(n_list, t_list):\n"
+        "    return np.arange(1.0, 9.0).reshape(2, 2, 2) / 4.0\n")
+    cfg = _base_config(expand__orders=[1], sweep__orders=[1])
+    cfg["system"]["nonlocal_vertices"] = [{
+        "name": "K", "order": 3, "coupling_module": "./kernel.py",
+        "coupling_attr": "K", "already_R_contracted": True}]
+    cfg["expand"].update(observable=["phi_a(x)", "phi_b(y)", "phi_c(z)"],
+                         iso_R=True)
+    cfg["sweep"].update(positions_grid={"x": [0.0], "y": [0.0], "z": [0.0]},
+                        component_tuples=[[0, 1, 1]])
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    loaded = load_workflow_config(path)
+    check_before_run(loaded)
+    tensor = np.arange(1.0, 9.0).reshape(2, 2, 2) / 4.0
+    expected = np.mean([tensor[p] for p in itertools.permutations((0, 1, 1))])
+    _, totals = run_workflow(loaded)
+    assert totals["value"].iloc[0] == pytest.approx(expected, rel=1e-12, abs=0.0)
 
 
 @pytest.mark.parametrize("old,new,path", [
@@ -1517,3 +1580,117 @@ def test_YC20_each_diagram_draws_after_the_checks(tmp_path, coupling, order):
     assert records
     for record in records:
         record.to_feynman_diagram()
+
+
+# ---------------------------------------------------------------------------
+# What L2 refuses, L1 refuses too; dt spans the table
+# ---------------------------------------------------------------------------
+
+
+def _l1_system(*, n=2, gamma=(1.0, 1.3), temporal=None, spatial=None, sigma2=None,
+               vertices=(), nonlocal_vertices=()):
+    return sw.System(
+        field=sp.FieldSpec("phi", n_components=n),
+        linear=sp.DiagonalA(gamma=list(gamma)),
+        noise=sp.GaussianNoise(
+            kappa2=sp.SeparableTranslation(
+                temporal=temporal or sp.ExponentialTemporal(lam=0.2, sigma_t=0.4),
+                spatial=spatial or sp.GaussianSpatial(sigma_x=0.8),
+            ),
+            sigma2=sigma2,
+        ),
+        vertices=vertices,
+        nonlocal_vertices=nonlocal_vertices,
+    )
+
+
+@pytest.mark.parametrize("build", [
+    lambda: sp.ConstantImpulse([[0.1, 0.05], [0.0, 0.1]]),
+    lambda: sp.ConstantImpulse(np.array([0.1, 0.2])),
+    lambda: _l1_system(sigma2=sp.ConstantImpulse(np.eye(3))),
+    lambda: sp.ExponentialTemporal(lam=0.2, sigma_t=-0.3),
+    lambda: sp.GaussianTemporal(lam=0.2, sigma_t=0.0),
+    lambda: sp.ExponentialSpatial(sigma_x=-1.0),
+    lambda: sp.GaussianSpatial(sigma_x=0.0),
+    lambda: _l1_system(gamma=(1.0, 2.0, 3.0)),
+    lambda: _l1_system(vertices=(sp.LocalVertex("F", np.ones((3, 3, 3))),)),
+    lambda: _l1_system(vertices=(sp.LocalVertex("F", np.ones((2, 3, 3))),)),
+    lambda: _l1_system(vertices=(sp.LocalVertex("F", np.array(1.0)),)),
+    lambda: _l1_system(nonlocal_vertices=(
+        sp.NonLocalVertex("K", 3, np.ones((2, 2))),)),
+    lambda: sp.NonLocalVertex("K", 0, np.array(1.0)),
+], ids=["asymmetric", "vector amplitude", "amplitude of another N",
+        "negative sigma_t", "zero sigma_t", "negative sigma_x", "zero sigma_x",
+        "rates of another N", "F past N", "F of mixed axes", "scalar F at N=2",
+        "K of another rank", "K of order 0"])
+def test_L1_refuses_what_the_parser_refuses(build):
+    with pytest.raises(ValueError):
+        build()
+
+
+def test_a_refused_amplitude_is_shown_as_it_was_written():
+    with pytest.raises(ValueError, match=r"Got \[\[1\.0, 0\.5\], \[0\.500000001, 1\.0\]\]"):
+        sp.ConstantImpulse(np.array([[1.0, 0.5], [0.500000001, 1.0]]))
+    with pytest.raises(ValueError, match="amplitude has shape"):
+        sp.ConstantImpulse(np.zeros((0, 0)))
+
+
+def test_L1_keeps_the_spellings_that_gave_the_right_number():
+    """Equal rates of any count lower to one scalar R, a 0-d coupling at
+    N = 1 is the (1,) one, and an infinite width is a constant kernel."""
+    obs = ("phi_a(x)", "phi_b(y)")
+    kw = dict(positions={"x": 0.1, "y": 0.9}, t_final=2.0, component_pair=(1, 1),
+              method="gauss_legendre", n_gauss=6)
+
+    def value(system, observable=obs, **more):
+        props = system.propagators(t_max=3.0, n_grid_t=8, progress=False)
+        return system.expand(observable, orders=[0, 2], progress=False).evaluate(
+            props, **{**kw, **more}).total
+
+    assert value(_l1_system(gamma=(1.0, 1.0, 1.0))) == pytest.approx(
+        value(_l1_system(gamma=(1.0, 1.0))), rel=1e-12, abs=0.0)
+    scalar, vector = (
+        value(_l1_system(n=1, gamma=(1.0,),
+                         vertices=(sp.LocalVertex("F", coupling),)),
+              ("phi(x)", "phi(y)"), component_pair=(0, 0))
+        for coupling in (np.array(0.7), np.array([0.7]))
+    )
+    assert scalar == vector
+    assert np.isfinite(value(_l1_system(
+        temporal=sp.ExponentialTemporal(lam=0.2, sigma_t=np.inf))))
+
+
+@pytest.mark.parametrize("t_min,t_max,dt,nodes", [
+    (0.0, 2.0, 0.1, 20),
+    (-10.0, 0.0, 0.1, 100),
+    (95.0, 100.0, 0.1, 50),
+    (-1000.0, 1.0, 0.1, 10010),
+    (1.0, 1.5, 1.0, 2),
+])
+def test_dt_spans_the_time_table(tmp_path, t_min, t_max, dt, nodes):
+    doc = _base_config(system__t_min=t_min, propagators={"t_max": t_max, "dt": dt})
+    doc["sweep"]["t_final_grid"] = [t_max]
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(doc))
+    assert load_workflow_config(path).propagators.n_grid_t == nodes
+
+
+def test_dt_gives_a_table_that_reproduces_the_closed_form(tmp_path):
+    """Below t = 0 a dt used to give two nodes, 10 % off the closed form."""
+    doc = _base_config(system__t_min=-3.0,
+                       propagators={"t_max": 0.0, "dt": 0.15, "r_max": 3.0,
+                                    "n_grid_r": 4, "c_closed_form": None,
+                                    "interp_method": "cubic"})
+    doc["sweep"]["t_final_grid"] = [0.0]
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(doc))
+    cfg = load_workflow_config(path)
+    system = build_system(cfg.system)
+    table = system.propagators(
+        t_max=0.0, n_grid_t=cfg.propagators.n_grid_t, r_max=3.0, n_grid_r=4,
+        interp_method="cubic", c_closed_form=None, progress=False).cache
+    exact = builtin_closed_form_for(system)
+    x1, x2 = np.array([0.0]), np.array([1.0])  # a node of the r grid
+    t = np.array([-1.03])
+    got = np.ravel(table.C_at_batch(t, t, x1, x2))
+    assert got == pytest.approx(np.diag(exact(x1, t, x2, t)[0]), rel=1e-3, abs=0.0)

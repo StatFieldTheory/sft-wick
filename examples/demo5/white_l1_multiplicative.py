@@ -25,14 +25,14 @@ coefficient in the exact hierarchy (``white_hormander_reference.py``),
 for ``⟨φ_a⟩`` and ``⟨φ_a φ_b⟩`` (and a two-time ``⟨φ_a(t₁) φ_b(t₂)⟩``).
 
 Equal rates give a scalar R (Gauss-Legendre, ``qmc_vectorized``); distinct
-rates a diagonal matrix R, which runs on the scalar loops (``qmc_scalar``,
-``nquad``).
+rates a diagonal matrix R, which this script runs on the scalar loops
+(``qmc_scalar``, ``nquad``).
 
-With the two external points at **different times**, Gauss-Legendre
-converges algebraically: an internal time crosses the earlier external time
-inside the domain, where C is kinked (white noise), and the GL kink split
-pairs internal variables only.  The two-time part therefore reports
-``nquad`` and ``qmc_vectorized`` as well.
+With the two external points at **different times**, an internal time
+crosses the earlier external time inside the domain, where C is kinked
+(white noise).  Gauss-Legendre and ``nquad`` cut the domain at that time.
+The two-time part reports ``nquad`` and ``qmc_vectorized`` beside
+Gauss-Legendre.
 
 Run ``python white_l1_multiplicative.py``; results go to
 ``white_l1_multiplicative_results.json``.
@@ -252,8 +252,7 @@ RUNS = [
      [(ONE, None, 1), (TWO, None, 2)]),
 ]
 
-#: The two-time part: ``nquad`` and QMC converge, Gauss-Legendre does not
-#: (see the module docstring).
+#: The two-time part (see the module docstring).
 TWO_TIME_RUNS = [
     ("nquad", {}), ("qmc_vectorized", dict(n_samples=2 ** 16, seed=3)),
     ("gauss_legendre", dict(n_gauss=12)),

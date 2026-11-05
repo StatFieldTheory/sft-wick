@@ -3,11 +3,11 @@
 Writing two or more external operators with the SAME spatial label --
 ``("phi_a(x)", "phi_b(x))`` rather than ``("phi_a(x)", "phi_b(y)")`` --
 used to return a silently wrong number.  The spatial Wick engine
-enumerates topologies keyed by spatial LABEL and recovers the
-operator-level count with a multiplicity
-(``wick._compute_multiplicity``), which explicitly excludes observable
-points on the assumption that each carries exactly one operator.  Two
-externals sharing a label break that assumption.
+enumerates topologies keyed by spatial LABEL, and the component routing
+step recovers the operator-level pairings by permuting the operators at
+vertex points.  It leaves observable points alone on the assumption that
+each carries exactly one operator.  Two externals sharing a label break
+that assumption.
 
 Measured on ``main`` at d4df86c, demo2's system, t = 3.48, both
 externals at position 0:
@@ -129,7 +129,7 @@ def test_CE2_order_zero_is_exempt_and_correct():
 
         <psi(w) phi(x) phi(y) phi(z)>
             -> R(x,w)C(y,z) + R(y,w)C(x,z) + R(z,w)C(x,y)
-        <psi(x) phi(x) phi(x) phi(x)>  ->  3 R(x,x) C(x,x)
+        <psi(w) phi(x) phi(x) phi(x)>  ->  3 R(x,w) C(x,x)
 
     The equal-point Itô tests in ``test_perturbation.py`` and
     ``test_deductive_numerics.py`` depend on this exemption.
@@ -146,14 +146,12 @@ def test_CE2_order_zero_is_exempt_and_correct():
     for pair in ("C_{ab}", "C_{cd}", "C_{ac}", "C_{bd}", "C_{ad}", "C_{bc}"):
         assert pair in coincident, f"{pair} missing from {coincident}"
 
-    sw.reset_uid_counter()
-    phi_s = Field("phi", "physical")
-    psi_s = Field("psi", "response")
-    scalar = compute_moment(
-        [psi_s("x"), phi_s("x"), phi_s("x"), phi_s("x")],
-        A0, order=0, ito=False, response_phase=False,
+    scalar, response = Field("phi", "physical"), Field("psi", "response")
+    multiplied = compute_moment(
+        [response("w"), scalar("x"), scalar("x"), scalar("x")],
+        A0, order=0, response_phase=False,
     ).order(0).to_latex()
-    assert "3" in scalar and "R(x, x)" in scalar and "C(x, x)" in scalar, scalar
+    assert multiplied == "3 R(x, w) C(x, x)"
 
 
 # --------------------------------------------------------------------------
@@ -257,7 +255,6 @@ def test_CE4_compute_moment_numerical_refuses_repeated_labels():
     with pytest.raises(ValueError, match="share the same spatial label"):
         compute_moment_numerical(
             [phi("a", "x"), phi("b", "x")], action, order=2,
-            coupling_values={"F": -1j * F}, fixed_indices={"a": 0, "b": 0},
             diag_R=True, diag_C=True, iso_R=True, iso_C=True,
         )
 
@@ -276,7 +273,6 @@ def test_CE4_compute_moment_numerical_order_zero_stays_exempt():
 
     out = compute_moment_numerical(
         [phi("a", "x"), phi("b", "x")], action, order=0,
-        coupling_values={"F": -1j * F}, fixed_indices={"a": 0, "b": 0},
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
     assert 0 in out and len(out[0]) >= 1, out
@@ -312,8 +308,7 @@ def test_CE4_both_L0_engines_guard_identically():
         action = sw.Action(vertices=[sw.Vertex(fields=[phi, phi, psi], coupling="F")])
         obs = [phi("a", "x"), phi("b", "x")]
         num = _raises(lambda: compute_moment_numerical(
-            obs, action, order=order, coupling_values={"F": -1j * F},
-            fixed_indices={"a": 0, "b": 0},
+            obs, action, order=order,
             diag_R=True, diag_C=True, iso_R=True, iso_C=True))
         assert sym == num, (
             f"order {order}: compute_moment refuses={sym} but "

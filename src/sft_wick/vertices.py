@@ -7,12 +7,18 @@ A VertexInstance is a concrete instantiation with freshly assigned indices.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Sequence
+from typing import Iterable, Sequence
 
 from ._util import require_bool
 from .expressions import Symbol
 from .fields import Field, FieldOperator
 from .indices import IndexContext
+
+
+def equal_time_aliases(legs: Sequence[str]) -> tuple[tuple[str, str], ...]:
+    """``(leg, first leg)`` for every leg after the first of an equal-time
+    group: the first leg created stands for the group's one time."""
+    return tuple((leg, legs[0]) for leg in legs[1:])
 
 
 @dataclass(frozen=True)
@@ -73,7 +79,14 @@ class Vertex:
                 "leg coordinates; declaring the result equal-shell "
                 "would be vacuous."
             )
-        object.__setattr__(self, "fields", tuple(fields))
+        fields = tuple(fields)
+        if already_R_contracted and any(f.is_physical for f in fields):
+            raise ValueError(
+                "already_R_contracted=True takes response fields only: the "
+                "callable has integrated each leg against the R that joins "
+                "it to its partner, and a phi leg has no such R of its own."
+            )
+        object.__setattr__(self, "fields", fields)
         object.__setattr__(self, "coupling", coupling)
         object.__setattr__(self, "local", local)
         object.__setattr__(self, "equal_time", bool(equal_time))
@@ -211,12 +224,6 @@ class VertexInstance:
                 spatial_args=tuple(spatial_vars),
             )
 
-        alias_pairs: list[tuple[str, str]] = []
-        if vertex.equal_time and len(spatial_vars) > 1:
-            rep = spatial_vars[0]
-            for var in spatial_vars[1:]:
-                alias_pairs.append((var, rep))
-
         return cls(
             vertex=vertex,
             field_operators=final_operators,
@@ -224,5 +231,19 @@ class VertexInstance:
             spatial_variables=spatial_vars,
             component_indices=comp_indices,
             copy_id=copy_id,
-            equal_time_aliases=tuple(alias_pairs),
+            equal_time_aliases=(
+                equal_time_aliases(spatial_vars) if vertex.equal_time else ()
+            ),
         )
+
+
+def all_operators(
+    observable: Iterable[FieldOperator],
+    vertex_instances: Iterable[VertexInstance],
+) -> list[FieldOperator]:
+    """The operator list a pairing indexes: the observable, then the
+    operators of each vertex instance."""
+    operators = list(observable)
+    for vi in vertex_instances:
+        operators.extend(vi.field_operators)
+    return operators

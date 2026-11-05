@@ -953,13 +953,31 @@ def test_CE8_text_in_a_coupling_is_refused_before_numpy_stores_it(
     assert peak < 20 * 2 ** 20
 
 
+def _with_a_boolean(tensor):
+    """``tensor`` with its first number replaced by ``True``."""
+    if not isinstance(tensor, (list, np.ndarray)):
+        return True
+    return [_with_a_boolean(tensor[0]), *list(tensor[1:])]
+
+
+@pytest.mark.parametrize("key", TENSOR_KEYS)
+def test_CE8_a_boolean_in_a_tensor_is_refused_as_the_schema_refuses_it(
+        tmp_path, key):
+    """NumPy read ``true`` beside a number as 1, so the parser took what the
+    schema refused, while ``t_max: true`` is refused for that reading."""
+    path = _with_tensor(tmp_path, key, _with_a_boolean(TENSOR_KEYS[key][0]))
+    with pytest.raises(ConfigError) as info:
+        check_before_run(load_workflow_config(path))
+    assert info.value.path == key
+
+
 def test_CE8_the_search_for_text_enters_each_list_once(hang_fails):
-    assert not cf._holds_text(_doubling(400))
-    assert cf._holds_text(_doubling(400, (1.0, "x")))
-    assert cf._holds_text(((1.0, "x"),))
+    assert not cf._holds(_doubling(400), (str, bytes))
+    assert cf._holds(_doubling(400, (1.0, "x")), (str, bytes))
+    assert cf._holds(((1.0, "x"),), (str, bytes))
     loop: list = []
     loop.append(loop)
-    assert not cf._holds_text(loop)
+    assert not cf._holds(loop, (str, bytes))
 
 
 def test_CE8_a_tuple_is_measured_as_a_list_is():

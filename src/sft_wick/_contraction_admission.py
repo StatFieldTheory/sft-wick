@@ -84,6 +84,8 @@ import math
 
 import numpy as np
 
+from .expressions import QUARTER_TURNS
+
 #: Default workspace budget, in bytes, for one coupling contraction (64 MiB).
 DEFAULT_CONTRACTION_MAX_BYTES = 64 * 1024 * 1024
 
@@ -101,11 +103,13 @@ _MIN_EXPONENT = -1021
 #: A*T) u`` still bounds the rounding below this limit.
 _MAX_ACCUMULATED = 2**46
 
+#: The accepted ``contraction_backend`` values; the workflow schema and the
+#: resource comparison read them from here.
+CONTRACTION_BACKENDS = ("ordered", "einsum", "factorized")
+
 #: Coefficients whose rotated imaginary part is nonzero are checked one by
 #: one with the ordered projector; above this count the backend declines.
 _MAX_PHASE_CHECKS = 4096
-
-QUARTER_TURNS = (1 + 0j, 1j, -1 + 0j, -1j)
 
 #: Most summation labels of one contraction: ``numpy.einsum`` names 52
 #: axes, and the sample axis takes one of them.
@@ -159,7 +163,7 @@ _BACKEND_MONOMIAL_SAMPLE = 5.0
 
 def validate_contraction_options(backend, max_bytes) -> None:
     """Validate the backend selector and the positive workspace budget."""
-    if type(backend) is not str or backend not in ("ordered", "einsum", "factorized"):
+    if type(backend) is not str or backend not in CONTRACTION_BACKENDS:
         raise ValueError(
             "contraction_backend must be 'ordered', 'einsum' or 'factorized'"
         )

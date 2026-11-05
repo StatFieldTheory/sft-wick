@@ -9,7 +9,7 @@ Usage:
     v = Vertex(fields=[phi, phi, psi], coupling='F')
     action = Action(vertices=[v])
 
-    obs = [psi('a', 'x'), phi('b', 'x'), phi('c', 'x'), phi('d', 'x')]
+    obs = [phi('a', 'x'), phi('b', 'y'), phi('c', 'z')]
     result = compute_moment(obs, action, order=1)
     print(result.to_latex())
 """

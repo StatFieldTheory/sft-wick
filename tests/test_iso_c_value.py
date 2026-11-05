@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 
 import sft_wick as sw
+from sft_wick.evaluate import _isotropic_C
 from sft_wick.workflow.specs import GeneralKappa2
 
 N = 2
@@ -96,3 +97,18 @@ def test_a_non_isotropic_C_is_refused_under_iso_C():
         exp.evaluate(props, positions=POS, t_final=T_FINAL,
                      component_pair=(0, 0), orders=[0],
                      method="gauss_legendre")
+
+
+def test_each_point_is_judged_against_its_own_size():
+    """The batch took one scale, so a small sample passed in a batch and was
+    refused alone."""
+    healthy = np.array([1.0, 1.0])
+    uneven = np.array([1e-12, 2e-12])
+    with pytest.raises(ValueError, match="iso_C"):
+        _isotropic_C(uneven)
+    with pytest.raises(ValueError, match="iso_C"):
+        _isotropic_C(np.stack([healthy, uneven]), batched=True)
+    assert _isotropic_C(np.stack([healthy, 1e-12 * healthy]), batched=True)[1] == 1e-12
+    mixing = 1e-12 * np.array([[1.0, 0.5], [0.5, 1.0]])
+    with pytest.raises(ValueError, match="iso_C"):
+        _isotropic_C(np.stack([np.eye(2), mixing]), batched=True)

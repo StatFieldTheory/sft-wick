@@ -436,6 +436,20 @@ def test_L0_Vertex_already_R_contracted_local_rejected():
         )
 
 
+def test_L0_Vertex_already_R_contracted_takes_response_fields_only():
+    """A phi leg has no R of its own to absorb.  It used to record a pair
+    that two of the three readers matched and one did not."""
+    from sft_wick import Field, Vertex
+    phi = Field("phi", "physical", n_components=2)
+    psi = Field("psi", "response", n_components=2)
+    with pytest.raises(ValueError, match="response fields only"):
+        Vertex(
+            fields=[phi, psi, psi], coupling="K",
+            local=False,
+            already_R_contracted=True,
+        )
+
+
 def test_L0_Vertex_already_R_contracted_equal_time_rejected():
     from sft_wick import Field, Vertex
     psi = Field("psi", "response", n_components=2)
@@ -747,3 +761,70 @@ def test_build_R_contracted_callable_rejects_bad_inputs():
     )
     with pytest.raises(ValueError, match="t_list_outer"):
         contracted([0, 0, 0], [0.5, 0.5])  # wrong length
+
+
+def test_integrand_latex_prints_only_the_R_it_multiplies():
+    """An absorbed R is no factor of the integrand and its leg time has no
+    integral, so printing it described another integral."""
+    coupling = np.zeros((2, 2, 2))
+    coupling[0, 1, 1] = 1.0
+    system = sw.System(
+        field=sw.FieldSpec("phi", n_components=2),
+        linear=sw.DiagonalA(gamma=[1.0, 1.0]),
+        noise=sw.GaussianNoise(kappa2=sw.SeparableTranslation(
+            temporal=sw.ExponentialTemporal(lam=1.0, sigma_t=1.0),
+            spatial=sw.ExponentialSpatial(sigma_x=1.0),
+        )),
+        vertices=[sw.LocalVertex("F", coupling=coupling)],
+        nonlocal_vertices=[sw.NonLocalVertex(
+            "K", order=3, coupling=lambda n, t: np.ones((2, 2, 2)),
+            already_R_contracted=True,
+        )],
+    )
+    expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=[2], progress=False)
+    terms = [t for t in expansion.diagrams(2) if t.r_absorbed_pairs]
+    assert terms
+    couplings = system.build_coupling_values()
+    for term in terms:
+        ig = term.build_integrand(couplings, {"a": 0, "b": 1})
+        assert ig.to_latex().count("R(t_") == 1
+
+
+def test_a_chain_of_aliases_reads_one_time_on_every_integrator():
+    """A leg of an equal-time vertex can be the partner of an absorbed leg, so
+    an alias points at an alias.  The batched integrators read through the
+    chain and the scalar ones raised ``KeyError`` on a callable coupling."""
+    phi, psi = sw.Field("phi", "physical"), sw.Field("psi", "response")
+    equal = sw.Vertex(fields=[psi, phi, phi], coupling="E", local=False, equal_time=True)
+    absorbed = sw.Vertex(
+        fields=[psi, psi], coupling="K", local=False, already_R_contracted=True
+    )
+    terms = sw.compute_moment(
+        [phi("x"), phi("y")], sw.Action(vertices=[equal, absorbed]), order=3
+    ).diagram_terms(3)
+
+    def chained(term):
+        aliases = dict(term.equal_time_aliases)
+        return any(rep in aliases for rep in aliases.values())
+
+    term = next(t for t in terms if chained(t))
+    model = sw.PropagatorModel(
+        R_time=lambda a, b: np.exp(-0.7 * (a - b)),
+        kappa2=lambda n1, t1, n2, t2: np.array([[np.exp(-abs(t1 - t2))]]),
+        n_components=1,
+        iso_R=True,
+        diag_C=True,
+    )
+    cache = sw.PropagatorCache(model)
+    cache.precompute_C_table(t_max=2.5, n_grid=41)
+    ig = term.build_integrand({
+        "E": np.ones((1, 1, 1)),
+        "K": lambda ns, ts: np.array([[np.exp(-ts[0]) * (1.0 + 0.5 * ts[1])]]),
+    })
+    at = {"t_min": 0.0, "positions": {"x": 0.0, "y": 0.0}}
+    reference = sw.integrate_moment(
+        ig, 2.0, cache, method="gauss_legendre", n_gauss=16, **at
+    )[0]
+    got = sw.integrate_moment(ig, 2.0, cache, method="nquad", **at)[0]
+    assert got == pytest.approx(reference, rel=1e-5, abs=0.0)
+    assert reference != 0.0

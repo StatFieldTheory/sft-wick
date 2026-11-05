@@ -1,12 +1,15 @@
 """Tests for the simplification pipeline and diagram-based collection."""
 
+import numpy as np
 import pytest
+from sft_wick import Action, Field, Vertex, compute_moment
 from sft_wick.expressions import (
-    ZERO, ONE, KroneckerDelta, Product, Propagator, Rational, Sum, Symbol,
+    ZERO, ONE, ImaginaryUnit, KroneckerDelta, Product, Propagator, Rational,
+    Sum, Symbol,
     IntegralOver, SumOverIndex,
 )
+from sft_wick.expressions import canonical_edge
 from sft_wick.simplify import (
-    _canonical_edge,
     _canonical_diagram_form,
     _match_propagators_after_spatial,
     collect_by_diagram,
@@ -16,26 +19,26 @@ from sft_wick.simplify import (
 
 
 # ---------------------------------------------------------------------------
-# _canonical_edge
+# canonical_edge
 # ---------------------------------------------------------------------------
 
 
 class TestCanonicalEdge:
     def test_c_symmetric_sorted(self):
-        assert _canonical_edge("C", "y", "x") == ("C", "x", "y")
+        assert canonical_edge("C", "y", "x") == ("C", "x", "y")
 
     def test_c_already_sorted(self):
-        assert _canonical_edge("C", "x", "y") == ("C", "x", "y")
+        assert canonical_edge("C", "x", "y") == ("C", "x", "y")
 
     def test_c_equal_points(self):
-        assert _canonical_edge("C", "x", "x") == ("C", "x", "x")
+        assert canonical_edge("C", "x", "x") == ("C", "x", "x")
 
     def test_r_directed_not_sorted(self):
-        assert _canonical_edge("R", "x", "y") == ("R", "x", "y")
-        assert _canonical_edge("R", "y", "x") == ("R", "y", "x")
+        assert canonical_edge("R", "x", "y") == ("R", "x", "y")
+        assert canonical_edge("R", "y", "x") == ("R", "y", "x")
 
     def test_r_and_c_different(self):
-        assert _canonical_edge("R", "y", "x") != _canonical_edge("C", "y", "x")
+        assert canonical_edge("R", "y", "x") != canonical_edge("C", "y", "x")
 
 
 # ---------------------------------------------------------------------------
@@ -476,6 +479,146 @@ class TestDiagonalPropagators:
             assert all(r == Rational(1) for r in rats)
 
 
+def _value(expr, tables, env, positions):
+    """Evaluate an expression by explicit sums over seeded finite tables."""
+    if isinstance(expr, Rational):
+        return expr.numerator / expr.denominator
+    if isinstance(expr, ImaginaryUnit):
+        return 1j
+    if isinstance(expr, Sum):
+        return sum(_value(t, tables, env, positions) for t in expr.terms)
+    if isinstance(expr, Product):
+        return np.prod([_value(f, tables, env, positions) for f in expr.factors])
+    if isinstance(expr, KroneckerDelta):
+        return float(env[expr.index1] == env[expr.index2])
+    if isinstance(expr, Symbol):
+        return tables[expr.name][tuple(env[i] for i in expr.indices)]
+    if isinstance(expr, Propagator):
+        left, right = positions[expr.spatial_left], positions[expr.spatial_right]
+        a = 0 if expr.index_left is None else env[expr.index_left]
+        b = 0 if expr.index_right is None else env[expr.index_right]
+        return tables[expr.kind][a, left, b, right]
+    if isinstance(expr, SumOverIndex):
+        return sum(
+            _value(expr.body, tables, {**env, expr.index_name: v}, positions)
+            for v in range(expr.dimension)
+        )
+    if isinstance(expr, IntegralOver):
+        n_points = tables["C"].shape[1]
+        return sum(
+            _value(expr.body, tables, env, {**positions, expr.variable: p})
+            for p in range(n_points)
+        )
+    raise TypeError(type(expr))
+
+
+def _diagonal_table(rng, n_components, n_points, isotropic):
+    """A table that is delta_ab, and a multiple of I when ``isotropic``."""
+    values = rng.normal(size=(n_components, n_points, n_points))
+    if isotropic:
+        values = np.broadcast_to(values[:1], values.shape)
+    table = np.zeros((n_components, n_points, n_components, n_points))
+    for a in range(n_components):
+        table[a, :, a, :] = values[a]
+    return table
+
+
+class TestDiagonalSumsPerTerm:
+    """A delta constraint removes a sum from its own term only."""
+
+    @pytest.mark.parametrize("n_components", [2, 3, 50])
+    @pytest.mark.parametrize("scale", [1e-12, 1.0, 1e12])
+    def test_term_that_keeps_its_index_keeps_the_sum(self, n_components, scale):
+        """sum_i (G_i C_ai + H_ii C_bb) = G_a C_aa + tr(H) C_bb."""
+        rng = np.random.default_rng(5)
+        G = scale * rng.normal(size=n_components)
+        H = scale * rng.normal(size=(n_components, n_components))
+        C = _diagonal_table(rng, n_components, 2, isotropic=False)
+        tables = {"G": G, "H": H, "C": C}
+        a, b = 0, n_components - 1
+        expected = G[a] * C[a, 0, a, 1] + np.trace(H) * C[b, 0, b, 1]
+
+        C_ai = Propagator("C", "a", "i", "x", "w")
+        C_bb = Propagator("C", "b", "b", "x", "w")
+        expr = SumOverIndex(
+            "i",
+            n_components,
+            Sum((
+                Product((Symbol("G", ("i",)), C_ai)),
+                Product((Symbol("H", ("i", "i")), C_bb)),
+            )),
+        )
+        result = diagonal_propagators(expr, diag_C=True)
+
+        got = _value(result, tables, {"a": a, "b": b}, {"x": 0, "w": 1})
+        assert got == pytest.approx(expected, rel=1e-13, abs=0.0)
+
+    def test_only_elimination_removes_a_sum(self):
+        """A sum that never met a constraint still counts N; a clash refuses."""
+        n_components = 3
+        tables = {"C": _diagonal_table(np.random.default_rng(7), 3, 2, True)}
+        env, positions = {"b": 1}, {"x": 0, "w": 1}
+        c = tables["C"][0, 0, 0, 1]
+
+        unused = SumOverIndex(
+            "i", n_components, Propagator("C", "b", "b", "x", "w")
+        )
+        trace = SumOverIndex(
+            "i", n_components, Propagator("C", "i", "i", "x", "w")
+        )
+        for expr in (unused, trace):
+            result = diagonal_propagators(expr, iso_C=True)
+            assert _value(result, tables, env, positions) == pytest.approx(
+                n_components * c
+            )
+
+        eliminated = SumOverIndex(
+            "i", n_components, Propagator("C", "b", "i", "x", "w")
+        )
+        result = diagonal_propagators(eliminated, iso_C=True)
+        assert _value(result, tables, env, positions) == pytest.approx(c)
+
+        with pytest.raises(ValueError, match="bound once"):
+            diagonal_propagators(Product((eliminated, eliminated)), diag_C=True)
+
+    @pytest.mark.parametrize(
+        "flags, n_components",
+        [
+            ({"diag_C": True, "diag_R": True}, 2),
+            ({"diag_C": True, "diag_R": True}, 3),
+            ({"diag_C": True}, 2),
+            ({"diag_R": True}, 2),
+            ({"iso_C": True, "iso_R": True}, 2),
+        ],
+    )
+    def test_order_terms_match_the_index_explicit_expansion(
+        self, flags, n_components
+    ):
+        """The flagged order 2 equals the unflagged sums on diagonal tables."""
+        phi = Field("phi", "physical", n_components)
+        psi = Field("psi", "response", n_components)
+        action = Action([Vertex([phi, phi, psi], "F"), Vertex([phi, psi], "L")])
+        observable = [phi("a", "x"), phi("b", "w")]
+
+        rng = np.random.default_rng(5)
+        isotropic = "iso_C" in flags
+        tables = {
+            "C": _diagonal_table(rng, n_components, 2, isotropic),
+            "R": _diagonal_table(rng, n_components, 2, isotropic),
+            "F": rng.normal(size=(n_components,) * 3),
+            "L": rng.normal(size=(n_components,) * 2),
+        }
+        tables["C"] = (tables["C"] + tables["C"].transpose(2, 3, 0, 1)) / 2
+        env, positions = {"a": 0, "b": n_components - 1}, {"x": 0, "w": 1}
+
+        reference = compute_moment(observable, action, 2).order(2)
+        flagged = compute_moment(observable, action, 2, **flags).order(2)
+
+        assert _value(flagged, tables, env, positions) == pytest.approx(
+            _value(reference, tables, env, positions), rel=1e-12, abs=0.0
+        )
+
+
 class TestDiagonalComputeMoment:
     """Tests for diagonal propagators integrated into compute_moment."""
 
@@ -585,3 +728,67 @@ class TestDiagonalComputeMoment:
         for p in dt_diag.propagators:
             if p.index_left is not None:
                 assert p.index_left == p.index_right
+
+
+def test_diagonal_propagators_refuses_a_product_past_its_size():
+    """A product of sums is distributed, so twelve sums of four terms would
+    be 4**12 terms: 7.6 s and 423 MB at 4**8."""
+    def sum_of_four(k):
+        return SumOverIndex(f"i{k}", 2, Sum(tuple(
+            Product((Symbol(f"f{m}", indices=(f"i{k}",)),
+                     Propagator("C", f"i{k}", f"i{k}", f"x{k}", f"y{k}")))
+            for m in range(4))))
+
+    with pytest.raises(ValueError, match="above the limit"):
+        diagonal_propagators(Product(tuple(sum_of_four(k) for k in range(12))),
+                             diag_C=True)
+
+
+def test_collect_declines_a_merge_that_is_not_injective():
+    """``R_ai R_bi`` and ``R_aj R_bk`` would need j and k to both become i,
+    which drops the sum over one of them: -6.90 against -7.33."""
+    rng = np.random.default_rng(2)
+    tables = {"F": rng.normal(size=(3, 3, 3)), "R": rng.normal(size=(3, 2, 3, 2))}
+    env = {"a": 0, "b": 1}
+    points = {"x": 0, "w": 1}
+
+    def pair(first, second):
+        return Product((Propagator("R", "a", first, "x", "w"),
+                        Propagator("R", "b", second, "x", "w")))
+
+    expr = SumOverIndex("i", 3, SumOverIndex("j", 3, SumOverIndex("k", 3, Product((
+        Symbol("F", ("i", "j", "k")),
+        Sum((pair("i", "i"), pair("j", "k"))),
+    )))))
+    assert _value(collect_by_diagram(expr), tables, env, points) == pytest.approx(
+        _value(expr, tables, env, points), rel=1e-13, abs=0.0
+    )
+
+
+@pytest.mark.parametrize("delta", [True, False])
+def test_collect_renames_every_occurrence_of_a_dummy_index(delta):
+    """Merging ``R_aj`` onto ``R_ai`` renames j to i.  That reaches a delta
+    next to the propagators, and it must move i out of the way in the
+    coupling: F_ij became F_ii."""
+    rng = np.random.default_rng(2)
+    tables = {"F": rng.normal(size=(3, 3)), "R": rng.normal(size=(3, 2, 3, 2))}
+    env = {"a": 0, "b": 1, "c": 2}
+    points = {"x": 0, "w": 1}
+
+    def branch(first, second):
+        factors = (
+            Propagator("R", "a", first, "x", "w"),
+            Propagator("R", "b", "c", "x", "w"),
+        )
+        if delta:
+            factors += (KroneckerDelta(second, "c"),)
+        return Product(factors)
+
+    expr = SumOverIndex("i", 3, SumOverIndex("j", 3, Product((
+        Symbol("F", ("i", "j")),
+        Sum((branch("i", "j"), branch("j", "i"))),
+    ))))
+    collected = collect_by_diagram(expr)
+    assert _value(collected, tables, env, points) == pytest.approx(
+        _value(expr, tables, env, points), rel=1e-13, abs=0.0
+    )

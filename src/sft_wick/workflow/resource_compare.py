@@ -70,9 +70,10 @@ def _source_files(source_root):
 
 
 def _safe_mapping(text, label):
+    """``text`` as a mapping, past the refusals of a config file."""
     import yaml
 
-    from .config import ConfigError, _load_yaml, _refuse_expansion
+    from .config import ConfigError, _load_yaml, _refuse_cycles, _refuse_expansion
 
     # PyYAML otherwise silently replaces repeated keys, including variant
     # names. Reject them before a potentially expensive experiment starts.
@@ -88,38 +89,46 @@ def _safe_mapping(text, label):
         raise ValueError(f"{label}: invalid YAML: {exc}") from exc
     if not isinstance(raw, dict):
         raise ValueError(f"{label} must be a mapping")
-    if _holds_itself(raw):
-        raise ValueError(f"{label}: invalid YAML: a value holds itself")
     try:
+        _refuse_cycles(raw)
         _refuse_expansion(raw)
     except ConfigError as exc:
         raise ValueError(f"{label}: invalid YAML: {exc}") from None
     return raw
 
 
-def _holds_itself(raw):
-    """Whether aliases made a mapping or list part of itself, which the
-    walks over a config cannot finish.  With a stack, for a long alias
-    chain."""
-    open_nodes, finished = set(), set()
-    stack = [(raw, False)]
-    while stack:
-        item, leaving = stack.pop()
-        if leaving:
-            finished.add(id(item))
-        elif isinstance(item, (dict, list, tuple)) and id(item) not in finished:
-            if id(item) in open_nodes:
-                return True
-            open_nodes.add(id(item))
-            stack.append((item, True))
-            values = item.values() if isinstance(item, dict) else item
-            stack.extend((value, False) for value in values)
-    return False
+def _refuse_deep_config(raw) -> None:
+    """Refuse a config the run would refuse for its nesting, before any
+    worker starts.  A variants file is not a config and has no such limit."""
+    from .config import ConfigError, _refuse_nesting
+
+    try:
+        _refuse_nesting(raw)
+    except ConfigError as exc:
+        raise ValueError(f"config: invalid YAML: {exc}") from None
+
+
+def _control_checks() -> dict:
+    """The rule of each control, as the parser and the run apply it."""
+    from .._contraction_admission import validate_contraction_options
+    from .._propagator_lookup import validate_cache_options
+    from ..evaluate import _validate_gl_chunk_size, _validate_qmc_coupling_chunk_size
+    from .config import _as_bool
+
+    return {
+        "reuse_integrands": lambda v: _as_bool(v, "reuse_integrands"),
+        "gl_chunk_size": _validate_gl_chunk_size,
+        "qmc_coupling_chunk_size": _validate_qmc_coupling_chunk_size,
+        "propagator_cache_bytes": lambda v: validate_cache_options(v, "fixed_model"),
+        "contraction_backend": lambda v: validate_contraction_options(v, 1),
+        "contraction_max_bytes": lambda v: validate_contraction_options("ordered", v),
+    }
 
 
 def _validate_variants(raw):
     if not raw:
         raise ValueError("variants must contain at least one named resource variant")
+    checks = _control_checks()
     for name, values in raw.items():
         if not isinstance(name, str) or not name.strip() or name == "baseline":
             raise ValueError(
@@ -130,30 +139,10 @@ def _validate_variants(raw):
         if set(values) - _CONTROLS:
             raise ValueError(f"variant {name!r}: only {sorted(_CONTROLS)} may change")
         for key, value in values.items():
-            if key == "reuse_integrands":
-                if not isinstance(value, bool):
-                    raise ValueError(f"{name}.{key} must be a boolean")
-            elif key == "contraction_backend":
-                if type(value) is not str or value not in (
-                    "ordered",
-                    "einsum",
-                    "factorized",
-                ):
-                    raise ValueError(
-                        f"{name}.{key} must be ordered, einsum or factorized"
-                    )
-            elif key == "contraction_max_bytes":
-                if type(value) is not int or value <= 0:
-                    raise ValueError(f"{name}.{key} must be a positive integer")
-            elif key == "propagator_cache_bytes":
-                if value is not None and (type(value) is not int or value < 0):
-                    raise ValueError(
-                        f"{name}.{key} must be null or a nonnegative integer"
-                    )
-            elif value is not None and (
-                isinstance(value, bool) or not isinstance(value, int) or value <= 0
-            ):
-                raise ValueError(f"{name}.{key} must be null or a positive integer")
+            try:
+                checks[key](value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"variant {name!r}: {exc}") from None
 
 
 def _validate_raw(raw):
@@ -585,6 +574,7 @@ def compare_resources(
     raw, choices = _safe_mapping(config_text, "config"), _safe_mapping(
         variants_text, "variants"
     )
+    _refuse_deep_config(raw)
     _validate_raw(raw)
     _validate_variants(choices)
     # The fixed-model promise is held constant, never introduced by a variant.

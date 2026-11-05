@@ -36,6 +36,9 @@ import typing
 from dataclasses import dataclass
 from typing import Any
 
+from sft_wick._connected import TARGETS
+from sft_wick._contraction_admission import CONTRACTION_BACKENDS
+
 from . import config as cf
 from . import specs as sp
 from ._messages import shown
@@ -93,20 +96,64 @@ class _ListOf:
     item: Any
 
 
-_NUMBER = {"type": "number"}
-_INTEGER = {"type": "integer"}
-_BOOLEAN = {"type": "boolean"}
+def _any_case(words) -> str:
+    """Alternatives of a regular expression matching ``words`` in any case;
+    JSON Schema has no case flag."""
+    return "|".join(
+        "".join(f"[{c.upper()}{c.lower()}]" if c.isalpha() else c for c in word)
+        for word in sorted(words)
+    )
+
+
+_MANTISSA = r"(\d[\d_]*(\.[\d_]*)?|\.\d[\d_]*)"
+_NUMBER = {
+    "anyOf": [
+        {"type": "number"},
+        # PyYAML reads ``1e-3``, with no decimal point, as a string, and the
+        # parser's number reader converts it.
+        {"type": "string", "pattern": rf"^\s*[+-]?{_MANTISSA}([eE][+-]?\d+)?\s*$"},
+    ]
+}
+_INTEGER = {
+    "anyOf": [
+        {"type": "integer"},
+        # What :func:`~sft_wick.workflow.config._integer` can read: nonzero
+        # digits past the point need an exponent to be integral.
+        {
+            "type": "string",
+            "pattern": (
+                rf"^\s*[+-]?(\d[\d_]*(\.[0_]*)?|\.0[0_]*|{_MANTISSA}[eE][+-]?\d+)\s*$"
+            ),
+        },
+    ]
+}
+#: A key read by a check shared with L1, which takes no text.
+_STRICT_INTEGER = {"type": "integer"}
+#: What :func:`~sft_wick.workflow.config._as_bool` reads.
+_BOOLEAN = {
+    "anyOf": [
+        {"type": "boolean"},
+        {"enum": [0, 1]},
+        {
+            "type": "string",
+            "pattern": "^\\s*(" + _any_case(cf._TRUTHY | cf._FALSY) + ")\\s*$",
+        },
+    ]
+}
 _STRING = {"type": "string"}
 _TENSOR = {"$ref": "#/$defs/tensor"}
 _NUMBERS = {"type": "array", "items": _NUMBER}
 _STRINGS = {"type": "array", "items": _STRING}
-_ORDERS = {"anyOf": [_INTEGER, {"type": "array", "items": _INTEGER}]}
+_ORDERS = {"anyOf": [_STRICT_INTEGER, {"type": "array", "items": _STRICT_INTEGER}]}
 #: A position: a number, or a vector of numbers for d-dim coordinates.
 _POSITIONS = {
     "type": "array",
     "items": {"anyOf": [_NUMBER, _NUMBERS]},
 }
-_COMPONENT_TUPLES = {"type": "array", "items": {"type": "array", "items": _INTEGER}}
+_COMPONENT_TUPLES = {
+    "type": "array",
+    "items": {"type": "array", "items": _STRICT_INTEGER},
+}
 
 
 def _null(fragment: dict) -> dict:
@@ -293,7 +340,8 @@ def _sigma2() -> _Tagged:
 def _vertex(cls) -> _Block:
     nodes = {
         "coupling": _TENSOR,
-        "rank": _null(_INTEGER),
+        "rank": _null(_STRICT_INTEGER),
+        "order": _STRICT_INTEGER,
     }
     keys = _dataclass_keys(cls, nodes, optional=("coupling",))
     keys["coupling"] = dataclasses.replace(
@@ -350,14 +398,14 @@ def _expand() -> _Block:
         "orders": _ORDERS,
         "iso_R": _null(_BOOLEAN),
         "cache_path": _null(_STRING),
-        "target": _enum(("moment", "connected")),
+        "target": _enum(TARGETS),
     }
     return _Block(_dataclass_keys(cf.ExpandConfig, nodes))
 
 
 def _propagators() -> _Block:
     nodes = {
-        "homogeneity": _null(_enum(cf._HOMOGENEITIES)),
+        "homogeneity": _null(_enum(cf.HOMOGENEITIES)),
         "r_max": _null(_NUMBER),
         "n_grid_r": _null(_INTEGER),
         "n_grid_cos": _null(_INTEGER),
@@ -366,12 +414,17 @@ def _propagators() -> _Block:
         "c_closed_form": {
             "anyOf": [
                 {"type": ["boolean", "null"]},
-                {"type": "string", "pattern": "^([Aa][Uu][Tt][Oo]|none|null|off)$"},
+                {
+                    "type": "string",
+                    "pattern": f"^({_any_case(['auto'])}|"
+                    + "|".join(cf._CLOSED_FORM_OFF)
+                    + ")$",
+                },
             ]
         },
         "c_closed_form_module": _null(_STRING),
         "cache_path": _null(_STRING),
-        "c_method": _enum(cf._C_METHODS),
+        "c_method": _enum(cf.C_METHODS),
         "interp_method": _enum(cf._INTERP_METHODS),
     }
     return _Block(_dataclass_keys(cf.PropagatorsConfig, nodes))
@@ -388,7 +441,11 @@ def _sweep() -> _Block:
         "integrate_over": _null({"anyOf": [_STRING, _STRINGS]}),
         "method": _enum(cf.INTEGRATION_METHODS),
         "propagator_cache_contract": _null(_enum(("fixed_model",))),
-        "contraction_backend": _enum(("ordered", "einsum", "factorized")),
+        "contraction_backend": _enum(CONTRACTION_BACKENDS),
+        "gl_chunk_size": _null(_STRICT_INTEGER),
+        "qmc_coupling_chunk_size": _null(_STRICT_INTEGER),
+        "propagator_cache_bytes": _null(_STRICT_INTEGER),
+        "contraction_max_bytes": _STRICT_INTEGER,
     }
     keys = _dataclass_keys(cf.SweepConfig, nodes, optional=("component_pairs",))
     keys["external_times_grid"] = _Key(_MapOf(_NUMBERS), nullable=True, default=None)

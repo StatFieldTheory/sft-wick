@@ -28,11 +28,10 @@ def _rss():
 
 def run(request):
     import sft_wick
-    import yaml
 
     from .config import _parse_workflow, run_workflow
     from .resource_compare import encode_results
-    from .resource_compare import _hash, _source_files
+    from .resource_compare import _hash, _safe_mapping, _source_files
     from .resources import resource_controls
 
     source_root = Path(__file__).resolve().parents[2]
@@ -58,7 +57,7 @@ def run(request):
 
         tracemalloc.start()
     start = time.perf_counter()
-    raw = copy.deepcopy(yaml.safe_load(request["config_text"]))
+    raw = copy.deepcopy(_safe_mapping(request["config_text"], "config"))
     raw["output"] = []
     raw["expand"]["cache_path"] = None
     raw["propagators"]["cache_path"] = None

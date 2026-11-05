@@ -12,6 +12,13 @@ def _reset_uid():
     reset_uid_counter()
 
 
+def test_from_pairing_refuses_a_pairing_that_vanishes():
+    """The edge of an R(x,x) used to be left out without an error."""
+    phi, psi = Field("phi", "physical"), Field("psi", "response")
+    with pytest.raises(ValueError, match="pair \\(0, 1\\) of this pairing vanishes"):
+        FeynmanDiagram.from_pairing([phi("x"), psi("x")], [], ((0, 1),))
+
+
 class TestCanonicalForm:
     def test_same_diagram_same_form(self):
         """Two identical diagrams should have the same canonical form."""

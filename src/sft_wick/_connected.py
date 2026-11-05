@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
+from .vertices import all_operators
+
 if TYPE_CHECKING:
     from .expressions import Propagator
     from .fields import FieldOperator
@@ -18,9 +20,13 @@ if TYPE_CHECKING:
     from .wick import Pairing, SpatialSignature
 
 
+#: The expansion targets; the workflow schema reads them from here.
+TARGETS = ("moment", "connected")
+
+
 def validate_target(target: str, observable: Sequence[object]) -> None:
     """Validate the target without changing the legacy moment contract."""
-    if target not in ("moment", "connected"):
+    if target not in TARGETS:
         raise ValueError("target must be 'moment' or 'connected'")
     if target == "connected" and not observable:
         raise ValueError(
@@ -58,10 +64,9 @@ class ConnectedIncidence:
         observable: Sequence[FieldOperator],
         vertex_instances: Sequence[VertexInstance],
     ) -> ConnectedIncidence:
+        operators = all_operators(observable, vertex_instances)
         owners = list(range(len(observable)))
-        operators = list(observable)
         for k, vi in enumerate(vertex_instances, len(observable)):
-            operators.extend(vi.field_operators)
             owners.extend([k] * len(vi.field_operators))
         label_owner: dict[str | None, int] = {}
         disjoint = True
@@ -93,15 +98,15 @@ class ConnectedIncidence:
 
     def prune_topologies(
         self,
-        spatial_results: dict[SpatialSignature, tuple[list[Propagator], int, Pairing]],
-    ) -> dict[SpatialSignature, tuple[list[Propagator], int, Pairing]]:
+        spatial_results: dict[SpatialSignature, tuple[list[Propagator], Pairing]],
+    ) -> dict[SpatialSignature, tuple[list[Propagator], Pairing]]:
         """Prune representatives only when ownership invariance is proved."""
         if not self.disjoint_labels:
             return spatial_results
         return {
             sig: record
             for sig, record in spatial_results.items()
-            if self.is_connected(record[2])
+            if self.is_connected(record[1])
         }
 
     def select_routings(

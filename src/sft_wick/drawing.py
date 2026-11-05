@@ -18,7 +18,6 @@ For a LaTeX-native alternative, see
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
@@ -34,7 +33,15 @@ from .render_labels import (
     default_vertex_label,
     resolve_label,
 )
-from .render_layout import compute_layout, label_offset, neighbor_center
+from .render_layout import (
+    bundle_rad,
+    compute_layout,
+    edge_slots,
+    head_at_start,
+    label_offset,
+    neighbor_center,
+    self_loop_direction,
+)
 from .render_style import (
     NodeStyle,
     PropagatorStyle,
@@ -50,6 +57,8 @@ _MPL_LINESTYLE: dict[str, str] = {
     "dotted": ":",
     "dashdot": "-.",
 }
+
+_LINESTYLE_NAME: dict[str, str] = {v: k for k, v in _MPL_LINESTYLE.items()}
 
 _MPL_MARKER: dict[str, str] = {
     "circle": "o",
@@ -82,8 +91,12 @@ class DiagramRenderer:
     # globally still see their override take effect via
     # :meth:`_resolve_style`.
     PROP_STYLES: dict[str, dict[str, Any]] = {
-        "C": {"linestyle": "-", "color": "#2166ac", "linewidth": 2.0},
-        "R": {"linestyle": "--", "color": "#d6604d", "linewidth": 2.0},
+        kind: {
+            "linestyle": _MPL_LINESTYLE[prop.linestyle],
+            "color": prop.color,
+            "linewidth": prop.linewidth,
+        }
+        for kind, prop in default_style().propagators.items()
     }
 
     def __init__(
@@ -392,32 +405,18 @@ class DiagramRenderer:
 
         pos = compute_layout(diagram, style.layout, positions)
 
-        # Pre-count parallel edges and self-loops
-        edge_pair_count: Counter = Counter()
-        self_loop_count: Counter = Counter()
-        for u, v, _key in g.edges(keys=True):
-            if u == v:
-                self_loop_count[u] += 1
-            else:
-                pair = (min(u, v), max(u, v))
-                edge_pair_count[pair] += 1
-
-        edge_pair_idx: Counter = Counter()
-        self_loop_idx: Counter = Counter()
-
         # Edges
-        for u, v, _key, data in g.edges(keys=True, data=True):
+        slots = edge_slots(g)
+        for u, v, key, data in g.edges(keys=True, data=True):
             kind = data.get("kind", "C")
             prop_style = style.propagators.get(kind)
             if prop_style is None:
                 prop_style = next(iter(style.propagators.values()))
             p1 = np.array(pos[u])
             p2 = np.array(pos[v])
+            idx, total = slots[u, v, key]
 
             if u == v:
-                idx = self_loop_idx[u]
-                total = self_loop_count[u]
-                self_loop_idx[u] += 1
                 ncenter = neighbor_center(g, u, pos)
                 self._draw_self_loop(
                     ax, p1, prop_style,
@@ -425,11 +424,6 @@ class DiagramRenderer:
                     away_from=ncenter,
                 )
             else:
-                pair = (min(u, v), max(u, v))
-                idx = edge_pair_idx[pair]
-                total = edge_pair_count[pair]
-                edge_pair_idx[pair] += 1
-
                 # R propagators are directed: the arrowhead must land
                 # on the physical (φ) end, i.e. the arrow points ψ → φ
                 # (matches the TikZ renderer; see drawing_tikz.py).
@@ -442,15 +436,11 @@ class DiagramRenderer:
                 # C/R partner and overlap it.  Instead the head is
                 # placed on ``phi_end`` via the arrowstyle:
                 # ``"<|-"`` puts it on posA (=u), ``"-|>"`` on posB (=v).
-                phi_end = data.get("phi_end")
-                head_at_start = (
-                    prop_style.arrow
-                    and phi_end is not None
-                    and phi_end == u
-                )
                 self._draw_edge(ax, p1, p2, prop_style,
                                 key=idx, n_parallel=total,
-                                head_at_start=head_at_start,
+                                head_at_start=head_at_start(
+                                    prop_style.arrow, data.get("phi_end"), u,
+                                ),
                                 curvature=style.layout.parallel_edge_curvature)
 
         # Nodes
@@ -572,11 +562,7 @@ class DiagramRenderer:
     ) -> None:
         from matplotlib.patches import FancyArrowPatch
 
-        if n_parallel <= 1:
-            rad = 0.0
-        else:
-            idx = key - (n_parallel - 1) / 2.0
-            rad = idx * curvature
+        rad = bundle_rad(key, n_parallel, curvature)
 
         # ``head_at_start`` steers a directed edge's arrowhead onto
         # posA (the start) instead of posB (the end), without changing
@@ -612,26 +598,7 @@ class DiagramRenderer:
         n_loops: int = 1,
         away_from: np.ndarray | None = None,
     ) -> None:
-        if away_from is not None:
-            base_dir = center - away_from
-            norm = np.linalg.norm(base_dir)
-            if norm > 1e-8:
-                base_dir = base_dir / norm
-            else:
-                base_dir = np.array([0.0, 1.0])
-        else:
-            base_dir = np.array([0.0, 1.0])
-
-        if n_loops > 1:
-            spread = np.pi / 3
-            angle_offset = (loop_index - (n_loops - 1) / 2) * spread
-            cos_a, sin_a = np.cos(angle_offset), np.sin(angle_offset)
-            direction = np.array([
-                base_dir[0] * cos_a - base_dir[1] * sin_a,
-                base_dir[0] * sin_a + base_dir[1] * cos_a,
-            ])
-        else:
-            direction = base_dir
+        direction = self_loop_direction(center, away_from, loop_index, n_loops)
 
         loop_radius = 0.5
         loop_center = center + (loop_radius + 0.05) * direction
@@ -791,13 +758,7 @@ def _matplotlib_linestyle_to_name(ls: str | None) -> str | None:
     """
     if ls is None:
         return None
-    inverse = {
-        "-": "solid",
-        "--": "dashed",
-        ":": "dotted",
-        "-.": "dashdot",
-    }
-    return inverse.get(ls, ls)
+    return _LINESTYLE_NAME.get(ls, ls)
 
 
 def _legend_panel_index(n: int, ncols: int, nrows: int) -> int | None:

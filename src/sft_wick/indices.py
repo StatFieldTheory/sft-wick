@@ -96,6 +96,17 @@ def literal_component(label) -> int | None:
         return None
 
 
+def pinned_component(label, index_map) -> int | None:
+    """The component ``label`` denotes: its ``index_map`` pin, else its
+    :func:`literal_component` reading, ``None`` when it has neither."""
+    return index_map[label] if label in index_map else literal_component(label)
+
+
+def is_literal_component(label) -> bool:
+    """Whether :func:`literal_component` reads ``label`` as a component."""
+    return literal_component(label) is not None
+
+
 def fresh_names(prefix: str, count: int, reserved: Iterable[str]) -> list[str]:
     """``count`` names ``f"{prefix}_{k}"`` for ``k = 0, 1, ...``, skipping
     every name in ``reserved``.

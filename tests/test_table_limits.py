@@ -24,9 +24,6 @@ TL9 -- ``sft-wick validate`` and ``run`` stop with status 2 and one line
        naming the dotted path, before the expansion is paid for.
 TL10 -- the limits themselves pass ``validate``, and a run at them agrees with
         the reference.
-TL11 -- a diagram that vanishes reads no table: ``ito=False`` keeps diagrams
-        with a closed R loop, whose vertices have no causal parent and no
-        external point, and they must not refuse a correct request.
 
 Reference: ``scipy.integrate.dblquad`` of the integral that defines C, which
 imports nothing from sft-wick.  The parameters are asymmetric: unequal rates,
@@ -219,32 +216,6 @@ def _value(expansion, props, positions, t_final, external_times=None):
 
 
 COUPLING = np.array([[[0.2, -0.7], [0.4, 0.1]], [[0.9, 0.3], [-0.5, 0.6]]])
-
-
-@lru_cache(maxsize=None)
-def _cubic(ito: bool):
-    """Order 2 of a cubic vertex, and a full-grid table its system built."""
-    system = _translation([sp.LocalVertex("F", COUPLING)])
-    expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=[2], ito=ito)
-    props = system.propagators(
-        t_max=T_MAX, n_grid_t=11, r_max=R_MAX, n_grid_r=N_GRID_R
-    )
-    return expansion, props
-
-
-def _order_two(ito, positions, t_final, method="qmc_vectorized", **options):
-    expansion, props = _cubic(ito)
-    return expansion.evaluate(
-        props,
-        positions=positions,
-        t_final=t_final,
-        component_pair=(0, 1),
-        method=method,
-        n_samples=2**7,
-        n_gauss=3,
-        seed=3,
-        **options,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -449,12 +420,10 @@ def test_TL4_a_vector_separation_past_the_table_is_refused():
         _value(expansion, props, (np.zeros(3), y), T_NODE)
 
 
-def test_TL4_an_omitted_position_is_refused_at_the_lookup():
-    """A point left out of ``positions`` usually sits at 0, but not when it
-    shares a group with a point that has a position, so L1 cannot tell what
-    is read.  The lookup can."""
+def test_TL4_an_omitted_position_is_refused():
+    """A point left out next to one away from 0 is refused before a lookup."""
     expansion, props = _built("translation-full")
-    with pytest.raises(ValueError, match=r"C lookup at r=5\.0"):
+    with pytest.raises(ValueError, match=r"no position for \['y'\]"):
         expansion.evaluate(props, positions={"x": 5.0}, t_final=T_NODE,
                            component_pair=(0, 0), orders=[0])
 
@@ -686,7 +655,9 @@ def test_TL7_L1_leaves_a_time_only_table_to_its_accessors():
     expansion = _translation().expand(("phi_a(x)", "phi_a(y)"), orders=[0])
     got = _value(expansion, props, (0.0, 0.0), 3.0)
     assert got == pytest.approx(_time_integral(3.0, 3.0), rel=1e-5, abs=0.0)
-    cubic, _props = _cubic(True)
+    cubic = _translation([sp.LocalVertex("F", COUPLING)]).expand(
+        ("phi_a(x)", "phi_b(y)"), orders=[2]
+    )
     with pytest.raises(ValueError, match="C lookup at t"):
         cubic.evaluate(props, positions={"x": 0.0, "y": 0.0}, t_final=3.0,
                        component_pair=(0, 1), n_samples=2**5)
@@ -701,7 +672,9 @@ def test_TL7_clear_cache_keeps_the_limits_of_a_spatial_table(options):
     expansion = system.expand(("phi_a(x)", "phi_a(y)"), orders=[0])
     props = system.propagators(t_max=T_MAX, n_grid_t=N_GRID_T, **options)
     before = _value(expansion, props, (0.0, 0.5), T_NODE)
+    rule = props.cache.c_method_resolved
     props.cache.clear_cache()
+    assert props.cache.c_method_resolved == rule
     assert _value(expansion, props, (0.0, 0.5), T_NODE) == before
     with pytest.raises(ValueError, match=AT_L1):
         _value(expansion, props, (0.0, 0.5), T_MAX + 0.5)
@@ -711,8 +684,10 @@ def test_TL7_clear_cache_keeps_the_limits_of_a_spatial_table(options):
 
 def test_TL7_clear_cache_still_empties_a_cache_with_no_spatial_table():
     cache = _legacy_cache(True)
+    assert cache.c_method_resolved != "auto"
     cache.clear_cache()
     assert cache._c_table_range is None
+    assert cache.c_method_resolved == "auto"
 
 
 # ---------------------------------------------------------------------------
@@ -1061,97 +1036,3 @@ def test_TL10_the_shipped_quickstart_sits_at_its_limit():
     doc = yaml.safe_load(quickstart.read_text())
     assert max(doc["sweep"]["t_final_grid"]) == doc["propagators"]["t_max"]
     check_before_run(load_workflow_config(quickstart))
-
-
-# ---------------------------------------------------------------------------
-# TL11: a diagram that vanishes reads no table
-# ---------------------------------------------------------------------------
-
-METHODS = ["qmc_vectorized", "qmc_scalar", "gauss_legendre"]
-
-
-@pytest.mark.parametrize("method", METHODS)
-def test_TL11_ito_false_away_from_the_origin(method):
-    """A vertex with a closed R loop has no external point in its group, so
-    it sits at the default coordinate, 5 from these points on a table that
-    stops at 1.2."""
-    positions = {"x": 5.0, "y": 5.4}
-    kept = _order_two(False, positions, 2.0, method).total
-    dropped = _order_two(True, positions, 2.0, method).total
-    assert kept == pytest.approx(dropped, rel=1e-13, abs=0.0)
-    assert dropped != 0.0
-
-
-@pytest.mark.parametrize("method", METHODS)
-def test_TL11_ito_false_with_every_point_pinned(method):
-    """Such a vertex has no causal parent either, so its time runs to
-    ``t_final``, which nothing else reads here."""
-    pinned = {"x": 2.0, "y": 1.2}
-    positions = {"x": 0.0, "y": 0.4}
-    kept = _order_two(False, positions, 9.0, method, external_times=pinned)
-    dropped = _order_two(True, positions, 9.0, method, external_times=pinned)
-    assert kept.total == pytest.approx(dropped.total, rel=1e-13, abs=0.0)
-    assert dropped.total != 0.0
-
-
-def test_TL11_the_vanishing_diagrams_are_exactly_those_with_a_closed_R_loop(
-    monkeypatch,
-):
-    """With the skip off the integrators decide: the loop marks every zero
-    and no other diagram.  The 6 left are the ``ito=True`` diagrams."""
-    expansion, _props = _cubic(False)
-    loops = [ev._closes_an_R_loop(d.analyze_spatial())
-             for d in expansion.diagrams(2)]
-    monkeypatch.setattr(ev, "_closes_an_R_loop", lambda spatial: False)
-    rows = _order_two(False, {"x": 0.1, "y": 0.4}, 2.0).per_diagram
-    assert len(rows) == len(loops) == 14
-    assert sum(loops) == 8
-    assert [row["value"] == 0.0 for row in rows] == loops
-
-
-def test_TL11_a_diagram_skipped_keeps_its_row():
-    rows = _order_two(False, {"x": 0.1, "y": 0.4}, 2.0).per_diagram
-    assert sum(row["value"] == 0.0 and row["error"] == 0.0 for row in rows) == 8
-
-
-def test_TL11_an_unknown_method_is_still_refused():
-    expansion, props = _cubic(False)
-    with pytest.raises(ValueError, match="Unknown method"):
-        ev.integrate_moment(
-            expansion.diagrams(2)[-1].build_integrand(
-                {"F": COUPLING}, fixed_indices={"a": 0, "b": 1}
-            ),
-            2.0,
-            props.cache,
-            t_min=T_MIN,
-            method="no_such_method",
-            positions={"x": 0.1, "y": 0.4},
-        )
-
-
-def _ito_doc(ito: bool) -> dict:
-    return _with(
-        _doc(),
-        system__vertices=[{"name": "F", "coupling": COUPLING.tolist()}],
-        expand__observable=["phi_a(x)", "phi_b(y)"],
-        expand__orders=[2],
-        expand__ito=ito,
-        sweep__component_pairs=[[0, 1]],
-        sweep__t_final_grid=[9.0],
-        sweep__external_times_grid={"x": [2.0], "y": [1.2]},
-        sweep__positions_grid={"x": [5.0], "y": [5.4]},
-        output=[],
-    )
-
-
-def test_TL11_validate_and_run_agree_for_ito_false(tmp_path, capsys):
-    totals = {}
-    for ito in (True, False):
-        config = tmp_path / f"ito_{ito}.yaml"
-        config.write_text(yaml.safe_dump(_ito_doc(ito), sort_keys=False))
-        assert main(["validate", str(config)]) == 0
-        _sweep, table = run_workflow(load_workflow_config(config), progress=False)
-        totals[ito] = float(table["value"].iloc[0])
-    capsys.readouterr()
-    assert totals[False] == pytest.approx(totals[True], rel=1e-13, abs=0.0)
-    assert totals[True] != 0.0

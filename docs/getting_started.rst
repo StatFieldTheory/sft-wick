@@ -49,14 +49,18 @@ instances with bound component indices and spatial arguments.
 
 .. code-block:: python
 
-   # Scalar: phi('x') creates phi(x)
-   obs = [psi('x'), phi('x'), phi('x'), phi('x')]
+   # Scalar fields: phi('x') creates phi(x)
+   phi = Field('phi', 'physical')
+   psi = Field('psi', 'response')
+   obs = [psi('y'), phi('x'), phi('x'), phi('x')]
 
 For multi-component fields, pass ``(component_index, spatial_arg)``:
 
 .. code-block:: python
 
-   obs = [psi('a', 'x'), phi('b', 'x'), phi('c', 'x'), phi('d', 'x')]
+   phi3 = Field('phi', 'physical', n_components=3)
+   psi3 = Field('psi', 'response', n_components=3)
+   obs3 = [psi3('a', 'w'), phi3('b', 'x'), phi3('c', 'y'), phi3('d', 'z')]
 
 
 Step 4: Compute the Zeroth-Order Moment
@@ -71,12 +75,14 @@ At zeroth order, only the free propagators contribute (no interactions):
 
 .. code-block:: text
 
-   3 R(x, x) C(x, x)
+   -3 \mathrm{i} R(x, y) C(x, x)
 
 The factor of 3 arises because :math:`\psi` can pair with any of the
 three :math:`\phi`'s (giving :math:`R`), and the remaining two pair
-together (giving :math:`C`).  See :doc:`theory/wick_theorem` for the
-combinatorial explanation.
+together (giving :math:`C`).  The factor :math:`-\mathrm{i}` is the response
+phase of Step 9.  With ``psi('x')`` the result is 0, because
+:math:`R(x,x) = 0`.  See :doc:`theory/wick_theorem` for the combinatorial
+explanation.
 
 
 Step 5: Define an Interaction Vertex
@@ -110,7 +116,7 @@ higher-order expansion:
 .. code-block:: python
 
    action = Action(vertices=[v])
-   obs = [psi('a', 'x'), phi('b', 'x'), phi('c', 'x'), phi('d', 'x')]
+   obs = [phi('a', 'x'), phi('b', 'y'), phi('c', 'z')]
 
    result = compute_moment(obs, action, order=1)
 
@@ -122,6 +128,11 @@ higher-order expansion:
 
    # All orders combined
    print("Total:", result.total.to_latex())
+
+The operators need distinct spatial labels at interacting orders; two
+externals at one point take distinct labels and the same position.  A moment
+is nonzero only when the fields pair up, so this three-point function starts
+at order 1, and a four-point function has no order-1 term.
 
 
 Step 7: Inspect Feynman Diagrams
@@ -178,35 +189,18 @@ Generate a complete ``align`` environment for a paper:
 Step 9: Conventions: Itô and Response Phase
 -----------------------------------------------
 
-By default, two physics conventions are active:
+Two physics conventions apply:
 
-**Itô prescription** (``ito=True``): the response propagator vanishes at
-equal points :math:`R(x,x) = 0`, and causal R-loops are eliminated.
-
-.. code-block:: python
-
-   # Disable to keep R(x,x) symbolic:
-   result = compute_moment(obs, action, order=1, ito=False)
-
-.. note::
-
-   ``ito=False`` is a **symbolic** switch.  It keeps the equal-point R
-   terms in the expression tree; the numerical layer applies
-   :math:`\Theta(0)=0` everywhere, so it computes the Itô SDE.  On a
-   vertex with one ψ leg that is exact: sft-wick emits neither the
-   equal-point term nor the Stratonovich functional Jacobian
-   :math:`-\tfrac{1}{2}\int\mathrm{d}s\,\partial F/\partial\phi` that
-   cancels it, and the number equals the ``ito=True`` one.  On a vertex
-   with two or more ψ legs (multiplicative noise), or between two
-   external operators, the two readings differ and the numerical layer
-   raises instead of returning the Itô value; see
-   :doc:`user_guide/perturbative_expansion`.  Setting
-   :math:`\Theta(0)=1/2` without also emitting the Jacobian would inject
-   an error growing without bound in the final time.
+**Itô prescription**: the response propagator vanishes at equal points,
+:math:`R(x,x) = 0`, and causal R-loops vanish.  The engine has no other
+prescription.  A Stratonovich SDE with multiplicative noise is computed in its
+Itô form through :class:`~sft_wick.workflow.specs.MultiplicativeImpulse`; see
+:doc:`user_guide/perturbative_expansion`.
 
 **Response phase** (``response_phase=True``): each term is multiplied by
 :math:`(-\mathrm{i})^n` where *n* counts response propagators,
-implementing :math:`\langle\phi\,\psi\rangle = -\mathrm{i}\,R`.
+implementing :math:`\langle\phi\,\psi\rangle = -\mathrm{i}\,R`.  The flag
+changes the symbolic output only; integrated numbers always carry the phase.
 
 .. code-block:: python
 
@@ -226,8 +220,8 @@ relabeling further reduces the number of distinct terms.
 
 .. code-block:: python
 
-   # Disable to see all pairings expanded:
-   result = compute_moment(obs, action, order=2, collect_topology=False)
+   # Contract at the operator level; no DiagramTerm is built:
+   result = compute_moment(obs, action, order=1, collect_topology=False)
 
 
 Next Steps

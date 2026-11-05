@@ -13,7 +13,7 @@ from __future__ import annotations
 import itertools
 import os
 import stat
-from typing import Any
+from typing import Any, Iterator
 
 import numpy as np
 
@@ -32,13 +32,19 @@ _TABLE_NODES = {"slinear": 2, "cubic": 4, "pchip": 4, "quintic": 6}
 
 def check_run_refusals(cfg: WorkflowConfig, system) -> None:
     """Every refusal of the run that the config and ``system`` decide."""
+    _check_topology(cfg)
     _check_diagonal(cfg, system)
     _check_axes(cfg)
+    _check_isotropy(cfg, system)
     _check_position_shapes(cfg, system)
     _check_pinned_points(cfg)
     with _refused_at("expand.observable"):
-        terms = _order_zero_terms(cfg, system)
-    _refuse_joined_points(terms, cfg.sweep)
+        _refuse_joined_points(
+            itertools.chain(
+                _order_zero_terms(cfg, system), _interacting_terms(cfg, system)
+            ),
+            cfg.sweep,
+        )
     _check_outputs(cfg)
     _check_propagators(cfg, system)
 
@@ -51,6 +57,16 @@ def check_after_expansion(cfg: WorkflowConfig, expansion) -> tuple:
         selection = expansion._selection(sweep.orders, sweep.vertex_types, "sweep")
     _refuse_joined_points([task[3] for task in selection[2]], sweep)
     return selection
+
+
+def _check_topology(cfg: WorkflowConfig) -> None:
+    """The refusal of :meth:`System.expand` of ``collect_topology=False``."""
+    from .system import _COLLECT_TOPOLOGY_REFUSAL
+
+    if not cfg.expand.collect_topology and max(cfg.expand.orders, default=0) > 0:
+        raise ConfigError(
+            "invalid_value", "expand.collect_topology", _COLLECT_TOPOLOGY_REFUSAL
+        )
 
 
 def _check_diagonal(cfg: WorkflowConfig, system) -> None:
@@ -66,6 +82,92 @@ def _check_diagonal(cfg: WorkflowConfig, system) -> None:
         return
     where = "expand.diag_C" if expand.diag_C else "propagators.diag_C"
     raise ConfigError("invalid_value", where, _DIAG_C_REFUSAL)
+
+
+def _check_isotropy(cfg: WorkflowConfig, system) -> None:
+    """The refusals of the integrators of ``iso_R`` and ``iso_C`` that the
+    config decides, at the key that states each: an index-free R on a matrix
+    R, and an index-free C on a C that is no multiple of the identity.
+
+    C is read at the first grid point and the last ``t_final``, by a rule of
+    few nodes: rates that differ show there, and two equal entries take equal
+    values under any rule.  A user closed form replaces C and is read only by
+    the run.  So is a target other than ``moment``, whose diagrams depend on
+    the C pairings too, and a kernel that raises at that point.
+    """
+    from sft_wick.evaluate import _R_MISMATCH
+
+    expand = cfg.expand
+    wanted = expand.iso_R and not system.iso_R, expand.iso_C
+    if system.n_components == 1 or expand.target != "moment" or not any(wanted):
+        return
+    reads_r, reads_c = _reads_r_and_c(cfg, system)
+    if wanted[0] and reads_r:
+        detail = _R_MISMATCH["matrix"].format(r="An index-free R")
+        raise ConfigError("invalid_value", "expand.iso_R", detail)
+    if wanted[1] and reads_c and cfg.propagators.c_closed_form_module is None:
+        detail = _isotropy_refusal(cfg, system)
+        if detail is not None:
+            raise ConfigError("invalid_value", "expand.iso_C", detail)
+
+
+def _read_propagators(seq) -> Iterator[list]:
+    """Per R class of ``seq``, what the integrators read: an R absorbed into
+    an ``already_R_contracted`` vertex carries no factor."""
+    from sft_wick.wick import r_class_pairings
+
+    absorbed = {
+        leg
+        for vi in seq.instances
+        if vi.vertex.already_R_contracted
+        for leg in vi.spatial_variables
+    }
+    for props, _ in r_class_pairings(seq.operators):
+        yield [
+            p for p in props if not (p.kind == "R" and p.spatial_right in absorbed)
+        ]
+
+
+def _reads_r_and_c(cfg: WorkflowConfig, system) -> tuple[bool, bool]:
+    """Whether a diagram the sweep selects reads an R, and whether one reads
+    a C."""
+    from .system import _parse_observable
+
+    operators, _ = _parse_observable(cfg.expand.observable, system, 0)
+    pairings = itertools.chain(
+        (term.propagators for term in _order_zero_terms(cfg, system)),
+        (
+            props
+            for seq in _selected_sequences(cfg, operators, system.build_action())
+            for props in _read_propagators(seq)
+        ),
+    )
+    reads_r = reads_c = False
+    for props in pairings:
+        kinds = {p.kind for p in props}
+        reads_r, reads_c = reads_r or "R" in kinds, reads_c or "C" in kinds
+        if reads_r and reads_c:
+            break
+    return reads_r, reads_c
+
+
+def _isotropy_refusal(cfg: WorkflowConfig, system) -> str | None:
+    """What ``_isotropic_C`` says of C at one point of the sweep, or ``None``
+    when it takes that C or the kernel cannot be read there."""
+    from sft_wick.evaluate import _C_value_direct_gl, _isotropic_C
+
+    points = [axis[0] for axis in cfg.sweep.positions_grid.values()]
+    t = max(cfg.sweep.t_final_grid)
+    model = system.build_propagator_model(diag_C=cfg.propagators.diag_C)
+    try:
+        value = _C_value_direct_gl(model, points[0], t, points[-1], t, n_gauss=4)
+    except Exception:  # noqa: BLE001 (a user callable)
+        return None
+    try:
+        _isotropic_C(value)
+    except ValueError as exc:
+        return str(exc)
+    return None
 
 
 def _check_axes(cfg: WorkflowConfig) -> None:
@@ -177,37 +279,90 @@ def _check_pinned_points(cfg: WorkflowConfig) -> None:
         )
 
 
-def _order_zero_terms(cfg: WorkflowConfig, system) -> list:
-    """The diagrams of order 0 the sweep selects, from the Wick contraction
-    the expansion would start with.  Only an observable with a response
-    field needs this check: purely physical legs have no R joining points.
-    The contraction knows which pairings vanish (an equal-point R under
-    Ito, a causal loop of R)."""
-    from sft_wick.perturbation import compute_moment
+def _order_zero_terms(cfg: WorkflowConfig, system) -> Iterator:
+    """One diagram of order 0 per R assignment the sweep selects.
+
+    :func:`~sft_wick.wick.r_class_pairings` knows which assignments vanish,
+    and the checks read nothing from a diagram but its R.  The connected
+    target keeps the one pairing of a two-point observable and no pairing
+    above two points, which leave too few edges to connect them.
+    """
+    from sft_wick._connected import connected_sequence_possible, validate_target
+    from sft_wick.perturbation import (
+        _order_zero_term,
+        check_literal_component_labels,
+    )
+    from sft_wick.wick import r_class_pairings
 
     from .system import _parse_observable
 
     expand = cfg.expand
     labels = cfg.sweep.vertex_types
     if 0 not in _selected_orders(cfg) or (labels is not None and "" not in labels):
-        return []
+        return
     operators, _ = _parse_observable(expand.observable, system, 0)
-    if not any(op.is_response for op in operators):
-        return []
-    result = compute_moment(
-        operators,
-        system.build_action(),
-        order=0,
-        response_phase=expand.response_phase,
-        ito=expand.ito,
-        collect_topology=expand.collect_topology,
-        diag_R=expand.diag_R,
-        diag_C=cf.effective_expand_diag_C(cfg),
-        iso_R=system.iso_R if expand.iso_R is None else expand.iso_R,
-        iso_C=expand.iso_C,
-        target=expand.target,
-    )
-    return result.diagram_terms(0)
+    validate_target(expand.target, operators)
+    check_literal_component_labels(operators)
+    if expand.target == "connected" and not connected_sequence_possible(
+        len(operators), ()
+    ):
+        return
+    n_response = sum(op.is_response for op in operators)
+    for props, _ in r_class_pairings(operators):
+        yield _order_zero_term(props, n_response)
+
+
+def _interacting_terms(cfg: WorkflowConfig, system) -> Iterator:
+    """One diagram per R assignment at the selected orders above 0, as the
+    walk reaches it, so a refusal stops the walk at its first diagram.
+
+    The walk goes over R assignments only, so its cost does not grow with
+    the C pairings of the full expansion.  It is skipped when no two points
+    of the grid are apart, and when nothing can join two external points:
+    that takes a response leg in the observable or a local vertex with two
+    or more of them.  A connected target decides by its C pairings as well,
+    so :func:`check_after_expansion` makes this check there.
+    """
+    from sft_wick.perturbation import _order_zero_term
+    from sft_wick.wick import r_class_pairings
+
+    from .system import _parse_observable
+
+    expand = cfg.expand
+    grid = cfg.sweep.positions_grid
+    if expand.target != "moment" or not any(
+        _apart(grid[p], grid[q]) for p, q in itertools.combinations(grid, 2)
+    ):
+        return
+    operators, _ = _parse_observable(expand.observable, system, 0)
+    n_response = sum(op.is_response for op in operators)
+    action = system.build_action()
+    if not n_response and not any(
+        v.local and v.n_response >= 2 for v in action.vertices
+    ):
+        return
+    for seq in _selected_sequences(cfg, operators, action):
+        for props, _ in r_class_pairings(seq.operators):
+            yield _order_zero_term(props, n_response)
+
+
+def _selected_sequences(cfg: WorkflowConfig, operators, action) -> Iterator:
+    """The vertex sequences of the selected orders above 0 and vertex types."""
+    from sft_wick.perturbation import _vertex_sequences
+
+    from .expansion import vertex_type_label
+
+    labels = cfg.sweep.vertex_types
+    for n in _selected_orders(cfg):
+        if n == 0:
+            continue
+        for seq in _vertex_sequences(list(operators), action, n, "moment"):
+            if (
+                labels is None
+                or vertex_type_label(vi.vertex.coupling for vi in seq.instances)
+                in labels
+            ):
+                yield seq
 
 
 def _refuse_joined_points(diagram_terms, sweep) -> None:
@@ -401,23 +556,28 @@ def _read_times(cfg: WorkflowConfig):
             yield f"{axis}[{i}]", float(value)
 
 
+def _refuse_time_outside(cfg, lo, hi, lo_key, hi_key, reason) -> None:
+    """Refuse a time the sweep reads outside ``[lo, hi]``."""
+    for where, t in _read_times(cfg):
+        if _outside_table(t, lo, hi):
+            limit = f"{hi_key} = {hi}" if t > hi else f"{lo_key} = {lo}"
+            raise ConfigError(
+                "invalid_value", where, f"time {shown(t)} is past {limit}, {reason}"
+            )
+
+
 def _check_table_times(cfg: WorkflowConfig, system) -> None:
     """A time outside the C table, which would be clamped or extrapolated;
     see :func:`~sft_wick.workflow.expansion._guard_table_reach`."""
-    t_min, t_max = float(system.t_min), float(cfg.propagators.t_max)
-    for where, t in _read_times(cfg):
-        if not _outside_table(t, t_min, t_max):
-            continue
-        limit = (
-            f"propagators.t_max = {t_max}" if t > t_max else
-            f"system.t_min = {t_min}"
-        )
-        raise ConfigError(
-            "invalid_value",
-            where,
-            f"time {shown(t)} is past {limit}, where the C table ends; the "
-            f"table would return a clamped or extrapolated value",
-        )
+    _refuse_time_outside(
+        cfg,
+        float(system.t_min),
+        float(cfg.propagators.t_max),
+        "system.t_min",
+        "propagators.t_max",
+        "where the C table ends; the table would return a clamped or "
+        "extrapolated value",
+    )
 
 
 def _check_table_positions(cfg: WorkflowConfig, system) -> None:
@@ -473,17 +633,12 @@ def _check_rate_times(cfg: WorkflowConfig, system) -> None:
     names = {_OBS_PATTERN.match(s).group("name") for s in cfg.expand.observable}
     if not _request_reads_R(system, _selected_orders(cfg), names):
         return
-    t_min, t_max = float(lin.t_min_cache), float(lin.t_max_cache)
-    for where, t in _read_times(cfg):
-        if not _outside_table(t, t_min, t_max):
-            continue
-        limit = (
-            f"system.linear.t_max_cache = {t_max}" if t > t_max else
-            f"system.linear.t_min_cache = {t_min}"
-        )
-        raise ConfigError(
-            "invalid_value",
-            where,
-            f"time {shown(t)} is past {limit}, where the cumulative-rate "
-            f"spline behind R ends; the spline would extrapolate",
-        )
+    _refuse_time_outside(
+        cfg,
+        float(lin.t_min_cache),
+        float(lin.t_max_cache),
+        "system.linear.t_min_cache",
+        "system.linear.t_max_cache",
+        "where the cumulative-rate spline behind R ends; the spline would "
+        "extrapolate",
+    )

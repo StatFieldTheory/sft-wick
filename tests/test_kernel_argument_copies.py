@@ -1,8 +1,8 @@
 r"""User kernels get copies of the arrays the package reads again.
 
 KC1-KC3: a ``GeneralKappa2`` or ``CustomImpulse`` callable is evaluated at
-every quadrature node of one C value with the same two position objects,
-and the transposition probe handed it the caller's positions.  A callable
+every quadrature node of one C value with the same two position objects.
+A callable
 that forms ``x1 - x2`` in place in its first argument (``n1 -= n2``)
 therefore changed every later node: at 3-D positions C_00 came out as
 9.0e-10 on ``gauss_legendre`` and 0.0 on ``dblquad`` against 5.85e-2, with
@@ -25,8 +25,7 @@ allocates, so L1 was not affected.
 
 KC6: a κ² returning one buffer gave the cusp probe three equal values (no
 cusp found, so ``dblquad`` integrated a ``|Δt|`` cusp without the split:
-7.9e-8 relative instead of 1.9e-16, 38 times slower), and the transposition
-probe compared the buffer with its own transpose.
+7.9e-8 relative instead of 1.9e-16, 38 times slower).
 
 KC7-KC9: the same for values kept across a second call to the same
 callable.  ``integrate_two_point_qmc`` divided κ² at a separation by κ² at
@@ -203,21 +202,6 @@ def test_KC2_L1_order_zero_with_a_writing_kappa(c_method):
     want = _reference(x, T1, y, T2, white=False)
     np.testing.assert_allclose(totals[True], [want[0, 0], want[0, 1], want[1, 1]],
                                rtol=5e-4)
-
-
-def test_KC3_transposition_probe_hands_the_kernel_copies():
-    from sft_wick.evaluate import _probe_c_transpose
-
-    x1, x2 = POSITIONS["3d"]
-    for write in (False, True):
-        for sigma in (None, write):
-            model = _system(write, sigma).build_propagator_model(diag_C=False)
-            px, py = x1.copy(), x2.copy()
-            for swap in (False, True):
-                # The kernel is symmetric under both transpositions.
-                assert _probe_c_transpose(model, px, py, 2.4, swap=swap)
-            np.testing.assert_array_equal(px, x1)
-            np.testing.assert_array_equal(py, x2)
 
 
 # ---------------------------------------------------------------------------
@@ -450,18 +434,13 @@ def _kappa_model(fn):
                          ids=["cusped", "smooth"])
 def test_KC6_a_reused_kappa_buffer_gets_the_fresh_probe_verdicts(kernel, cusp):
     """The cusp probe compared three aliased values and saw no cusp (so
-    dblquad lost the split: 7.9e-8 relative, 38x slower), and the
-    transposition probe compared the buffer with its own transpose."""
-    from sft_wick.evaluate import _probe_c_transpose, _probe_diagonal_cusp
+    dblquad lost the split: 7.9e-8 relative, 38x slower)."""
+    from sft_wick.evaluate import _probe_diagonal_cusp
 
     x1, x2 = np.array([0.4]), np.array([-0.5])
     fresh, reused = _kappa_model(kernel), _kappa_model(_ReusedKappa(kernel))
     assert _probe_diagonal_cusp(fresh, (x1, x2)) is cusp
     assert _probe_diagonal_cusp(reused, (x1, x2)) is cusp
-    for swap in (False, True):
-        want = _probe_c_transpose(fresh, x1, x2, 2.2, swap=swap)
-        assert _probe_c_transpose(reused, x1, x2, 2.2, swap=swap) is want
-    assert _probe_c_transpose(fresh, x1, x2, 2.2, swap=False) is (kernel is _cusped)
 
 
 # ---------------------------------------------------------------------------

@@ -32,7 +32,7 @@ Only one pairing exists, and it produces the correlation propagator.
 Mixed-Field Four-Point Function
 -------------------------------
 
-:math:`\langle\psi(x)\,\phi(x)\,\phi(x)\,\phi(x)\rangle_{S_0}`:
+:math:`\langle\psi(y)\,\phi(x)\,\phi(x)\,\phi(x)\rangle_{S_0}`:
 
 .. code-block:: python
 
@@ -40,18 +40,19 @@ Mixed-Field Four-Point Function
    phi = Field('phi', 'physical')
    psi = Field('psi', 'response')
 
-   obs = [psi('x'), phi('x'), phi('x'), phi('x')]
+   obs = [psi('y'), phi('x'), phi('x'), phi('x')]
    result = compute_moment(obs, Action(vertices=[]), order=0)
    print(result.order(0).to_latex())
 
 .. code-block:: text
 
-   3 R(x, x) C(x, x)
+   -3 \mathrm{i} R(x, y) C(x, x)
 
 **Why the factor of 3?**  The single :math:`\psi` must pair with one
-of the three :math:`\phi`'s (3 choices, each giving :math:`R(x,x)`),
+of the three :math:`\phi`'s (3 choices, each giving :math:`R(x,y)`),
 and the remaining two :math:`\phi`'s pair together
-(:math:`(2-1)!! = 1` way, giving :math:`C(x,x)`).
+(:math:`(2-1)!! = 1` way, giving :math:`C(x,x)`).  With :math:`\psi` at
+:math:`x` the result is 0, because :math:`R(x,x) = 0`.
 
 
 Pure Physical Four-Point Function

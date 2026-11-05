@@ -26,11 +26,14 @@ scipy reports roundoff and delivers only ~2e-6).
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
 import sft_wick as sw
 from sft_wick.evaluate import PropagatorCache, select_gl_node_count
+from sft_wick.workflow import closed_forms
 from sft_wick.workflow.closed_forms import (
     ClosedFormC,
     builtin_closed_form_for,
@@ -339,7 +342,7 @@ def test_dispatcher_defaults_to_the_builtin_closed_form_and_agrees_with_quadratu
         assert np.max(np.abs(a - q) / np.maximum(np.abs(a), FLOOR_FRAC * scale)) < 1e-9
 
 
-def test_dispatcher_falls_back_to_dblquad_for_custom_kernels():
+def test_dispatcher_checks_custom_kernels_for_convergence():
     system = sw.System(
         field=sw.FieldSpec("phi", n_components=1),
         linear=sw.DiagonalA(gamma=[1.0]),
@@ -347,7 +350,7 @@ def test_dispatcher_falls_back_to_dblquad_for_custom_kernels():
             fn=lambda n1, t1, n2, t2: 0.05 * np.exp(-abs(t1 - t2)) * np.eye(1))),
     )
     props = system.propagators(t_max=2.0, n_grid_t=8)
-    assert props.c_source == "quadrature:dblquad", props.c_source
+    assert props.c_source == "quadrature:gauss_legendre(n=20)", props.c_source
 
 
 def test_explicit_c_method_is_honoured_over_auto():
@@ -372,3 +375,148 @@ def test_user_closed_form_module_still_wins_over_builtin():
     assert props.c_source == "closed_form:user"
     props.cache.C_at_batch(np.array([1.0]), np.array([1.0]), np.zeros(1), np.zeros(1))
     assert calls
+
+
+def test_built_in_closed_form_takes_the_batched_read_whatever_the_flag_says():
+    """``c_closed_form_only`` without the vectorised flag ran one Python call
+    per sample: 23.7 s against 0.47 s at N = 2, order 3, ``n_gauss = 10``."""
+    system = _system((0.8, 1.7), sigma2=sw.ConstantImpulse(np.diag([0.3, 0.5])))
+    props = system.propagators(t_max=2.0, c_closed_form_only=True, progress=False)
+    assert props.c_source == "closed_form:builtin"
+    assert props.cache._closed_form_vectorized
+    t1, t2 = np.array([0.4, 1.3, 1.9]), np.array([1.1, 1.3, 0.2])
+    batched = props.cache.C_at_batch(t1, t2, 0.0, 0.6)
+    for k in range(t1.size):
+        row = _direct(props.cache, 0.6, t1[k], t2[k])
+        np.testing.assert_allclose(batched[k], np.diag(row), rtol=1e-14)
+
+
+def _phi_mpmath(gamma, a, t1, t2):
+    """The defining integral at 40 digits, split at its cusp."""
+    mp = pytest.importorskip("mpmath")
+    mp.mp.dps = 40
+    gamma, a, t1, t2 = (mp.mpf(v) for v in (gamma, a, t1, t2))
+
+    def inner(l1):
+        def f(l2):
+            return mp.exp(
+                -gamma * (t1 - l1) - a * abs(l1 - l2) - gamma * (t2 - l2)
+            )
+
+        cut = min(l1, t2)
+        return mp.quad(f, [0, cut]) + (mp.quad(f, [cut, t2]) if cut < t2 else 0)
+
+    return mp.quad(inner, sorted({mp.mpf(0), min(t1, t2), t1}))
+
+
+@pytest.mark.parametrize("gamma, a, t1, t2", [
+    # (gamma + a) t on each side of the dispatch, with the two forms apart.
+    (0.3, 0.7 - 1e-9, 1.0, 0.6),
+    (0.3, 0.7 + 1e-9, 1.0, 0.6),
+    (1.0, 1e-9, 1.0 - 1e-9, 0.4),
+    (0.0, 1.0 + 1e-9, 1.0, 1.0),
+    # Near-free field, near-constant kernel.
+    (0.0, 1e-12, 1.0, 0.5),
+    (1e-14, 1e-12, 1.0, 1.0),
+    (1e-14, 1e-10, 0.1, 0.01),
+    (0.0, 1e-13, 2.0, 1.0),
+    (0.0, 1e-15, 1.0, 1.0),
+    (1e-14, 1e-8, 30.0, 30.0),
+    # Both rates zero, a 0 / 0 of the closed form: Phi = t1 t2.
+    (0.0, 0.0, 2.0, 1.0),
+    # Far from the dispatch.
+    (1.0, 1.0, 30.0, 29.0),
+    (0.0, 1e3, 1e-2, 1e-3),
+])
+def test_phi_against_the_defining_integral_at_small_rates(gamma, a, t1, t2):
+    """The closed form cancels to (gamma + a) t^2 and lost it all: 0.25 against
+    0.5 at gamma = 0, sigma_t = 1e12, and NaN at sigma_t = inf.  The reference
+    shares no code with the package."""
+    assert float(ou_exponential_phi(gamma, a, t1, t2)) == pytest.approx(
+        float(_phi_mpmath(gamma, a, t1, t2)), rel=1e-13, abs=0.0
+    )
+
+
+def test_a_width_whose_reciprocal_overflows_is_refused():
+    """The closed form reads the rate 1 / sigma_t.  It was inf here and C came
+    out NaN; a 40-node Gauss-Legendre rule gives 0 on this kernel."""
+    with pytest.raises(ValueError, match="sigma_t"):
+        sw.ExponentialTemporal(lam=1e300, sigma_t=5.56e-309)
+
+
+def test_the_narrowest_width_taken_gives_the_white_noise_limit():
+    """The other side: C -> 2 lam sigma_t (1 - e^{-2 gamma t}) / (2 gamma)."""
+    lam, sigma_t, gamma, t = 1e300, 5.57e-309, 1.0, 2.0
+    system = sw.System(
+        field=sw.FieldSpec("phi", 1), linear=sw.DiagonalA(gamma=[gamma]),
+        noise=sw.GaussianNoise(kappa2=sw.SeparableTranslation(
+            temporal=sw.ExponentialTemporal(lam=lam, sigma_t=sigma_t),
+            spatial=sw.GaussianSpatial(sigma_x=1.0))))
+    limit = lam * sigma_t * -np.expm1(-2.0 * gamma * t) / gamma
+    C = builtin_closed_form_for(system)(0.0, t, 0.0, t)
+    assert np.ravel(C)[0] == pytest.approx(limit, rel=1e-12, abs=0.0)
+
+
+def test_a_constant_kernel_with_no_drift_stays_on_the_closed_form():
+    system = sw.System(
+        field=sw.FieldSpec("phi", 1), linear=sw.DiagonalA(gamma=[0.0]),
+        noise=sw.GaussianNoise(kappa2=sw.SeparableTranslation(
+            temporal=sw.ExponentialTemporal(lam=1.0, sigma_t=np.inf),
+            spatial=sw.GaussianSpatial(sigma_x=1.0))))
+    C = builtin_closed_form_for(system)(0.0, 2.0, 0.0, 1.0)
+    assert np.ravel(C)[0] == pytest.approx(2.0, rel=1e-14, abs=0.0)
+
+
+def test_small_rate_branch_reads_only_the_elements_it_is_for():
+    """One small time in a batch used to send the whole batch through
+    ``_phi_at_small_rates``, whose ``_psi`` overflows at ``(γ − a) v < -710``.
+    Each element keeps the value it has alone, with no warning."""
+    gamma, a = 0.5, 1e3
+    times = np.array([1e-4, 5.0, 20.0])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        batch = ou_exponential_phi(gamma, a, times, times)
+        alone = [float(ou_exponential_phi(gamma, a, t, t)) for t in times]
+    np.testing.assert_array_equal(batch, alone)
+
+
+@pytest.mark.parametrize("gamma, a, th, tl", [
+    # (gamma + a) th = 1, either end of gamma / (gamma + a) and of the lag.
+    (1.0, 0.0, 1.0, 1.0),
+    (0.5, 0.5, 1.0, 1.0),
+    (0.0, 1.0, 1.0, 1.0 - 1e-12),
+    (0.25, 0.75, 1.0, 1e-12),
+    (0.9, 0.1, 1.0, 0.5),
+    # One step under it, where the Taylor sum reads its largest arguments.
+    (1.0, 0.0, 1.0 - 1e-12, 1.0 - 1e-12),
+])
+def test_phi_paths_meet_the_defining_integral_at_the_dispatch(gamma, a, th, tl):
+    """Both paths, bypassing the dispatch, against the integral."""
+    args = (np.array([gamma]), np.array([a]), np.array([tl]))
+    d = np.array([th - tl])
+    expected = float(_phi_mpmath(gamma, a, th, tl))
+    small = closed_forms._phi_at_small_rates(*args, d)[0]
+    closed = closed_forms._phi_closed(*args, np.array([th]), d)[0]
+    assert small == pytest.approx(expected, rel=2e-15, abs=0.0)
+    assert closed == pytest.approx(expected, rel=3e-15, abs=0.0)
+
+
+def test_phi_batch_reads_each_element_on_one_path(monkeypatch):
+    """Each element of a mixed batch takes one path, and a batch of one kind
+    takes no mask."""
+    sizes = {}
+
+    def counted(name):
+        path = getattr(closed_forms, name)
+
+        def wrapper(gamma, *rest):
+            sizes[name] = gamma.size
+            return path(gamma, *rest)
+
+        return wrapper
+
+    for name in ("_phi_at_small_rates", "_phi_closed"):
+        monkeypatch.setattr(closed_forms, name, counted(name))
+    times = np.array([0.1, 3.0, 0.2, 5.0, 9.0])
+    ou_exponential_phi(1.0, 2.0, times, times)
+    assert sizes == {"_phi_at_small_rates": 2, "_phi_closed": 3}

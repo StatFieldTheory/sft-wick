@@ -22,6 +22,7 @@ import yaml
 
 import sft_wick as sw
 from sft_wick.workflow.config import (
+    ConfigError,
     build_system,
     load_workflow_config,
     run_workflow,
@@ -500,7 +501,7 @@ def test_CF7_c_closed_form_supports_parallel(tmp_path: Path) -> None:
     """The parallel C-table build path must work with c_closed_form_module.
 
     Regression-locks the fix that replaced the dynamic-class factory with
-    the module-level ``_ClosedFormPropagatorCache``, and that drops the
+    ``c_value_fn`` on ``PropagatorCache``, and that drops the
     ``n_jobs = 1 if c_fn else ...`` forcing in ``run_workflow``.
     """
     (tmp_path / "trivial_c.py").write_text(_TRIVIAL_C_MODULE)
@@ -1346,3 +1347,72 @@ def test_CF18_yaml_nonlocal_vertex_equal_time_round_trip(tmp_path: Path) -> None
     by_name = {v.coupling: v for v in l0_vertices}
     assert by_name["K"].equal_time is True
     assert by_name["J"].equal_time is False
+
+
+# ---------------------------------------------------------------------------
+# One integer reader, one number reader
+# ---------------------------------------------------------------------------
+
+
+def _reader_config(tmp_path, block, key, value):
+    doc = {
+        "system": {
+            "field": {"name": "phi", "n_components": 1},
+            "linear": {"gamma": [1.0]},
+            "noise": {"kappa2": {
+                "type": "separable_translation",
+                "temporal": {"type": "exponential", "lam": 0.1, "sigma_t": 0.3},
+                "spatial": {"type": "exponential", "sigma_x": 1.0}}},
+        },
+        "expand": {"observable": ["phi(x)", "phi(y)"], "orders": [0]},
+        "propagators": {"t_max": 2.0},
+        "sweep": {"positions_grid": {"x": [0.0], "y": [0.0]},
+                  "t_final_grid": [1.0], "component_tuples": [[0, 0]]},
+    }
+    node = doc
+    for part in block.split("."):
+        node = node[part]
+    node[key] = value
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml.safe_dump(doc))
+    return path
+
+
+@pytest.mark.parametrize("block,key,value", [
+    ("sweep", "n_samples", 4096.9),
+    ("sweep", "n_gauss", 8.7),
+    ("sweep", "seed", 1.5),
+    ("sweep", "seed", True),
+    ("sweep", "n_jobs", 1.9),
+    ("propagators", "n_grid_t", 6.7),
+    ("propagators", "c_n_gauss", 6.7),
+    ("propagators", "t_max", True),
+    ("system", "t_min", True),
+    ("system.linear", "t_max_cache", "abc"),
+    ("system.linear", "t_min_cache", True),
+    ("system.linear", "n_grid_cache", 2.5),
+    ("system.linear", "n_grid_cache", 1),
+])
+def test_a_truncated_or_boolean_number_is_refused(tmp_path, block, key, value):
+    with pytest.raises(ConfigError) as info:
+        load_workflow_config(_reader_config(tmp_path, block, key, value))
+    assert info.value.path == f"{block}.{key}"
+
+
+@pytest.mark.parametrize("value", [1000, 1000.0, "1e3", "1000"])
+def test_an_integral_value_reads_in_every_spelling(tmp_path, value):
+    cfg = load_workflow_config(
+        _reader_config(tmp_path, "sweep", "n_samples", value))
+    assert cfg.sweep.n_samples == 1000 and type(cfg.sweep.n_samples) is int
+
+
+def test_R_time_without_the_heaviside_passes_the_probe():
+    """The integrators apply Θ, so this R gives the number of the clamped one
+    at L1; the probe refused it, while a wrong shape stays refused."""
+    from sft_wick.workflow.config import _probe_R_time
+
+    _probe_R_time(lambda t1, t2: np.exp(-0.9 * (t1 - t2)), True, 1, 0.4, 3.0)
+    with pytest.raises(ValueError, match="shape"):
+        _probe_R_time(
+            lambda t1, t2: 1.0 if t1 > t2 else np.zeros(2), True, 1, 0.4, 3.0
+        )

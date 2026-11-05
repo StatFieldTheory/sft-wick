@@ -396,7 +396,7 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     "tests/test_deductive_expansion.py": (
         "Multiplicities and canonical forms",
         "every pairing at order ≤ 2 classified by vanishing reason; "
-        "topology multiplicities; canonical-form deduplication",
+        "routing counts of spatial topologies; canonical-form deduplication",
         "brute-force Wick reference (tests/brute_wick.py, no sft-wick imports)",
         "exact",
     ),
@@ -578,8 +578,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "separation past r_max, position past x_max on both sides, extreme "
         "values, rounding at a limit accepted, a sweep and the CLI stopped "
         "before their first cost; no limit on cos, on lazy positions or "
-        "under c_closed_form_only; a diagram with a closed R loop reads no "
-        "table and clear_cache keeps the limits of a spatial table",
+        "under c_closed_form_only; clear_cache keeps the limits of a spatial "
+        "table",
         "scipy dblquad of the defining integral, sharing no code with the "
         "package, with asymmetric rates, t_min != 0 and a kernel that changes "
         "under x -> -x",
@@ -844,7 +844,7 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "and the noise-induced drift, the vertices and their MSR factors, "
         "⟨φ_a⟩ and ⟨φ_a φ_b⟩ per bookkeeping tag at vertex orders 0-3 (Itô "
         "and Stratonovich, scalar and matrix R, two times), the YAML route, "
-        "the one-site and ito=False refusals",
+        "the one-site refusal",
         "exact moment hierarchy in Hörmander form (no noise-induced drift "
         "formed); finite differences of g",
         "1e-9 (GL) / 2e-3 (qmc_scalar)",
@@ -862,7 +862,9 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Integrators",
         "Gauss-Legendre splits the domain at kinks: unordered ends of a "
         "white-noise C, unordered parents of a multi-psi vertex; the "
-        "orientations are the consistent total orders",
+        "orientations are the consistent total orders; a closed-form C is "
+        "split on its own declaration or a numerical probe, never on the "
+        "model it replaces",
         "linear extensions of the causal order; the exact Itô moment " "hierarchy",
         "exact / 1e-11",
     ),
@@ -885,9 +887,10 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "no cut is made when every external sits at one time; an external "
         "swept by integrate_over pairs like an integration variable "
         "instead, and two swept ones pair too, unless the full causal "
-        "closure (a chain through a fixed external included) orders them",
-        "exact Itô moment hierarchy, transported over the lag between "
-        "the two external times",
+        "closure (a chain through a fixed external included) orders them; "
+        "a swept external below a carried lower cut is cut",
+        "exact Itô moment hierarchy, transported over the lags between "
+        "the external times",
         "exact / 1e-11",
     ),
     "tests/test_demo4_asymmetric_noise.py": (
@@ -1231,8 +1234,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "2 before any stage: diag_R and diag_C, empty and repeated axes, "
         "pinned and integrated points, joined points at two positions, plot "
         "columns, output paths, the closed-form C module and flags; the "
-        "shapes at every position on each axis; high-point physical "
-        "observables validate without Gaussian pairing enumeration; the "
+        "shapes at every position on each axis; high-point observables "
+        "validate with one pairing per R assignment; the "
         "neighbour of each refusal runs; what only the diagrams decide stops "
         "the run after the expansion",
         "the refusal of the integrators, compared directly over observables, "

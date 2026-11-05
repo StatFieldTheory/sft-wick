@@ -79,12 +79,12 @@ times, against the closed form (the ten splits) and the hierarchy.
 | vertex | route | rates | tuples | vs closed form | vs hierarchy |
 |---|---|---|---|---|---|
 | static `X3` | Gauss-Legendre 8 | 1.05, 1.05 | 64 | 5.9e-16 | 9.8e-16 |
-| static `X3` | `qmc_vectorized` 2¹⁴ | 1.05, 1.05 | 3 | 6.7e-05 | 6.7e-05 |
-| static `X3` | `qmc_scalar`, `qmc` 2¹⁶ | 0.8, 1.3 | 3 | 1.2e-05 | 1.2e-05 |
+| static `X3` | `qmc_vectorized` 2¹⁴ | 1.05, 1.05 | 3 | 2.1e-05 | 2.1e-05 |
+| static `X3` | `qmc_scalar`, `qmc` 2¹⁶ | 0.8, 1.3 | 3 | 1.6e-05 | 1.6e-05 |
 | `equal_time` `J3` | Gauss-Legendre 12 | 1.05, 1.05 | 64 | 9.7e-16 | 2.4e-15 |
-| `equal_time` `J3` | `qmc_vectorized` 2¹⁴ | 1.05, 1.05 | 3 | 1.3e-07 | 1.3e-07 |
+| `equal_time` `J3` | `qmc_vectorized` 2¹⁴ | 1.05, 1.05 | 3 | 1.6e-07 | 1.6e-07 |
 | `equal_time` `J3` | `nquad` | 1.05, 1.05 | 3 | 4.1e-16 | 2.2e-16 |
-| `equal_time` `J3` | `qmc_scalar`, `qmc` 2¹¹ | 0.8, 1.3 | 3 | 2.6e-05 | 2.6e-05 |
+| `equal_time` `J3` | `qmc_scalar`, `qmc` 2¹¹ | 0.8, 1.3 | 3 | 2.4e-06 | 2.4e-06 |
 | `equal_time` `J3` | `nquad` | 0.8, 1.3 | 1 | 1.1e-16 | 2.3e-16 |
 
 The hierarchy and the closed form agree to 5.7e-16 (static) and 2.2e-15
@@ -130,7 +130,7 @@ the route for it).
 | pulses | route | n_gauss | worst | convergence |
 |---|---|---|---|---|
 | white | raw `equal_time` κ³ | 12 | 7.5e-16 | 8: 3.5e-12, 12: 3.8e-16 |
-| exponential | R-contracted `K_R` | 24 | 2.2e-09 | 12: 1.0e-07, 16: 1.9e-08, 24: 1.8e-09, 32: 3.4e-10 |
+| exponential | R-contracted `K_R` | 24 | 4.2e-15 | 12: 1.3e-15, 16: 1.2e-16, 24: 4.2e-15, 32: 9.0e-15 |
 
 ### Part C: a quartic and a cubic local vertex (`cubic_results.json`)
 
@@ -168,12 +168,12 @@ demo 4's compound-Poisson noise against Campbell's closed form:
 | 4 | white | R-contracted | 5.4e-16 | 6.6e-16 |
 | 4 | white | raw (`equal_time`), GL 16 | 1.0e-15 | |
 | 4 | exponential | R-contracted | 2.2e-14 | 7.5e-15 |
-| 4 | exponential | raw, `qmc_vectorized` 2¹⁸ | 2.5e-05 | |
-| 4 | exponential | raw, Gauss-Legendre 16 | 1.2e-01 | |
+| 4 | exponential | raw, `qmc_vectorized` 2¹⁸ | 3.6e-04 | |
+| 4 | exponential | raw, Gauss-Legendre 16 | 1.0e-13 | |
 | 5 | white | R-contracted | 2.5e-15 | 2.8e-15 |
 | 5 | white | raw (`equal_time`), GL 16 | 3.6e-15 | |
 | 5 | exponential | R-contracted | 8.8e-13 | 3.4e-14 |
-| 5 | exponential | raw, `qmc_vectorized` 2¹⁸ | 1.7e-03 | |
+| 5 | exponential | raw, `qmc_vectorized` 2¹⁸ | 4.5e-03 | |
 
 demo 4's hierarchy reproduces Campbell's closed form to 1.9e-13 at equal
 times and 3.2e-14 at distinct ones (the latter through the frozen-variable
@@ -183,11 +183,11 @@ form:
 | m | vertex | route | rates | worst |
 |---|---|---|---|---|
 | 4, 5 | `X4`, `X5` | Gauss-Legendre 8 | 1.05, 1.05 | 2.9e-16 |
-| 4, 5 | `X4`, `X5` | `qmc_vectorized` 2¹⁶ | 1.05, 1.05 | 1.2e-06 |
-| 4, 5 | `X4`, `X5` | `qmc_scalar` 2¹⁴ | 0.8, 1.3 | 4.9e-06 |
+| 4, 5 | `X4`, `X5` | `qmc_vectorized` 2¹⁶ | 1.05, 1.05 | 4.4e-06 |
+| 4, 5 | `X4`, `X5` | `qmc_scalar` 2¹⁴ | 0.8, 1.3 | 1.1e-05 |
 | 4, 5 | `J4`, `J5` | Gauss-Legendre 8 | 1.05, 1.05 | 5.2e-16 |
 | 4, 5 | `J4`, `J5` | `nquad` | both | 4.7e-16 |
-| 4, 5 | `J4`, `J5` | `qmc_scalar`, `qmc_vectorized` | both | 1.2e-09 |
+| 4, 5 | `J4`, `J5` | `qmc_scalar`, `qmc_vectorized` | both | 6.4e-15 |
 
 demo 6's hierarchy reproduces the same closed form to 1.3e-15.
 
@@ -249,11 +249,10 @@ external time.
   (`vertex6_repeated.py --pending` records the refusals).
 - **The raw exponential kernel is kinked and peaked.**  `κ^(m)` of demo 4's
   exponential pulses depends on the smallest leg time, and the fast
-  component (τ = 0.3) makes it sharp; Gauss-Legendre converges
-  algebraically and costs `n^m` evaluations per leg order, of which there
-  are up to `m!`.  At `m = 4`, the all-fast component tuple is 4.6e-01 off
-  at 8 nodes, 1.2e-01 at 16 and 5.3e-02 at 24, while QMC reaches 1.4e-03 at
-  2¹⁶ and 1.2e-05 at 2¹⁸.  The R-contracted route is exact.
+  component (τ = 0.3) makes it sharp; Gauss-Legendre is cut at those kinks
+  and costs `n^m` evaluations per leg order, of which there are up to `m!`.
+  At `m = 4` it reaches 1.0e-13 at 16 nodes, where QMC reaches 3.6e-04 at
+  2¹⁸.  The R-contracted route is exact.
 - **The order-4 expansion of a four-point observable did not finish in 20
   minutes** (`F` and a cubic non-local vertex, `⟨φ_a φ_b φ_c φ_d⟩`), so the
   two-copies-with-an-interaction channel is `F X3 X3` at order 3 of the

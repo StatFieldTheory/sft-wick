@@ -59,7 +59,7 @@ candidate pairings and classifies each by vanishing reason:
 =====================================  ======
 ψ-ψ contractions (auto-zero)            15
 R(x,x) killed by Itô                    48
-Causal R-loops (DFS cycle check)        12
+Causal R-loops (cycle check)            12
 Surviving pairings                      30
 Labelled spatial topologies              12
 Canonical Feynman diagrams (after       6
@@ -72,9 +72,11 @@ it against sft-wick's output.  Topics covered:
 - pairing count ``(2n−1)!!`` for n=2..5 (T1)
 - per-pairing vanishing rules (T2)
 - operator-level Wick sum vs brute propagator-product sum (T3)
-- spatial topology multiplicities (T4)
-- **two independent compute_moment paths** (collect_topology=False
-  vs True) produce the same Feynman topology set (T5)
+- operator pairings of each spatial topology, from its routings (T4)
+- the two ``compute_moment`` paths (collect_topology=False vs True)
+  produce the same Feynman topology set (T5).  They share ``r_classes``
+  and ``r_vanishes``, so this checks the code after those two; the hand
+  counts in T2 and T3 check those two.
 - rational prefactor :math:`(-1)^n / n! \times \mathrm{multinomial}` (T6)
 - response-phase :math:`(-i)^{n_R}` (T7)
 - two canonical-form algorithms (nauty vs brute permutation search)
@@ -96,7 +98,7 @@ it against sft-wick's output.  Topics covered:
 Phase 2: Propagator numerics
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-*File: ``tests/test_deductive_numerics.py``, ~22 tests, ~50 s.*
+*File: ``tests/test_deductive_numerics.py``, 46 tests.*
 
 The closed-form :math:`C(t, t')` formula and the package's
 ``PropagatorCache`` are verified against domain-split
@@ -110,7 +112,7 @@ The closed-form :math:`C(t, t')` formula and the package's
 - α=0 regression for the two-kernel form (N5)
 - two-kernel :math:`\kappa^{(2)}_{\mathrm{eff}}` shape at α>0 (N6)
 - spline-table (``precompute_C_table``) interpolation error (N7)
-- Itô flag end-to-end (N8)
+- Itô rule end-to-end (N8)
 - off-diagonal :math:`\kappa^{(2)}` → non-diagonal C propagator (N9)
 
 Phase 3: Full diagram evaluation
@@ -247,13 +249,13 @@ Phase 8: Time-dependent linear operator
 ``DiagonalA(gamma=callable)`` accepts a time-dependent γ(t) and
 pre-computes :math:`\Gamma_a(t) = \int_{t_c}^t \gamma_a(\tau) d\tau` on a
 grid as a cubic spline, from :math:`t_c` = ``t_min_cache`` (which
-:class:`~sft_wick.workflow.System` extends down to its ``t_min``) to
+:class:`~sft_wick.workflow.system.System` extends down to its ``t_min``) to
 ``t_max_cache``.  Phase 8 checks:
 
 - callable-constant γ matches the static list input (T1, T1b);
 - linear γ(t) = g₀ + g₁·t agrees with its closed-form Γ(t) (T2);
 - causality R(t₁, t₂)=0 for t₁<t₂ is preserved (T3);
-- end-to-end :class:`~sft_wick.workflow.System` round-trip works
+- end-to-end :class:`~sft_wick.workflow.system.System` round-trip works
   with the time-dependent path (T4).
 
 Phases WF + CF: Workflow and YAML round-trip

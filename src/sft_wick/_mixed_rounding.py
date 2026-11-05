@@ -67,7 +67,7 @@ import math
 
 import numpy as np
 
-from ._mixed_contraction import Word
+from ._mixed_contraction import Word, mixed_weights
 from ._mixed_exact import ExactQuery, SliceGrid, evaluate_query, exact_query
 
 # Bits of the magnitude estimate below which the dropped part is kept, in
@@ -124,8 +124,8 @@ def _weights(
 ) -> tuple[dict[int, Fraction], dict[int, Fraction]]:
     """Weights ``K_a`` and ``K'_a`` of the cut sizes in the bound on the dropped part."""
     order = len(slots)
-    ring_weight = Fraction(2 ** (order - 1), order) * math.factorial(order) * latent
-    chain_weight = Fraction(2) ** (order - 3)
+    ring_weight, chain_weight = mixed_weights(order)
+    ring_weight *= math.factorial(order) * latent
     matrix: dict[int, Fraction] = {index: Fraction(0) for index in sizes.norms}
     endpoint: dict[int, Fraction] = {index: Fraction(0) for index in sizes.end_norms}
     for position, index in enumerate(slots):

@@ -32,6 +32,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from scipy.integrate import quad
 from scipy.sparse import csr_matrix
 from scipy.sparse.linalg import expm_multiply
 
@@ -185,6 +186,27 @@ def test_a_lower_cut_is_carried_to_the_later_variables():
     assert upper == {"u": T_Y, "v": T_Y} and lower == {}
 
 
+def _swept_cuts(orderings):
+    """Cuts on a swept ``s`` and integrated ``v``, ``w`` once ``v ≥ T_Y``."""
+    sp = _spatial(orderings, [("v", "y")], ivars=("v", "w"))
+    swept = {"s"}
+    extra = (("v", "ge", T_Y),)
+    fixed = {"x": T_X}
+    bounds = _constant_bounds(sp, sp.time_orderings, fixed, T_MIN, T_CEIL,
+                              extra, swept=swept, swept_ceiling=T_CEIL)
+    return _kink_constant_cuts(sp, False, bounds, fixed, sp.time_orderings,
+                               extra_bounds=extra, swept=swept)
+
+
+def test_a_lower_cut_carried_above_a_swept_external_cuts_it():
+    """``v ≥ t*``, ``v ≤ w`` and a swept ``s ≤ w`` leave ``max(s, t*)`` in
+    ``w``'s range although ``s`` is not below ``v``.  With ``s`` below no
+    variable that holds the cut, nothing is cut."""
+    assert ("s", T_Y) in _swept_cuts(
+        [("v", "w"), ("s", "w"), ("w", "x")])
+    assert ("s", T_Y) not in _swept_cuts([("v", "w"), ("w", "x"), ("s", "x")])
+
+
 def test_no_cut_no_bounds():
     """Empty in, empty out: a diagram with no cut takes the mapping it
     always took, to the bit."""
@@ -287,6 +309,73 @@ def _two_time(a, b, t_late, t_early, order):
         for (mono, ntag), w in nodes))
 
 
+def _transport(sde, poly, s):
+    """``{node: weight}`` carried over a lag ``s`` by the generator."""
+    out = {}
+    for node, weight in poly.items():
+        index, M = _reachable(sde, node)
+        e = np.zeros(len(index))
+        e[index[node]] = 1.0
+        row = expm_multiply(M.T.tocsr() * s, e) if s > 0.0 else e
+        for other, k in index.items():
+            out[other] = out.get(other, 0.0) + weight * row[k]
+    return out
+
+
+def _three_time(legs, order):
+    """``E[Π φ_c(t)]`` over ``legs = ((c, t), ...)`` at ``O(F^order)``: every
+    leg sits on the first point of :func:`_sde`, a white noise shared by all
+    positions makes the points one process.  Transport from the latest leg
+    to the next, multiply, repeat."""
+    sde, idx, D = _sde()
+    later = sorted(legs, key=lambda leg: -leg[1])
+    poly = {(im.unit(D, idx[(later[0][0], 0)]), (order,)): 1.0}
+    for (_, t_late), (c, t_early) in zip(later, later[1:]):
+        moved = _transport(sde, poly, t_late - t_early)
+        leg = im.unit(D, idx[(c, 0)])
+        poly = {(tuple(m + n for m, n in zip(mono, leg)), tag): w
+                for (mono, tag), w in moved.items()}
+    nodes = list(poly)
+    got = im.solve(sde, nodes, [later[-1][1]])
+    return float(sum(poly[node] * got[node][0] for node in nodes))
+
+
+class _WhiteC:
+    """C of ``_system`` at ``t_min = 0``, vectorised."""
+
+    has_diagonal_kink = True
+
+    def __call__(self, x1, t1, x2, t2):
+        decay = np.exp(-GAMMA * np.abs(t1 - t2)) - np.exp(-GAMMA * (t1 + t2))
+        return (decay / (2.0 * GAMMA))[..., None, None] * S2
+
+
+def test_three_points_with_one_swept_match_the_hierarchy():
+    """``∫ dt_x ⟨φ_0(x, t_x) φ_1(y, 1.7) φ_1(z, 0.4)⟩`` at order 3.  The C
+    between swept ``x`` and an internal time, and the C to the pinned ``z``,
+    give ``max(t_x, t_z)`` in a lower limit through a carried cut: 1.5e-5
+    relative at 10 nodes and 1.6e-7 at 28 before ``x`` was cut there."""
+    t_y, t_z, t_final = 1.7, 0.4, 2.0
+    nodes, weights = np.polynomial.legendre.leggauss(8)
+    ref = 0.0
+    for lo, hi in ((0.0, t_z), (t_z, t_y), (t_y, t_final)):
+        half = 0.5 * (hi - lo)
+        ref += half * sum(
+            w * _three_time(((0, lo + half * (u + 1.0)), (1, t_y), (1, t_z)), 3)
+            for u, w in zip(nodes, weights))
+    system = _system()
+    exp = system.expand(("phi_a(x)", "phi_b(y)", "phi_c(z)"), orders=[3],
+                        diag_C=False)
+    props = system.propagators(
+        t_max=t_final, c_closed_form=_WhiteC(), c_closed_form_only=True,
+        c_closed_form_vectorized=True, diag_C=False, progress=False)
+    got = exp.evaluate(
+        props, positions={"x": 0.0, "y": 0.7, "z": -0.4}, t_final=t_final,
+        component_pair=(0, 1, 1), external_times={"y": t_y, "z": t_z},
+        integrate_over={"x"}, orders=[3], method="gauss_legendre", n_gauss=10)
+    assert got.total == pytest.approx(ref, rel=1e-11, abs=0.0)
+
+
 @pytest.fixture(scope="module")
 def setup():
     system = _system()
@@ -357,3 +446,59 @@ def test_the_comparison_is_not_vacuous():
     equal = _two_time(0, 1, T_X, T_X, 2)
     two = _two_time(0, 1, T_X, T_Y, 2)
     assert abs(two - equal) / abs(equal) > 0.1
+
+
+@pytest.mark.parametrize("method", ["gauss_legendre", "nquad"])
+@pytest.mark.parametrize("t_final", [8.0, 2.0, 0.0])
+def test_the_diagonal_probe_covers_the_domain_past_t_final(t_final, method):
+    """With every external pinned the domain ends at the latest of them, and
+    ``t_final`` is not read.  The probe of an undeclared closed-form C was
+    asked about ``[t_min, t_final]`` instead: at ``t_final = t_min`` that range
+    is empty and the kink was not split, 8.3e-3 off at 16 nodes.  Reference:
+    the order-1 cubic correlator written as 1-D integrals of R and C for
+    ``scipy.quad``, which share no code with the package."""
+    gamma, g, x, y = 0.7, 0.4, 8.0, 7.3
+
+    def c_scalar(t1, t2):
+        return np.exp(-abs(t1 - t2))
+
+    def retarded(later, earlier):
+        return np.exp(-gamma * (later - earlier))
+
+    def c_form(n1, t1, n2, t2):
+        return c_scalar(float(t1), float(t2)) * np.eye(2)
+
+    def one_d(f, lo, hi):
+        return quad(f, lo, hi, epsabs=1e-13, epsrel=1e-12, limit=400)[0]
+
+    def x_leg(s):
+        return retarded(x, s) * c_scalar(s, s) * c_scalar(s, y)
+
+    def y_leg(s):
+        return retarded(y, s) * c_scalar(s, s) * c_scalar(s, x)
+
+    exact = 3.0 * g * (one_d(x_leg, 0.0, y) + one_d(x_leg, y, x) + one_d(y_leg, 0.0, y))
+    quartic = np.zeros((2, 2, 2, 2))
+    quartic[0, 0, 0, 0] = g
+    system = sw.System(
+        field=sw.FieldSpec("phi", n_components=2),
+        linear=sw.DiagonalA(gamma=[gamma, gamma]),
+        vertices=[sw.LocalVertex("F", coupling=quartic)],
+        noise=sw.GaussianNoise(kappa2=sw.SeparableTranslation(
+            temporal=sw.ExponentialTemporal(lam=1.0, sigma_t=1.0),
+            spatial=sw.ExponentialSpatial(sigma_x=1.0),
+        )),
+    )
+    props = system.propagators(
+        t_max=9.0, n_grid_t=8, c_closed_form=c_form, c_closed_form_only=True,
+        progress=False,
+    )
+    expansion = system.expand(
+        ("phi_a(x)", "phi_b(y)"), orders=[1], progress=False, diag_C=True
+    )
+    got = expansion.evaluate(
+        props, positions={"x": 0.0, "y": 0.0}, t_final=t_final,
+        component_pair=(0, 0), orders=[1], method=method, n_gauss=16,
+        external_times={"x": x, "y": y},
+    ).total
+    assert got == pytest.approx(exact, rel=1e-13, abs=0.0)

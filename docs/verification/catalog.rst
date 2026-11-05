@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **7420 tests** in 134 files (parametrised
+The suite has **7995 tests** in 134 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -57,7 +57,7 @@ this page is out of date.
 Symbolic engine
 ---------------
 
-*483 tests in 12 files.*
+*563 tests in 12 files.*
 
 .. list-table::
    :header-rows: 1
@@ -72,7 +72,7 @@ Symbolic engine
      - occurrence-connected targets, hyperedge ownership, early arity pruning, label collisions, normalized formal cumulants, scalar coupling indices, cache/YAML separation and structural-zero scans
      - independent moment partitions, formal vacuum normalization and analytic nonlinear moment coefficients; frozen default-source probes
      - exact ordered structure; explicit absolute and relative numerical tolerances
-     - 89
+     - 86
    * - ``test_coupling_execution_plan.py``
      - ordered native coupling lowering, phases, mutable bindings/pins, dtypes, nonfinite arithmetic, exception order, fallback and pickle
      - independent partial tensor contraction plus original ordered leaf semantics
@@ -97,7 +97,7 @@ Symbolic engine
      - expression tree: hashing, equality, rational arithmetic, LaTeX
      - specification
      - exact
-     - 21
+     - 24
    * - ``test_fields.py``
      - Field / FieldOperator construction, unique UIDs, component indices
      - specification (exact structural assertions)
@@ -107,7 +107,7 @@ Symbolic engine
      - compute_moment orders, DiagramTerm structure, coupling evaluation, response phase
      - hand-derived expansions
      - exact
-     - 24
+     - 63
    * - ``test_propagators.py``
      - pairing rules: φφ→C, φψ→R, ψψ→0; Itô R(x,x)=0
      - MSR contraction rules
@@ -122,12 +122,12 @@ Symbolic engine
      - simplification passes, diagonal / isotropic index collapse, collection by diagram
      - hand-simplified forms; idempotence
      - exact
-     - 35
+     - 54
    * - ``test_wick.py``
      - operator-level and spatial-level Wick contraction of small products
      - hand-enumerated pairings; the two engines against each other
      - exact
-     - 24
+     - 46
 
 Multiplicities and canonical forms
 ----------------------------------
@@ -144,20 +144,20 @@ Multiplicities and canonical forms
      - Tolerance
      - Tests
    * - ``test_deductive_expansion.py``
-     - every pairing at order ≤ 2 classified by vanishing reason; topology multiplicities; canonical-form deduplication
+     - every pairing at order ≤ 2 classified by vanishing reason; routing counts of spatial topologies; canonical-form deduplication
      - brute-force Wick reference (tests/brute_wick.py, no sft-wick imports)
      - exact
-     - 79
+     - 78
    * - ``test_diagrams.py``
      - FeynmanDiagram canonical form and isomorphism deduplication
      - isomorphic relabellings hash-compare equal
      - exact
-     - 11
+     - 12
 
 Propagator numerics
 -------------------
 
-*1447 tests in 19 files.*
+*1586 tests in 19 files.*
 
 .. list-table::
    :header-rows: 1
@@ -172,12 +172,12 @@ Propagator numerics
      - Gauss-Legendre C quadrature with the diagonal split, translation and rotation kernels, table builds, speed
      - dblquad
      - 1e-4
-     - 9
+     - 17
    * - ``test_closed_form_dispatch_boundaries.py``
      - built-in closed form vs Gauss-Legendre vs dblquad at the dispatch boundary cells (ridge, t→t_min, t_max, γ=1/σ_t, r=0, r_max, per-component γ, t_min≠0, white noise); dispatcher choices
      - each method against the others; analytic stationary limit
      - 1e-10 (GL) / 1e-8 (dblquad)
-     - 21
+     - 46
    * - ``test_d_dim_spatial.py``
      - vector positions through the L1 evaluate path; C hooks that write into their position and time arguments
      - scalar-separation equivalent; exact time integrals of a linear C; the same hook without writes
@@ -197,7 +197,7 @@ Propagator numerics
      - off-diagonal C entries with diag_C=false
      - closed-form cross-correlation
      - 1e-8
-     - 5
+     - 9
    * - ``test_diagonal_A_time_dependent.py``
      - time-dependent γ(t) via the integral of its cubic spline; R at the default cache grid and O(h⁴) convergence of Γ
      - constant-γ closed form; explicit R; analytic Γ of a sinusoidal rate
@@ -217,17 +217,17 @@ Propagator numerics
      - GeneralKappa2 and CustomImpulse callables that write into their position arguments, at 3-D, 1-vector and scalar positions, on gauss_legendre and dblquad, at L0, at L1 order 0 and in the transposition probe; a vectorised closed-form C that fills and returns one buffer, at order 2 under diag_C true and false on qmc_vectorized and gauss_legendre; an L0 coupling callable that returns one buffer, vectorised and per sample, on three integrators; a kappa2 that returns one buffer, in the cusp and transposition probes and in integrate_two_point_qmc; a dense ExplicitR that returns one buffer, in the Gauss-Legendre C quadrature with and without white noise and in the YAML R probe
      - erf inner and scipy quad outer time integral of the Gaussian temporal kernel plus a quad white-noise term; the same kernel without writes; the same hook, coupling or kernel with a fresh array, and per sample
      - 1e-12; 5e-4 through the 10 x 10 table; bit equality
-     - 53
+     - 52
    * - ``test_min_lag_boundaries.py``
      - min-time/lag tables retain the ordered spatial arguments of an explicit earlier-first covariance, call physical kernels only inside the requested horizon, converge at both temporal corners and the upper boundary, preserve positivity under steep decay with linear interpolation, and reject the previous cache schema
      - rank-one Gaussian covariance; exact matrix white-noise covariance; callbacks restricted to the declared time interval
      - 1e-12 (nodes) / 2e-3 (boundary, grid convergence)
-     - 25
+     - 35
    * - ``test_offdiagonal_c_tables.py``
      - full N x N C tables by quadrature (no closed form): every entry at r != 0 and at both time orders, convergence with the grid, the transposition that fills half of each table and a kernel that forbids it, and every C lookup (scalar loop, batched QMC and Gauss-Legendre, integrate_over, external_times, integrate_two_point_qmc, the legacy time table)
      - Lyapunov equation of the Markov embedding (scipy only); the built-in closed form, checked against it; direct quadrature
      - 1e-8 (embedding) / 1e-4 - 1e-3 (tables)
-     - 43
+     - 46
    * - ``test_ou_uniform_factors.py``
      - equal-rate OU factor compression, full real/complex tensors, support, chunks, immutable metadata, output budgets and extreme component guards
      - original uncompressed arithmetic; independent common-time quadrature; untimed transcendental operand-shape witnesses
@@ -247,7 +247,7 @@ Propagator numerics
      - separable-kernel shared temporal table, time-symmetric build, auto node-count selection, progress reporting
      - per-r full build; dblquad
      - 1e-12 / 1e-6
-     - 11
+     - 109
    * - ``test_propagator_lookup_cache.py``
      - explicit fixed-model batch lookup promise, exact typed keys, bounded LRU, copies/layout/read-only outputs, invalidation, reentrancy and serialization
      - deterministic counting callbacks, stateful bypass witnesses, exact native byte/layout checks
@@ -257,17 +257,17 @@ Propagator numerics
      - an R read outside the cumulative-rate spline of a callable gamma is refused at L0, L1 and L2, for a scalar and a matrix R, on both sides, with extreme values and rounding at each end accepted; a sweep and the CLI stopped before their first cost; a hand-built table refused at its build or first read; no refusal of an acausal pair, of order 0 of phi legs, of an unread t_final, of a constant rate or of an ExplicitR
      - scipy quad of a nonlinear rate, sharing no code with the package
      - 1e-7 (spline, 301 nodes) / exact (unread t_final)
-     - 112
+     - 114
    * - ``test_table_limits.py``
-     - a C lookup outside its table is refused at L0, L1 and L2 on every table kind: times on both sides, t_final only where it is read, separation past r_max, position past x_max on both sides, extreme values, rounding at a limit accepted, a sweep and the CLI stopped before their first cost; no limit on cos, on lazy positions or under c_closed_form_only; a diagram with a closed R loop reads no table and clear_cache keeps the limits of a spatial table
+     - a C lookup outside its table is refused at L0, L1 and L2 on every table kind: times on both sides, t_final only where it is read, separation past r_max, position past x_max on both sides, extreme values, rounding at a limit accepted, a sweep and the CLI stopped before their first cost; no limit on cos, on lazy positions or under c_closed_form_only; clear_cache keeps the limits of a spatial table
      - scipy dblquad of the defining integral, sharing no code with the package, with asymmetric rates, t_min != 0 and a kernel that changes under x -> -x
      - 1e-6 at table nodes / 1e-5 one DELTA from a coarse node
-     - 411
+     - 401
 
 Integrators
 -----------
 
-*2429 tests in 56 files.*
+*2606 tests in 56 files.*
 
 .. list-table::
    :header-rows: 1
@@ -282,7 +282,7 @@ Integrators
      - already_R_contracted non-local vertices across L0/L1/L2
      - raw-κ³ evaluation of the same diagram
      - 1e-12
-     - 22
+     - 25
    * - ``test_batch_reduction_reuse.py``
      - invocation-local lazy C/R reductions, mutation and custom-array/index/helper/projector fallback, unused errors, arithmetic order and public GL/QMC
      - explicit component contractions and independently integrated white-noise mean
@@ -412,12 +412,12 @@ Integrators
      - spacetime-dependent (callable) κ^(m) couplings, per-sample and vectorised contracts, propagator-indexed contraction
      - static tensor at the same point; two contracts against each other
      - 1e-12
-     - 37
+     - 65
    * - ``test_equal_time_nonlocal.py``
      - equal_time non-local vertices (single time integral)
      - explicit δ-function reduction
      - 1e-8
-     - 55
+     - 56
    * - ``test_evaluate_pipeline.py``
      - spatial analysis, causal orderings, integrand assembly
      - specification
@@ -449,15 +449,15 @@ Integrators
      - 2e-12 exponential / 3e-13 polynomial; explicit absolute near-zero bound
      - 42
    * - ``test_gl_white_noise_kinks.py``
-     - Gauss-Legendre splits the domain at kinks: unordered ends of a white-noise C, unordered parents of a multi-psi vertex; the orientations are the consistent total orders
+     - Gauss-Legendre splits the domain at kinks: unordered ends of a white-noise C, unordered parents of a multi-psi vertex; the orientations are the consistent total orders; a closed-form C is split on its own declaration or a numerical probe, never on the model it replaces
      - linear extensions of the causal order; the exact Itô moment hierarchy
      - exact / 1e-11
-     - 9
+     - 55
    * - ``test_group_position_conflict.py``
      - two points of ONE R-connected direction group at two positions are refused at every entry point (an external ψ leg, a local two-ψ vertex); the label-independence of the refusal, the separated φφ control on every integrator
      - the two coincident-position configurations the arbitrary pick was choosing between
      - 1e-12
-     - 33
+     - 77
    * - ``test_higher_cumulants.py``
      - non-Gaussian driving at cumulant order m ≥ 4 (κ⁴, κ⁵)
      - brute-force Wick counting; MSR prefactors
@@ -472,17 +472,17 @@ Integrators
      - an index-free (iso_C=True) C propagator stands for c of C_ab = δ_ab c, not the trace N c: orders 0-2 at N = 2 on four backends; a non-isotropic C is refused
      - the iso_C=False expansion of the same system
      - 1e-10
-     - 25
+     - 26
    * - ``test_ito_moments_reference.py``
      - the exact Itô moment-hierarchy reference used by demos 4 and 5 (examples/reference/ito_moments.py; no sft-wick code): OU variance, quadratic-drift correction, shot-noise cumulants, multiplicative noise, a non-normal linear system
      - closed forms; Campbell's theorem; Lyapunov equation
      - 1e-13
      - 7
    * - ``test_kink_split_external_time.py``
-     - a kink between an integration time and an external point pinned at a fixed time is cut, not paired: the variable's range is cut at that time, the cut is carried to the variables ordered against it and to the parents whose min() bound it enters, and no cut is made when every external sits at one time; an external swept by integrate_over pairs like an integration variable instead, and two swept ones pair too, unless the full causal closure (a chain through a fixed external included) orders them
-     - exact Itô moment hierarchy, transported over the lag between the two external times
+     - a kink between an integration time and an external point pinned at a fixed time is cut, not paired: the variable's range is cut at that time, the cut is carried to the variables ordered against it and to the parents whose min() bound it enters, and no cut is made when every external sits at one time; an external swept by integrate_over pairs like an integration variable instead, and two swept ones pair too, unless the full causal closure (a chain through a fixed external included) orders them; a swept external below a carried lower cut is cut
+     - exact Itô moment hierarchy, transported over the lags between the external times
      - exact / 1e-11
-     - 30
+     - 38
    * - ``test_kink_split_nquad_couplings.py``
      - nquad splits the time domain at kinks as Gauss-Legendre does (white-noise C, matrix R); a coupling callable declaring has_coincident_time_kinks contributes its leg times (raw vertex) or partner times (already_R_contracted), read through the MSR wrapper; equal_time vertices contribute none
      - exact Itô moment hierarchy; the pairs by construction
@@ -492,7 +492,7 @@ Integrators
      - numeric literal component labels ('1' is component 0) read alike by coupling symbols, propagator legs and the Kronecker deltas of diag_C, diag_R, iso_C and iso_R, at L0 (both engines, every integrator, scalar and batched interpreters, compiled plans); literals outside 1..n_components refused, pinned or not, and an in-range literal yields to its pin
      - exact Ornstein-Uhlenbeck covariance and response; Isserlis' theorem; the exact Itô moment hierarchy (examples/reference/ito_moments.py)
      - 1e-13; 1e-9 against the hierarchy
-     - 63
+     - 66
    * - ``test_matrix_r_batched.py``
      - matrix-valued R (DiagonalA with distinct rates, a non-normal dense ExplicitR) on gauss_legendre, qmc_vectorized, integrate_two_point_qmc and the method='qmc' dispatch: static, callable, equal_time and already_R_contracted vertices, integrate_over, unequal external times; absorbed-R leg indices pinned to their partners'
      - exact Itô moment hierarchy (Markov embedding; a constant random source for κ³), closed form Σ κ M M M, scipy expm + quad_vec hand contractions; the scalar loop on the same Sobol points; nquad
@@ -512,7 +512,7 @@ Integrators
      - causal lower bounds from external response legs, two-time observables, C-table diagonal ridge, reality projection, external_times through every backend
      - closed forms; all five backends against each other
      - 1e-6 - 1e-10
-     - 151
+     - 194
    * - ``test_nonlocal_leg_order.py``
      - leg order of a callable κ^(m): every coupling-sum term evaluated at its own legs, on each integration route and the order-2 FK channel
      - numpy hand contraction; the old leg-order-blind value shown to differ
@@ -562,7 +562,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*1934 tests in 30 files.*
+*2087 tests in 30 files.*
 
 .. list-table::
    :header-rows: 1
@@ -587,7 +587,7 @@ Workflow and YAML
      - every refusal of the parser is a ConfigError with a code and a dotted path: module files Python cannot import, .npy files numpy cannot read, values the run cannot read; the exception type a caller caught before is kept; a message shows a value at a bounded size; a value that holds itself; a census of 39 wrong values on every key of two shipped configs; a tensor key whose aliases expand past the limit refused before NumPy reads it, at both sides of the limit
      - the dotted path of the changed key; the census of the commit before
      - exact
-     - 384
+     - 389
    * - ``test_config_module_env.py``
      - a module a config names leaves the environment as it was, a later process reads the standard library rather than a file beside the config, and a loky worker still imports what the module imports
      - the standard library's own file; a new interpreter for each worker pool
@@ -622,17 +622,17 @@ Workflow and YAML
      - callable-γ scalar/matrix R decided on the whole spline grid; the Γ spline reaches a negative t_min; t_max beyond t_max_cache refused; diag_R / diag_C refused when R or C has off-diagonal entries (dense R, mixing κ² or σ²), diagonal structures accepted
      - scipy quad of the rate; Lyapunov equation of the Markov embedding
      - 1e-5 (spline) / 1e-10
-     - 19
+     - 24
    * - ``test_local_callable_coupling.py``
      - a callable local coupling at L1 and in YAML: the rank contract, the MSR factor, the argument shapes, and a drift F0 (1 + beta x) exp(-lambda t) at orders 1-2 with t_min = 0.5 on every integrator
      - exact Itô moment hierarchy of a Markov embedding with a deterministic state u = exp(-lambda t)
      - 1e-12 (GL) / 1e-10 (nquad) / 1e-4 (QMC)
      - 102
    * - ``test_multiplicative_noise_l1.py``
-     - multiplicative white noise at L1 (MultiplicativeImpulse): D = g gᵀ and the noise-induced drift, the vertices and their MSR factors, ⟨φ_a⟩ and ⟨φ_a φ_b⟩ per bookkeeping tag at vertex orders 0-3 (Itô and Stratonovich, scalar and matrix R, two times), the YAML route, the one-site and ito=False refusals
+     - multiplicative white noise at L1 (MultiplicativeImpulse): D = g gᵀ and the noise-induced drift, the vertices and their MSR factors, ⟨φ_a⟩ and ⟨φ_a φ_b⟩ per bookkeeping tag at vertex orders 0-3 (Itô and Stratonovich, scalar and matrix R, two times), the YAML route, the one-site refusal
      - exact moment hierarchy in Hörmander form (no noise-induced drift formed); finite differences of g
      - 1e-9 (GL) / 2e-3 (qmc_scalar)
-     - 46
+     - 32
    * - ``test_observable_operator_inputs.py``
      - FieldOperator observables in System.expand (order 0 at distinct times, the FK channel at order 2, the same expansion as the string spelling, one index per shared letter); literal labels and foreign fields refused; set and frozenset observables refused, a dict's keys view accepted in its insertion order, the keys view of another mapping (a ChainMap's included) refused; a physical field named psi refused; each record draws for operators the caller built or cached, each edge joins the operators of its pair, a drawing reads no uid, and no call moves the uids back
      - closed-form inner and scipy quad outer integral of the exponential covariance; the FK channel of a constant kappa^3 as a 1-D quad
@@ -647,12 +647,12 @@ Workflow and YAML
      - strict resource variants, complete ordered result/stability gates, input protection (duplicate keys, also in merged mappings, compared as the document read them; a document read as plain YAML reads it, each key once; a value holding itself), fresh serial measurement and failure receipts
      - adversarial metadata/error/cancellation/nonfinite/overflow probes; true GL/QMC subprocesses and stale-bytecode witness
      - exact repeat/QMC gates; explicit 1e-12 relative and 1e-14 absolute GL budget
-     - 211
+     - 223
    * - ``test_resource_controls.py``
      - pure configuration resource scopes and conditional/bypass statuses; connected dry-run target
      - callback nonexecution witnesses, grid cardinality and connected Gaussian zero coefficients
      - exact status, callback and diagram-count checks
-     - 6
+     - 13
    * - ``test_spec_wrapper_aliasing.py``
      - a callable DiagonalA rate that fills and returns one buffer, in the spline grid, R, the order-0 and order-2 totals at L1 and iso_R through YAML gamma_module; SeparableTranslation and SeparableRotation kernels that share one output buffer, in kappa2 and the order-0 and order-2 totals on the lazy and full tables, gauss_legendre and dblquad; the YAML R_time_vectorized probe with an R that fills one buffer or uses its time arrays as scratch space
      - closed-form Gamma of the rates; nested scipy quad of the order-0 C; the same callables without the buffer or the write
@@ -677,27 +677,27 @@ Workflow and YAML
      - System.t_min reaches the integrators through Expansion.evaluate and sweep; a cache built for another t_min is refused
      - time-translation invariance (stationary noise, constant drift)
      - 1e-10
-     - 10
+     - 14
    * - ``test_validate_run_parity.py``
-     - sft-wick validate reports what run refuses, in one line with status 2 before any stage: diag_R and diag_C, empty and repeated axes, pinned and integrated points, joined points at two positions, plot columns, output paths, the closed-form C module and flags; the shapes at every position on each axis; high-point physical observables validate without Gaussian pairing enumeration; the neighbour of each refusal runs; what only the diagrams decide stops the run after the expansion
+     - sft-wick validate reports what run refuses, in one line with status 2 before any stage: diag_R and diag_C, empty and repeated axes, pinned and integrated points, joined points at two positions, plot columns, output paths, the closed-form C module and flags; the shapes at every position on each axis; high-point observables validate with one pairing per R assignment; the neighbour of each refusal runs; what only the diagrams decide stops the run after the expansion
      - the refusal of the integrators, compared directly over observables, targets, integrators and table kinds; a run with the closed form passed on
      - exact
-     - 114
+     - 132
    * - ``test_workflow.py``
      - System / Expansion / Propagators / SweepResult surface; end-to-end vs the raw API; two-time sweeps
      - raw L0 pipeline (validate_phase5); closed forms
      - 1e-6
-     - 15
+     - 32
    * - ``test_workflow_cli.py``
      - sft-wick config errors: exit status 2 and one stderr line with code, dotted path and suggestion, malformed observables included; a line with a code and a reason for a file YAML cannot read; validate, schema and --print-resolved; overrides of keys the file leaves out; SFT_WICK_STRICT=0; the ConfigError / OverrideError types
      - the parsed config; an edited copy of the file; a real subprocess for the exit status
      - exact
-     - 134
+     - 171
    * - ``test_workflow_config.py``
      - YAML → System lowering, run_workflow, overrides, dt, parallel layers, closed-form-only path, explicit R, callable modules and by-value hook transport to an existing worker pool
      - L1 flow on the same physics; isolated hook unavailable to workers
      - 1e-6 / 2e-2 (spline vs exact C); exact (hook transport)
-     - 33
+     - 51
    * - ``test_workflow_corpora.py``
      - every single-edit misspelling (deletion, transposition, substitution) of every key in every shipped config refused with its dotted path and the key meant (substitutions outside the quick start marked slow); every misspelling that gives another key of the block refused as well; every key a shipped config leaves out, set by override, gives the result of writing it into the file; an override through a YAML alias or a merged mapping changes only the path it names and adds at most one container per step of the path; a file where an alias makes a value hold itself refused with the path of that alias; a node shared without a cycle accepted; at every key, a value that expands through shared nodes gives a short message and is never written out whole
      - the parsed WorkflowConfig of the edited file, written out field by field; the jsonschema reference validator
@@ -707,7 +707,7 @@ Workflow and YAML
      - the workflow JSON Schema: a valid 2020-12 document; keys, defaults and required keys of each block against its config dataclass; the keys of every block and type variant against the parser in both directions; value enumerations; every shipped config validates; every pair of keys one edit apart listed with what refuses it
      - config dataclass field sets; the parser's own key check and value checks; the jsonschema reference validator
      - exact
-     - 62
+     - 81
    * - ``test_yaml_alias_expansion.py``
      - alias diamonds at keys nothing reads, shared tensors, depths from the limit to 300, both sides of the value and nesting limits, shipped configs, validate, --print-resolved, run and compare-resources
      - recursive walk of the tree on 3000 random shared values; PyYAML reading of the same text
@@ -722,12 +722,12 @@ Workflow and YAML
      - the L1 specs YAML could not express: custom temporal / spatial / angular kernels, a matrix-valued explicit R, a matrix ConstantImpulse; validation of the vertex, kernel and sigma2 blocks; a misspelt key refused in every block; overrides into list entries; flags read from true/false words; a key written twice; spatial grid keys the run ignores; output requirements at load; isotropy flags refused when their condition fails; observable entries and point names checked before the run
      - the equivalent L1 System; scipy quadrature of the defining C integrals; demo 3's Campbell closed form
      - exact (YAML vs L1) / 1e-9 - 1e-6
-     - 141
+     - 166
 
 Drawing and LaTeX
 -----------------
 
-*78 tests in 4 files.*
+*94 tests in 4 files.*
 
 .. list-table::
    :header-rows: 1
@@ -747,12 +747,12 @@ Drawing and LaTeX
      - TikZ backend output structure and styles
      - specification
      - exact
-     - 25
+     - 38
    * - ``test_latex_local_coupling.py``
      - local couplings render without a spurious spacetime argument
      - regression (referee-reported rendering)
      - exact
-     - 1
+     - 4
    * - ``test_lazy_drawing_import.py``
      - fresh-process deferred exports, import discovery and ordering, reload, concurrent lookup, original pickle behavior, backend and failed-import retry
      - public import contracts; pre-change renderer serialization
@@ -762,7 +762,7 @@ Drawing and LaTeX
 Spectral propagators
 --------------------
 
-*93 tests in 2 files.*
+*103 tests in 2 files.*
 
 .. list-table::
    :header-rows: 1
@@ -777,7 +777,7 @@ Spectral propagators
      - disorder-averaged R*, C* from a spectral density; averaging; delta-density reduction to OU
      - OU closed form at a delta density; Marchenko-Pastur convergence
      - 1e-12 (delta) / recorded
-     - 57
+     - 67
    * - ``test_user_hook_arguments.py``
      - user hooks that write into their arguments or fill and return them: the density callable of SpectralDensity.from_callable and the f of average, at L0 and at L1 order 0, and the refusal of a density callable that reorders its argument; read-only nodes and weights across pickle, joblib and copy; a solve_self_consistency distance and callback that write into the state, at damping 0 and 0.35, on array and dict states, and an initial state that is the step's own output buffer; a build_R_contracted_callable raw kernel that writes its positions, directly and at L1 order 1 on gauss_legendre and qmc_vectorized, and a chi grid the caller edits after the build
      - scipy quad over the continuous density; the closed-form fixed point (I - A)^-1 b; the leg-factorised trapezoid sum; the same hook without the write

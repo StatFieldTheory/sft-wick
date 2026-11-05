@@ -1343,11 +1343,10 @@ def test_factorized_scalar_ranges_at_the_exponent_limits(
 @pytest.mark.parametrize("dtype", ["real", "complex"])
 def test_factorized_imaginary_pair_follows_the_ordered_coefficient_dtype(admit_all, dtype):
     """``(1/2) i F(i, j) i G(k, l)`` with real tensors and a real prefactor.
-    With only real coupling values the ordered preparation evaluates the
-    complex monomial into a float coefficient and raises ``TypeError``; the
-    factorized request raises the same error.  An unused complex coupling
-    value makes the ordered coefficient complex, and the factorized call is
-    then contracted within the bound."""
+    The ``i`` factors make the ordered coefficient complex whether or not a
+    complex value is supplied.  With real values only, the factorized
+    lowering declines and the ordered fold answers; an unused complex value
+    lets the factorized call contract it within the bound."""
     rng = np.random.default_rng(9880)
     term = DiagramTerm(
         (Propagator("C", "i", "k", "x", "y"), Propagator("C", "j", "l", "x", "y")),
@@ -1367,11 +1366,9 @@ def test_factorized_imaginary_pair_follows_the_ordered_coefficient_dtype(admit_a
     )
     values = {"F": _signed(rng, (N, N)), "G": _signed(rng, (N, N))}
     if dtype == "real":
-        with pytest.raises(TypeError) as ordered:
-            term.build_integrand(values, {})
-        with pytest.raises(TypeError) as requested:
-            term.build_integrand(values, {}, contraction_backend="factorized")
-        assert str(requested.value) == str(ordered.value)
+        assert try_build_factorized(term, analyze_spatial(term), values, {}, LIMIT) is None
+        requested = term.build_integrand(values, {}, contraction_backend="factorized")
+        assert type(requested) is type(term.build_integrand(values, {}))
         return
     values["H"] = np.zeros((), dtype=np.complex128)
     candidate = try_build_factorized(term, analyze_spatial(term), values, {}, LIMIT)

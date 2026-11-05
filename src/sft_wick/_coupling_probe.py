@@ -21,6 +21,7 @@ from ._coupling_plan import (
     native_numpy_c_type,
 )
 from .expressions import Product, Propagator, Rational, Sum
+from .indices import is_literal_component
 
 _LIMIT = 1e100
 _MAX_SCAN_ELEMENTS = 4096
@@ -258,11 +259,8 @@ def known_scalar_shape(term, values, fixed_indices, n_samples):
         elif kind == "d":
             for label in token[1:]:
                 label = plan.caller_label(label)
-                if label not in intervals:
-                    try:
-                        int(label)
-                    except ValueError:
-                        return None
+                if label not in intervals and not is_literal_component(label):
+                    return None
             bound = 1.0
         elif kind == "i":
             bound = 1.0

@@ -14,10 +14,23 @@ from .expressions import Propagator
 from .fields import FieldOperator, FieldType
 
 
+def propagator(kind: str, left: FieldOperator, right: FieldOperator) -> Propagator:
+    """The propagator of ``kind`` from ``left`` to ``right``.
+
+    The caller has chosen the order: an R is stored with its φ on the left.
+    """
+    return Propagator(
+        kind=kind,
+        index_left=left.component_index,
+        index_right=right.component_index,
+        spatial_left=left.spatial_arg,
+        spatial_right=right.spatial_arg,
+    )
+
+
 def contract_pair(
     op1: FieldOperator,
     op2: FieldOperator,
-    ito: bool = True,
 ) -> Optional[Propagator]:
     r"""Contract two field operators and return the propagator, or None if it vanishes.
 
@@ -27,15 +40,12 @@ def contract_pair(
     Args:
         op1: First field operator.
         op2: Second field operator.
-        ito: If ``True``, the Itô prescription :math:`\Theta(0)=0` is
-            applied: the response propagator vanishes at equal spatial
-            points, i.e. :math:`R(x,x)=0`.  This eliminates diagrams
-            with equal-point response contractions (e.g. intra-vertex
-            tadpoles in local vertices).
 
     Returns:
         A :class:`~sft_wick.expressions.Propagator`, or ``None`` if the
-        contraction vanishes.
+        contraction vanishes: two :math:`\psi` operators, or an R that
+        :func:`~sft_wick.wick.r_vanishes` drops, which for one edge is the
+        Itô rule :math:`R(x,x)=0`.
     """
     t1, t2 = op1.field_type, op2.field_type
 
@@ -43,32 +53,12 @@ def contract_pair(
         return None
 
     if t1 == FieldType.PHYSICAL and t2 == FieldType.PHYSICAL:
-        return Propagator(
-            kind="C",
-            index_left=op1.component_index,
-            index_right=op2.component_index,
-            spatial_left=op1.spatial_arg,
-            spatial_right=op2.spatial_arg,
-        )
+        return propagator("C", op1, op2)
 
-    if t1 == FieldType.PHYSICAL and t2 == FieldType.RESPONSE:
-        if ito and op1.spatial_arg == op2.spatial_arg:
-            return None
-        return Propagator(
-            kind="R",
-            index_left=op1.component_index,
-            index_right=op2.component_index,
-            spatial_left=op1.spatial_arg,
-            spatial_right=op2.spatial_arg,
-        )
+    from .wick import r_vanishes
 
-    # t1 == RESPONSE, t2 == PHYSICAL: canonical order puts phi first
-    if ito and op1.spatial_arg == op2.spatial_arg:
+    # Canonical order puts phi first
+    phi_op, psi_op = (op1, op2) if t1 == FieldType.PHYSICAL else (op2, op1)
+    if r_vanishes([(phi_op.spatial_arg, psi_op.spatial_arg)]):
         return None
-    return Propagator(
-        kind="R",
-        index_left=op2.component_index,
-        index_right=op1.component_index,
-        spatial_left=op2.spatial_arg,
-        spatial_right=op1.spatial_arg,
-    )
+    return propagator("R", phi_op, psi_op)

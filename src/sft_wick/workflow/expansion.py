@@ -23,12 +23,13 @@ from sft_wick._dense_contraction import DEFAULT_CONTRACTION_MAX_BYTES
 from sft_wick.evaluate import DEFAULT_GL_CHUNK_SIZE
 from sft_wick.evaluate import (
     _cache_has_spatial_table,
+    _conflicting_group_positions,
+    _external_positions,
     _full_grid_limits,
     _outside_table,
     _separation,
-    integrate_moment,
 )
-from sft_wick.expressions import Expr, Product, Symbol, Sum, Rational
+from sft_wick.perturbation import _collect_symbol_names
 
 from ._messages import shown
 
@@ -91,6 +92,17 @@ def _guard_external_times(expansion, ext_times, label):
             )
 
 
+def _refuse_outside(times, lo, hi, late_text, early_text) -> None:
+    """Refuse ``(name, time)`` pairs outside ``[lo, hi]``, those past ``hi``
+    first; each text has one ``{}`` for the times."""
+    outside = {k: v for k, v in times if _outside_table(float(v), lo, hi)}
+    late = {k: v for k, v in outside.items() if float(v) > float(hi)}
+    if late:
+        raise ValueError(late_text.format(late))
+    if outside:
+        raise ValueError(early_text.format(outside))
+
+
 def _guard_table_times(cache, times, label) -> None:
     """Refuse ``(name, time)`` pairs outside the table's ``[t_min, t_max]``.
 
@@ -102,21 +114,18 @@ def _guard_table_times(cache, times, label) -> None:
     if not t_range or not _cache_has_spatial_table(cache):
         return
     t_min, t_max = t_range
-    outside = {k: v for k, v in times if _outside_table(float(v), t_min, t_max)}
-    late = {k: v for k, v in outside.items() if float(v) > float(t_max)}
-    if late:
-        raise ValueError(
-            f"{label}: time(s) {late} exceed the propagator table horizon "
-            f"t_max={t_max}.  A lazy table would clamp to its edge and a "
-            f"full-grid table extrapolate, either way a plausible but wrong "
-            f"value; rebuild the propagators with a larger t_max."
-        )
-    if outside:
-        raise ValueError(
-            f"{label}: time(s) {outside} precede the propagator table start "
-            f"t_min={t_min}.  The table would extrapolate below it; use times "
-            f"at or after the system's t_min."
-        )
+    _refuse_outside(
+        times,
+        t_min,
+        t_max,
+        f"{label}: time(s) {{}} exceed the propagator table horizon "
+        f"t_max={t_max}.  A lazy table would clamp to its edge and a "
+        f"full-grid table extrapolate, either way a plausible but wrong "
+        f"value; rebuild the propagators with a larger t_max.",
+        f"{label}: time(s) {{}} precede the propagator table start "
+        f"t_min={t_min}.  The table would extrapolate below it; use times "
+        f"at or after the system's t_min.",
+    )
 
 
 def _guard_rate_times(cache, times, label) -> None:
@@ -129,20 +138,17 @@ def _guard_rate_times(cache, times, label) -> None:
     if not t_range:
         return
     lo, hi = t_range
-    outside = {k: v for k, v in times if _outside_table(float(v), lo, hi)}
-    late = {k: v for k, v in outside.items() if float(v) > hi}
-    if late:
-        raise ValueError(
-            f"{label}: time(s) {late} are past the cumulative-rate spline "
-            f"behind R, which ends at t_max_cache={hi}, and would be "
-            f"extrapolated.  Raise t_max_cache (and n_grid_cache with it)."
-        )
-    if outside:
-        raise ValueError(
-            f"{label}: time(s) {outside} are below the cumulative-rate spline "
-            f"behind R, which starts at t_min_cache={lo}, and would be "
-            f"extrapolated.  Use times at or after the system's t_min."
-        )
+    _refuse_outside(
+        times,
+        lo,
+        hi,
+        f"{label}: time(s) {{}} are past the cumulative-rate spline behind R, "
+        f"which ends at t_max_cache={hi}, and would be extrapolated.  Raise "
+        f"t_max_cache (and n_grid_cache with it).",
+        f"{label}: time(s) {{}} are below the cumulative-rate spline behind "
+        f"R, which starts at t_min_cache={lo}, and would be extrapolated.  "
+        f"Use times at or after the system's t_min.",
+    )
 
 
 def _guard_table_positions(cache, positions, label) -> None:
@@ -245,32 +251,86 @@ def _guard_single_site(expansion, diagram_terms, positions) -> None:
         expansion.system.noise.sigma2, MultiplicativeImpulse
     ):
         return
-    values = [np.asarray(v) for v in positions.values()]
-    if all(np.array_equal(v, values[0]) for v in values[1:]):
-        return
     for dt in diagram_terms:
         spatial = dt.analyze_spatial()
-        external = set(spatial.external_points)
-        for group in spatial.direction_groups:
-            pts = sorted(p for p in group if p in external and p in positions)
-            for p in pts[1:]:
-                if not np.array_equal(
-                    np.asarray(positions[p]), np.asarray(positions[pts[0]])
-                ):
-                    raise ValueError(
-                        f"Expansion.evaluate: the external points "
-                        f"'{pts[0]}' and '{p}' are at different positions "
-                        f"({shown(positions[pts[0]])} and {shown(positions[p])}), and "
-                        f"a chain of response propagators joins them in a "
-                        f"diagram of this system.  A MultiplicativeImpulse "
-                        f"lowers to local vertices, so it describes one SDE "
-                        f"per spatial point; the value at two positions "
-                        f"would depend on how the noise at different points "
-                        f"is correlated, which those vertices do not "
-                        f"describe.  Put the external points at one position "
-                        f"(distinct labels and distinct external_times are "
-                        f"fine)."
-                    )
+        pair = _conflicting_group_positions(
+            spatial, _external_positions(spatial, positions)
+        )
+        if pair is None:
+            continue
+        p, q = pair
+        raise ValueError(
+            f"Expansion.evaluate: the external points '{p}' and '{q}' are at "
+            f"different positions ({shown(positions[p])} and "
+            f"{shown(positions[q])}), and a chain of response propagators "
+            f"joins them in a diagram of this system.  A MultiplicativeImpulse "
+            f"lowers to local vertices, so it describes one SDE per spatial "
+            f"point; the value at two positions would depend on how the noise "
+            f"at different points is correlated, which those vertices do not "
+            f"describe.  Put the external points at one position (distinct "
+            f"labels and distinct external_times are fine)."
+        )
+
+
+def _position_names(points, positions) -> tuple[list, list]:
+    """``(unknown, missing)``: the names of ``positions`` that are no point
+    of the observable, and the points it leaves out, each sorted."""
+    unknown = sorted(str(k) for k in positions if k not in points)
+    return unknown, sorted(set(points) - set(positions))
+
+
+def _left_free(diagram, point, positions) -> bool:
+    """Whether no external point of ``point``'s R-connected group in
+    ``diagram`` has a position, so that ``point`` sits at the default
+    coordinate."""
+    spatial = diagram.analyze_spatial()
+    for group in spatial.direction_groups:
+        if point in group:
+            return not set(group) & set(_external_positions(spatial, positions))
+    return True
+
+
+def _guard_point_names(expansion, propagators, diagram_terms, positions, label):
+    """Refuse positions that leave a point at the default coordinate 0 next to
+    what reads as a request for another.
+
+    A misspelt or omitted name used to put the intended point at 0 and return
+    the value for the wrong separation.  What stays: a name the observable
+    does not use, next to a position for every point; no position at all, or
+    every position at 0, where the left-out point sits with the others; a
+    point whose R-connected group holds a point with a position, in every
+    selected diagram; and a cache without spatial structure, unless a callable
+    coupling reads the coordinate.
+    """
+    for _name, _comp, point in expansion.observable_repr or ():
+        if positions and point not in positions:
+            break
+    else:
+        return
+    points = {str(sp) for (_name, _comp, sp) in expansion.observable_repr}
+    unknown, missing = _position_names(points, positions)
+    if not unknown and all(not np.any(v) for v in positions.values()):
+        return
+    system = expansion.system
+    if not _cache_has_spatial_table(getattr(propagators, "cache", None)) and not any(
+        callable(v.coupling) for v in (*system.vertices, *system.nonlocal_vertices)
+    ):
+        return
+    free = [
+        p for p in missing if any(_left_free(dt, p, positions) for dt in diagram_terms)
+    ]
+    if free:
+        also = (
+            f"  It also names {unknown}, which the observable does not."
+            if unknown
+            else ""
+        )
+        raise ValueError(
+            f"{label}: no position for {free}, which the observable names.  A "
+            f"point left out would sit at the default coordinate 0 and the "
+            f"value would be the one for that separation; give every point a "
+            f"position.{also}"
+        )
 
 
 @dataclass(frozen=True)
@@ -427,7 +487,14 @@ class Expansion:
             propagators: :class:`Propagators` from
                 :meth:`System.propagators`.
             positions: ``{spatial_arg: x_value}`` mapping, e.g.
-                ``{"x": 0.0, "y": 0.5}``.
+                ``{"x": 0.0, "y": 0.5}``.  Give every point of the
+                observable a position: ``ValueError`` if a point is left out
+                while another sits away from 0 or a name is not a point of
+                the observable, unless the point shares an R-connected group
+                with a located point in every selected diagram, or the cache
+                has no spatial structure and no vertex has a callable
+                coupling, which reads the positions.  With no entry, or every
+                entry at 0, a point left out sits at 0.
             t_final: upper time bound for external-time integration
                 (``lambda_f``).  ``ValueError`` if a time read is outside
                 the propagator table or a position past its full spatial
@@ -587,6 +654,9 @@ class Expansion:
             )
 
         _guard_external_times(self, external_times, "Expansion.evaluate")
+        _guard_point_names(
+            self, propagators, diagram_terms, positions, "Expansion.evaluate"
+        )
         _guard_table_reach(
             self,
             propagators,
@@ -633,20 +703,12 @@ class Expansion:
         for task_idx, ((order, i, vtype, dt), (val, err)) in enumerate(
             zip(tasks, details)
         ):
-            per_diagram.append(
-                {
-                    "order": order,
-                    "diagram_idx": i,
-                    "vertex_type": vtype,
-                    "n_cross_C": (
-                        count_cross_group_c(dt)
-                        if _prepared is None
-                        else _prepared.cross_counts[task_idx]
-                    ),
-                    "value": val,
-                    "error": err,
-                }
+            n_cross_C = (
+                count_cross_group_c(dt)
+                if _prepared is None
+                else _prepared.cross_counts[task_idx]
             )
+            per_diagram.append(_diagram_row(order, i, vtype, n_cross_C, val, err))
             per_order[order] += val
             per_vtype[vtype] += val
             total += val
@@ -697,7 +759,8 @@ class Expansion:
             positions_grid: ``{spatial_arg: [list of values]}``.
                 Each key's list is swept independently; result is the
                 full Cartesian product.  E.g.
-                ``{"x": [0.0], "y": [0.0, 0.5, 1.0]}``.
+                ``{"x": [0.0], "y": [0.0, 0.5, 1.0]}``.  A point left out
+                is refused as in :meth:`evaluate`.
             t_final_grid: list of upper time bounds.  Also the default time
                 for any external point not named in ``external_times_grid``.
             external_times_grid: ``{point: [times]}`` pinning external points
@@ -903,7 +966,7 @@ class Expansion:
             qmc_coupling_chunk_size
         )
 
-        if int(n_jobs) != 1 and int(evaluate_n_jobs) != 1:
+        if nested_jobs(evaluate_n_jobs, n_jobs):
             raise ValueError(
                 "Specify exactly one of {n_jobs, evaluate_n_jobs} > 1; "
                 "nested joblib loky pools are not supported."
@@ -963,6 +1026,9 @@ class Expansion:
         grid_tasks: list[tuple[dict, Any, dict, tuple]] = []
         for pos_tuple in itertools.product(*pos_values):
             positions = dict(zip(pos_keys, pos_tuple))
+            _guard_point_names(
+                self, propagators, [t[3] for t in tasks], positions, "Expansion.sweep"
+            )
             for t_f in t_final_grid:
                 for et_tuple in (itertools.product(*et_values) if et_keys else [()]):
                     ext_times = dict(zip(et_keys, et_tuple)) or None
@@ -1012,7 +1078,8 @@ class Expansion:
                 f"Expansion.sweep: the propagator cache has no spatial "
                 f"structure, so C is the same at every separation -- the "
                 f"{len(_configs)} position configurations in this sweep will "
-                f"all give identical values.  That is expected for a "
+                f"all give identical values, apart from what a callable "
+                f"coupling reads from its legs.  That is expected for a "
                 f"disorder-averaged (single-site) cache such as "
                 f"`spectral_cache`; it is a mistake if you expected a "
                 f"separation dependence.",
@@ -1074,7 +1141,7 @@ class Expansion:
 
         desc = f"sweep ({len(grid_tasks)} grid points x {n_diag} diagrams)"
         with progress_bar(len(grid_tasks) * n_diag, desc, unit="diagram") as tick:
-            if int(n_jobs) == 1 or len(grid_tasks) <= 2:
+            if sweep_runs_serially(n_jobs, len(grid_tasks)):
                 # Sequential: bit-identical to the pre-refactor nested loops.
                 results = [_eval_grid_point(t, tick) for t in grid_tasks]
             else:
@@ -1107,14 +1174,7 @@ class Expansion:
             # Grid/order placeholders record exact zero coefficients; null
             # diagram metadata means they are not physical diagrams.
             point_rows.extend(
-                {
-                    "order": order,
-                    "diagram_idx": None,
-                    "vertex_type": None,
-                    "n_cross_C": None,
-                    "value": 0.0,
-                    "error": 0.0,
-                }
+                _diagram_row(order, None, None, None, 0.0, 0.0)
                 for order in zero_orders
                 if order not in present_orders
             )
@@ -1147,12 +1207,7 @@ class Expansion:
         selected = _order_selection(orders, f"{label}: orders")
         if selected is None:
             return list(self.orders)
-        absent = [o for o in selected if o not in self.dts_by_order]
-        if absent:
-            raise ValueError(
-                f"{label}: order(s) {absent} are not in the expansion; it "
-                f"holds orders {list(self.orders)}."
-            )
+        refuse_absent_orders(selected, self.orders, label)
         return list(selected)
 
     def _zero_orders(self, orders_list):
@@ -1232,7 +1287,9 @@ class Expansion:
         names = sorted(self.system.build_coupling_values())
         out = {""} if 0 in orders else set()
         for k in range(1, min(max(orders, default=0), len(names)) + 1):
-            out.update("".join(c) for c in itertools.combinations(names, k))
+            out.update(
+                vertex_type_label(c) for c in itertools.combinations(names, k)
+            )
         return out
 
     def _prepare_sweep(
@@ -1282,10 +1339,7 @@ class Expansion:
         ``{'F', 'K'}`` → ``"FK"``).  :class:`System` refuses vertex
         names for which two sets would get one label (``F``, ``K`` and
         ``FK``), so the label names one set of vertices."""
-        names = _collect_symbol_names(dt.coupling_sum)
-        if not names:
-            return ""  # order-0 trivial
-        return "".join(sorted(names))
+        return vertex_type_label(_collect_symbol_names(dt.coupling_sum))
 
 
 # =========================================================================
@@ -1308,31 +1362,6 @@ def count_cross_group_c(dt) -> int:
         if d_l != d_r:
             n += 1
     return n
-
-
-def _collect_symbol_names(expr: Expr) -> set[str]:
-    """Walk a coupling-sum expression tree and return the set of
-    :class:`Symbol` names referenced (the coupling-tensor names)."""
-    out: set[str] = set()
-
-    def walk(e: Expr):
-        if isinstance(e, Symbol):
-            out.add(e.name)
-            return
-        if isinstance(e, Rational):
-            return
-        if isinstance(e, (Product, Sum)):
-            for f in e.factors if isinstance(e, Product) else e.terms:
-                walk(f)
-            return
-        # Catch other Expr subclasses that may wrap children
-        for attr in ("expr", "body", "integrand"):
-            child = getattr(e, attr, None)
-            if isinstance(child, Expr):
-                walk(child)
-
-    walk(expr)
-    return out
 
 
 def _component_indices(component_pair, observable_repr):
@@ -1362,6 +1391,22 @@ _DIAGRAM_COLUMNS = (
     "value",
     "error",
 )
+
+
+def _diagram_row(*values) -> dict:
+    """The per-diagram columns of a sweep row, in their order."""
+    return dict(zip(_DIAGRAM_COLUMNS, values))
+
+
+def nested_jobs(expand_jobs, sweep_jobs) -> bool:
+    """Whether two parallel layers would nest: joblib's loky backend has no
+    nested process pools."""
+    return int(expand_jobs) != 1 and int(sweep_jobs) != 1
+
+
+def sweep_runs_serially(n_jobs, n_points: int) -> bool:
+    """Whether a sweep of ``n_points`` grid points runs in this process."""
+    return int(n_jobs) == 1 or n_points <= 2
 
 
 def component_columns(n_operators: int) -> tuple[str, ...]:
@@ -1482,6 +1527,12 @@ def _require_one_index_per_letter(component, observable, label) -> None:
             )
 
 
+def vertex_type_label(names: Iterable[str]) -> str:
+    """The label of a diagram with vertices ``names``: the sorted distinct
+    names, concatenated, and ``''`` at order 0."""
+    return "".join(sorted(set(names)))
+
+
 def _ambiguous_vertex_type_label(names):
     """Two distinct sets of ``names`` that the vertex-type label (the sorted
     names, concatenated; :meth:`Expansion._vertex_type_label`) does not
@@ -1566,6 +1617,16 @@ def _resolve_component_tuples(
             )
         out.append(t)
     return out
+
+
+def refuse_absent_orders(selected, held, label) -> None:
+    """Refuse an order of ``selected`` that the expansion does not hold."""
+    absent = [o for o in selected if o not in held]
+    if absent:
+        raise ValueError(
+            f"{label}: order(s) {absent} are not in the expansion; it holds "
+            f"orders {list(held)}."
+        )
 
 
 def _is_integer(value) -> bool:

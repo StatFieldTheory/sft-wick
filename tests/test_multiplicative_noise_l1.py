@@ -15,10 +15,6 @@ MN6  Itô and Stratonovich differ, in the reference and in the package: MN3
      is not vacuous.
 MN7  external points at different positions are refused.
 MN8  the YAML route (``sigma2.type: multiplicative``) equals the L1 route.
-MN9  ``ito=False``: an equal-point R on a vertex with two ψ legs, or between
-     two external operators, is refused instead of evaluated as the Itô
-     value; on a vertex with one ψ leg it still gives the ``ito=True``
-     number on every integrator.
 
 The reference (``examples/demo5/white_hormander_reference.py`` on
 ``examples/reference/hormander_moments.py``) shares no code with the
@@ -35,7 +31,6 @@ import numpy as np
 import pytest
 
 import sft_wick as sw
-from sft_wick.evaluate import integrate_diagrams
 
 DEMO = Path(__file__).resolve().parents[1] / "examples" / "demo5"
 sys.path.insert(0, str(DEMO))
@@ -413,98 +408,3 @@ def test_MN8_yaml_route_equals_the_l1_route(tmp_path, interpretation):
 def cfg_system_vertices(cfg):
     from sft_wick.workflow.config import build_system
     return build_system(cfg.system).multiplicative_vertices
-
-
-# --------------------------------------------------------------------------
-# MN9 -- ito=False is refused where the interpretation decides the value
-# --------------------------------------------------------------------------
-
-_N = 2
-_F = m5c.F_TENSOR
-_S1 = (np.einsum("ak,bkc->abc", m5c.G0, m5c.G1)
-       + np.einsum("akc,bk->abc", m5c.G1, m5c.G0))
-
-
-def _l0_terms(obs, order, vertices, ito):
-    sw.reset_uid_counter()
-    phi = sw.Field("phi", "physical", n_components=_N)
-    psi = sw.Field("psi", "response", n_components=_N)
-    fields = {"F": [psi, phi, phi], "G": [psi, psi, phi]}
-    action = sw.Action(vertices=[sw.Vertex(fields=fields[v], coupling=v,
-                                           local=True)
-                                 for v in sorted(vertices)])
-    ops = [phi(c, lab) for c, lab in zip("ab", obs)]
-    return sw.compute_moment(ops, action, order=order, iso_R=True,
-                             diag_R=True, diag_C=False,
-                             ito=ito).diagram_terms(order)
-
-
-@pytest.fixture(scope="module")
-def l0_cache():
-    system = m5c.make_system(m5c.GAMMAS["scalar"], "ito")
-    return m5c.propagators_for(system).cache
-
-
-_L0_COUPLINGS = {"F": -1j * _F, "G": 0.5 * _S1}
-_METHODS = [("gauss_legendre", dict(n_gauss=12)),
-            ("qmc_vectorized", dict(n_samples=2 ** 10, seed=1)),
-            ("qmc_scalar", dict(n_samples=2 ** 10, seed=1)),
-            ("nquad", {})]
-
-
-@pytest.mark.parametrize("method, kw", _METHODS)
-def test_MN9_two_psi_vertex_self_loop_is_refused(l0_cache, method, kw):
-    """⟨φ_a⟩ at order 1 with a ψψφ vertex: the extra ito=False term is the
-    Θ(0) ∂_b D_ab drift, which the interpretation fixes."""
-    dts = _l0_terms(("x",), 1, {"G"}, ito=False)
-    assert len(dts) == 1 and not _l0_terms(("x",), 1, {"G"}, ito=True)
-    with pytest.raises(ValueError, match="psi legs"):
-        integrate_diagrams(dts, _L0_COUPLINGS, lambda_f=m5c.T_MIN + m5c.T,
-                           t_min=m5c.T_MIN, cache=l0_cache, method=method,
-                           fixed_indices={"a": 0}, positions={"x": 0.0}, **kw)
-    with pytest.raises(ValueError, match="psi legs"):
-        dts[0].build_integrand(_L0_COUPLINGS, {"a": 0})
-
-
-def test_MN9_external_equal_point_r_is_refused():
-    """⟨φ(x) ψ(x)⟩ at order 0 under ito=False is Θ(0) itself."""
-    sw.reset_uid_counter()
-    phi = sw.Field("phi", "physical")
-    psi = sw.Field("psi", "response")
-    dts = sw.compute_moment([phi("x"), psi("x")], sw.Action(vertices=[]),
-                            order=0, ito=False).diagram_terms(0)
-    assert len(dts) == 1
-    with pytest.raises(ValueError, match="equal-time response"):
-        dts[0].build_integrand({})
-
-
-@pytest.mark.parametrize("method, kw", _METHODS)
-@pytest.mark.parametrize("obs, order", [(("x",), 1), (("x", "y"), 2)])
-def test_MN9_one_psi_vertex_keeps_the_ito_value(l0_cache, method, kw, obs,
-                                                order):
-    """An equal-point R on a one-ψ vertex is cancelled by the Jacobian of
-    the Stratonovich path integral, which the package does not emit either;
-    both omissions are exact, so the number does not move."""
-    if method == "nquad" and order > 1:
-        pytest.skip("nquad is slow on the kinked order-2 integrand")
-    kept = _l0_terms(obs, order, {"F"}, ito=False)
-    dropped = _l0_terms(obs, order, {"F"}, ito=True)
-    assert len(kept) > len(dropped), "no equal-point R term to evaluate"
-    values = []
-    for dts in (dropped, kept):
-        total, _ = integrate_diagrams(
-            dts, _L0_COUPLINGS, lambda_f=m5c.T_MIN + m5c.T, t_min=m5c.T_MIN,
-            cache=l0_cache, method=method,
-            fixed_indices=dict(zip("ab", (0,) * len(obs))),
-            positions={lab: 0.0 for lab in obs}, **kw)
-        values.append(total)
-    assert values[1] == pytest.approx(values[0], rel=1e-12, abs=1e-15)
-
-
-def test_MN9_l1_expand_with_ito_false_is_refused(scalar_r):
-    system, props, _H, _exps = scalar_r["stratonovich"]
-    exp = system.expand(ONE, orders=[1], diag_C=False, ito=False)
-    with pytest.raises(ValueError, match="psi legs"):
-        exp.evaluate(props, positions={"x": 0.0}, t_final=m5c.T_MIN + m5c.T,
-                     component_pair=(0,), orders=[1],
-                     method="gauss_legendre", n_gauss=8)

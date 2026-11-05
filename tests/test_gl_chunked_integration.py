@@ -568,14 +568,12 @@ def test_blocked_total_matches_eager_grid_when_block_totals_are_not_finite(
 ):
     """IEEE addition of the 16 node values gives ``expected``: NaN when
     either NaN or both infinities occur, the one infinity otherwise.  The
-    blocked total used to go through ``math.fsum``, which raises
-    ``ValueError`` for ``inf`` and ``-inf`` in different blocks.  Sixteen
-    nodes is the eager grid, fifteen the largest blocked bound."""
-    got = _band_total(BandC(low, mid, high), chunk)
-    if np.isnan(expected):
-        assert np.isnan(got)
-    else:
-        assert got == expected
+    eager and the blocked total reach it alike, and the integrator refuses
+    it.  The blocked total used to go through ``math.fsum``, which raises
+    for ``inf`` and ``-inf`` in different blocks with no word of the value.
+    Sixteen nodes is the eager grid, fifteen the largest blocked bound."""
+    with pytest.raises(ValueError, match=f"evaluated to {expected}"):
+        _band_total(BandC(low, mid, high), chunk)
 
 
 @pytest.mark.filterwarnings("ignore::RuntimeWarning")
@@ -591,7 +589,8 @@ def test_band_hook_puts_the_two_infinities_in_different_blocks(monkeypatch):
         return summed(seen.append(total) or total for total in totals)
 
     monkeypatch.setattr(ev, "_sum_gl_block_totals", record)
-    assert np.isnan(_band_total(BandC(INF, None, -INF), 4))
+    with pytest.raises(ValueError, match="evaluated to nan"):
+        _band_total(BandC(INF, None, -INF), 4)
     assert seen[0] == INF and seen[-1] == -INF
     assert len(seen) == 4 and np.all(np.isfinite(seen[1:-1]))
 

@@ -16,9 +16,9 @@ colored noise with white noise. The two grids it controls are:
 * ``propagators.n_grid_t``: number of points along each axis of the
   ``C(t1, t2)`` interpolation table built by :meth:`PropagatorCache
   <sft_wick.evaluate.PropagatorCache>`. Derived as
-  ``max(2, ceil(t_max / dt))``. The physical time nodes include both
-  endpoints, so their spacing is ``(t_max - t_min) / (n_grid_t - 1)``;
-  it is not exactly ``dt``.
+  ``max(2, ceil((t_max - t_min) / dt))``, from the span of the table. The
+  physical time nodes include both endpoints, so their spacing is
+  ``(t_max - t_min) / (n_grid_t - 1)``; it is not exactly ``dt``.
 
 * ``system.linear.n_grid_cache``: number of points along the
   cumulative-Γ spline used by :class:`DiagonalA
@@ -54,7 +54,7 @@ How the C table handles coincident times
 Since 0.6.1, the translation, rotation and general spatial builders store
 their time axes as ``s = min(t1,t2)`` and ``u = abs(t1-t2)``. This places
 the time-diagonal kink at the boundary ``u = 0``. Both time orders are
-retained, using covariance transposition where applicable. Callers still
+retained, using covariance transposition where the kernel declares it. Callers still
 supply the physical times ``t1`` and ``t2``.
 
 Only ``t_min <= s <= s + u <= t_max`` is sampled from physical kernels.
@@ -94,8 +94,8 @@ integrating the matter power spectrum from ``k_cut(chi) = (ell_cut + 0.5)
 Choosing ``dt``
 ---------------
 
-A defensible default is ``dt = t_max / 60`` (the legacy ``n_grid_t = 60``
-default, written out). Halve it for convergence checks while keeping the
+A defensible default is ``dt = (t_max - t_min) / 60`` (the legacy
+``n_grid_t = 60`` default, written out). Halve it for convergence checks while keeping the
 physical model fixed. The convergence rate depends on kernel smoothness,
 interpolation and the outer integrator; no universal power of ``dt`` is
 guaranteed.

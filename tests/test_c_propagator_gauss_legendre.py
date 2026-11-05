@@ -371,3 +371,20 @@ class TestGaussLegendreCorrectness:
         model = _make_translation_model()
         with pytest.raises(ValueError, match="n_gauss"):
             PropagatorCache(model, n_gauss=1)
+
+
+@pytest.mark.parametrize("times", [(2.0, 0.2), (0.2, 2.0), (0.3, 0.2), (0.1, -40.0)])
+@pytest.mark.parametrize("c_method", ["dblquad", "gauss_legendre"])
+def test_c_is_zero_at_or_below_t_min_with_an_r_that_is_not_causal(c_method, times):
+    """``R_time`` may leave Θ to the integrators.  ``dblquad`` then returned
+    the integral of a backward domain: -0.12 at (2, 0.2), -1.8e17 at
+    (0.1, -40)."""
+    model = PropagatorModel(
+        R_time=lambda t, s: np.exp(-(t - s)),
+        kappa2=lambda n1, t1, n2, t2: np.eye(1) * np.exp(-((t1 - t2) ** 2)),
+        n_components=1,
+        diag_C=True,
+        t_min=0.5,
+    )
+    cache = PropagatorCache(model, c_method=c_method)
+    assert cache.C_value(0.0, times[0], 0.0, times[1])[0, 0] == 0.0

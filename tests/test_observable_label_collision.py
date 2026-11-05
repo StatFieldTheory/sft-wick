@@ -216,7 +216,7 @@ def _l0_by_order(system, props, components, labels, engine, flags, order=2):
     fixed = {components[0]: 0, components[1]: 1}
     if engine == "compute_moment_numerical":
         by_order = compute_moment_numerical(
-            obs, action, order, cv, fixed_indices=fixed, **flags)
+            obs, action, order, **flags)
     else:
         res = compute_moment(obs, action, order, **flags)
         by_order = {o: res.diagram_terms(o) for o in range(order + 1)}
@@ -350,9 +350,6 @@ def test_LC7_internal_names_avoid_observable_labels_to_order_four(
             equal_time=vertex_kind == "equal_time"))
     action = sw.Action(vertices)
     order = 4 if vertex_kind == "local" else 3
-    rng = np.random.default_rng(7)
-    cv = {"F": rng.normal(size=(2,) * 3), "K": rng.normal(size=(2,) * 3)}
-
     def run(comps, labs):
         reset_uid_counter()
         obs = [phi(c, lab) for c, lab in zip(comps, labs)]
@@ -360,7 +357,7 @@ def test_LC7_internal_names_avoid_observable_labels_to_order_four(
             res = compute_moment(obs, action, order, iso_R=True)
             return {o: res.diagram_terms(o) for o in range(order + 1)}
         return compute_moment_numerical(
-            obs, action, order, cv, fixed_indices=dict.fromkeys(comps, 0),
+            obs, action, order,
             iso_R=True)
 
     want = run(("a", "b", "c"), ("x", "y", "z"))

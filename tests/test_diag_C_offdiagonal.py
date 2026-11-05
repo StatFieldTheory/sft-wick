@@ -36,6 +36,8 @@ import numpy as np
 import pytest
 import yaml
 
+import sft_wick as sw
+from sft_wick.evaluate import PropagatorCache
 from sft_wick.workflow.config import (
     load_workflow_config,
     run_workflow,
@@ -282,3 +284,92 @@ def test_diag_C_false_tables_hold_every_entry(tmp_path: Path) -> None:
             f"pair {pair}: want C[{pair[0]}, {pair[1]}] = {want}; "
             f"got {got:.6e}"
         )
+
+
+N_OFF = 2
+
+
+def _c_with_off_diagonal(n1, t1, n2, t2):
+    """``C_01 = 0.3 C_00``, as a user closed form may write it."""
+    size = np.exp(-abs(t1 - t2)) * (1.0 - np.exp(-2.0 * min(t1, t2)))
+    return size * np.array([[1.0, 0.3], [0.3, 0.8]])
+
+
+def _two_component_system():
+    return sw.System(
+        field=sw.FieldSpec("phi", N_OFF),
+        linear=sw.DiagonalA(gamma=[0.8, 1.7]),
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.ExponentialTemporal(lam=1.0, sigma_t=0.5),
+                spatial=sw.ExponentialSpatial(sigma_x=1.0),
+            )
+        ),
+    )
+
+
+def test_a_user_c_is_read_as_one_c_under_diag_c():
+    """The scalar read kept ``C_01`` where the batched read and the tables
+    had dropped it: a factor 4.9 between integrators at L1 up to this fix."""
+    model = _two_component_system().build_propagator_model(diag_C=True)
+    cache = PropagatorCache(model, c_value_fn=_c_with_off_diagonal)
+    full = _c_with_off_diagonal(0.0, 1.5, 0.3, 0.9)
+    np.testing.assert_array_equal(
+        cache.C_value(0.0, 1.5, 0.3, 0.9), np.diag(np.diag(full))
+    )
+
+
+@pytest.mark.parametrize("method", ["qmc_scalar", "qmc_vectorized"])
+def test_every_integrator_reads_the_diagonal_of_a_closed_form_at_l1(method):
+    """Order 0 at ``(0, 1)`` under an expansion that keeps the indices.  The
+    scalar loop returned ``C_01`` here and the batched path 0 at order 2."""
+    system = _two_component_system()
+    props = system.propagators(
+        t_max=2.0,
+        c_closed_form=_c_with_off_diagonal,
+        c_closed_form_only=True,
+        progress=False,
+    )
+    total = (
+        system.expand(("phi_a(x)", "phi_b(y)"), orders=[0], diag_C=False)
+        .evaluate(
+            props,
+            positions={"x": 0.2, "y": 0.9},
+            t_final=1.5,
+            component_pair=(0, 1),
+            orders=[0],
+            method=method,
+            n_samples=16,
+        )
+        .total
+    )
+    assert total == 0.0
+
+
+def test_a_direct_build_refuses_what_system_propagators_refuses():
+    """``Propagators.build`` built a table with ``C_01 = 0`` for a mixing
+    white noise: order 0 of ``<phi_0 phi_1>`` read 0 against 0.0738.  The
+    t_max check reads the same place, so one call covers both refusals."""
+    kappa2 = sw.SeparableTranslation(
+        temporal=sw.ExponentialTemporal(lam=1.0, sigma_t=0.5),
+        spatial=sw.ExponentialSpatial(sigma_x=1.0),
+    )
+    mixing = sw.System(
+        field=sw.FieldSpec("phi", 2),
+        linear=sw.DiagonalA(gamma=[1.0, 1.0]),
+        noise=sw.GaussianNoise(
+            kappa2=kappa2,
+            sigma2=sw.ConstantImpulse(np.array([[1.0, 0.5], [0.5, 1.0]])),
+        ),
+    )
+    with pytest.raises(ValueError, match="off-diagonal"):
+        sw.Propagators.build(mixing, t_max=3.0, n_grid_t=6)
+    built = sw.Propagators.build(mixing, t_max=3.0, n_grid_t=6, diag_C=False)
+    assert built.cache.C_value(0.0, 1.0, 0.0, 1.0)[0, 1] != 0.0
+    rising = sw.System(
+        field=sw.FieldSpec("phi", 1),
+        linear=sw.DiagonalA(gamma=lambda t: np.array([1.0 + t]), t_max_cache=2.0),
+        noise=sw.GaussianNoise(kappa2=kappa2),
+    )
+    with pytest.raises(ValueError, match="t_max_cache"):
+        sw.Propagators.build(rising, t_max=3.0, n_grid_t=6)

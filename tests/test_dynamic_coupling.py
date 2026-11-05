@@ -1086,3 +1086,249 @@ def test_DC3_scalar_field_dynamic_coupling_matches_static(method):
     # 3270x looser than the machine-precision agreement this test exists to
     # lock.  DC1 above already passes abs=1e-300 for the same reason.
     assert vals[1] == pytest.approx(vals[0], rel=1e-12, abs=0.0)
+
+
+# =====================================================================
+# DC4-DC6 -- every evaluator gives a leg its position and time by one rule
+# =====================================================================
+
+
+_DC4_METHODS = {
+    "qmc_scalar": (dict(n_samples=2 ** 12, seed=1), 1e-4),
+    "qmc_vectorized": (dict(n_samples=2 ** 12, seed=1), 1e-4),
+    "gauss_legendre": (dict(n_gauss=12), 1e-12),
+    "nquad": ({}, 1e-9),
+}
+
+
+def _dc4_reference(gamma, lam, F, t_final, t_min):
+    """``F A(T) I(T)`` for dphi/dt = -gamma phi + F phi^2 + eta with
+    third cumulant ``g(n1, n2, n3) exp(-lam (t1 + t2 + t3))``, from 1-D
+    quadrature, with no code in common with the package.
+
+    ``A(t) = int R(t, s) exp(-lam s) ds`` is the first-order response and
+    ``I = int R(T, z) A(z)^2 dz`` the second.  One leg of the cumulant sits
+    at one external point, the two legs under F at the other, so the order
+    F kappa3 term of <phi(x) phi(y)> is this times g(x, y, y) + g(y, x, x).
+    """
+    from scipy.integrate import quad
+
+    def A(t):
+        return quad(
+            lambda s: np.exp(-gamma * (t - s) - lam * s), t_min, t,
+            epsabs=1e-13, epsrel=1e-13,
+        )[0]
+
+    inner = quad(
+        lambda z: np.exp(-gamma * (t_final - z)) * A(z) ** 2, t_min, t_final,
+        epsabs=1e-13, epsrel=1e-13,
+    )[0]
+    return F * A(t_final) * inner
+
+
+@pytest.mark.parametrize("method", list(_DC4_METHODS))
+@pytest.mark.parametrize(
+    "x, y", [(0.7, -0.4), (3e6, -2e6), (1e-9, 2e-9)],
+    ids=["moderate", "large", "small"],
+)
+def test_DC4_legs_read_positions_on_a_cache_with_no_spatial_table(method, x, y):
+    """A cache with no spatial table reads C by time.  The callable is still
+    a function of position: the integrators used to pass it the ambient
+    direction, 0, whatever ``positions`` said, while
+    ``integrate_two_point_qmc`` did not.  Order F kappa3 of the two-point
+    function has no C, so the cache kind cannot matter here."""
+    from sft_wick.evaluate import PropagatorCache, _cache_has_spatial_table
+    from sft_wick.workflow import propagators_from_cache
+
+    gamma, lam, F, t_final, t_min = 0.8, 1.3, 0.6, 2.0, 0.5
+
+    def g(n):
+        return 1.0 + n[0] + n[1] + n[2]
+
+    def K(n_list, t_list):
+        return g(np.ravel(n_list)) * np.exp(-lam * np.sum(t_list)) * np.ones((1, 1, 1))
+
+    system = sw.System(
+        field=sw.FieldSpec("phi", n_components=1),
+        linear=sw.DiagonalA(gamma=[gamma]),
+        vertices=[sw.LocalVertex("F", coupling=np.array([[[F]]]))],
+        nonlocal_vertices=[sw.NonLocalVertex("K", 3, coupling=K)],
+        t_min=t_min,
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.ExponentialTemporal(lam=1.0, sigma_t=0.7),
+                spatial=sw.ExponentialSpatial(sigma_x=1.0),
+            ),
+        ),
+    )
+    cache = PropagatorCache(system.build_propagator_model(diag_C=True))
+    assert not _cache_has_spatial_table(cache)
+    expansion = system.expand(("phi(x)", "phi(y)"), orders=[2])
+
+    kw, tol = _DC4_METHODS[method]
+    value = expansion.evaluate(
+        propagators_from_cache(cache), positions={"x": x, "y": y}, t_final=t_final,
+        orders=[2], vertex_types=["FK"], method=method, n_jobs=1, **kw,
+    ).total
+
+    expected = _dc4_reference(gamma, lam, F, t_final, t_min) * (
+        g((x, y, y)) + g((y, x, x))
+    )
+    # abs=0.0: the default floor is not what is being asserted.  The small
+    # positions shift the value by 4.5e-9, inside the QMC tolerance, so there
+    # the QMC cases check the size of the value and GL and nquad the shift.
+    assert value == pytest.approx(expected, rel=tol, abs=0.0)
+
+
+def _dc5_evaluators(cache, direction):
+    from sft_wick.evaluate import integrate_two_point_qmc
+
+    ambient = dict(lambda_f=1.0, cache=cache, direction=direction)
+    return {
+        "qmc_scalar": lambda ig: ig.integrate_moment_qmc(
+            n_samples=2 ** 12, seed=1, **ambient),
+        "qmc_vectorized": lambda ig: ig.integrate_moment_qmc_vectorized(
+            n_samples=2 ** 12, seed=1, **ambient),
+        "gauss_legendre": lambda ig: ig.integrate_moment_gauss_legendre(
+            n_gauss=16, **ambient),
+        "nquad": lambda ig: ig.integrate_moment_nquad(**ambient),
+        # No ``direction`` argument: its ambient position is 0.
+        "two_point": lambda ig: integrate_two_point_qmc(
+            [ig], 1.0, {}, cache, n_samples=2 ** 12, seed=1),
+    }
+
+
+@pytest.mark.parametrize(
+    "evaluator", ["qmc_scalar", "qmc_vectorized", "gauss_legendre", "nquad", "two_point"]
+)
+def test_DC5_a_leg_with_no_propagator_sits_at_a_vector_direction(evaluator):
+    """The batched evaluators raised ``KeyError`` on a leg with no propagator
+    and ``TypeError`` on a vector ``direction``; the scalar loops took both.
+    ``int_0^1 (1 + |n|^2) exp(-t) dt`` is the exact value, and a leg that is
+    no point of the diagram has no time on any evaluator."""
+    direction = np.array([0.0, 0.0, 2.0])
+    ambient = 0.0 if evaluator == "two_point" else 4.0
+
+    def fn(n_list, t_list):
+        return (1.0 + np.sum(np.ravel(n_list) ** 2)) * np.exp(-t_list[0])
+
+    run = _dc5_evaluators(_dc2_cache(), direction)[evaluator]
+    value, _ = run(_dc2_integrand(fn))
+    exact = (1.0 + ambient) * (1.0 - np.exp(-1.0))
+    tol = 1e-2 if "qmc" in evaluator or evaluator == "two_point" else 1e-12
+    assert value == pytest.approx(exact, rel=tol, abs=0.0)
+
+    unplaced = DiagramTerm(
+        propagators=(),
+        coupling_sum=Symbol("K", indices=(), spatial_args=("w",)),
+        rational_prefactor=Rational(1, 1),
+        integration_vars=("s",),
+        summation_indices=(),
+        n_response=0,
+    ).build_integrand({"K": fn})
+    with pytest.raises(ValueError, match="have no time"):
+        run(unplaced)
+
+
+@pytest.mark.parametrize(
+    "method", ["qmc", "qmc_vectorized", "gauss_legendre", "nquad"]
+)
+def test_DC6_two_positions_of_one_group_are_refused_with_no_table(method):
+    """R joins x and y, and no spatial table reads them, so only the callable
+    would.  All four integrators took whichever of the two came first."""
+    from sft_wick.evaluate import _cache_has_spatial_table, integrate_moment
+    from sft_wick.expressions import Propagator
+
+    term = DiagramTerm(
+        propagators=(
+            Propagator(
+                kind="R", spatial_left="x", spatial_right="y",
+                index_left=None, index_right=None,
+            ),
+        ),
+        coupling_sum=Symbol("K", indices=(), spatial_args=("x",)),
+        rational_prefactor=Rational(1, 1),
+        integration_vars=(),
+        summation_indices=(),
+        n_response=0,
+    )
+    ig = term.build_integrand({"K": lambda n_list, t_list: 1.0 + n_list[0]})
+    cache = _dc2_cache()
+    assert not _cache_has_spatial_table(cache)
+    with pytest.raises(ValueError, match="joins them"):
+        integrate_moment(ig, 2.0, cache, method=method, n_samples=2 ** 8, seed=1,
+                         n_gauss=8, positions={"x": 0.7, "y": -0.4})
+
+
+@pytest.mark.parametrize("method", ["qmc_vectorized", "gauss_legendre", "nquad"])
+def test_DC6_matrix_R_zero_dimensional_reads_the_external_position(method):
+    """The matrix-R branch of the zero-dimensional evaluator, on a cache with
+    no spatial table: the coupling ``0.5 (1 + n_1 + n_2)`` with both partners
+    at 0.7 is 2.4 times its value of 1/2 at no position, and the ambient
+    direction would give 1."""
+    from sft_wick.evaluate import (PropagatorCache, PropagatorModel,
+                                   integrate_diagrams)
+
+    phi = sw.Field("phi", "physical", n_components=2)
+    psi = sw.Field("psi", "response", n_components=2)
+    action = sw.Action(vertices=[
+        sw.Vertex(fields=[psi, psi], coupling="K", local=False,
+                  already_R_contracted=True),
+    ])
+    observable = [phi("a", "x1"), phi("b", "x2"), phi("c", "x3"), psi("d", "x4")]
+    terms = sw.compute_moment(observable, action, order=1, diag_R=True).diagram_terms(1)
+    cache = PropagatorCache(PropagatorModel(
+        R_time=lambda t1, t2: np.eye(2),
+        kappa2=lambda n1, t1, n2, t2: np.eye(2) * np.exp(-abs(t1 - t2)),
+        n_components=2, iso_R=False, diag_C=False))
+
+    def coupling(n_list, t_list):
+        return 0.5 * (1.0 + np.sum(n_list)) * np.ones((2, 2))
+
+    total, _ = integrate_diagrams(
+        terms, {"K": coupling}, lambda_f=1.0, cache=cache, method=method,
+        n_samples=2 ** 8, seed=3, fixed_indices={"a": 0, "b": 1, "c": 0, "d": 0},
+        external_times={"x4": 0.5},
+        positions=dict.fromkeys(("x1", "x2", "x3", "x4"), 0.7),
+    )
+    assert total == pytest.approx(2.0 * 2.4, rel=1e-12, abs=0.0)
+
+
+@pytest.mark.parametrize(
+    "method", ["qmc", "qmc_vectorized", "gauss_legendre", "nquad"]
+)
+def test_DC6_zero_dimensional_diagram_reads_the_external_position(method):
+    """No integration variable: the coupling is read once, at the external
+    point.  C is the same on both runs, so the ratio to a unit coupling is
+    the callable's value at x, on a cache with no spatial table."""
+    from sft_wick.evaluate import integrate_moment
+    from sft_wick.expressions import Propagator
+
+    def term():
+        return DiagramTerm(
+            propagators=(
+                Propagator(
+                    kind="C", spatial_left="x", spatial_right="y",
+                    index_left=None, index_right=None,
+                ),
+            ),
+            coupling_sum=Symbol("K", indices=(), spatial_args=("x",)),
+            rational_prefactor=Rational(1, 1),
+            integration_vars=(),
+            summation_indices=(),
+            n_response=0,
+        )
+
+    cache = _dc2_cache()
+    cache.precompute_C_table(t_max=2.0, n_grid=8)
+    positions = {"x": 0.7, "y": -0.4}
+    value, _ = integrate_moment(
+        term().build_integrand({"K": lambda n, t: 1.0 + float(np.ravel(n)[0])}),
+        1.0, cache, method=method, positions=positions,
+    )
+    unit, _ = integrate_moment(
+        term().build_integrand({"K": lambda n, t: 1.0}),
+        1.0, cache, method=method, positions=positions,
+    )
+    assert unit != 0.0
+    assert value / unit == pytest.approx(1.7, rel=1e-14, abs=0.0)

@@ -216,6 +216,18 @@ def test_CL2_validate_runs_the_build_checks(tmp_path, capsys):
     assert "system.noise.kappa2.temporal.sigma_t: must be positive" in line
 
 
+def test_CL2_an_empty_axis_is_named_under_iso_C(tmp_path, capsys):
+    """The isotropy check read the first value of each axis before the axes
+    were checked, so this ended in an ``IndexError``."""
+    doc = _quickstart()
+    doc["expand"]["iso_C"] = True
+    point = next(iter(doc["sweep"]["positions_grid"]))
+    doc["sweep"]["positions_grid"][point] = []
+    assert main(["validate", str(_write(tmp_path, doc))]) == 2
+    line = _one_line(capsys.readouterr().err)
+    assert f"sweep.positions_grid.{point}: is an empty list" in line
+
+
 # ---------------------------------------------------------------------------
 # CL3
 # ---------------------------------------------------------------------------
@@ -669,3 +681,114 @@ def test_CL10_a_file_of_another_encoding_exits_2_with_one_line(tmp_path, capsys)
     out = capsys.readouterr()
     assert status == 2, out
     assert "config error [read_error] " in _one_line(out.err)
+
+
+# ---------------------------------------------------------------------------
+# One value per token, one rule per switch, the quickstart copy
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("key,token", [
+    ("sweep.seed", "017"),
+    ("sweep.seed", "0x10"),
+    ("sweep.seed", "1:30"),
+    ("sweep.n_samples", "1e3"),
+    ("propagators.c_closed_form", "Off"),
+    ("propagators.c_closed_form", "no"),
+    ("propagators.c_closed_form", "NONE"),
+    ("propagators.t_max", ".inf"),
+])
+def test_an_override_reads_a_token_as_the_file_does(tmp_path, key, token):
+    from sft_wick.workflow.cli import _parse_overrides
+
+    def outcome(path, overrides=None):
+        try:
+            cfg = load_workflow_config(path, overrides=overrides)
+        except ConfigError as exc:
+            return exc.detail
+        return cfg.sweep.seed, cfg.sweep.n_samples, cfg.propagators
+
+    section, leaf = key.split(".")
+    doc = _quickstart()
+    doc[section].pop(leaf, None)
+    path = _write(tmp_path, doc)
+    written = yaml.safe_dump(doc).replace(
+        f"{section}:\n", f"{section}:\n  {leaf}: {token}\n", 1)
+    file_path = tmp_path / "token.yaml"
+    file_path.write_text(written)
+    assert outcome(file_path) == outcome(path, _parse_overrides([f"{key}={token}"]))
+
+
+@pytest.mark.parametrize("word,on", [
+    ("false", False), ("OFF", False), (" no ", False), ("0", False),
+    ("1", True), ("Yes", True), (" on", True), ("true", True),
+    ("xyz", None), ("", None),
+])
+def test_env_switches_read_one_word_list(monkeypatch, word, on):
+    from sft_wick import progress
+    from sft_wick.workflow import cache
+    from sft_wick.workflow.cli import _progress_setting
+
+    for name in ("SFT_WICK_QUIET_CACHE", "SFT_WICK_PROGRESS", "SFT_WICK_STRICT"):
+        monkeypatch.setenv(name, word)
+    assert cache._reminder_quiet() is (on is True)
+    assert progress._SETTINGS == [] and progress.env_flag("SFT_WICK_PROGRESS") is on
+    assert _progress_setting(type("Args", (), {"quiet": False})) is (on is not False)
+    assert cf._strict_keys() is (on is not False)
+
+
+def test_any_thread_cap_silences_the_blas_tip(monkeypatch, capsys):
+    from sft_wick.workflow import cli
+    from sft_wick.workflow.resource_compare import _THREAD_ENV
+
+    for name in _THREAD_ENV:
+        monkeypatch.delenv(name, raising=False)
+    cfg = load_workflow_config(QUICKSTART, overrides={"sweep.n_jobs": 2})
+    cli._maybe_warn_blas_oversubscription(cfg)
+    assert "tip" in capsys.readouterr().out
+    monkeypatch.setenv("VECLIB_MAXIMUM_THREADS", "1")
+    cli._maybe_warn_blas_oversubscription(cfg)
+    assert capsys.readouterr().out == ""
+
+
+def test_the_packaged_quickstart_is_the_example():
+    packaged = ROOT / "src" / "sft_wick" / "workflow" / "quickstart.yaml"
+    assert packaged.read_bytes() == QUICKSTART.read_bytes()
+
+
+@pytest.mark.parametrize("token", ["[1,2]", "{a: 1}"])
+def test_an_override_that_reads_as_a_list_or_mapping_stays_a_string(token):
+    from sft_wick.workflow.cli import _coerce_scalar
+
+    assert _coerce_scalar(token) == token
+
+
+@pytest.mark.parametrize(
+    "key, token",
+    [("system.vertices", ""), ("system.noise.sigma2", ""), ("sweep.seed", "#x")],
+)
+def test_an_override_with_no_value_is_refused_not_read_as_null(tmp_path, capsys, key, token):
+    """``system.vertices=$UNSET`` in a scan used to delete every vertex and
+    exit 0.  ``null`` and ``~`` still state null."""
+    path = _write(tmp_path, _quickstart())
+    assert main(["validate", str(path), "--override", f"{key}={token}"]) == 2
+    assert key in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "token", ["---", "--- # x", "--- 1", "--- foo", "...", "1e3", "run #3.csv", "017"]
+)
+def test_an_override_reads_as_the_value_of_a_key_in_a_file(token):
+    """A bare value was parsed as a whole document, where ``---`` is a marker
+    and reads as null, so ``system.vertices=---`` deleted every vertex."""
+    from sft_wick.workflow.cli import _coerce_scalar
+    from sft_wick.workflow.config import _load_yaml
+
+    assert _coerce_scalar(token) == _load_yaml(f"k: {token}")["k"]
+
+
+@pytest.mark.parametrize("token", ["null", "~", "null # stated"])
+def test_a_written_null_override_still_reads_as_null(token):
+    from sft_wick.workflow.cli import _coerce_scalar
+
+    assert _coerce_scalar(token) is None

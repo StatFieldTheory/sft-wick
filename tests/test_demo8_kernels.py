@@ -83,9 +83,8 @@ def test_unequal_rates_nquad(name, order, comps):
 
 @pytest.mark.parametrize("name", sorted(KERNELS))
 def test_the_package_c_table(name):
-    """``CustomKernel`` reaches the package's own C quadrature, whose
-    smoothness it cannot know: ``c_method='auto'`` picks dblquad there, and
-    the two quadratures agree to their own accuracy."""
+    """``CustomKernel`` reaches the package's own C quadrature, and the two
+    quadratures agree to their own accuracy."""
     p = _params(name, EQUAL)
     system = ts.kernel_system(p)
     props = ts.table_propagators(system, p.t_final + 0.3, 21,

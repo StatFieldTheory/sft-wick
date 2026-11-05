@@ -42,7 +42,15 @@ from typing import Any
 import numpy as np
 
 from sft_wick._dense_contraction import DEFAULT_CONTRACTION_MAX_BYTES
-from sft_wick.evaluate import DEFAULT_GL_CHUNK_SIZE, INTEGRATION_METHODS
+from sft_wick.evaluate import (
+    C_METHODS,
+    DEFAULT_C_N_GAUSS,
+    DEFAULT_GL_CHUNK_SIZE,
+    DEFAULT_N_GRID_T,
+    HOMOGENEITIES,
+    INTEGRATION_METHODS,
+)
+from sft_wick.progress import _FALSY, _TRUTHY, env_flag
 
 from ._messages import MAX_INT_BITS, shown, text_of
 
@@ -82,7 +90,6 @@ class ExpandConfig:
     observable: tuple
     orders: tuple
     response_phase: bool = True
-    ito: bool = True
     collect_topology: bool = True
     iso_R: Any = None
     diag_R: bool = True
@@ -96,7 +103,7 @@ class ExpandConfig:
 @dataclass(frozen=True)
 class PropagatorsConfig:
     t_max: float
-    n_grid_t: int = 60
+    n_grid_t: int = DEFAULT_N_GRID_T
     dt: float | None = None
     homogeneity: Any = None
     r_max: Any = None
@@ -115,10 +122,10 @@ class PropagatorsConfig:
     c_closed_form_vectorized: bool = False
     cache_path: Any = None
     interp_method: str = "linear"
-    #: 'auto' (GL with a converged node count for built-in kernels,
-    #: dblquad for callable kernels) | 'gauss_legendre' | 'dblquad'
+    #: 'auto' (GL with a converged node count, then a graded rule, then
+    #: dblquad with a warning) | 'gauss_legendre' | 'dblquad'
     c_method: str = "auto"
-    c_n_gauss: int = 20  # nodes per dim under c_method='gauss_legendre'
+    c_n_gauss: int = DEFAULT_C_N_GAUSS  # nodes per dim under c_method='gauss_legendre'
     diag_C: bool = True  # set False to preserve off-diagonal C entries
     #                       (e.g. lensing kappa-gamma_+ cross, a dense R,
     #                       a mixing noise); the C tables then hold every
@@ -261,16 +268,11 @@ class ConfigWarning(_ConfigMessage, UserWarning):
     """An unknown key ignored under ``SFT_WICK_STRICT=0``."""
 
 
-#: ``SFT_WICK_STRICT`` values that turn an unknown key in a file into a
-#: :class:`ConfigWarning`; this release only.
-_LENIENT_WORDS = frozenset({"0", "false", "off", "no"})
-
-
 def _strict_keys() -> bool:
     """False under ``SFT_WICK_STRICT=0``: an unknown key in a file is
-    warned about and ignored, as releases before 0.7.0 ignored it."""
-    raw = os.environ.get("SFT_WICK_STRICT", "").strip().lower()
-    return raw not in _LENIENT_WORDS
+    warned about and ignored, as releases before 0.7.0 ignored it; this
+    release only."""
+    return env_flag("SFT_WICK_STRICT", True)
 
 
 def _or_list(names) -> str:
@@ -361,32 +363,38 @@ def _refused_at(where: str):
         raise ConfigError("invalid_value", where, _reason(exc, where)) from None
 
 
-def _converted(convert, value: Any, where: str):
-    """``convert(value)`` (``int`` or ``float``, as the parser has always
-    read the key), raising a :class:`ConfigError` that names ``where``
-    when the value does not convert (``.inf`` for an integer, a word for a
-    number)."""
-    kind = "an integer" if convert is int else "a number"
+def _integer(value: Any, where: str) -> int:
+    """An integer key: an integer, or a number or a numeric string of integral
+    value (PyYAML reads ``1e3`` as a string).  A boolean, ``4096.9`` and
+    ``.inf`` are refused; ``int`` would give 1, 4096 and an error without the
+    key."""
+    number = value
+    if isinstance(value, str):
+        for read in (int, float):
+            try:
+                number = read(value)
+                break
+            except ValueError:
+                pass
     try:
-        out = convert(value)
+        if isinstance(number, (bool, np.bool_, str)):
+            raise ValueError
+        out = int(number)
+        if out != number:
+            raise ValueError
     except (TypeError, ValueError, OverflowError):
-        detail = f"must be {kind}; got {shown(value)}"
+        detail = f"must be an integer; got {shown(value)}"
         raise ConfigError("invalid_value", where, detail) from None
-    if convert is int and out.bit_length() > MAX_INT_BITS:
-        detail = f"is too large for {kind}; got {shown(value)}"
+    if out.bit_length() > MAX_INT_BITS:
+        detail = f"is too large for an integer; got {shown(value)}"
         raise ConfigError("invalid_value", where, detail)
     return out
 
 
-def _converted_int(value: Any, where: str) -> int:
-    """An integer the chosen method does not read: only converted."""
-    return _converted(int, value, where)
-
-
 def _size(value: Any, where: str, least: int = 1) -> int:
-    """A count the run allocates by, read as :func:`_converted` reads an
-    integer: at least ``least``, and small enough for an array."""
-    size = _converted(int, value, where)
+    """A count the run allocates by, read by :func:`_integer`: at least
+    ``least``, and small enough for an array."""
+    size = _integer(value, where)
     if size < least:
         detail = f"must be at least {least}; got {shown(value)}"
         raise ConfigError("invalid_value", where, detail)
@@ -399,13 +407,7 @@ def _size(value: Any, where: str, least: int = 1) -> int:
 def _table_size(value: Any, where: str):
     """``n_grid_r``, ``n_grid_cos`` or ``n_grid_x``: ``None``, or an integer
     the spatial table has that many nodes of."""
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, (int, np.integer)):
-        detail = f"must be an integer; got {shown(value)}"
-        raise ConfigError("invalid_value", where, detail)
-    _size(value, where)
-    return value
+    return None if value is None else _size(value, where)
 
 
 def _table_bound(value: Any, where: str):
@@ -421,7 +423,7 @@ def _table_bound(value: Any, where: str):
 
 def _jobs(value: Any, where: str) -> int:
     """An ``n_jobs``: joblib gives 0 no meaning."""
-    jobs = _converted(int, value, where)
+    jobs = _integer(value, where)
     if jobs == 0 or abs(jobs) > sys.maxsize:
         detail = (
             f"must be a process count, 1 for one process or -1 for one per "
@@ -431,11 +433,9 @@ def _jobs(value: Any, where: str) -> int:
     return jobs
 
 
-def _finite(value: float, where: str) -> float:
-    """A number read with :func:`_converted`, refused unless finite."""
-    if not math.isfinite(value):
-        raise ConfigError("invalid_value", where, f"must be finite; got {shown(value)}")
-    return value
+def _number(value: Any, where: str, finite: bool = True) -> float:
+    """:func:`_yaml_number` as a float."""
+    return float(_yaml_number(value, where, finite))
 
 
 def _path_value(value: Any, where: str):
@@ -544,9 +544,7 @@ def load_workflow_config(
         for dotted_key, value in overrides.items():
             _apply_override(data, dotted_key, value)
 
-    _refuse_cycles(data)
-    _refuse_expansion(data)
-    _refuse_nesting(data)
+    refuse_unbounded(data)
     return _parse_workflow(data, base_dir=path.parent)
 
 
@@ -907,6 +905,15 @@ def _apply_override(data: dict, dotted_key: str, value: Any) -> None:
     parent[leaf] = value
 
 
+def refuse_unbounded(data: dict) -> None:
+    """The refusals every config mapping passes before its values are read:
+    a value that holds itself, aliases that expand too far, nesting too
+    deep."""
+    _refuse_cycles(data)
+    _refuse_expansion(data)
+    _refuse_nesting(data)
+
+
 def _refuse_cycles(data: dict) -> None:
     """Refuse a mapping or list that holds itself through a YAML alias.
 
@@ -1040,8 +1047,8 @@ def _refuse_expansion(data) -> None:
     one value holds more than half of the one around it, so it stops where
     the expansion spreads out.
     """
-    sizes = _tree_measures(data)[0]
-    if sizes[id(data)] - _values_written(data) > _MAX_ALIAS_VALUES:
+    if _values_added_by_aliases(data) > _MAX_ALIAS_VALUES:
+        sizes = _tree_measures(data)[0]
         raise ConfigError(
             "invalid_value",
             _route_down(
@@ -1076,7 +1083,6 @@ _EXPAND_KEYS = frozenset(
         "observable",
         "orders",
         "response_phase",
-        "ito",
         "collect_topology",
         "iso_R",
         "diag_R",
@@ -1112,15 +1118,15 @@ _PROPAGATORS_KEYS = frozenset(
     }
 )
 _OUTPUT_KEYS = frozenset({"type", "path", "format", "x", "y", "hue", "facet_col"})
-#: Accepted values of ``propagators.c_method``, ``output[].type`` and
-#: ``output[].format``; :mod:`.schema` lists the same.
-_C_METHODS = ("auto", "dblquad", "gauss_legendre")
+#: Accepted values of ``output[].type`` and ``output[].format``;
+#: :mod:`.schema` lists the same.
 #: The methods of ``scipy.interpolate.RegularGridInterpolator``.
 _INTERP_METHODS = ("linear", "nearest", "slinear", "cubic", "quintic", "pchip")
 _OUTPUT_TYPES = ("table", "npz", "plot")
 _TABLE_FORMATS = ("markdown", "csv", "plain")
-#: Accepted values of ``propagators.homogeneity`` besides null.
-_HOMOGENEITIES = ("translation", "rotation", "general")
+#: Words that switch ``propagators.c_closed_form`` off, besides null and
+#: false.
+_CLOSED_FORM_OFF = ("none", "null", "off")
 
 
 def _check_position_labels(expand_cfg, sweep_cfg) -> None:
@@ -1129,12 +1135,14 @@ def _check_position_labels(expand_cfg, sweep_cfg) -> None:
     A point without a position sits at the default coordinate, so a
     misspelt or omitted name would place the intended point there and
     return the value for the wrong separation; a stray name would also add
-    a column and repeat every row.  The L1 ``positions`` argument still
-    accepts points the observable does not use, and still puts an omitted
-    point at the default coordinate.
+    a column and repeat every row.  The L1 ``positions`` argument reads the
+    same names (:func:`~.expansion._position_names`) and is narrower
+    (:func:`~.expansion._guard_point_names`).
     """
+    from .expansion import _position_names
+
     labels = _observable_points(expand_cfg)
-    unknown = sorted(str(k) for k in sweep_cfg.positions_grid if k not in labels)
+    unknown, missing = _position_names(labels, sweep_cfg.positions_grid)
     if unknown:
         also = (
             f" (also unknown: {', '.join(unknown[1:])})" if len(unknown) > 1 else ""
@@ -1159,7 +1167,6 @@ def _check_position_labels(expand_cfg, sweep_cfg) -> None:
             f"points are {sorted(labels)}",
             _nearest(unknown[0], labels),
         )
-    missing = sorted(labels - set(sweep_cfg.positions_grid))
     if missing:
         raise ConfigError(
             "invalid_value",
@@ -1322,7 +1329,7 @@ def _parse_workflow(data: dict, base_dir: Path) -> WorkflowConfig:
     # cache can derive its own n_grid_cache from the same dt by default.
     default_dt = props_d.get("dt")
     if default_dt is not None:
-        default_dt = _converted(float, default_dt, "propagators.dt")
+        default_dt = _number(default_dt, "propagators.dt")
 
     with _refused_at("sweep"):
         sweep_cfg = _parse_sweep(sweep_d)
@@ -1335,7 +1342,7 @@ def _parse_workflow(data: dict, base_dir: Path) -> WorkflowConfig:
     _check_position_labels(expand_cfg, sweep_cfg)
     _check_integrate_over(expand_cfg, sweep_cfg)
     with _refused_at("propagators"):
-        props_cfg = _parse_propagators(props_d, base_dir)
+        props_cfg = _parse_propagators(props_d, base_dir, system_cfg.t_min)
     output_cfgs = []
     for i, entry in enumerate(output_d):
         with _refused_at(f"output[{i}]"):
@@ -1401,9 +1408,7 @@ def _parse_system(
             )
     name = fld.get("name", "phi")
     nc = _size(fld.get("n_components", 1), "system.field.n_components")
-    t_min = _finite(
-        _converted(float, d.get("t_min", 0.0), "system.t_min"), "system.t_min"
-    )
+    t_min = _number(d.get("t_min", SystemConfig.t_min), "system.t_min")
 
     linear = d.get("linear")
     if linear is None:
@@ -1572,23 +1577,34 @@ def _refuse_oversized_tensor(value: Any, where: str) -> None:
         item = item[0]
 
 
-def _holds_text(value: Any) -> bool:
-    """Whether nested lists hold a string or bytes.
+def _holds(value: Any, kinds: tuple) -> bool:
+    """Whether nested lists hold an entry of one of ``kinds``.
 
     NumPy stores every entry at the width of the longest string, so a few
     lines of aliases around one long string ask for tens of GB, under
-    :data:`_MAX_TENSOR_ENTRIES`.  Each list is entered once, as in
-    :func:`_refuse_cycles`, so the cost is what the file holds.
+    :data:`_MAX_TENSOR_ENTRIES`, and it reads ``true`` beside a number as 1,
+    so a coupling looks here for ``str``, ``bytes`` and ``bool`` before NumPy
+    reads it.  Each list is entered once, as in :func:`_refuse_cycles`, so the
+    cost is what the file holds.
     """
     seen, pending = set(), [value]
     while pending:
         item = pending.pop()
-        if isinstance(item, (str, bytes)):
+        if isinstance(item, kinds):
             return True
         if isinstance(item, (list, tuple)) and id(item) not in seen:
             seen.add(id(item))
             pending.extend(item)
     return False
+
+
+def _refuse_boolean_entry(value: Any, where: str) -> None:
+    """Refuse a ``true`` or ``false`` in a tensor, which NumPy reads as a
+    number, as ``t_max: true`` is refused."""
+    if _holds(value, (bool,)):
+        raise ConfigError(
+            "invalid_value", where, "holds a boolean where a number belongs"
+        )
 
 
 def _parse_vertex(
@@ -1652,11 +1668,7 @@ def _parse_vertex(
         )
     if kind == "nonlocal":
         order = out.get("order")
-        if (
-            isinstance(order, bool)
-            or not isinstance(order, (int, np.integer))
-            or order < 1
-        ):
+        if not isinstance(order, (int, np.integer)) or order is True or order < 1:
             raise ConfigError(
                 "invalid_value",
                 f"{where}.order",
@@ -1697,31 +1709,20 @@ def _parse_vertex(
     coupling = f"{where}.coupling"
     _refuse_oversized_tensor(out["coupling"], coupling)
     try:
-        arr = np.asarray(None if _holds_text(out["coupling"]) else out["coupling"])
-    except (ValueError, OverflowError):
+        arr = np.asarray(
+            None if _holds(out["coupling"], (bytes, bool)) else out["coupling"],
+            dtype=float if _holds(out["coupling"], (str,)) else None,
+        )
+    except (TypeError, ValueError, OverflowError):
         arr = np.asarray(None)
     if not (np.issubdtype(arr.dtype, np.number) and np.all(np.isfinite(arr))):
         detail = f"the coupling of {label} must be a tensor of finite numbers"
         raise ConfigError("invalid_value", coupling, detail)
-    n = int(n_components)
-    if kind == "nonlocal":
-        want = (n,) * out["order"]
-    else:
-        if arr.ndim == 0:
-            raise ConfigError(
-                "invalid_value",
-                coupling,
-                f"{label}: a local coupling F^(n) is a tensor with n >= 1 axes, "
-                f"the first the psi leg; got a scalar",
-            )
-        want = (n,) * arr.ndim
-    if arr.shape != want:
-        raise ConfigError(
-            "invalid_value",
-            coupling,
-            f"{label}: the coupling has shape {arr.shape}; with n_components = "
-            f"{n} it must be {want}",
-        )
+    problem = (
+        cls(name, arr) if kind == "local" else cls(name, out["order"], arr)
+    ).shape_problem(n_components)
+    if problem:
+        raise ConfigError("invalid_value", coupling, f"{label}: {problem}")
     out["coupling"] = arr
     return out
 
@@ -1804,13 +1805,13 @@ def _resolve_linear(
 
         ``R_time_module``: path to a ``.py`` module exporting an
             attribute (default ``R_time``) used as a callable
-            ``R_time(t1, t2) -> float | (N, N)``. Must enforce
-            causality (return 0 when ``t1 < t2``).
+            ``R_time(t1, t2) -> float | (N, N)``. It need not vanish
+            for ``t1 < t2``: the integrators apply Θ.
         ``iso_R``: ``true`` (default) for a scalar R, ``false`` for an
             ``(N, N)`` matrix.  The callable is called once at a causal
             and once at an acausal time pair inside ``[t_min, t_max]``:
-            the value must have the declared shape and vanish for
-            ``t1 < t2``.  A matrix R with off-diagonal entries also
+            the value must have the declared shape.  A matrix R with
+            off-diagonal entries also
             needs ``expand.diag_R: false`` and ``expand.diag_C: false``
             (``System.expand`` refuses it otherwise).
         ``R_time_vectorized``: ``true`` if the callable also accepts two
@@ -1906,12 +1907,19 @@ def _resolve_linear_diagonal(
     else:
         lin["gamma"] = _decay_rates(lin["gamma"], n_components)
 
+    # Read here also under a constant gamma, which does not use them.
+    for key in ("t_max_cache", "t_min_cache"):
+        if key in lin:
+            lin[key] = _yaml_number(lin[key], f"{where}.{key}")
+    if "n_grid_cache" in lin:
+        lin["n_grid_cache"] = _size(
+            lin["n_grid_cache"], f"{where}.n_grid_cache", least=2
+        )
+
     # dt -> n_grid_cache derivation. linear.dt overrides propagators.dt.
     linear_dt = lin.pop("dt", None)
     effective_dt = (
-        _converted(float, linear_dt, "system.linear.dt")
-        if linear_dt is not None
-        else default_dt
+        _number(linear_dt, "system.linear.dt") if linear_dt is not None else default_dt
     )
     if effective_dt is not None:
         dt_key = "system.linear.dt" if linear_dt is not None else "propagators.dt"
@@ -1928,15 +1936,12 @@ def _resolve_linear_diagonal(
                 "specify exactly one of {'dt' (here or in propagators), "
                 "'n_grid_cache'}; got both",
             )
-        t_max_cache = _converted(
-            float, lin.get("t_max_cache", 100.0), "system.linear.t_max_cache"
+        from .specs import DiagonalA
+
+        span = float(lin.get("t_max_cache", DiagonalA.t_max_cache)) - float(
+            lin.get("t_min_cache", DiagonalA.t_min_cache)
         )
-        t_min_cache = _converted(
-            float, lin.get("t_min_cache", 0.0), "system.linear.t_min_cache"
-        )
-        lin["n_grid_cache"] = _grid_points(
-            t_max_cache - t_min_cache, effective_dt, "system.linear.dt"
-        )
+        lin["n_grid_cache"] = _grid_points(span, effective_dt, "system.linear.dt")
     return lin
 
 
@@ -1958,7 +1963,7 @@ def _resolve_linear_explicit(
     joblib reuses a worker pool across calls.
 
     ``iso_R: false`` declares an ``(N, N)`` matrix R (a dense drift); the
-    callable is probed once for its shape and once for causality.
+    callable is probed for its shape at a causal and an acausal time pair.
     """
     forbidden = (
         "gamma",
@@ -2067,11 +2072,11 @@ def _probe_R_time(
     R, iso_R: bool, n_components: int | None, t_min: float, t_max: Any
 ) -> None:
     """Call the user's R once at a causal and once at an acausal time pair
-    inside ``[t_min, t_max]``: the value must have the shape ``iso_R``
-    declares and must vanish when ``t1 < t2``.  A scalar returned where a
-    matrix was declared (or the reverse) surfaced much later and as
-    something else; an R written without the Heaviside surfaced not at
-    all."""
+    inside ``[t_min, t_max]``: both values must have the shape ``iso_R``
+    declares.  A scalar returned where a matrix was declared (or the
+    reverse) surfaced much later and as something else.  The value at the
+    acausal pair is not judged: the integrators apply Θ, so an R written
+    without the Heaviside gives the same number as one written with it."""
     where = "system.linear.R_time_module"
     span = _probe_span(t_min, t_max)
     t1, t2 = t_min + 0.7 * span, t_min + 0.2 * span
@@ -2107,12 +2112,12 @@ def _probe_R_time(
             where,
             f"R_time({t1:g}, {t2:g}) is not finite: {fwd.tolist()}",
         )
-    if bwd.shape != fwd.shape or np.any(bwd != 0.0):
+    if bwd.shape != fwd.shape:
         raise ConfigError(
             "invalid_value",
             where,
-            f"R_time({t2:g}, {t1:g}) = {bwd.tolist()}, but the response "
-            f"function is causal: R(t1, t2) = 0 for t1 < t2",
+            f"R_time({t2:g}, {t1:g}) has shape {bwd.shape}, but "
+            f"R_time({t1:g}, {t2:g}) has shape {fwd.shape}",
         )
 
 
@@ -2311,24 +2316,39 @@ def _parse_expand(d: dict) -> ExpandConfig:
     from sft_wick._connected import validate_target
 
     with _refused_at("expand.target"):
-        validate_target(d.get("target", "moment"), obs)
+        validate_target(d.get("target", ExpandConfig.target), obs)
     return ExpandConfig(
         observable=tuple(obs),
         orders=orders,
-        response_phase=_flag(d, "response_phase", True, "expand"),
-        ito=_flag(d, "ito", True, "expand"),
-        collect_topology=_flag(d, "collect_topology", True, "expand"),
+        response_phase=_flag(d, "response_phase", ExpandConfig.response_phase, "expand"),
+        collect_topology=_flag(d, "collect_topology", ExpandConfig.collect_topology, "expand"),
         iso_R=None if d.get("iso_R") is None else _flag(d, "iso_R", None, "expand"),
-        diag_R=_flag(d, "diag_R", True, "expand"),
-        diag_C=_flag(d, "diag_C", True, "expand"),
-        iso_C=_flag(d, "iso_C", False, "expand"),
+        diag_R=_flag(d, "diag_R", ExpandConfig.diag_R, "expand"),
+        diag_C=_flag(d, "diag_C", ExpandConfig.diag_C, "expand"),
+        iso_C=_flag(d, "iso_C", ExpandConfig.iso_C, "expand"),
         cache_path=_cache_path(d.get("cache_path"), "expand.cache_path"),
-        n_jobs=_jobs(d.get("n_jobs", 1), "expand.n_jobs"),
-        target=d.get("target", "moment"),
+        n_jobs=_jobs(d.get("n_jobs", ExpandConfig.n_jobs), "expand.n_jobs"),
+        target=d.get("target", ExpandConfig.target),
     )
 
 
-def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
+def _closed_form_setting(value: Any) -> str | None:
+    """``propagators.c_closed_form``: ``"auto"`` or ``None``."""
+    if isinstance(value, (bool, np.bool_)):
+        return "auto" if value else None
+    if value is None or value in _CLOSED_FORM_OFF:
+        return None
+    if isinstance(value, str) and value.lower() == "auto":
+        return "auto"
+    raise ConfigError(
+        "invalid_value",
+        "propagators.c_closed_form",
+        f"must be 'auto' or null/false; got {shown(value)}.  To supply your "
+        f"own closed form use c_closed_form_module / c_closed_form_attr",
+    )
+
+
+def _parse_propagators(d: dict, base_dir: Path, t_min: float) -> PropagatorsConfig:
     _reject_unknown_keys(d, _PROPAGATORS_KEYS, "propagators")
     if "t_max" not in d:
         raise ConfigError("invalid_value", "propagators.t_max", "is required")
@@ -2339,61 +2359,53 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
         )
 
     # c_closed_form_only builds no table, so it reads neither of these.
-    only = _flag(d, "c_closed_form_only", False, "propagators")
-    t_max = _converted(float, d["t_max"], "propagators.t_max")
-    if not only:
-        _finite(t_max, "propagators.t_max")
+    only = _flag(
+        d, "c_closed_form_only", PropagatorsConfig.c_closed_form_only, "propagators"
+    )
+    t_max = _number(d["t_max"], "propagators.t_max", finite=not only)
     dt = d.get("dt")
-    has_n_grid_t = "n_grid_t" in d
     if dt is not None:
-        dt = _converted(float, dt, "propagators.dt")
+        dt = _number(dt, "propagators.dt")
         if dt <= 0.0:
             raise ConfigError(
                 "invalid_value", "propagators.dt", f"must be positive, got {dt}"
             )
-        if has_n_grid_t:
+        if "n_grid_t" in d:
             raise ConfigError(
                 "invalid_value",
                 "propagators.n_grid_t",
                 "specify exactly one of {'dt', 'n_grid_t'}; got both",
             )
-        n_grid_t = _grid_points(t_max, dt, "propagators.dt")
+        n_grid_t = _grid_points(t_max - t_min, dt, "propagators.dt")
     elif only:
-        n_grid_t = _converted(int, d.get("n_grid_t", 60), "propagators.n_grid_t")
-    else:
-        n_grid_t = _size(d.get("n_grid_t", 60), "propagators.n_grid_t", least=2)
-
-    c_closed_form = d.get("c_closed_form", "auto")
-    if c_closed_form in (False, None, "none", "null", "off"):
-        c_closed_form = None
-    elif c_closed_form is True or text_of(c_closed_form).lower() == "auto":
-        c_closed_form = "auto"
-    else:
-        raise ConfigError(
-            "invalid_value",
-            "propagators.c_closed_form",
-            f"must be 'auto' or null/false; got {shown(c_closed_form)}.  "
-            f"To supply your own closed form use c_closed_form_module / "
-            f"c_closed_form_attr",
+        n_grid_t = _integer(
+            d.get("n_grid_t", PropagatorsConfig.n_grid_t), "propagators.n_grid_t"
         )
+    else:
+        n_grid_t = _size(
+            d.get("n_grid_t", PropagatorsConfig.n_grid_t),
+            "propagators.n_grid_t",
+            least=2,
+        )
+
     homogeneity = d.get("homogeneity")
-    if homogeneity is not None and homogeneity not in _HOMOGENEITIES:
+    if homogeneity is not None and homogeneity not in HOMOGENEITIES:
         raise ConfigError(
             "invalid_value",
             "propagators.homogeneity",
-            f"must be null or one of {_or_list(_HOMOGENEITIES)}; got "
+            f"must be null or one of {_or_list(HOMOGENEITIES)}; got "
             f"{shown(homogeneity)}",
-            _nearest(homogeneity, _HOMOGENEITIES),
+            _nearest(homogeneity, HOMOGENEITIES),
         )
-    c_method = text_of(d.get("c_method", "auto"))
-    if c_method not in _C_METHODS:
+    c_method = text_of(d.get("c_method", PropagatorsConfig.c_method))
+    if c_method not in C_METHODS:
         raise ConfigError(
             "invalid_value",
             "propagators.c_method",
             f"must be 'auto', 'dblquad' or 'gauss_legendre'; got {shown(c_method)}",
-            _nearest(c_method, _C_METHODS),
+            _nearest(c_method, C_METHODS),
         )
-    interp_method = text_of(d.get("interp_method", "linear"))
+    interp_method = text_of(d.get("interp_method", PropagatorsConfig.interp_method))
     if interp_method not in _INTERP_METHODS:
         raise ConfigError(
             "invalid_value",
@@ -2412,19 +2424,30 @@ def _parse_propagators(d: dict, base_dir: Path) -> PropagatorsConfig:
         n_grid_cos=_table_size(d.get("n_grid_cos"), "propagators.n_grid_cos"),
         x_max=_table_bound(d.get("x_max"), "propagators.x_max"),
         n_grid_x=_table_size(d.get("n_grid_x"), "propagators.n_grid_x"),
-        n_jobs=_jobs(d.get("n_jobs", 1), "propagators.n_jobs"),
-        c_closed_form=c_closed_form,
+        n_jobs=_jobs(d.get("n_jobs", PropagatorsConfig.n_jobs), "propagators.n_jobs"),
+        c_closed_form=_closed_form_setting(
+            d.get("c_closed_form", PropagatorsConfig.c_closed_form)
+        ),
         c_closed_form_module=module_spec,
-        c_closed_form_attr=text_of(d.get("c_closed_form_attr", "C_fn")),
+        c_closed_form_attr=text_of(
+            d.get("c_closed_form_attr", PropagatorsConfig.c_closed_form_attr)
+        ),
         c_closed_form_only=only,
         c_closed_form_vectorized=_flag(
-            d, "c_closed_form_vectorized", False, "propagators"
+            d,
+            "c_closed_form_vectorized",
+            PropagatorsConfig.c_closed_form_vectorized,
+            "propagators",
         ),
         cache_path=_cache_path(d.get("cache_path"), "propagators.cache_path"),
         interp_method=interp_method,
         c_method=c_method,
-        c_n_gauss=_size(d.get("c_n_gauss", 20), "propagators.c_n_gauss", least=2),
-        diag_C=_flag(d, "diag_C", True, "propagators"),
+        c_n_gauss=_size(
+            d.get("c_n_gauss", PropagatorsConfig.c_n_gauss),
+            "propagators.c_n_gauss",
+            least=2,
+        ),
+        diag_C=_flag(d, "diag_C", PropagatorsConfig.diag_C, "propagators"),
     )
 
 
@@ -2496,8 +2519,8 @@ def _check_execution_keys(d: dict) -> None:
         _execution_options(
             d.get("propagator_cache_bytes"),
             d.get("propagator_cache_contract"),
-            d.get("contraction_backend", "ordered"),
-            d.get("contraction_max_bytes", DEFAULT_CONTRACTION_MAX_BYTES),
+            d.get("contraction_backend", SweepConfig.contraction_backend),
+            d.get("contraction_max_bytes", SweepConfig.contraction_max_bytes),
         )
     except (TypeError, ValueError) as exc:
         key = next(
@@ -2550,8 +2573,8 @@ def _parse_sweep(d: dict) -> SweepConfig:
             d.get("vertex_types"), "sweep.vertex_types"
         )
     cps = _parse_component_axis(d)
-    seed = d.get("seed", 42)
-    method = text_of(d.get("method", "qmc_vectorized"))
+    seed = d.get("seed", SweepConfig.seed)
+    method = text_of(d.get("method", SweepConfig.method))
     if method not in INTEGRATION_METHODS:
         # Checked here so that a misspelt method stops the load, not the
         # sweep after the expansion and the propagator table.
@@ -2564,7 +2587,7 @@ def _parse_sweep(d: dict) -> SweepConfig:
     qmc = method.startswith("qmc")
     with _refused_at("sweep.gl_chunk_size"):
         gl_chunk_size = _validate_gl_chunk_size(
-            d.get("gl_chunk_size", DEFAULT_GL_CHUNK_SIZE)
+            d.get("gl_chunk_size", SweepConfig.gl_chunk_size)
         )
     with _refused_at("sweep.qmc_coupling_chunk_size"):
         qmc_coupling_chunk_size = _validate_qmc_coupling_chunk_size(
@@ -2573,8 +2596,12 @@ def _parse_sweep(d: dict) -> SweepConfig:
     return SweepConfig(
         propagator_cache_bytes=d.get("propagator_cache_bytes"),
         propagator_cache_contract=d.get("propagator_cache_contract"),
-        contraction_backend=d.get("contraction_backend", "ordered"),
-        contraction_max_bytes=d.get("contraction_max_bytes", DEFAULT_CONTRACTION_MAX_BYTES),
+        contraction_backend=d.get(
+            "contraction_backend", SweepConfig.contraction_backend
+        ),
+        contraction_max_bytes=d.get(
+            "contraction_max_bytes", SweepConfig.contraction_max_bytes
+        ),
         positions_grid=positions_grid,
         t_final_grid=t_final_grid,
         external_times_grid=external_times_grid,
@@ -2583,16 +2610,16 @@ def _parse_sweep(d: dict) -> SweepConfig:
         vertex_types=None if vertex_types is None else sorted(vertex_types),
         integrate_over=_integrate_over_selection(d.get("integrate_over")),
         method=method,
-        n_samples=(_size if qmc else _converted_int)(
-            d.get("n_samples", 2**13), "sweep.n_samples"
+        n_samples=(_size if qmc else _integer)(
+            d.get("n_samples", SweepConfig.n_samples), "sweep.n_samples"
         ),
         seed=None if seed is None else _seed(seed, qmc),
-        n_jobs=_jobs(d.get("n_jobs", 1), "sweep.n_jobs"),
-        n_gauss=(_size if method == "gauss_legendre" else _converted_int)(
-            d.get("n_gauss", 8), "sweep.n_gauss"
+        n_jobs=_jobs(d.get("n_jobs", SweepConfig.n_jobs), "sweep.n_jobs"),
+        n_gauss=(_size if method == "gauss_legendre" else _integer)(
+            d.get("n_gauss", SweepConfig.n_gauss), "sweep.n_gauss"
         ),
-        reuse_integrands=_as_bool(
-            d.get("reuse_integrands", False), "sweep.reuse_integrands"
+        reuse_integrands=_flag(
+            d, "reuse_integrands", SweepConfig.reuse_integrands, "sweep"
         ),
         gl_chunk_size=gl_chunk_size,
         qmc_coupling_chunk_size=qmc_coupling_chunk_size,
@@ -2602,7 +2629,7 @@ def _parse_sweep(d: dict) -> SweepConfig:
 def _seed(value: Any, qmc: bool) -> int:
     """``sweep.seed``: the QMC methods read it, and NumPy takes no negative
     seed."""
-    seed = _converted(int, value, "sweep.seed")
+    seed = _integer(value, "sweep.seed")
     if qmc and seed < 0:
         detail = f"must not be negative; got {shown(value)}"
         raise ConfigError("invalid_value", "sweep.seed", detail)
@@ -2638,7 +2665,7 @@ def _parse_output(d: dict, index: int = 0) -> OutputConfig:
                 f"output[{index}].{key}",
                 f"output type {shown(t)} requires {shown(key)}",
             )
-    fmt = text_of(d.get("format", "markdown"))
+    fmt = text_of(d.get("format", OutputConfig.format))
     if fmt not in _TABLE_FORMATS:
         # Checked here: the table is written only after the whole sweep.
         raise ConfigError(
@@ -2653,8 +2680,8 @@ def _parse_output(d: dict, index: int = 0) -> OutputConfig:
         path=None if path is None else _path_value(path, f"output[{index}].path"),
         format=fmt,
         x=d.get("x"),
-        y=text_of(d.get("y", "value")),
-        hue=d.get("hue", "order"),
+        y=text_of(d.get("y", OutputConfig.y)),
+        hue=d.get("hue", OutputConfig.hue),
         facet_col=d.get("facet_col"),
     )
 
@@ -2837,11 +2864,11 @@ def _build_sigma2(sig_d: Any, base_dir: Path | None, n_components: int | None):
                 "type 'constant' requires 'amplitude': a number (amplitude * "
                 "I_N) or an N x N matrix as nested lists",
             )
-        return sp.ConstantImpulse(
-            amplitude=_sigma2_amplitude(
-                sig_d["amplitude"], n_components, f"{where}.amplitude"
-            )
+        amplitude = _sigma2_amplitude(
+            sig_d["amplitude"], n_components, f"{where}.amplitude"
         )
+        with _refused_at(f"{where}.amplitude"):
+            return sp.ConstantImpulse(amplitude=amplitude)
     if st == "callable_module":
         if base_dir is None:
             raise ConfigError(
@@ -2873,6 +2900,7 @@ def _build_sigma2(sig_d: Any, base_dir: Path | None, n_components: int | None):
             )
         for key in ("g0", "g1"):
             _refuse_oversized_tensor(sig_d[key], f"{where}.{key}")
+            _refuse_boolean_entry(sig_d[key], f"{where}.{key}")
         with _refused_at(where):
             names = {
                 k: tuple(sig_d[k])
@@ -2895,9 +2923,10 @@ def _build_sigma2(sig_d: Any, base_dir: Path | None, n_components: int | None):
 
 
 def _sigma2_amplitude(raw: Any, n_components: int | None, where: str):
-    """A white-noise amplitude: a number, or a symmetric N x N matrix."""
+    """A white-noise amplitude: a number, or an N x N matrix."""
     if isinstance(raw, list):
         _refuse_oversized_tensor(raw, where)
+        _refuse_boolean_entry(raw, where)
         try:
             amp = np.asarray(raw, dtype=float)
         except (TypeError, ValueError, OverflowError):
@@ -2925,15 +2954,6 @@ def _sigma2_amplitude(raw: Any, n_components: int | None, where: str):
     if not np.all(np.isfinite(amp)):
         detail = f"has a non-finite entry: {shown(raw)}"
         raise ConfigError("invalid_value", where, detail)
-    scale = float(np.abs(amp).max())
-    if float(np.abs(amp - amp.T).max()) > 1e-12 * scale:
-        raise ConfigError(
-            "invalid_value",
-            where,
-            f"must be symmetric: it is the covariance of the white noise, and "
-            f"the action term psi sigma2 psi / 2 reads only its symmetric "
-            f"part.  Got {shown(raw)}",
-        )
     return amp
 
 
@@ -2987,8 +3007,8 @@ def _reject_unknown_keys(d: dict, allowed, where: str, note: str = "") -> None:
     )
 
 
-def _yaml_number(value: Any, where: str):
-    """A finite real number from YAML.
+def _yaml_number(value: Any, where: str, finite: bool = True):
+    """A real number from YAML, finite unless ``finite`` is false.
 
     PyYAML reads ``1e-3`` (no decimal point) as a string, so a numeric
     string is converted; any other non-number raises.  A number is
@@ -3008,17 +3028,13 @@ def _yaml_number(value: Any, where: str):
         detail = f"must be a number; got {shown(written)}"
         raise ConfigError("invalid_value", where, detail)
     try:
-        finite = math.isfinite(float(value))
+        refused = finite and not math.isfinite(float(value))
     except OverflowError:
-        finite = False
-    if not finite:
+        refused = True
+    if refused:
         detail = f"must be finite; got {shown(value)}"
         raise ConfigError("invalid_value", where, detail)
     return value
-
-
-_TRUE_WORDS = {"true", "yes", "on", "1"}
-_FALSE_WORDS = {"false", "no", "off", "0"}
 
 
 def _flag(d: dict, key: str, default: bool | None, block: str) -> bool:
@@ -3039,9 +3055,9 @@ def _as_bool(value: Any, where: str) -> bool:
         return bool(value)
     if isinstance(value, str):
         word = value.strip().lower()
-        if word in _TRUE_WORDS:
+        if word in _TRUTHY:
             return True
-        if word in _FALSE_WORDS:
+        if word in _FALSY:
             return False
     detail = f"must be true or false; got {shown(value)}"
     raise ConfigError("invalid_value", where, detail)
@@ -3112,17 +3128,14 @@ def _build_kernel(d: dict, axis: str, base_dir: Path | None = None):
             ]
         )
     vals = {p: _yaml_number(d[p], f"{where}.{p}") for p in params}
-    for p in ("sigma_t", "sigma_x"):
-        if p in vals and not float(vals[p]) > 0.0:
-            detail = f"must be positive; got {shown(vals[p])}"
-            raise ConfigError("invalid_value", f"{where}.{p}", detail)
     cls = {
         ("time", "exponential"): sp.ExponentialTemporal,
         ("time", "gaussian"): sp.GaussianTemporal,
         ("space", "exponential"): sp.ExponentialSpatial,
         ("space", "gaussian"): sp.GaussianSpatial,
     }[(axis, kt)]
-    return cls(**vals)
+    with _refused_at(f"{where}.{params[-1]}"):
+        return cls(**vals)
 
 
 # =========================================================================
@@ -3152,6 +3165,8 @@ def check_before_run(cfg: WorkflowConfig, system=None):
         _check_sweep_columns,
         _resolve_component_tuples,
         component_columns,
+        nested_jobs,
+        refuse_absent_orders,
     )
     from .system import _parse_observable
 
@@ -3177,18 +3192,14 @@ def check_before_run(cfg: WorkflowConfig, system=None):
             cfg.sweep.positions_grid, cfg.sweep.external_times_grid or (), columns
         )
     if cfg.sweep.orders is not None:
-        absent = [o for o in cfg.sweep.orders if o not in cfg.expand.orders]
-        if absent:
-            raise ConfigError(
-                "invalid_value",
-                "sweep.orders",
-                f"order(s) {absent} are not in the expansion; it holds orders "
-                f"{list(cfg.expand.orders)}",
+        with _refused_at("sweep.orders"):
+            refuse_absent_orders(
+                cfg.sweep.orders, cfg.expand.orders, "sweep.orders"
             )
     # Parallelism layers cannot nest because joblib's loky backend does not
     # support nested process pools: ``sweep.n_jobs`` (over grid points) and
     # ``expand.n_jobs`` (over diagrams within a grid point).
-    if int(cfg.expand.n_jobs) != 1 and int(cfg.sweep.n_jobs) != 1:
+    if nested_jobs(cfg.expand.n_jobs, cfg.sweep.n_jobs):
         raise ConfigError(
             "invalid_value",
             "sweep.n_jobs",
@@ -3247,8 +3258,10 @@ def _check_spatial_grid(cfg: WorkflowConfig, system) -> None:
 
 
 def effective_expand_diag_C(cfg: WorkflowConfig) -> bool:
-    """The ``diag_C`` the expansion runs with: ``propagators.diag_C:
-    false`` also turns ``expand.diag_C`` off (see :func:`run_workflow`)."""
+    """The ``diag_C`` the expansion runs with: ``propagators.diag_C: false``
+    also turns ``expand.diag_C`` off.  The closed-form C then returns a full
+    matrix, and ``expand.diag_C=True`` would collapse the observable's
+    ``(a, b)`` through ``KroneckerDelta(a, b)``, zeroing every cross pair."""
     return bool(cfg.expand.diag_C and cfg.propagators.diag_C)
 
 
@@ -3269,50 +3282,105 @@ def run_workflow(cfg: WorkflowConfig, progress: Any = None):
         return _run_workflow(cfg, stage)
 
 
-def _run_workflow(cfg: WorkflowConfig, stage):
+def expand_kwargs(cfg: WorkflowConfig) -> dict:
+    """The arguments of :meth:`System.expand`, for the run and the estimate."""
+    e = cfg.expand
+    return dict(
+        observable=e.observable,
+        orders=e.orders,
+        response_phase=e.response_phase,
+        collect_topology=e.collect_topology,
+        iso_R=e.iso_R,
+        diag_R=e.diag_R,
+        diag_C=effective_expand_diag_C(cfg),
+        iso_C=e.iso_C,
+        cache_path=e.cache_path,
+        target=e.target,
+    )
+
+
+def propagators_kwargs(cfg: WorkflowConfig, c_closed_form: Any) -> dict:
+    """The arguments of :meth:`System.propagators`, for the run and the
+    estimate; ``c_closed_form`` is :func:`_load_c_closed_form`'s result."""
+    p = cfg.propagators
+    return dict(
+        t_max=p.t_max,
+        n_grid_t=p.n_grid_t,
+        homogeneity=p.homogeneity,
+        r_max=p.r_max,
+        n_grid_r=p.n_grid_r,
+        n_grid_cos=p.n_grid_cos,
+        x_max=p.x_max,
+        n_grid_x=p.n_grid_x,
+        n_jobs=p.n_jobs,
+        c_closed_form=c_closed_form,
+        cache_path=p.cache_path,
+        interp_method=p.interp_method,
+        c_closed_form_only=p.c_closed_form_only,
+        c_closed_form_vectorized=p.c_closed_form_vectorized,
+        c_method=p.c_method,
+        c_n_gauss=p.c_n_gauss,
+        diag_C=p.diag_C,
+    )
+
+
+def evaluate_kwargs(cfg: WorkflowConfig) -> dict:
+    """The integrator arguments :meth:`Expansion.sweep` and
+    :meth:`Expansion.evaluate` share, execution options included."""
     from sft_wick.evaluate import _execution_options
 
+    sw = cfg.sweep
+    return dict(
+        _execution_options(
+            sw.propagator_cache_bytes,
+            sw.propagator_cache_contract,
+            sw.contraction_backend,
+            sw.contraction_max_bytes,
+        ),
+        integrate_over=sw.integrate_over,
+        method=sw.method,
+        seed=sw.seed,
+        n_gauss=sw.n_gauss,
+        gl_chunk_size=sw.gl_chunk_size,
+        **(
+            {}
+            if sw.qmc_coupling_chunk_size is None
+            else {"qmc_coupling_chunk_size": sw.qmc_coupling_chunk_size}
+        ),
+    )
+
+
+def sweep_kwargs(cfg: WorkflowConfig) -> dict:
+    """The arguments of :meth:`Expansion.sweep`.  ``sweep.n_jobs`` runs over
+    the grid points and ``expand.n_jobs`` over the diagrams of one point."""
+    sw = cfg.sweep
+    return dict(
+        evaluate_kwargs(cfg),
+        positions_grid=sw.positions_grid,
+        t_final_grid=sw.t_final_grid,
+        external_times_grid=sw.external_times_grid,
+        component_tuples=sw.component_tuples,
+        orders=sw.orders,
+        vertex_types=sw.vertex_types,
+        n_samples=sw.n_samples,
+        n_jobs=sw.n_jobs,
+        evaluate_n_jobs=cfg.expand.n_jobs,
+        reuse_integrands=sw.reuse_integrands,
+    )
+
+
+def _run_workflow(cfg: WorkflowConfig, stage):
     from ._run_checks import check_after_expansion
 
-    execution = _execution_options(
-        cfg.sweep.propagator_cache_bytes,
-        cfg.sweep.propagator_cache_contract,
-        cfg.sweep.contraction_backend,
-        cfg.sweep.contraction_max_bytes,
-    )
+    sweep_args = sweep_kwargs(cfg)
 
     # The component axis, the order selection and the parallel layers are
     # checked before the expensive stages run; Expansion.sweep checks them
     # again, but only after the expansion and the propagator table.
     system = check_before_run(cfg)
 
-    # ``propagators.diag_C`` is the user-facing knob (the single
-    # source of truth for "is C diagonal?"). The symbolic-side
-    # ``expand.diag_C`` must agree: with ``propagators.diag_C=False``
-    # the closed-form C returns a full (N, N) matrix per sample, but
-    # ``expand.diag_C=True`` would collapse the observable (a, b)
-    # index pair through ``KroneckerDelta(a, b)``, zeroing every
-    # cross-component pair at order 0. Reject the contradictory
-    # combination with a clear pointer instead of silently rounding
-    # the result to zero.
-    # A user who opted into off-diagonal C but left expand.diag_C at its
-    # default (True) gets it synced, without setting the knob twice.
-    expand_diag_C = effective_expand_diag_C(cfg)
-
     with stage("expansion", f"orders {list(cfg.expand.orders)}"):
-        expansion = system.expand(
-            observable=cfg.expand.observable,
-            orders=cfg.expand.orders,
-            response_phase=cfg.expand.response_phase,
-            ito=cfg.expand.ito,
-            collect_topology=cfg.expand.collect_topology,
-            iso_R=cfg.expand.iso_R,
-            diag_R=cfg.expand.diag_R,
-            diag_C=expand_diag_C,
-            iso_C=cfg.expand.iso_C,
-            cache_path=cfg.expand.cache_path,
-            target=getattr(cfg.expand, "target", "moment"),
-        )
+        expansion = system.expand(**expand_kwargs(cfg))
     counts = ", ".join(
         f"order {o}: {len(expansion.diagrams(o))}" for o in expansion.orders
     )
@@ -3321,73 +3389,21 @@ def _run_workflow(cfg: WorkflowConfig, stage):
     # table is built.
     check_after_expansion(cfg, expansion)
 
+    # A user C_fn module is registered by _load_callable_from_module, so the
+    # callable reaches joblib loky subprocesses (propagators.n_jobs: -1).
     c_fn = _load_c_closed_form(cfg.propagators)
-    # User-supplied C_fn modules are loaded via
-    # :func:`_load_callable_from_module`, which registers them under
-    # their ``.py`` file's bare stem and adds the parent directory to
-    # ``sys.path``, so the callable is importable in joblib loky
-    # subprocesses. Combined with the module-level
-    # ``_ClosedFormPropagatorCache`` class, this lets users opt into
-    # parallel C-table builds (``propagators.n_jobs: -1``) when their
-    # c_fn does heavy work per call.
-    n_jobs = cfg.propagators.n_jobs
     with stage(
         "propagators",
         f"t_max={cfg.propagators.t_max}, " f"n_grid_t={cfg.propagators.n_grid_t}",
     ):
-        props = system.propagators(
-            t_max=cfg.propagators.t_max,
-            n_grid_t=cfg.propagators.n_grid_t,
-            homogeneity=cfg.propagators.homogeneity,
-            r_max=cfg.propagators.r_max,
-            n_grid_r=cfg.propagators.n_grid_r,
-            n_grid_cos=cfg.propagators.n_grid_cos,
-            x_max=cfg.propagators.x_max,
-            n_grid_x=cfg.propagators.n_grid_x,
-            n_jobs=n_jobs,
-            c_closed_form=c_fn,
-            cache_path=cfg.propagators.cache_path,
-            interp_method=cfg.propagators.interp_method,
-            c_closed_form_only=cfg.propagators.c_closed_form_only,
-            c_closed_form_vectorized=cfg.propagators.c_closed_form_vectorized,
-            c_method=cfg.propagators.c_method,
-            c_n_gauss=cfg.propagators.c_n_gauss,
-            diag_C=cfg.propagators.diag_C,
-        )
+        props = system.propagators(**propagators_kwargs(cfg, c_fn))
     _log(
         f"[sft-wick] C propagator: {props.c_source}"
         + (", lazy per-separation table" if props.is_lazy else "")
     )
 
-    # ``sweep.n_jobs`` (over Cartesian-product grid points) is forwarded to
-    # ``expansion.sweep``; ``expand.n_jobs`` (over diagrams within a single
-    # grid point) is forwarded as ``evaluate_n_jobs``.  check_before_run
-    # refused the two together; :meth:`Expansion.sweep` enforces it too.
     with stage("sweep", f"method={cfg.sweep.method}"):
-        sweep = expansion.sweep(
-            props,
-            **execution,
-            positions_grid=cfg.sweep.positions_grid,
-            t_final_grid=cfg.sweep.t_final_grid,
-            external_times_grid=cfg.sweep.external_times_grid,
-            component_tuples=cfg.sweep.component_tuples,
-            orders=cfg.sweep.orders,
-            vertex_types=cfg.sweep.vertex_types,
-            integrate_over=cfg.sweep.integrate_over,
-            method=cfg.sweep.method,
-            n_samples=cfg.sweep.n_samples,
-            seed=cfg.sweep.seed,
-            n_jobs=cfg.sweep.n_jobs,
-            evaluate_n_jobs=cfg.expand.n_jobs,
-            n_gauss=cfg.sweep.n_gauss,
-            reuse_integrands=cfg.sweep.reuse_integrands,
-            gl_chunk_size=cfg.sweep.gl_chunk_size,
-            **(
-                {}
-                if cfg.sweep.qmc_coupling_chunk_size is None
-                else {"qmc_coupling_chunk_size": cfg.sweep.qmc_coupling_chunk_size}
-            ),
-        )
+        sweep = expansion.sweep(props, **sweep_args)
 
     totals = sweep.totals()
     for out in cfg.output:

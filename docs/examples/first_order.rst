@@ -58,7 +58,7 @@ For :math:`S_{\mathrm{int}} = \int F_{ijk}\,\phi_i(z)\,\phi_j(z)\,\psi_k(z)\,\ma
    v = Vertex(fields=[phi, phi, psi], coupling='F')
    action = Action(vertices=[v])
 
-   obs = [psi('a', 'x'), phi('b', 'x'), phi('c', 'x'), phi('d', 'x')]
+   obs = [phi('a', 'x'), phi('b', 'y'), phi('c', 'z')]
    result = compute_moment(obs, action, order=1)
 
    print("Order 0:")

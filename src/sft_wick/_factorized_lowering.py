@@ -23,7 +23,7 @@ from ._contraction_admission import (
     quarter_turn,
 )
 from . import _dense_contraction as _dense
-from .expressions import _NATIVE_NUMERIC_EXPRESSION_CLASSES
+from .expressions import _NATIVE_NUMERIC_EXPRESSION_CLASSES, i_power
 
 # Definition-time class bindings, as the ordered numerical evaluators use.
 (Product, Sum, Symbol, Rational, ImaginaryUnit, _) = _NATIVE_NUMERIC_EXPRESSION_CLASSES
@@ -152,7 +152,7 @@ def prefactor(term):
     ):
         return None
     try:
-        value = [1.0, -1j, -1.0, 1j][n_response % 4] * (
+        value = i_power(-n_response) * (
             rational.numerator / rational.denominator
         )
     except (OverflowError, ZeroDivisionError):

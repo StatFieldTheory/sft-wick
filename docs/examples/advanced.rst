@@ -117,8 +117,7 @@ Access the full ``networkx.MultiGraph`` for custom analysis:
 Itô Prescription
 -----------------
 
-By default, ``ito=True`` eliminates equal-point response propagators
-and causal R-loops:
+Equal-point response propagators and causal R-loops vanish:
 
 .. code-block:: python
 
@@ -131,33 +130,25 @@ and causal R-loops:
    # <psi(x) phi(x)^3>, all at the same point
    obs = [psi('x'), phi('x'), phi('x'), phi('x')]
 
-   # With Itô (default): R(x,x) = 0, entire result vanishes
+   # R(x,x) = 0, so the entire result vanishes
    result = compute_moment(obs, Action(vertices=[]), order=0)
    print(result.order(0).to_latex())  # 0
-
-   # Without Itô: 3 R(x,x) C(x,x)
-   result_raw = compute_moment(
-       obs, Action(vertices=[]), order=0, ito=False, response_phase=False
-   )
-   print(result_raw.order(0).to_latex())  # 3 R(x, x) C(x, x)
 
 Causal R-loops (e.g. :math:`R(a,b)\,R(b,a) = 0`) are also detected
 and eliminated at any cycle length:
 
 .. code-block:: python
 
-   # At first order, some pairings produce R(x,z)R(z,x)
+   # R(x,y) R(y,x) closes a loop; R(x,y) R(y,z) does not
    reset_uid_counter()
-   v = Vertex(fields=[phi, psi], coupling='g')
-   result_ito = compute_moment(
-       [phi('x'), phi('y')], Action([v]), order=1, response_phase=False
-   )
-   result_no_ito = compute_moment(
-       [phi('x'), phi('y')], Action([v]), order=1,
-       ito=False, response_phase=False
-   )
-   print(f"Diagrams with Itô: {len(result_ito.diagrams_by_order[1])}")
-   print(f"Diagrams without:  {len(result_no_ito.diagrams_by_order[1])}")
+   obs = [phi('x'), psi('y'), phi('y'), psi('x')]
+   result = compute_moment(obs, Action(vertices=[]), order=0)
+   print(result.order(0).to_latex())  # 0
+
+   reset_uid_counter()
+   obs = [phi('x'), psi('y'), phi('y'), psi('z')]
+   result = compute_moment(obs, Action(vertices=[]), order=0)
+   print(len(result.diagrams_by_order[0]))  # 1
 
 
 Response Phase Convention
@@ -176,12 +167,12 @@ propagators:
    obs = [phi('x'), psi('y')]
 
    # With phase (default)
-   result = compute_moment(obs, Action(vertices=[]), order=0, ito=False)
+   result = compute_moment(obs, Action(vertices=[]), order=0)
    print(result.order(0).to_latex())  # -1 i R(x, y)
 
    # Without phase
    result_raw = compute_moment(
-       obs, Action(vertices=[]), order=0, ito=False, response_phase=False
+       obs, Action(vertices=[]), order=0, response_phase=False
    )
    print(result_raw.order(0).to_latex())  # R(x, y)
 
@@ -193,8 +184,11 @@ Diagram-Based Term Collection
 -------------------------------
 
 By default (``collect_topology=True``), terms whose Feynman diagrams
-are isomorphic (under dummy-variable relabeling) are grouped.  Compare
-the raw vs. collected output:
+are isomorphic (under dummy-variable relabeling) are grouped through the
+spatial Wick engine.  ``collect_topology=False`` contracts at the operator
+level and collects the sum with ``collect_by_diagram``.  It builds no
+``DiagramTerm`` above order 0, so its result has an expression and no
+numerical evaluation there:
 
 .. code-block:: python
 
@@ -206,12 +200,12 @@ the raw vs. collected output:
    v = Vertex(fields=[phi, phi, psi], coupling='F')
    obs = [phi('a', 'x'), phi('b', 'y')]
 
-   # Without diagram collection: many expanded terms at order 2
+   # Operator-level contraction: expression only at order 2
    reset_uid_counter()
    r_raw = compute_moment(obs, Action([v]), order=2,
                           response_phase=False, collect_topology=False)
 
-   # With diagram collection (default): grouped terms
+   # Spatial topologies (default): expression and DiagramTerm records
    reset_uid_counter()
    r_col = compute_moment(obs, Action([v]), order=2,
                           response_phase=False)

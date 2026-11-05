@@ -34,6 +34,7 @@ import numpy as np
 import pytest
 from scipy.integrate import nquad, quad
 
+import sft_wick as sw
 from sft_wick import Action, Field, Vertex, compute_moment
 from sft_wick.evaluate import PropagatorCache, PropagatorModel
 
@@ -94,7 +95,7 @@ def _quartic(order: int, obs=None):
     obs = obs or [phi("x"), phi("y")]
     return compute_moment(
         obs, Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
-        order=order, ito=True, response_phase=True, collect_topology=True,
+        order=order, response_phase=True, collect_topology=True,
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
 
@@ -102,6 +103,15 @@ def _quartic(order: int, obs=None):
 # --------------------------------------------------------------------- #
 # F1 — integration_bounds
 # --------------------------------------------------------------------- #
+def test_F1_bounds_have_no_lower_limit_of_their_own():
+    """A default of 0 took the integral from 0 under a model with ``t_min = 2``:
+    the order-1 value of a constant K came out 4.5 times too large with no
+    error."""
+    dt = _quartic(2).diagram_terms(2)[0]
+    with pytest.raises(TypeError, match="t_min"):
+        dt.build_integrand({"g": np.array(1j)}).integration_bounds({"x": 8.0})
+
+
 def test_F1_bounds_callable_uses_the_outer_variable():
     """The innermost bound must track its causal parent, not a constant.
 
@@ -165,7 +175,7 @@ def test_F1_linear_perturbation_is_exactly_solvable():
     res = compute_moment(
         [phi("x"), phi("y")],
         Action([Vertex(fields=[psi, phi], coupling="k")]),
-        order=2, ito=True, response_phase=True, collect_topology=True,
+        order=2, response_phase=True, collect_topology=True,
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
     cache = _scalar_cache()
@@ -360,7 +370,7 @@ def _linear_local_terms(order: int = 1):
     res = compute_moment(
         [phi("x"), phi("y")],
         Action([Vertex(fields=[psi, phi], coupling="c")]),
-        order=order, ito=True, response_phase=True, collect_topology=True,
+        order=order, response_phase=True, collect_topology=True,
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
     return res, res.diagram_terms(order)
@@ -528,7 +538,7 @@ def test_F9_response_at_order1_respects_the_lower_causal_bound(t2):
     res = compute_moment(
         [phi("x"), psi("y")],
         Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
-        order=1, ito=True, response_phase=True, collect_topology=True,
+        order=1, response_phase=True, collect_topology=True,
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
     total = 0.0
@@ -556,7 +566,10 @@ def test_F9_lower_bounds_seed_externally_then_propagate():
     *propagate* one: ``x_ext -> s_a -> s_b`` implies ``t_s_b >= t_x_ext``.
     An internal variable with no external ancestor keeps ``t_min``.
     """
-    from sft_wick.evaluate import _causal_lower_bounds
+    from sft_wick.evaluate import _causal_lower_bound_sources
+
+    def _causal_lower_bounds(*args):
+        return _causal_lower_bound_sources(*args)[0]
 
     class _Chain:
         time_orderings = (("x_ext", "s_a"),   # seeds s_a
@@ -586,7 +599,7 @@ def test_F10_qmc_scalar_zero_dim_uses_the_reality_projection():
     res = compute_moment(
         [phi("x"), psi("y")],
         Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
-        order=0, ito=True, response_phase=True, collect_topology=True,
+        order=0, response_phase=True, collect_topology=True,
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
     ig = res.diagram_terms(0)[0].build_integrand({"g": np.array(1j)})
@@ -629,7 +642,7 @@ def test_F11_response_propagator_is_retarded(tx, ty, expected):
     res = compute_moment(
         [phi("x"), psi("y")],
         Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
-        order=0, ito=True, response_phase=True, collect_topology=True,
+        order=0, response_phase=True, collect_topology=True,
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
     dt = res.diagram_terms(0)[0]
@@ -647,7 +660,10 @@ def test_F9_lower_bounds_are_transitively_closed():
     [t_ext, t_v2] inverts.  Measured 13.5% low (44 sigma) on order-2 <phi psi>
     before the closure was added.
     """
-    from sft_wick.evaluate import _causal_lower_bounds
+    from sft_wick.evaluate import _causal_lower_bound_sources
+
+    def _causal_lower_bounds(*args):
+        return _causal_lower_bound_sources(*args)[0]
 
     class _SP:
         time_orderings = (("y", "y_0"), ("y_0", "y_1"), ("y_1", "x"))
@@ -669,7 +685,7 @@ def test_F9_acausal_external_times_give_exactly_zero(order):
     res = compute_moment(
         [phi("x"), psi("y")],
         Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
-        order=order, ito=True, response_phase=True, collect_topology=True,
+        order=order, response_phase=True, collect_topology=True,
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
     ext = {"x": 1.0, "y": 3.0}          # acausal: t_x < t_y
@@ -713,7 +729,7 @@ def test_F12_two_point_qmc_agrees_with_the_other_backends():
         res = compute_moment(
             [phi("x"), psi("y")],
             Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
-            order=order, ito=True, response_phase=True, collect_topology=True,
+            order=order, response_phase=True, collect_topology=True,
             diag_R=True, diag_C=True, iso_R=True, iso_C=True,
         )
         igs = [dt.build_integrand({"g": np.array(1j)})
@@ -922,7 +938,7 @@ def _f14_setup(order: int):
     res = compute_moment(
         [phi("a", "x"), phi("b", "y")],
         Action([Vertex(fields=[psi, phi, phi], coupling="F")]),
-        order=order, ito=True, response_phase=True, collect_topology=True,
+        order=order, response_phase=True, collect_topology=True,
         diag_R=True, diag_C=True, iso_R=True,
     )
     F = np.zeros((_F14_NCOMP,) * 3)
@@ -1004,93 +1020,54 @@ def test_F14_cross_propagator_count_sets_the_separation_scaling(order):
 
 
 # --------------------------------------------------------------------- #
-# F15: ito=False is a SYMBOLIC switch, not a numerical one
+# F15: the engine is Ito, and Theta(0)=1/2 alone is not a Stratonovich mode
 # --------------------------------------------------------------------- #
-#
-# It was flagged as "a documented public flag silently inert" after the
-# Theta commit collapsed its numbers onto the ito=True ones, with the
-# proposed fix "use Theta(0)=1/2 when ito=False".  That prescription is
-# WRONG, and this test exists to stop anyone acting on it.
 #
 # The MSRJD Theta(0) ambiguity is not independent of the functional
 # Jacobian.  For dx/dt = F(x) + xi the Stratonovich discretisation carries
-# -1/2 int ds dF/dphi, which is exactly what cancels the Theta(0)=1/2
-# equal-point R terms; Ito sets both to zero.  sft-wick's ito=False keeps
-# the equal-point R terms symbolically but never emits the Jacobian, so
-# Theta(0)=0 is the only self-consistent numerical choice available -- and
-# it happens to give the right answer, since for ADDITIVE noise the Ito
-# and Stratonovich results coincide.
+# -1/2 int ds dF/dphi, which is what cancels the Theta(0)=1/2 equal-point R
+# terms; Ito sets both to zero.  The package emits neither, so Theta(0)=0 is
+# the self-consistent choice, and for additive noise the Ito and
+# Stratonovich results coincide.
 #
 # Measured for the linear vertex k psi phi (exact: <x^2> = D/(mu+k), whose
 # order-1 coefficient is -D/mu^2 = -0.5, independent of T):
 #
-#     T      ito=True        terms   ito=False       terms
-#     4.0   -0.498490418       2    -0.498490418       3
-#     8.0   -0.499999043       2    -0.499999043       3
-#    16.0   -0.500000000       2    -0.500000000       3
+#     T      value           terms
+#     4.0   -0.498490418       2
+#     8.0   -0.499999043       2
+#    16.0   -0.500000000       2
 #
-# The extra term Theta(0)=1/2 would have contributed is -C0(T,T)*T/2 =
-# -1.00 / -2.00 / -4.00 at those T -- i.e. 200% / 400% / 800% of the exact
-# answer, growing without bound.
+# The extra term Theta(0)=1/2 would contribute is -C0(T,T)*T/2 = -1.00 /
+# -2.00 / -4.00 at those T, 200% / 400% / 800% of the exact answer.
 
 
 @pytest.mark.parametrize("T", [4.0, 8.0, 16.0])
-def test_F15_ito_false_changes_the_expression_not_the_number(T):
-    """ito=False must add diagram terms yet leave the value untouched."""
+def test_F15_linear_vertex_reaches_the_stationary_value(T):
+    """The tolerance tightens with T: the finite-time correction is
+    O(T exp(-2 mu T)), while the error of a Theta(0)=1/2 term grows with T."""
     phi = Field("phi", "physical")
     psi = Field("psi", "response")
-
-    def _order1(ito):
-        res = compute_moment(
-            [phi("x"), phi("y")],
-            Action([Vertex(fields=[psi, phi], coupling="k")]),
-            order=1, ito=ito, response_phase=True, collect_topology=True,
-            diag_R=True, diag_C=True, iso_R=True, iso_C=True,
-        )
-        cache, ext, total = _scalar_cache(), {"x": T, "y": T}, 0.0
-        terms = res.diagram_terms(1)
-        for dt in terms:
-            ig = dt.build_integrand({"k": np.array(1j)})
-            bounds = ig.integration_bounds(ext, t_min=0.0)
-            if not bounds:
-                continue
-            dirs = {d: 0 for d in set(ig.spatial.direction_map.values())}
-            val, _ = nquad(ig.make_scipy_integrand(ext, dirs, cache), bounds,
-                           opts={"epsabs": 1e-11, "epsrel": 1e-9})
-            total += val
-        return total, len(terms)
-
-    v_ito, n_ito = _order1(True)
-    v_str, n_str = _order1(False)
-
-    # (a) the switch really does change the symbolic expansion ...
-    assert n_str > n_ito, (
-        f"ito=False produced {n_str} terms, ito=True {n_ito} — the extra "
-        f"equal-point R term is missing, so this test proves nothing"
+    res = compute_moment(
+        [phi("x"), phi("y")],
+        Action([Vertex(fields=[psi, phi], coupling="k")]),
+        order=1, response_phase=True, collect_topology=True,
+        diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
-    # (b) ... but not the number ...
-    assert v_str == pytest.approx(v_ito, rel=1e-12, abs=0.0)
-    # (c) ... and that number is the stationary one.  The tolerance
-    # TIGHTENS with T, because the finite-time correction is
-    # O(T exp(-2 mu T)) while the error a Theta(0)=1/2 "fix" would inject
-    # GROWS with T.  A single loose tolerance would admit the latter --
-    # which is the whole failure mode this test guards.
+    cache, ext, total = _scalar_cache(), {"x": T, "y": T}, 0.0
+    terms = res.diagram_terms(1)
+    assert len(terms) == 2
+    for dt in terms:
+        ig = dt.build_integrand({"k": np.array(1j)})
+        bounds = ig.integration_bounds(ext, t_min=0.0)
+        if not bounds:
+            continue
+        dirs = {d: 0 for d in set(ig.spatial.direction_map.values())}
+        val, _ = nquad(ig.make_scipy_integrand(ext, dirs, cache), bounds,
+                       opts={"epsabs": 1e-11, "epsrel": 1e-9})
+        total += val
     stationary_tol = {4.0: 1e-2, 8.0: 1e-4, 16.0: 1e-6}[T]
-    assert v_str == pytest.approx(-D / MU ** 2, rel=stationary_tol, abs=0.0)
-
-
-def test_F15_theta_half_would_grow_without_bound():
-    """Pin WHY Theta(0)=1/2 is not the fix: the spurious term scales with T.
-
-    Guards the reasoning, not just the outcome — if someone later adds the
-    Jacobian counter-term and legitimately enables Theta(0)=1/2, this test
-    documents the size of what must cancel.
-    """
-    spurious = {T: -_C0(T, T) * T / 2 for T in (4.0, 8.0, 16.0)}
-    exact = -D / MU ** 2
-    # Grows linearly in T, so it cannot be part of a T-independent answer.
-    assert spurious[16.0] == pytest.approx(2 * spurious[8.0], rel=1e-3, abs=0.0)
-    assert abs(spurious[16.0] / exact) > 7.0
+    assert total == pytest.approx(-D / MU ** 2, rel=stationary_tol, abs=0.0)
 
 
 def test_F16_theta_sites_never_call_R_time_on_acausal_pairs():
@@ -1327,7 +1304,7 @@ def test_F13_two_swept_externals_pick_the_right_column():
 # translation/rotation/general table exists.  Orders >= 1 still hard-coded
 # `C_diagonal_batch x c_spatial_factors` -- the single-t_ref kappa2 ratio --
 # so the expansion was exact in its leading term and approximate above it.
-# `integrate_moment_qmc_vectorized` already had the right shape (`_lookup_C`
+# `integrate_moment_qmc_vectorized` already had the right shape (a C lookup
 # dispatching on `_cache_has_spatial_table`); this mirrors it.
 #
 # The sharp test is the boundary-validation one: for a SEPARABLE kernel the
@@ -1357,7 +1334,7 @@ def _f18_igs(order):
     res = compute_moment(
         [phi("x"), phi("y")],
         Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
-        order=order, ito=True, response_phase=True, collect_topology=True,
+        order=order, response_phase=True, collect_topology=True,
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
     return [dt.build_integrand({"g": np.array(1j)})
@@ -1402,6 +1379,24 @@ def _f18_igs_pair(order):
     return tuple(_f18_igs(order)), tuple(_f18_igs(order))
 
 
+@pytest.mark.parametrize("order", [0, 2])
+def test_F18_a_time_only_table_takes_vector_positions(order):
+    """A bare numpy error on the time-only branch; the spatial branch took
+    the same vectors.  The kernel reads the first coordinate, so this vector
+    gives the scalar's value."""
+    from sft_wick.evaluate import integrate_two_point_qmc
+
+    igs = _f18_igs(order)
+    kw = dict(n_samples=2 ** 8, seed=5)
+    legacy = _f18_legacy_cache()
+    scalar, _ = integrate_two_point_qmc(igs, _F18_T, {"x": 0.0, "y": 1.0},
+                                        legacy, **kw)
+    vector, _ = integrate_two_point_qmc(
+        igs, _F18_T, {"x": np.zeros(2), "y": np.array([1.0, 0.0])}, legacy, **kw
+    )
+    assert vector == pytest.approx(scalar, rel=1e-12, abs=0.0)
+
+
 @pytest.mark.parametrize("order", [0, 1, 2])
 @pytest.mark.parametrize("r", [0.0, 1.0, 2.5])
 def test_F18_spatial_table_does_not_move_a_separable_result(order, r):
@@ -1430,6 +1425,99 @@ def test_F18_spatial_table_does_not_move_a_separable_result(order, r):
         f"({v_spatial:.10f} vs {v_legacy:.10f}) — the ratio was either "
         f"dropped or double-counted"
     )
+
+
+class _EndedNoise:
+    """``exp(-r^2 / 2) g(t1) g(t2)``, separable, with ``g`` a Gaussian of width
+    0.3 or a step at ``t = 1``; ``scale`` multiplies the amplitude."""
+
+    def __init__(self, g, scale=1.0):
+        self.g, self.scale = g, scale
+
+    def __call__(self, n1, t1, n2, t2):
+        r = float(np.ravel(n1)[0] - np.ravel(n2)[0])
+        return self.scale * np.exp(-0.5 * r**2) * self.g(t1) * self.g(t2) * np.eye(1)
+
+
+def _order_zero_on_a_time_table(kappa2, t_f):
+    """``<phi(0.1) phi(1.3)>`` at ``t_f`` from a time-only table, and the table
+    at ``(t_f, t_f)``."""
+    import sft_wick as sw
+    from sft_wick.evaluate import integrate_two_point_qmc
+    from sft_wick.workflow.specs import GeneralKappa2
+
+    system = sw.System(
+        field=sw.FieldSpec("phi", 1),
+        linear=sw.DiagonalA(gamma=[0.7]),
+        noise=sw.GaussianNoise(kappa2=GeneralKappa2(kappa2)),
+        t_min=-2.0,
+    )
+    cache = PropagatorCache(
+        system.build_propagator_model(diag_C=True),
+        homogeneity="translation",
+        c_method="gauss_legendre",
+        n_gauss=24,
+    )
+    cache.precompute_C_table(t_max=t_f + 0.5, n_grid=40, direction=0.0)
+    igs = [
+        d.build_integrand(system.build_coupling_values(), {})
+        for d in system.expand(("phi(x)", "phi(y)"), orders=[0], progress=False).diagrams(0)
+    ]
+    value, _ = integrate_two_point_qmc(
+        igs, t_f, {"x": 0.1, "y": 1.3}, cache, n_samples=8, seed=1
+    )
+    table = float(cache.C_diagonal_batch(np.array([t_f]), np.array([t_f]))[0, 0])
+    return value, table
+
+
+@pytest.mark.parametrize(
+    "g, scale, t_f",
+    [
+        (lambda s: np.exp(-0.5 * (s / 0.3) ** 2), 1.0, 8.0),
+        (lambda s: 1.0, 1e-31, 1.5),
+        (lambda s: 1.0, 1e-29, 1.5),
+    ],
+    ids=["ended-kernel-1e-77-at-t_ref", "below-the-old-floor", "above-it"],
+)
+def test_F18_time_table_ratio_has_no_absolute_floor(g, scale, t_f):
+    """The ratio of two values is defined at any amplitude.  A floor of 1e-30
+    on the denominator returned 0 below it.  The reference is the separable
+    factor ``exp(-r^2 / 2)``, computed here, times the table."""
+    value, table = _order_zero_on_a_time_table(_EndedNoise(g, scale), t_f)
+    assert value == pytest.approx(table * np.exp(-0.5 * 1.2**2), rel=1e-12, abs=0.0)
+    assert value != 0.0
+
+
+def test_F18_time_table_ratio_is_refused_where_kappa2_is_zero():
+    """Noise that has ended by ``t_ref`` gives 0/0, and C there is not 0: this
+    returned 0.0 against 0.0115."""
+    g = lambda s: 1.0 if s < 1.0 else 0.0  # noqa: E731
+    with pytest.raises(ValueError, match="no spatial table"):
+        _order_zero_on_a_time_table(_EndedNoise(g), 4.0)
+
+
+def test_F18_time_table_ratio_keeps_a_component_with_no_noise():
+    """A component no noise reaches has C = 0 at every position, so a zero
+    denominator there refuses nothing."""
+    from sft_wick.evaluate import _time_table_factor
+
+    class _Cache:
+        def __init__(self, model):
+            self.model, self._c_table_range = model, (0.0, 2.0)
+
+    def kernel(n1, t1, n2, t2):
+        r = float(n1 - n2)
+        return np.diag([np.exp(-0.5 * r**2), 0.0])
+
+    model = PropagatorModel(
+        R_time=lambda a, b: np.exp(-(a - b)),
+        kappa2=kernel,
+        n_components=2,
+        iso_R=True,
+        diag_C=True,
+    )
+    factor = _time_table_factor(_Cache(model), 0.0, 1.0, 1.0)
+    assert factor == pytest.approx([np.exp(-0.5), 0.0], rel=1e-14, abs=0.0)
 
 
 def test_F18_nonseparable_agrees_with_the_spatially_aware_integrator():
@@ -1497,7 +1585,7 @@ def _f19_integrands():
     res = compute_moment(
         [phi("x"), psi("y")],
         Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
-        order=0, ito=True, response_phase=True, collect_topology=True,
+        order=0, response_phase=True, collect_topology=True,
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
     return [dt.build_integrand({"g": np.array(1j)})
@@ -1580,12 +1668,12 @@ def test_F19_helper_orders_and_is_a_no_op_without_swept_edges():
     assert lowers4 == {"b": ["a"]}, lowers4
     assert order4.index("a") < order4.index("b"), order4
 
-    # a cycle must fall back, never drop a variable
+    # a cycle has no draw order
     class _Cyc:
         time_orderings = (("a", "b"), ("b", "a"))
 
-    order5, lowers5, _, _ = _swept_external_order(_Cyc(), ["a", "b"])
-    assert (order5, lowers5) == (["a", "b"], {})
+    with pytest.raises(ValueError, match="time loop"):
+        _swept_external_order(_Cyc(), ["a", "b"])
 
 
 # --------------------------------------------------------------------- #
@@ -1615,7 +1703,7 @@ def _f20_response(order):
     res = compute_moment(
         [phi("x"), psi("y")],
         Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
-        order=order, ito=True, response_phase=True, collect_topology=True,
+        order=order, response_phase=True, collect_topology=True,
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
     return [dt.build_integrand({"g": np.array(1j)})
@@ -2025,7 +2113,7 @@ def test_F22_nquad_orders_swept_externals_outermost(method, kw, tol):
     res = compute_moment(
         [phi("y"), psi("x")],
         Action([Vertex(fields=[psi, phi, phi, phi], coupling="g")]),
-        order=0, ito=True, response_phase=True, collect_topology=True,
+        order=0, response_phase=True, collect_topology=True,
         diag_R=True, diag_C=True, iso_R=True, iso_C=True,
     )
     igs = [dt.build_integrand({"g": np.array(1j)})
@@ -2344,3 +2432,188 @@ def test_F30_the_memo_is_not_pickled_into_every_worker():
     assert float(np.asarray(restored.C_value(np.array([1.0]), 0.4,
                                              np.array([0.0]), 0.4))[0, 0]) \
         == pytest.approx(np.exp(-1.0))
+
+
+# ---------------------------------------------------------------------------
+# F31: a closed R loop is refused at analyze_spatial, on every integrator.
+# ---------------------------------------------------------------------------
+
+_F31_METHODS = {
+    "qmc_vectorized": {"n_samples": 2 ** 14, "seed": 3},
+    "qmc_scalar": {"n_samples": 2 ** 10, "seed": 3},
+    "qmc": {"n_samples": 2 ** 10, "seed": 3},
+    "gauss_legendre": {"n_gauss": 16},
+    "nquad": {},
+}
+
+
+def _f31_term(r_edges, integration_vars):
+    from sft_wick.expressions import Rational, Symbol
+    from sft_wick.perturbation import DiagramTerm, Propagator
+
+    props = [Propagator("C", None, None, "x", "y")]
+    props += [Propagator("R", None, None, a, b) for a, b in r_edges]
+    return DiagramTerm(
+        propagators=tuple(props), coupling_sum=Symbol("K", indices=()),
+        rational_prefactor=Rational(1, 1), integration_vars=integration_vars,
+        summation_indices=(), n_response=0,
+    )
+
+
+def _f31_integrate(term, method, T=2.0):
+    from sft_wick.evaluate import integrate_diagrams
+
+    return integrate_diagrams(
+        [term], {"K": np.array(1.0)}, T, _ScalarBatchCache(), method=method,
+        **_F31_METHODS[method],
+    )[0]
+
+
+@pytest.mark.parametrize("method", sorted(_F31_METHODS))
+@pytest.mark.parametrize("edges, ivars, loop", [
+    ([("y_0", "y_1"), ("y_1", "y_0")], ("y_0", "y_1"), "y_0, y_1"),
+    ([("y_0", "y_1"), ("y_1", "y_2"), ("y_2", "y_0")],
+     ("y_0", "y_1", "y_2"), "y_0, y_1, y_2"),
+    # A free variable beside the loop returned 0 from these two integrators
+    # and raised KeyError from the others.
+    ([("y", "y_2"), ("y_0", "y_1"), ("y_1", "y_0")],
+     ("y_0", "y_1", "y_2"), "y_0, y_1"),
+    ([("x", "y_0"), ("y_0", "x")], ("y_0",), "x, y_0"),
+])
+def test_F31_closed_R_loop_is_refused_with_its_points(method, edges, ivars,
+                                                      loop):
+    with pytest.raises(ValueError, match=f"close a time loop through {loop}"):
+        _f31_integrate(_f31_term(edges, ivars), method)
+
+
+@pytest.mark.parametrize("method", sorted(_F31_METHODS))
+def test_F31_either_side_of_the_loop_keeps_its_value(method):
+    """Open the two-vertex loop and the term has a closed form; shrink it to
+    one point and it is the equal-point R, 0 by Theta(0)=0."""
+    T = 2.0
+    chain = _f31_term([("x", "y_0"), ("y_0", "y_1")], ("y_0", "y_1"))
+    got = np.real(_f31_integrate(chain, method, T))
+    tails = 1.0 - np.exp(-MU * T) * (1.0 + MU * T)  # R(T,t0) R(t0,t1) over t
+    assert got == pytest.approx(_C0(T, T) * tails / MU ** 2, rel=2e-4, abs=0.0)
+
+    equal_point = _f31_term([("y_0", "y_0")], ("y_0",))
+    assert _f31_integrate(equal_point, method, T) == 0.0
+    # The batched integrators read C whatever R says, so a C past the table
+    # is refused.  The scalar loops stop at the R, whose 0 is the value.
+    from sft_wick.evaluate import integrate_diagrams
+
+    table = _f27_cache()
+    table.precompute_C_table(t_max=2.0, n_grid=6)
+
+    def past_the_table():
+        return integrate_diagrams([equal_point], {"K": np.array(1.0)}, 3.0, table,
+                                  method=method, **_F31_METHODS[method])[0]
+
+    if method in ("qmc_scalar", "nquad"):
+        assert past_the_table() == 0.0
+    else:
+        with pytest.raises(ValueError, match="propagator table"):
+            past_the_table()
+
+
+def test_an_unknown_method_is_refused():
+    """No other integrator check stands behind this one: L1 reaches it too."""
+    from sft_wick.evaluate import integrate_moment
+
+    ig = _f31_term([("x", "y_0")], ("y_0",)).build_integrand({"K": np.array(1.0)})
+    with pytest.raises(ValueError, match="Unknown method"):
+        integrate_moment(ig, 2.0, _ScalarBatchCache(), method="no_such_method")
+
+
+# ---------------------------------------------------------------------------
+# One reality rule, one error estimate, no non-finite total
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value, passes",
+    [(1e-295j, True), (1e-292 * (1 + 1j), True), (1e-289j, False), (1e-10j, False)],
+)
+def test_reality_floor_is_the_same_scalar_and_batched(value, passes):
+    """The floor compared the value in the scalar rule and ``scale`` in the
+    batched ones, so 1e-295j raised on the batched integrators only."""
+    from sft_wick.evaluate import (
+        _BatchRealityAccumulator,
+        _real_batch_or_raise,
+        _real_or_raise,
+    )
+
+    def accumulated():
+        accumulator = _BatchRealityAccumulator()
+        accumulator.project(np.array([value]), 0, "", "key")
+        accumulator.validate()
+
+    for read in (
+        lambda: _real_or_raise(value),
+        lambda: _real_batch_or_raise(np.array([value])),
+        accumulated,
+    ):
+        if passes:
+            read()
+        else:
+            with pytest.raises(ValueError, match="imaginary part"):
+                read()
+
+
+def _white_order_one():
+    """A one-dimensional diagram and a table to integrate it on."""
+    system = sw.System(
+        field=sw.FieldSpec("phi", 1),
+        linear=sw.DiagonalA(gamma=[1.0]),
+        vertices=[sw.LocalVertex("L", coupling=np.array([[0.4]]))],
+        noise=sw.GaussianNoise(
+            kappa2=sw.SeparableTranslation(
+                temporal=sw.ExponentialTemporal(lam=1.0, sigma_t=0.5),
+                spatial=sw.ExponentialSpatial(sigma_x=1.0),
+            ),
+            sigma2=sw.ConstantImpulse(np.array([[0.5]])),
+        ),
+    )
+    props = system.propagators(t_max=2.0, n_grid_t=12, progress=False)
+    terms = system.expand(("phi(x)", "phi(y)"), orders=[1]).diagrams(1)
+    return terms, system.build_coupling_values(), props.cache
+
+
+@pytest.mark.parametrize("n_samples", [2, 7, 8])
+def test_two_point_error_matches_the_other_qmc_paths_below_eight_samples(n_samples):
+    """``integrate_two_point_qmc`` assumed 8 sub-batches and returned NaN at
+    2 to 7 samples."""
+    from sft_wick.evaluate import integrate_two_point_qmc
+
+    terms, couplings, cache = _white_order_one()
+    integrand = terms[0].build_integrand(couplings)
+    value, error = integrate_two_point_qmc(
+        [integrand], 1.5, {"x": 0.0, "y": 0.0}, cache, n_samples=n_samples, seed=1
+    )
+    assert np.isfinite(error)
+    assert (value, error) == pytest.approx(
+        integrand.integrate_moment_qmc_vectorized(
+            1.5, cache, n_samples=n_samples, seed=1
+        ),
+        rel=1e-14, abs=0.0,
+    )
+
+
+@pytest.mark.parametrize("method", ["qmc_vectorized", "gauss_legendre",
+                                    "two_point"])
+def test_a_total_that_is_not_finite_is_refused_as_on_the_scalar_loop(method):
+    """A NaN position came back as a NaN total from the batched integrators
+    and as a ValueError from the scalar loop."""
+    from sft_wick.evaluate import integrate_diagrams, integrate_two_point_qmc
+
+    terms, couplings, cache = _white_order_one()
+    where = {"x": float("nan"), "y": 0.0}
+    with pytest.raises(ValueError, match="evaluated to nan"):
+        if method == "two_point":
+            integrands = [t.build_integrand(couplings) for t in terms]
+            integrate_two_point_qmc(integrands, 1.5, where, cache, n_samples=64)
+        else:
+            integrate_diagrams(
+                terms, couplings, 1.5, cache, method=method, n_samples=64,
+                positions=where,
+            )

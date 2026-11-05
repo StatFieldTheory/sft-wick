@@ -2,7 +2,16 @@
 
 from __future__ import annotations
 
-from .expressions import Expr
+from dataclasses import replace
+
+from .expressions import (
+    Expr,
+    IntegralOver,
+    Product,
+    Propagator,
+    Sum,
+    SumOverIndex,
+)
 
 
 class LaTeXFormatter:
@@ -30,13 +39,34 @@ class LaTeXFormatter:
 
         Returns:
             A LaTeX string with propagator names replaced.
+
+        Raises:
+            TypeError: if ``expr`` is not an :class:`Expr`, such as a
+                ``DiagramTerm``, whose ``to_latex`` would ignore the names.
         """
-        raw = expr.to_latex()
-        for key, display in self.propagator_names.items():
-            if key != display:
-                raw = raw.replace(f"{key}_{{", f"{display}_{{")
-                raw = raw.replace(f"{key}(", f"{display}(")
-        return raw
+        if not isinstance(expr, Expr):
+            raise TypeError(
+                f"LaTeXFormatter.format takes an Expr, not "
+                f"{type(expr).__name__}; call its to_latex() for the "
+                f"default propagator names."
+            )
+        return self._with_display_names(expr).to_latex()
+
+    def _with_display_names(self, expr: Expr) -> Expr:
+        """``expr`` with each propagator kind replaced by its display name."""
+        renamed = self._with_display_names
+        if isinstance(expr, Propagator):
+            kind = self.propagator_names.get(expr.kind, expr.kind)
+            return replace(expr, kind=kind)
+        if isinstance(expr, Sum):
+            return Sum(tuple(renamed(t) for t in expr.terms))
+        if isinstance(expr, Product):
+            return Product(tuple(renamed(f) for f in expr.factors))
+        if isinstance(expr, SumOverIndex):
+            return replace(expr, body=renamed(expr.body))
+        if isinstance(expr, IntegralOver):
+            return replace(expr, body=renamed(expr.body))
+        return expr
 
     def format_equation(self, lhs: str, expr: Expr) -> str:
         """Format as a LaTeX equation: ``lhs = rhs``.

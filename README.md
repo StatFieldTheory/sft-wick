@@ -51,7 +51,7 @@ the physics requires Python-level control.
 |---|---|---|
 | **L2: YAML + CLI** ✨ | `sft-wick run config.yaml` | **Default choice.** Reproducible, shareable, diff-able; no Python code at the call site; runs identically on a laptop or a cluster; `--override` lets you scan parameters from the shell. |
 | **L1: Python workflow** | `System`, `Expansion`, `Propagators`, `SweepResult` | You need to script custom pre/post-processing around the sweep, or compose multiple systems programmatically. |
-| **L0: raw symbolic** | `compute_moment`, `Field`, `Vertex`, `Action`, `PropagatorCache`, `DiagramIntegrand` | You need fine-grained control over pairings, Itô flags, canonical forms, or custom simplifications. Research into the symbolic machinery. |
+| **L0: raw symbolic** | `compute_moment`, `Field`, `Vertex`, `Action`, `PropagatorCache`, `DiagramIntegrand` | You need fine-grained control over pairings, canonical forms, or custom simplifications. Research into the symbolic machinery. |
 
 The Sphinx docs' "Workflow API" chapter (`docs/user_guide/workflow.rst`) covers L1/L2 end-to-end; the L0 reference below is the complete specification of the underlying symbolic machinery.
 
@@ -152,8 +152,8 @@ covers the quick start, demo 1 and demo 2; demo 3 is the exception and
 supplies its own (`c_closed_form_module`) for speed; its spatial envelope
 has been expressible in YAML as `{type: custom}` since 0.6.0.
 Kernels with neither are integrated by
-Gauss-Legendre with a node count checked for convergence at the table's
-extreme cells (`c_method: auto`).
+Gauss-Legendre with a node count checked for convergence at probe cells
+across the table (`c_method: auto`).
 
 ## Quick Start: L1 (Python, for programmatic use)
 
@@ -199,11 +199,11 @@ from sft_wick import Field, Vertex, Action, compute_moment
 phi = Field('phi', 'physical')
 psi = Field('psi', 'response')
 
-# Compute <psi(x) phi(x) phi(x) phi(x)>_{S_0}
-obs = [psi('x'), phi('x'), phi('x'), phi('x')]
+# Compute <psi(y) phi(x) phi(x) phi(x)>_{S_0}
+obs = [psi('y'), phi('x'), phi('x'), phi('x')]
 result = compute_moment(obs, Action(vertices=[]), order=0)
 print(result.order(0).to_latex())
-# Output: 3 R(x, x) C(x, x)
+# Output: -3 \mathrm{i} R(x, y) C(x, x)
 ```
 
 ## Self-consistent solutions
@@ -280,12 +280,13 @@ psi = Field('psi', 'response', n_components=3)
 Field operators are concrete instances with bound component indices and spatial arguments.
 
 ```python
-# Scalar: phi(spatial_arg)
-op = phi('x')          # φ(x)
-
 # Multi-component: phi(component_index, spatial_arg)
 op = phi('a', 'x')     # φ_a(x)
 op = psi('b', 'y')     # ψ_b(y)
+
+# Scalar field: phi(spatial_arg)
+scalar = Field('phi', 'physical')
+op = scalar('x')       # φ(x)
 ```
 
 ### 3. Defining Interaction Vertices
@@ -310,7 +311,7 @@ v2 = Vertex(fields=[psi, psi], coupling='K', local=False)
 from sft_wick import Action, compute_moment
 
 action = Action(vertices=[v1])
-obs = [psi('a', 'x'), phi('b', 'x'), phi('c', 'x'), phi('d', 'x')]
+obs = [phi('a', 'x'), phi('b', 'y'), phi('c', 'z')]
 
 result = compute_moment(obs, action, order=1)
 
@@ -393,13 +394,13 @@ print(prop.to_latex())
 phi = Field('phi', 'physical')
 psi = Field('psi', 'response')
 
-obs = [psi('x'), phi('x'), phi('x'), phi('x')]
+obs = [psi('y'), phi('x'), phi('x'), phi('x')]
 result = compute_moment(obs, Action(vertices=[]), order=0)
 print(result.order(0).to_latex())
-# 3 R(x, x) C(x, x)
+# -3 \mathrm{i} R(x, y) C(x, x)
 ```
 
-The three terms arise because ψ can pair with any of the three φ's (producing R), and the remaining two φ's pair together (producing C).
+The three terms arise because ψ can pair with any of the three φ's (producing R), and the remaining two φ's pair together (producing C).  With `psi('x')` the result is 0, because R(x, x) = 0.
 
 ### First-Order Perturbation
 
@@ -446,10 +447,10 @@ result = compute_moment(obs, action, order=1)
 
 | Function | Description |
 |---|---|
-| `compute_moment(observable, action, order, ito=True, response_phase=True, collect_topology=True)` | Perturbative expansion of ⟨O⟩\_S up to given order |
-| `compute_moment_numerical(observable, action, order, coupling_values, fixed_indices, ..., n_jobs=1)` | Fast numerical path using nauty canonical labeling for diagram grouping. Enables order-6 calculations. Requires `pynauty`. Parallelization uses `joblib` (`n_jobs=-1`). |
-| `wick_contract(operators, ito=True)` | Apply Wick's theorem to a product of field operators |
-| `contract_pair(op1, op2, ito=True)` | Contract two field operators into a propagator |
+| `compute_moment(observable, action, order, *, response_phase=True, collect_topology=True)` | Perturbative expansion of ⟨O⟩\_S up to given order |
+| `compute_moment_numerical(observable, action, order, ..., n_jobs=1)` | Fast numerical path using nauty canonical labeling for diagram grouping. Enables order-6 calculations. Requires `pynauty`. Parallelization uses `joblib` (`n_jobs=-1`). |
+| `wick_contract(operators)` | Apply Wick's theorem to a product of field operators |
+| `contract_pair(op1, op2)` | Contract two field operators into a propagator |
 | `apply_response_phase(expr)` | Multiply each term by (−i)^n for n response propagators |
 | `collect_by_diagram(expr)` | Group terms by Feynman diagram isomorphism, factor out propagators |
 | `collect_by_topology(expr)` | Alias for `collect_by_diagram` (backward compat) |
@@ -471,7 +472,7 @@ result = compute_moment(obs, action, order=1)
 | `FeynmanDiagram` | Graph representation of a diagram (networkx MultiGraph) |
 | `DiagramRenderer` | Matplotlib-based diagram visualizer |
 | `PropagatorModel` | User-provided R\_time and κ² callables for numerical evaluation |
-| `PropagatorCache` | Caches C propagators (spline-interpolated or dblquad) |
+| `PropagatorCache` | Computes C by a checked quadrature rule and caches it in splines |
 | `DiagramIntegrand` | Ready-to-integrate object combining coupling coefficients and spatial structure |
 | `LaTeXFormatter` | Configurable LaTeX output |
 | `ImaginaryUnit` | The imaginary unit i, used in phase factors |
@@ -515,21 +516,15 @@ channel was low by a factor 2 while its `FK` channel was right.  The
 0.4.0 entry in `CHANGELOG.md` says why the spelling is refused rather
 than repaired with a multiplicity factor.
 
-### Itô prescription (`ito=True`, default)
+### Itô prescription
 
-By default, the Itô discretisation convention Θ(0)=0 is applied:
+The engine is Itô: the discretisation convention Θ(0)=0 holds at every R.
 
 - **Equal-point R vanishes**: R(x,x) = 0, which eliminates self-response contractions and intra-vertex tadpoles in local vertices.
 - **Causal R-loops vanish**: Any closed loop of response propagators R(a,b)R(b,c)...R(z,a) = 0, since this would require a cyclic time ordering t\_a > t\_b > ... > t\_a, which is impossible for the retarded propagator.
 
-Pass `ito=False` to keep these terms symbolic.  The numerical layer
-evaluates every R at equal times as 0, i.e. it computes the Itô SDE.  On a
-local vertex with one ψ leg that is exact: the equal-point term and the
-Stratonovich functional Jacobian cancel, and sft-wick emits neither, so the
-number is the `ito=True` one.  On a local vertex with two or more ψ legs (a
-φ-dependent noise covariance) or between two external operators, the Itô and
-Stratonovich values differ, and the numerical layer raises instead of
-returning the Itô value.
+Both Wick engines drop these terms, and the numerical layer evaluates every R
+at equal times as 0.
 
 A Stratonovich SDE is computed in its Itô form.  At L1,
 `GaussianNoise(sigma2=MultiplicativeImpulse(g0, g1, interpretation=...))`
@@ -551,14 +546,14 @@ Terms whose Feynman diagrams are isomorphic are grouped together, under relabeli
 
 At second order and above, spatial-variable relabeling (e.g. y\_0 ↔ y\_1 for two copies of the same vertex) merges additional equivalent pairings.
 
-Pass `collect_topology=False` to keep all pairings expanded individually.
+Pass `collect_topology=False` to `compute_moment` to contract at the operator level, which builds no `DiagramTerm`; the result still goes through `collect_by_diagram`, and `wick_contract` gives the raw sum over pairings.  L1 and L2 refuse it above order 0.
 
 ## Design Notes
 
 - **No SymPy dependency**: Uses a custom lightweight expression tree with `fractions.Fraction` for exact rational arithmetic.
 - **Frozen dataclasses**: All expression types are immutable and hashable, safe for use in sets and dicts.
 - **Operator IDs**: Each `FieldOperator` carries an integer ID from a global counter, so two copies of φ\_a(x) in one product compare unequal. An ID need not be unique, since `reset_uid_counter()` restarts the counter: a contraction and a diagram work from positions in the operator list and read no ID.
-- **Optimized contraction**: Two engines are available. The operator-level engine (`generate_valid_pairings`) skips ψ-ψ pairings at construction time. The spatial-level engine (`wick_contract_spatial`, used by default when `collect_topology=True`) enumerates spatial topologies instead of operator-level pairings, computing a multiplicity for each. This avoids the combinatorial explosion from component-index routing and is orders of magnitude faster at high perturbative orders.
+- **Optimized contraction**: Two engines are available. The operator-level engine (`generate_valid_pairings`) skips ψ-ψ pairings at construction time. The spatial-level engine (`wick_contract_spatial`, used by default when `collect_topology=True`) enumerates spatial topologies instead of operator-level pairings, and the component routings of a topology give its pairings. This avoids the combinatorial explosion from component-index routing and is orders of magnitude faster at high perturbative orders.
 - **Feynman diagrams**: Built on `networkx.MultiGraph` (supporting multiple edges between the same pair of nodes) with `matplotlib` rendering.
 
 ## Performance
