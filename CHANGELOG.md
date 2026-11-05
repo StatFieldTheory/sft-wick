@@ -322,14 +322,21 @@ more to build.  Serial, N = 2, a Gaussian kernel in `dt` and `dx`, rule `n = 20`
 
 | `(n_grid_t, n_grid_x)` | build | rule stage | share | `dblquad` before | ratio |
 |---|---|---|---|---|---|
-| (5, 3) | 8.9 s | 6.7 s | 75 % | 1.1 s | 8.2 |
-| (5, 5) | 24.3 s | 18.4 s | 76 % | 2.6 s | 9.5 |
-| (10, 5) | 40.4 s | 18.4 s | 45 % | 9.0 s | 4.5 |
-| (20, 5) | 108 s | 18.2 s | 17 % | 34.8 s | 3.1 |
-| (40, 3) | 143 s | 6.7 s | 4.7 % | 50.8 s | 2.8 |
+| (5, 3) | 3.9 s | 2.8 s | 71 % | 1.1 s | 3.6 |
+| (5, 5) | 10.6 s | 7.8 s | 73 % | 2.6 s | 4.1 |
+| (10, 5) | 18.4 s | 7.6 s | 42 % | 9.0 s | 2.0 |
+| (20, 5) | 53.6 s | 7.7 s | 14 % | 34.8 s | 1.5 |
+| (40, 3) | 71.6 s | 2.7 s | 4 % | 50.8 s | 1.4 |
 
-The ratio reached 23 at N = 1 on (5, 5): 23.8 s against 1.0 s.  With `diag_C=False` on
-(10, 3) at `t_max = 8` it is 1.5: 12.5 s against 8.4 s.
+The ratio is 10 at N = 1 on (5, 5): 10.3 s against 1.0 s.  A pair's search evaluates
+each probe cell once per rule, reads where the kernel feeds C once, and an
+earlier-first cell on the diagonal is read from the later-first half.  Under `iso_R` a
+cell's contraction is batched over its inner nodes, with κ² and R called at the same
+nodes in the same order and the sums in the same order, so every value is the same
+to the bit; a κ² of another shape, or a κ² or R that is not finite, takes the
+node-by-node contraction.  Before these, (5, 5) took 24.3 s, (40, 3) 143 s, and N = 1 on
+(5, 5) 23.8 s.  A dense R keeps the node-by-node contraction: 16.1 s to 13.4 s on a
+(4, 3) table.
 
 ### Changed: one implementation per rule
 

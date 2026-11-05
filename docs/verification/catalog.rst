@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8010 tests** in 134 files (parametrised
+The suite has **8028 tests** in 134 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -157,7 +157,7 @@ Multiplicities and canonical forms
 Propagator numerics
 -------------------
 
-*1586 tests in 19 files.*
+*1604 tests in 19 files.*
 
 .. list-table::
    :header-rows: 1
@@ -172,7 +172,7 @@ Propagator numerics
      - Gauss-Legendre C quadrature with the diagonal split, translation and rotation kernels, table builds, speed
      - dblquad
      - 1e-4
-     - 17
+     - 35
    * - ``test_closed_form_dispatch_boundaries.py``
      - built-in closed form vs Gauss-Legendre vs dblquad at the dispatch boundary cells (ridge, t→t_min, t_max, γ=1/σ_t, r=0, r_max, per-component γ, t_min≠0, white noise); dispatcher choices
      - each method against the others; analytic stationary limit

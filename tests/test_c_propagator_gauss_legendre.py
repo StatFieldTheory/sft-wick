@@ -388,3 +388,33 @@ def test_c_is_zero_at_or_below_t_min_with_an_r_that_is_not_causal(c_method, time
     )
     cache = PropagatorCache(model, c_method=c_method)
     assert cache.C_value(0.0, times[0], 0.0, times[1])[0, 0] == 0.0
+
+
+@pytest.mark.parametrize("rule", [{"n_gauss": 20}, {"graded_levels": 3, "graded_nodes": 4},
+                                  {"n_gauss": 9, "term_sizes": True}])
+@pytest.mark.parametrize("diag_C", [True, False])
+@pytest.mark.parametrize("kernel", ["plain", "not finite", "white noise"])
+def test_an_iso_r_cell_is_the_cell_of_r_times_the_identity_to_the_bit(rule, diag_C, kernel):
+    """Under ``iso_R`` the contraction of a cell is batched over the inner
+    nodes.  It must give, to the bit, the node-by-node contraction of the
+    same R written as ``r I``, which the model without ``iso_R`` takes: a
+    κ² that is not finite included, where ``0 inf`` decides the entries."""
+    N = 3
+    a = np.random.default_rng(4).normal(size=(N, N))
+
+    def kappa2(x1, t1, x2, t2):
+        out = np.exp(-((t1 - t2) ** 2) / 0.18) * (np.eye(N) + 0.2 * np.sin(a * t1 + t2))
+        if kernel == "not finite" and t1 > 0.9:
+            out[0, 1] = np.inf
+        return out
+
+    sigma2 = (lambda x1, t, x2: 0.1 * np.cos(t) * np.eye(N)) if kernel == "white noise" else None
+    kw = dict(kappa2=kappa2, n_components=N, diag_C=diag_C, t_min=0.0, sigma2=sigma2)
+    iso = PropagatorModel(R_time=lambda t, s: np.exp(-1.3 * (t - s)), iso_R=True, **kw)
+    dense = PropagatorModel(R_time=lambda t, s: np.exp(-1.3 * (t - s)) * np.eye(N),
+                            iso_R=False, **kw)
+    x1, x2 = np.asarray(0.1), np.asarray(-0.4)
+    for t1, t2 in [(1.7, 1.7), (1.7, 0.6), (0.6, 1.7)]:
+        batched = _C_value_direct_gl(iso, x1, t1, x2, t2, **rule)
+        per_node = _C_value_direct_gl(dense, x1, t1, x2, t2, **rule)
+        assert batched.tobytes() == per_node.tobytes()

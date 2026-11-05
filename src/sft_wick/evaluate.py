@@ -1766,7 +1766,8 @@ class _LazyTimeSplineCache:
         tasks = []
         for i, (later, earlier) in enumerate(layout.points):
             tasks.append((0, i, later, earlier))
-            if need_E:
+            # At ``later == earlier`` both halves hold the same cell.
+            if need_E and later != earlier:
                 tasks.append((1, i, earlier, later))
 
         direct_kwargs = parent._table_kwargs(x1_arr, x2_arr, self.t_max)
@@ -1796,6 +1797,10 @@ class _LazyTimeSplineCache:
             target = grids if kind == 0 else egrids
             for k, _e in enumerate(entries):
                 target[k][i] = cvec[k]
+        diagonal = [i for i, (later, earlier) in enumerate(layout.points)
+                    if later == earlier]
+        for e, g in zip(egrids or (), grids):
+            e[diagonal] = g[diagonal]
         return (
             [layout.complete(g) for g in grids],
             None if egrids is None else [layout.complete(g) for g in egrids],
@@ -2062,6 +2067,31 @@ _C_RULE_MEMO_SIZE = 1 << 18
 _ANY_C_RULE = ("gauss_legendre", None)
 
 
+@lru_cache(maxsize=64)
+def _leggauss(n: int) -> tuple[np.ndarray, np.ndarray]:
+    """Read-only Gauss-Legendre nodes and weights on ``[-1, 1]``."""
+    from numpy.polynomial.legendre import leggauss
+
+    nodes, weights = leggauss(int(n))
+    nodes.setflags(write=False)
+    weights.setflags(write=False)
+    return nodes, weights
+
+
+class _PerNodeCell(Exception):
+    """A cell the batched contraction of :func:`_C_value_direct_gl` does not
+    take: a κ² that is not an ``(N, N)`` array, or a κ² or R that is not
+    finite.  The cell is evaluated node by node instead."""
+
+
+def _in_order(terms: np.ndarray) -> np.ndarray:
+    """``0 + terms[0] + terms[1] + ...``, added left to right as a ``+=``
+    loop adds them: ``np.add.accumulate`` is sequential by definition, and
+    ``np.sum`` promises no order."""
+    start = np.zeros((1, *terms.shape[1:]))
+    return np.add.accumulate(np.concatenate((start, terms)), axis=0)[-1]
+
+
 def _C_value_direct_gl(
     model: "PropagatorModel",
     n1: Any,
@@ -2135,8 +2165,6 @@ def _C_value_direct_gl(
         ``(N, N)`` array of C values, identical in shape and meaning
         to the dblquad path.
     """
-    from numpy.polynomial.legendre import leggauss
-
     N = model.n_components
     t_min = model.t_min
     C_mat = np.zeros((N, N))
@@ -2146,7 +2174,7 @@ def _C_value_direct_gl(
         return C_mat
 
     # 1-D GL nodes & weights on [-1, 1], reused across sub-regions.
-    nodes, weights = leggauss(n_gauss)
+    nodes, weights = _leggauss(n_gauss)
 
     def _rule(lo: float, hi: float) -> tuple[np.ndarray, np.ndarray]:
         if graded_levels is not None:
@@ -2228,41 +2256,98 @@ def _C_value_direct_gl(
             acc += outer_w[k] * inner_acc
         return acc
 
+    # ---- the same region under iso_R, the arithmetic batched ----- #
+    # R1 = r1 I and R2 = r2 I, so R1 @ κ @ R2^T adds only exact zeros to
+    # (r1 κ) r2, entry by entry; that holds for finite values only, and a
+    # κ² or R that is not finite takes the node-by-node region.  κ² and R
+    # are called at the same nodes in the same order, and both sums run in
+    # the order of the loop above, so the value is the same to the bit.
+    off_diagonal = ~np.eye(N, dtype=bool)
+
+    def _gl_region_iso(
+        lam1_lo: float,
+        lam1_hi: float,
+        inner_lo: Callable[[float], float],
+        inner_hi: Callable[[float], float],
+    ) -> np.ndarray:
+        if lam1_hi <= lam1_lo:
+            return np.zeros((N, N))
+        lam1_pts, outer_w = _rule(lam1_lo, lam1_hi)
+        terms = []
+        for k, lam1 in enumerate(lam1_pts):
+            lam1 = float(lam1)
+            lo, hi = inner_lo(lam1), inner_hi(lam1)
+            if hi <= lo:
+                continue
+            lam2_pts, inner_w = _rule(lo, hi)
+            r1 = float(model.R_time(t1, lam1))
+            ks = np.empty((len(lam2_pts), N, N))
+            r2s = np.empty(len(lam2_pts))
+            for j, lam2 in enumerate(lam2_pts):
+                kmat = _kappa(lam1, float(lam2))
+                if kmat.shape != (N, N):
+                    raise _PerNodeCell
+                ks[j] = kmat
+                r2s[j] = float(model.R_time(t2, float(lam2)))
+            if not (
+                np.isfinite(r1) and np.all(np.isfinite(ks)) and np.all(np.isfinite(r2s))
+            ):
+                raise _PerNodeCell
+            if term_sizes:
+                blocks = (abs(r1) * np.abs(ks)) * np.abs(r2s)[:, None, None]
+            else:
+                blocks = (r1 * ks) * r2s[:, None, None]
+            if model.diag_C:
+                blocks[:, off_diagonal] = 0.0
+            terms.append(outer_w[k] * _in_order(inner_w[:, None, None] * blocks))
+        return _in_order(np.asarray(terms)) if terms else np.zeros((N, N))
+
     t_d = min(t1, t2)
 
-    # Region A: t_min ≤ λ2 ≤ λ1 ≤ t_d  (lower triangle, λ1 > λ2).
-    if t_d > t_min:
-        C_mat += _gl_region(
-            t_min,
-            t_d,
-            inner_lo=lambda _l1: t_min,
-            inner_hi=lambda l1: l1,
-        )
-        # Region B: t_min ≤ λ1 ≤ λ2 ≤ t_d  (upper triangle, λ1 < λ2).
-        C_mat += _gl_region(
-            t_min,
-            t_d,
-            inner_lo=lambda l1: l1,
-            inner_hi=lambda _l1: t_d,
-        )
+    def _regions(region: Callable[..., np.ndarray]) -> np.ndarray:
+        out = np.zeros((N, N))
+        # Region A: t_min ≤ λ2 ≤ λ1 ≤ t_d  (lower triangle, λ1 > λ2).
+        if t_d > t_min:
+            out += region(
+                t_min,
+                t_d,
+                inner_lo=lambda _l1: t_min,
+                inner_hi=lambda l1: l1,
+            )
+            # Region B: t_min ≤ λ1 ≤ λ2 ≤ t_d  (upper triangle, λ1 < λ2).
+            out += region(
+                t_min,
+                t_d,
+                inner_lo=lambda l1: l1,
+                inner_hi=lambda _l1: t_d,
+            )
 
-    # Region C: outside the square (only if t1 != t2).
-    if t1 > t2:
-        # λ1 ∈ [t_d, t1], λ2 ∈ [t_min, t2] = [t_min, t_d].  λ1 > λ2.
-        C_mat += _gl_region(
-            t_d,
-            t1,
-            inner_lo=lambda _l1: t_min,
-            inner_hi=lambda _l1: t_d,
-        )
-    elif t2 > t1:
-        # λ2 ∈ [t_d, t2], λ1 ∈ [t_min, t1] = [t_min, t_d].  λ2 > λ1.
-        C_mat += _gl_region(
-            t_min,
-            t_d,
-            inner_lo=lambda _l1: t_d,
-            inner_hi=lambda _l1: t2,
-        )
+        # Region C: outside the square (only if t1 != t2).
+        if t1 > t2:
+            # λ1 ∈ [t_d, t1], λ2 ∈ [t_min, t2] = [t_min, t_d].  λ1 > λ2.
+            out += region(
+                t_d,
+                t1,
+                inner_lo=lambda _l1: t_min,
+                inner_hi=lambda _l1: t_d,
+            )
+        elif t2 > t1:
+            # λ2 ∈ [t_d, t2], λ1 ∈ [t_min, t1] = [t_min, t_d].  λ2 > λ1.
+            out += region(
+                t_min,
+                t_d,
+                inner_lo=lambda _l1: t_d,
+                inner_hi=lambda _l1: t2,
+            )
+        return out
+
+    if model.iso_R:
+        try:
+            C_mat = _regions(_gl_region_iso)
+        except _PerNodeCell:
+            C_mat = _regions(_gl_region)
+    else:
+        C_mat = _regions(_gl_region)
 
     # ---- White-noise δ piece: 1-D GL on [t_min, min(t1, t2)] ----- #
     if model.sigma2 is not None:
@@ -2287,9 +2372,7 @@ def _graded_rule(
     The panels are ``levels`` on each side, the smallest ``2^-levels`` of the
     interval, with ``nodes`` Gauss-Legendre nodes each.
     """
-    from numpy.polynomial.legendre import leggauss
-
-    x, w = leggauss(nodes)
+    x, w = _leggauss(nodes)
     towards_lo = 2.0 ** -np.arange(levels, 0, -1, dtype=float)
     edges = np.concatenate(([0.0], towards_lo, 1.0 - towards_lo[-2::-1], [1.0]))
     edges = lo + (hi - lo) * edges
@@ -2401,6 +2484,7 @@ def select_gl_node_count(
     growth: float = 1.5,
     positions: tuple | None = None,
     unchecked: set | None = None,
+    live: tuple | None = None,
 ) -> int | None:
     """Smallest Gauss-Legendre node count that is converged for a table
     reaching ``t_max``, or ``None`` if none up to ``n_max`` is.
@@ -2436,6 +2520,10 @@ def select_gl_node_count(
     ``t_max`` is converted to a float first: the probe cells pass it to
     ``R_time`` at every node, and a 0-d array would let an ``R_time`` that
     writes into its time argument move the caller's ``t_max``.
+
+    ``live`` is :func:`_c_live_entries` at these positions up to ``t_max``,
+    when the caller has it.  A cell is evaluated once per count: the second
+    pass reads the extreme cells of the first.
     """
     import math
 
@@ -2444,32 +2532,36 @@ def select_gl_node_count(
     if t_max <= t_min:
         return int(n_start)
     probes = _c_probes(t_min, t_max, positions)
+    values: dict[tuple[int, int], np.ndarray] = {}
+
+    def value(i: int, n: int) -> np.ndarray:
+        if (i, n) not in values:
+            values[i, n] = _C_value_direct_gl(model, *probes[i], n_gauss=n)
+        return values[i, n]
 
     def refined(count: int) -> int:
         return max(count + 2, int(math.ceil(growth * count)))
 
     cap = max(int(n_max), refined(int(n_start)))
 
-    def converged(n: int, cells: list, report: set | None) -> int | None:
-        check = _c_rule_check(model, cells, n_gauss=n)
-        vals = None
+    def converged(n: int, n_cells: int, report: set | None) -> int | None:
+        check = _c_rule_check(model, probes[:n_cells], live=live, n_gauss=n)
         while True:
             n_ref = refined(n)
             if n_ref > cap:
                 return None
-            if vals is None:
-                vals = [_C_value_direct_gl(model, *c, n_gauss=n) for c in cells]
-            refs = [_C_value_direct_gl(model, *c, n_gauss=n_ref) for c in cells]
+            vals = [value(i, n) for i in range(n_cells)]
+            refs = [value(i, n_ref) for i in range(n_cells)]
             worst = _c_rule_difference(vals, refs, check, tol, report)
             if worst is None:
                 return None
             if worst <= tol:
                 return n
-            n, vals = n_ref, refs
+            n = n_ref
 
     try:
-        n = converged(int(n_start), probes[:_C_EXTREME_CELLS], None)
-        return None if n is None else converged(n, probes, unchecked)
+        n = converged(int(n_start), _C_EXTREME_CELLS, None)
+        return None if n is None else converged(n, len(probes), unchecked)
     except Exception:
         return None
 
@@ -2481,6 +2573,7 @@ def select_graded_levels(
     tol: float = 1e-8,
     positions: tuple | None = None,
     unchecked: set | None = None,
+    live: tuple | None = None,
 ) -> int | None:
     """Smallest depth of :func:`_graded_rule` that is converged for a table
     reaching ``t_max``, or ``None`` if none is.
@@ -2497,36 +2590,43 @@ def select_graded_levels(
     feeds that entry (:func:`_c_live_entries`) is a feature no depth has
     reached yet, so the search goes on.
 
-    ``positions`` and ``unchecked`` are as in :func:`select_gl_node_count`.
+    ``positions``, ``unchecked`` and ``live`` are as in
+    :func:`select_gl_node_count`, and a cell is likewise evaluated once per
+    rule.
     """
     t_max = float(t_max)
     probes = _c_probes(float(model.t_min), t_max, positions)
+    memo: dict[tuple[int, int, int], np.ndarray] = {}
 
     def values(
-        cells: list, levels: int, nodes: int = _GRADED_PANEL_NODES
+        n_cells: int, levels: int, nodes: int = _GRADED_PANEL_NODES
     ) -> list[np.ndarray]:
-        return [
-            _C_value_direct_gl(model, *c, graded_levels=levels, graded_nodes=nodes)
-            for c in cells
-        ]
+        for i in range(n_cells):
+            if (i, levels, nodes) not in memo:
+                memo[i, levels, nodes] = _C_value_direct_gl(
+                    model, *probes[i], graded_levels=levels, graded_nodes=nodes
+                )
+        return [memo[i, levels, nodes] for i in range(n_cells)]
 
-    def converged(cells: list, start: int, report: set | None) -> int | None:
+    def converged(n_cells: int, start: int, report: set | None) -> int | None:
         depths = [d for d in _GRADED_LEVELS if d >= start]
-        check = _c_rule_check(model, cells, graded_levels=depths[0])
-        vals = values(cells, depths[0])
+        check = _c_rule_check(
+            model, probes[:n_cells], live=live, graded_levels=depths[0]
+        )
+        vals = values(n_cells, depths[0])
         for levels, finer in zip(depths[:-1], depths[1:]):
-            refs = values(cells, finer)
+            refs = values(n_cells, finer)
             worst = _c_rule_difference(vals, refs, check)
             if worst is not None and worst <= tol:
-                checked = values(cells, levels, _GRADED_CHECK_NODES)
+                checked = values(n_cells, levels, _GRADED_CHECK_NODES)
                 worst = _c_rule_difference(vals, checked, check, tol, report)
                 return levels if worst is not None and worst <= tol else None
             vals = refs
         return None
 
     try:
-        levels = converged(probes[:_C_EXTREME_CELLS], _GRADED_LEVELS[0], None)
-        return None if levels is None else converged(probes, levels, unchecked)
+        levels = converged(_C_EXTREME_CELLS, _GRADED_LEVELS[0], None)
+        return None if levels is None else converged(len(probes), levels, unchecked)
     except Exception:
         return None
 
@@ -2665,18 +2765,21 @@ def _nonzero_entries(value: Any, N: int) -> np.ndarray:
 
 
 def _c_rule_check(
-    model: "PropagatorModel", probes: list, **rule: Any
+    model: "PropagatorModel", probes: list, live: tuple | None = None, **rule: Any
 ) -> tuple[np.ndarray, np.ndarray]:
     """What the comparison of two rules needs at ``probes``, the cells of one
     pair of positions: the mask of :func:`_c_live_entries`, and the size of the
     terms of each entry at each cell under ``rule`` (keywords of
     :func:`_C_value_direct_gl`), or zeros when R does not mix components and no
     entry adds up across them.
+
+    ``live`` is what :func:`_c_live_entries` returns for these positions up to
+    the latest time of ``probes``, when the caller has it.
     """
     n1, n2 = probes[0][0], probes[0][2]
     t_hi = max(max(float(p[1]), float(p[3])) for p in probes)
     N = int(model.n_components)
-    live, mixes = _c_live_entries(model, n1, n2, t_hi)
+    live, mixes = _c_live_entries(model, n1, n2, t_hi) if live is None else live
     sizes = (
         np.stack(
             [_C_value_direct_gl(model, *p, term_sizes=True, **rule) for p in probes]
@@ -4669,16 +4772,27 @@ class PropagatorCache:
         """
         pair = (n1, n2)
         hidden: set = set()
+        t_max = float(t_max)
+        live = (
+            _c_live_entries(self.model, n1, n2, t_max)
+            if t_max > float(self.model.t_min)
+            else None
+        )
         count = select_gl_node_count(
-            self.model, t_max, n_start=self.n_gauss, positions=pair, unchecked=hidden
+            self.model,
+            t_max,
+            n_start=self.n_gauss,
+            positions=pair,
+            unchecked=hidden,
+            live=live,
         )
         if count is None:
             levels = select_graded_levels(
-                self.model, t_max, positions=pair, unchecked=hidden
+                self.model, t_max, positions=pair, unchecked=hidden, live=live
             )
             rule = ("dblquad", None) if levels is None else ("graded", int(levels))
         elif count == self.n_gauss and not np.any(
-            _c_live_entries(self.model, n1, n2, t_max)[0]
+            (live or _c_live_entries(self.model, n1, n2, t_max))[0]
         ):
             rule = _ANY_C_RULE
         else:
@@ -5125,9 +5239,15 @@ class PropagatorCache:
         layout = _MinLagGrid(ts)
         shape = (len(layout.points), *(len(axis) for axis in axes))
 
+        # At ``later == earlier`` the two halves hold the same cell.
+        diagonal = [i for i, (later, earlier) in enumerate(layout.points)
+                    if later == earlier]
+
         def half(later_first: bool) -> list:
             cells = []
             for i, (later, earlier) in enumerate(layout.points):
+                if not later_first and later == earlier:
+                    continue
                 t1, t2 = (later, earlier) if later_first else (earlier, later)
                 for k in np.ndindex(*shape[1:]):
                     x1, x2 = positions_at(k)
@@ -5142,6 +5262,8 @@ class PropagatorCache:
 
         grids = half(True)
         egrids = half(False) if self._need_earlier_first(mode) else None
+        for e, g in zip(egrids or (), grids):
+            e[diagonal] = g[diagonal]
 
         # Default 'linear' (set in PropagatorCache.__init__): tensor-product
         # cubic on a steeply decaying C produces sign flips and O(1)
