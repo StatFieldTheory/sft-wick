@@ -50,6 +50,7 @@ status 1, with no key named.
 | `collect_by_diagram` on `sum_ij delta_ia F_ij (R_ai + R_aj)`, the delta outside the inner sum | 14 against 18 | a factor outside the inner sum that carries a dummy is renamed with each term |
 | `collect_by_diagram` on `sum_{i<3} F_i (2 + R_ii(x, x))`, a term of the inner sum with no propagator | the coupling dropped from that term: 6 against -4 on integer tables | the term keeps the outer factors |
 | `collect_by_diagram` on `sum_ij G_ij H(i) (R_ai + R_aj)`, where `i` is also a free point | the index swap moved the point: -0.79652 against -0.67733 | indices and points are renamed separately |
+| `simplify` on `h sum_k G_uvk + h sum_k G_vuk`, two terms under one binder name with different bodies, or the same under an integral | `2 h sum_k G_uvk`: -6.8 against -5.1; `collect_by_diagram` on `sum_ij h [sum_k G_ijk] (R_ai + R_aj)` reached it once the coupling was renamed with the term, 82 against 79 | a summed or integrated factor enters the term signature with its body |
 | An `already_R_contracted` vertex with a phi leg | one term 0.0 against 2.0 | `Vertex` refuses a phi leg there |
 | `evaluate_coupling_batched` on `I K` with a real K | zeros with a `ComplexWarning`; the scalar entry raised | both keep the factor: `2j`, `3j` |
 

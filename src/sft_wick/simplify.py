@@ -174,6 +174,9 @@ def _term_signature(expr: Expr) -> tuple | None:
       - A single Propagator
       - A Product of (optional Rational) * Propagators * Symbols * IntegralOvers * SumOverIndices
     Returns a hashable signature, or None if it can't be grouped.
+
+    An IntegralOver or SumOverIndex enters whole, body included:
+    ``h sum_k G_ijk`` and ``h sum_k G_jik`` are different terms.
     """
     if isinstance(expr, Propagator):
         return (("prop", _propagator_key(expr)),)
@@ -187,13 +190,11 @@ def _term_signature(expr: Expr) -> tuple | None:
                 parts.append(("prop", _propagator_key(f)))
             elif isinstance(f, Symbol):
                 parts.append(("sym", f.name, f.indices, f.spatial_args))
-            elif isinstance(f, IntegralOver):
-                parts.append(("int", f.variable))
-            elif isinstance(f, SumOverIndex):
-                parts.append(("sum", f.index_name, f.dimension))
+            elif isinstance(f, (IntegralOver, SumOverIndex)):
+                parts.append(("bound", f))
             else:
                 return None  # can't group
-        return tuple(sorted(parts))
+        return tuple(sorted(parts, key=lambda part: (part[0], str(part[1:]))))
 
     return None
 

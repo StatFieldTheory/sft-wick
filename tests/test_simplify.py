@@ -965,3 +965,41 @@ def test_collect_matches_c_at_one_point_without_listing_every_matching(hang_fail
     for name in reversed(names):
         expr = SumOverIndex(name, 2, expr)
     assert collect_by_diagram(expr).to_latex().count("C_{") == 12
+
+
+def _bound_bodies_case(case):
+    """Two terms under one binder name whose bodies differ, as ``simplify``
+    sees them, and as a merge in ``collect_by_diagram`` builds them."""
+    h = Symbol("h")
+    if case == "sum":
+        return Sum(tuple(Product((h, SumOverIndex("k", 3, Symbol("G", (u, v, "k")))))
+                         for u, v in (("u", "v"), ("v", "u"))))
+    if case == "integral":
+        return Sum(tuple(Product((Rational(2), IntegralOver("y", Symbol("K", (u,), ("y",)))))
+                         for u in ("u", "v")))
+    if case == "equal bodies":
+        return Sum((Product((h, SumOverIndex("k", 3, Symbol("G", ("u", "v", "k"))))),) * 2)
+    return SumOverIndex("i", 3, SumOverIndex("j", 3, Product((
+        h, SumOverIndex("k", 3, Symbol("G", ("i", "j", "k"))),
+        Sum((_r("a", "i"), _r("a", "j")))))))
+
+
+@pytest.mark.parametrize("case", ["sum", "integral", "equal bodies", "collector"])
+def test_terms_with_different_bound_bodies_stay_apart(case):
+    """``simplify`` grouped terms by a binder's name and left out its body, so
+    ``h sum_k G_uvk + h sum_k G_vuk`` became ``2 h sum_k G_uvk``: -6.8
+    against -5.1.  A merge that renames a coupling
+    ``sum_k G_ijk`` into ``sum_k G_jik`` reached it: 82 against 79."""
+    rng = np.random.default_rng(13)
+    c = rng.normal(size=(3, 2, 3, 2))
+    tables = {"h": np.array(1.7), "G": rng.normal(size=(3, 3, 3)),
+              "K": rng.normal(size=(3, 2)), "R": rng.normal(size=(3, 2, 3, 2)),
+              "C": c + c.transpose(2, 3, 0, 1)}
+    env, points = {"u": 0, "v": 1, "a": 2}, {"x": 0, "w": 1}
+    expr = _bound_bodies_case(case)
+    out = collect_by_diagram(expr) if case == "collector" else simplify(expr)
+    assert _value(out, tables, env, points) == pytest.approx(
+        _value(expr, tables, env, points), rel=1e-13, abs=0.0
+    )
+    if case == "equal bodies":
+        assert not isinstance(out, Sum)

@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8006 tests** in 134 files (parametrised
+The suite has **8010 tests** in 134 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -57,7 +57,7 @@ this page is out of date.
 Symbolic engine
 ---------------
 
-*574 tests in 12 files.*
+*578 tests in 12 files.*
 
 .. list-table::
    :header-rows: 1
@@ -122,7 +122,7 @@ Symbolic engine
      - simplification passes, diagonal / isotropic index collapse, collection by diagram
      - hand-simplified forms; idempotence
      - exact
-     - 65
+     - 69
    * - ``test_wick.py``
      - operator-level and spatial-level Wick contraction of small products
      - hand-enumerated pairings; the two engines against each other
