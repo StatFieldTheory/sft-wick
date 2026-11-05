@@ -1531,6 +1531,11 @@ def _check_kernel_keys(d: dict, axis: str) -> None:
 #: The three ways a vertex block can give its coupling.
 _COUPLING_SOURCES = ("coupling", "coupling_path", "coupling_module")
 _VERTEX_FLAGS = ("coupling_vectorized", "equal_time", "already_R_contracted")
+#: The largest ``order`` of a non-local vertex in a file: the most axes a
+#: tensor coupling can have.  A callable coupling has no axes to check, and
+#: the action of a larger order need not fit in memory: ``order: 1e18`` ended
+#: in a ``MemoryError``.
+_MAX_VERTEX_ORDER = 64
 
 
 def _vertex_keys(cls) -> set:
@@ -1667,15 +1672,22 @@ def _parse_vertex(
             f"and does nothing with {shown(sources[0])}",
         )
     if kind == "nonlocal":
-        order = out.get("order")
-        if not isinstance(order, (int, np.integer)) or order is True or order < 1:
+        given = out.get("order")
+        if given is None:
             raise ConfigError(
                 "invalid_value",
                 f"{where}.order",
                 f"{label}: 'order' (m, the number of psi legs, an integer "
-                f">= 1) is required; got {shown(order)}",
+                f">= 1) is required" + ("; got None" if "order" in out else ""),
             )
-        out["order"] = _size(order, f"{where}.order")
+        out["order"] = _size(given, f"{where}.order")
+        if out["order"] > _MAX_VERTEX_ORDER:
+            raise ConfigError(
+                "invalid_value",
+                f"{where}.order",
+                f"{label}: 'order' must be at most {_MAX_VERTEX_ORDER}; got "
+                f"{shown(given)}",
+            )
     for flag in _VERTEX_FLAGS:
         if flag in out:
             out[flag] = _as_bool(out[flag], f"{where}.{flag}")
@@ -2993,7 +3005,8 @@ def _reject_unknown_keys(d: dict, allowed, where: str, note: str = "") -> None:
                 ConfigWarning(
                     "unknown_key",
                     _join(where, key),
-                    f"{detail}, ignored because SFT_WICK_STRICT=0",
+                    f"{detail}, ignored because SFT_WICK_STRICT="
+                    f"{os.environ.get('SFT_WICK_STRICT', '').strip()}",
                     _nearest(key, allowed),
                 ),
                 stacklevel=3,

@@ -127,6 +127,14 @@ _INTEGER = {
         },
     ]
 }
+#: The ``order`` of a non-local vertex.  A numeric string passes whatever its
+#: value, as at every integer key.
+_ORDER = {
+    "anyOf": [
+        {"type": "integer", "minimum": 1, "maximum": cf._MAX_VERTEX_ORDER},
+        _INTEGER["anyOf"][1],
+    ]
+}
 #: A key read by a check shared with L1, which takes no text.
 _STRICT_INTEGER = {"type": "integer"}
 #: What :func:`~sft_wick.workflow.config._as_bool` reads.
@@ -341,7 +349,7 @@ def _vertex(cls) -> _Block:
     nodes = {
         "coupling": _TENSOR,
         "rank": _null(_STRICT_INTEGER),
-        "order": _STRICT_INTEGER,
+        "order": _ORDER,
     }
     keys = _dataclass_keys(cls, nodes, optional=("coupling",))
     keys["coupling"] = dataclasses.replace(

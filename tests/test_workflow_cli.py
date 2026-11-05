@@ -443,6 +443,19 @@ def test_CL6_strict_off_warns_and_ignores_the_key(tmp_path, capsys,
     assert cfg.system.linear == clean.system.linear
 
 
+@pytest.mark.parametrize("setting,shown", [
+    ("off", "off"), (" No ", "No"), ("FALSE", "FALSE"),
+])
+def test_CL6_the_warning_names_the_setting_given(tmp_path, capsys, monkeypatch,
+                                                 setting, shown):
+    """The warning said ``SFT_WICK_STRICT=0`` whatever word turned it off."""
+    monkeypatch.setenv("SFT_WICK_STRICT", setting)
+    path = _write(tmp_path, _misspelt(("system",), "t_min", "t_mni"))
+    assert main(["validate", str(path)]) == 0
+    assert _one_line(capsys.readouterr().err).endswith(
+        f"ignored because SFT_WICK_STRICT={shown}; did you mean 't_min'?")
+
+
 def test_CL6_strict_off_does_not_relax_overrides(capsys, monkeypatch):
     monkeypatch.setenv("SFT_WICK_STRICT", "0")
     status = main(["validate", str(QUICKSTART), "--override",

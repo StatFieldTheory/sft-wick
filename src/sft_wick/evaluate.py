@@ -2485,6 +2485,7 @@ def select_gl_node_count(
     positions: tuple | None = None,
     unchecked: set | None = None,
     live: tuple | None = None,
+    raised: list | None = None,
 ) -> int | None:
     """Smallest Gauss-Legendre node count that is converged for a table
     reaching ``t_max``, or ``None`` if none up to ``n_max`` is.
@@ -2523,7 +2524,8 @@ def select_gl_node_count(
 
     ``live`` is :func:`_c_live_entries` at these positions up to ``t_max``,
     when the caller has it.  A cell is evaluated once per count: the second
-    pass reads the extreme cells of the first.
+    pass reads the extreme cells of the first.  ``raised`` collects the
+    exception that ended the search, when one did.
     """
     import math
 
@@ -2562,7 +2564,9 @@ def select_gl_node_count(
     try:
         n = converged(int(n_start), _C_EXTREME_CELLS, None)
         return None if n is None else converged(n, len(probes), unchecked)
-    except Exception:
+    except Exception as exc:
+        if raised is not None:
+            raised.append(exc)
         return None
 
 
@@ -2574,6 +2578,7 @@ def select_graded_levels(
     positions: tuple | None = None,
     unchecked: set | None = None,
     live: tuple | None = None,
+    raised: list | None = None,
 ) -> int | None:
     """Smallest depth of :func:`_graded_rule` that is converged for a table
     reaching ``t_max``, or ``None`` if none is.
@@ -2590,7 +2595,7 @@ def select_graded_levels(
     feeds that entry (:func:`_c_live_entries`) is a feature no depth has
     reached yet, so the search goes on.
 
-    ``positions``, ``unchecked`` and ``live`` are as in
+    ``positions``, ``unchecked``, ``live`` and ``raised`` are as in
     :func:`select_gl_node_count`, and a cell is likewise evaluated once per
     rule.
     """
@@ -2627,7 +2632,9 @@ def select_graded_levels(
     try:
         levels = converged(_C_EXTREME_CELLS, _GRADED_LEVELS[0], None)
         return None if levels is None else converged(len(probes), levels, unchecked)
-    except Exception:
+    except Exception as exc:
+        if raised is not None:
+            raised.append(exc)
         return None
 
 
@@ -2690,6 +2697,23 @@ def _position_key(x: Any) -> tuple:
 def _pair_key(n1: Any, n2: Any) -> tuple:
     """A hashable stand-in for a pair of positions."""
     return _position_key(n1), _position_key(n2)
+
+
+#: Characters of a user callable's error a warning quotes.
+_MAX_ERROR_CHARS = 500
+
+
+def _error_text(exc: BaseException) -> str:
+    """``Type: message`` of an error from a user callable, cut to
+    :data:`_MAX_ERROR_CHARS` characters, since its message can be any size.
+    The type alone when its ``str`` raises."""
+    try:
+        text = f"{type(exc).__name__}: {exc}"
+    except Exception:  # noqa: BLE001 (a user exception's __str__)
+        return type(exc).__name__
+    if len(text) <= _MAX_ERROR_CHARS:
+        return text
+    return f"{text[:_MAX_ERROR_CHARS]}... ({len(text)} characters)"
 
 
 def _combined_c_rule(rules: Any, n_start: int) -> tuple[str, int | None]:
@@ -3938,6 +3962,8 @@ class PropagatorCache:
         self.n_gauss = int(n_gauss)
         #: Rules of :meth:`_c_rule`, by pair of positions and horizon.
         self._c_rules: dict = {}
+        #: The error that ended a search of those that ended in one, as text.
+        self._c_rule_raised: dict = {}
         #: What has been warned about, so each warning comes once.
         self._c_rule_warnings: set = set()
         #: The rules of the last table: pair of positions to rule under
@@ -4257,6 +4283,7 @@ class PropagatorCache:
                 "Rebuild it, or use cache_path, which does."
             )
         self.__dict__.update(state)
+        self.__dict__.setdefault("_c_rule_raised", {})
 
     def clear_cache(self) -> None:
         """Clear the C value cache and spline table, and the rules of that
@@ -4716,14 +4743,25 @@ class PropagatorCache:
         memo = self._c_rules
         if len(memo) >= _C_RULE_MEMO_SIZE:
             memo.clear()
+            self._c_rule_raised.clear()
         if (pair, t_max) not in memo:
-            rule, hidden = self._find_c_rule(n1, n2, t_max)
+            rule, hidden, raised = self._find_c_rule(n1, n2, t_max)
             self._warn_unchecked(hidden, n1, n2)
-            memo[pair, t_max] = rule
+            self._record_rule(pair, t_max, rule, raised)
         rule = memo[pair, t_max]
         if warn and rule[0] == "dblquad":
             self._warn_no_rule(n1, n2, t_max)
         return rule
+
+    def _record_rule(
+        self, pair: tuple, t_max: float, rule: tuple, raised: str | None
+    ) -> None:
+        """Keep the rule a search found, and the error that ended it."""
+        self._c_rules[pair, t_max] = rule
+        if raised is None:
+            self._c_rule_raised.pop((pair, t_max), None)
+        else:
+            self._c_rule_raised[pair, t_max] = raised
 
     def _origin_rule(self, t_max: float, warn: bool) -> tuple[str, int | None] | None:
         """The rule the origin gives every pair of a separable κ² with no σ²,
@@ -4757,10 +4795,11 @@ class PropagatorCache:
 
     def _find_c_rule(
         self, n1: Any, n2: Any, t_max: float
-    ) -> tuple[tuple[str, int | None], set]:
+    ) -> tuple[tuple[str, int | None], set, str | None]:
         """Gauss-Legendre at the count that converges, else the graded rule at
-        the depth that does, else ``dblquad``; and the entries of C the
-        accepted comparison could not check.
+        the depth that does, else ``dblquad``; the entries of C the accepted
+        comparison could not check; and, for ``dblquad``, the error R, κ² or
+        σ² raised that ended the search, as bounded text, or ``None``.
 
         ``dblquad`` stops when its first samples agree, and those miss a
         ridge or a boundary layer far narrower than the interval, so it can
@@ -4772,6 +4811,7 @@ class PropagatorCache:
         """
         pair = (n1, n2)
         hidden: set = set()
+        raised: list = []
         t_max = float(t_max)
         live = (
             _c_live_entries(self.model, n1, n2, t_max)
@@ -4785,10 +4825,16 @@ class PropagatorCache:
             positions=pair,
             unchecked=hidden,
             live=live,
+            raised=raised,
         )
         if count is None:
             levels = select_graded_levels(
-                self.model, t_max, positions=pair, unchecked=hidden, live=live
+                self.model,
+                t_max,
+                positions=pair,
+                unchecked=hidden,
+                live=live,
+                raised=raised,
             )
             rule = ("dblquad", None) if levels is None else ("graded", int(levels))
         elif count == self.n_gauss and not np.any(
@@ -4797,7 +4843,8 @@ class PropagatorCache:
             rule = _ANY_C_RULE
         else:
             rule = ("gauss_legendre", int(count))
-        return rule, hidden
+        error = _error_text(raised[-1]) if raised and rule[0] == "dblquad" else None
+        return rule, hidden, error
 
     def _warn_unchecked(self, hidden: set, n1: Any, n2: Any) -> None:
         """Warn once that entries of C could not be checked."""
@@ -4853,18 +4900,25 @@ class PropagatorCache:
         return f"positions ({a}, {b})"
 
     def _no_rule_message(self, n1: Any, n2: Any, t_max: float) -> str:
-        """Why C falls back to ``dblquad``: a kernel that raised at the probe
-        positions was never tested, and saying no rule converged would send
-        the reader to the wrong cause."""
+        """Why C falls back to ``dblquad``: a search that an error ended was
+        not a search that failed to converge, and saying no rule converged
+        would send the reader to the wrong cause.  The error is the one the
+        search met, kept by :meth:`_record_rule`."""
         where = self._shown_pair(n1, n2)
-        try:
-            _C_value_direct_gl(self.model, n1, t_max, n2, t_max, n_gauss=2)
-        except Exception as exc:  # noqa: BLE001 (a user callable)
+        # A pair with no search of its own took the origin's rule
+        # (:meth:`_origin_rule`), so the origin's search is the one to quote.
+        searched = _pair_key(n1, n2)
+        if (searched, float(t_max)) not in self._c_rules:
+            searched = _pair_key(*self._probe_positions())
+        raised = self._c_rule_raised.get((searched, float(t_max)))
+        if raised is not None:
             return (
-                f"c_method='auto': the kernel raised {type(exc).__name__}: {exc} "
-                f"at {where}, so no Gauss-Legendre rule was tested up to "
-                f"t={t_max:g} and C falls back to dblquad there, whose value is "
-                f"not checked and can be wrong by any factor."
+                f"c_method='auto': R, κ² or σ² raised {raised} at {where} "
+                f"while the rules of C up to t={t_max:g} were tested, so C falls "
+                f"back to dblquad there.  dblquad calls the same R, κ² and σ², "
+                f"so it raises the same error where it reaches the same times; "
+                f"where it does not, its value is not checked and can be wrong "
+                f"by any factor."
             )
         return (
             f"c_method='auto': no Gauss-Legendre rule converged on C at {where} "
@@ -4964,9 +5018,9 @@ class PropagatorCache:
             n_jobs=n_jobs,
             unit="pair",
         )
-        for pair, (rule, hidden) in zip(todo, found):
+        for pair, (rule, hidden, raised) in zip(todo, found):
             self._warn_unchecked(hidden, *pair)
-            memo[_pair_key(*pair), t_max] = rule
+            self._record_rule(_pair_key(*pair), t_max, rule, raised)
 
     def _resolve_with_positions(
         self, t_max: float, positions: list | None

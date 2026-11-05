@@ -209,6 +209,34 @@ def test_CF2_yaml_non_local_vertex(tmp_path: Path) -> None:
     assert len(groups.get("FK", [])) == 2
 
 
+@pytest.mark.parametrize("spelling", ["3.0", "'3'", "3e0", "'+3'"])
+def test_CF2_order_is_read_as_the_other_integer_keys(tmp_path: Path,
+                                                    spelling: str) -> None:
+    """``order: 3.0`` passes the schema and was refused as "required"."""
+    body = _DEMO2_YAML.replace("order: 3", f"order: {spelling}")
+    cfg = load_workflow_config(_write(tmp_path, "c.yaml", body))
+    order = cfg.system.nonlocal_vertices[0]["order"]
+    assert order == 3 and type(order) is int
+
+
+@pytest.mark.parametrize("spelling,message", [
+    ("null", r"'order' \(m, .*\) is required; got None$"),
+    ("3.5", r"must be an integer; got 3\.5"),
+    ("true", r"must be an integer; got True"),
+    ("0", r"must be at least 1; got 0"),
+    ("65", r"must be at most 64; got 65$"),
+    # A MemoryError on a callable coupling, which has no axes to check.
+    ("1e18", r"must be at most 64; got '1e18'$"),
+])
+def test_CF2_a_bad_order_is_refused_for_what_it_is(tmp_path: Path,
+                                                  spelling: str,
+                                                  message: str) -> None:
+    body = _DEMO2_YAML.replace("order: 3", f"order: {spelling}")
+    with pytest.raises(ConfigError, match=message) as info:
+        load_workflow_config(_write(tmp_path, "c.yaml", body))
+    assert info.value.path == "system.nonlocal_vertices[0].order"
+
+
 # =====================================================================
 # CF3 — full run matches a Python-only L1 reference
 # =====================================================================

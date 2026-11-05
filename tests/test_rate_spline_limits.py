@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import math
 import pickle
+import warnings
 
 import numpy as np
 import pytest
@@ -475,8 +476,15 @@ def test_RS6_a_table_past_the_spline_is_refused_at_its_build(builder, options):
     built on an extrapolated R would be wrong in every cell past the end."""
     model = _system().build_propagator_model()
     cache = ev.PropagatorCache(model, homogeneity="translation")
-    with pytest.raises(ValueError, match=REFUSED):
+    with pytest.raises(ValueError, match=REFUSED), warnings.catch_warnings(
+        record=True
+    ) as caught:
+        warnings.simplefilter("always")
         getattr(cache, builder)(t_max=T_CACHE + 1.0, **options)
+    # The rule search warns before the build stops; the warning said C
+    # "falls back to dblquad", which raises the same error here.
+    texts = [str(w.message) for w in caught if "dblquad" in str(w.message)]
+    assert texts and all("raises the same error" in t for t in texts)
 
 
 def test_RS6_a_lazy_table_refuses_at_its_first_read():

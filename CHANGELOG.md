@@ -243,6 +243,14 @@ phase, so `response_phase` changes no number.
   matrix as asymmetric.
 - A file nested past the limit is refused before `compare-resources` starts a worker.
   A refused variant now reads `variant <name>: <rule text>`.
+- Under `c_method='auto'`, when R, κ² or σ² raises while the rules of C are tested, the
+  warning quotes that error, cut to 500 characters, and says that `dblquad` calls the
+  same callables and raises the same error where it reaches the same times.  It
+  re-evaluated C on 2 nodes to find the error instead, so it blamed "the kernel" for a
+  σ², called an error the search met where the 2 nodes did not read "no rule
+  converged", called a step "an error" when only the 2 nodes raised, and quoted the
+  error whole.  It also said only that C falls back to `dblquad`, and a table past the
+  rate spline then stopped on that error.
 
 ### Changed: words and numbers read in one way
 
@@ -257,19 +265,27 @@ phase, so `response_phase` changes no number.
 - `SFT_WICK_QUIET_CACHE`, `SFT_WICK_PROGRESS`, `SFT_WICK_STRICT` and the
   `reuse_integrands` of a `compare-resources` variant read one word list, which also
   takes `yes`, `no`, 1 and 0 there.  `false`, `OFF` and ` no ` no longer silence the cache tip, and a
-  word outside the list, such as `xyz`, reads as unset.
+  word outside the list, such as `xyz`, reads as unset.  The warning for an unknown key
+  names the word that turned strict mode off, `SFT_WICK_STRICT=off`, where it always
+  said `SFT_WICK_STRICT=0`.
 - `sft-wick schema` accepts what the parser reads: `dt: 1e-1`, numeric strings, flag words
   in any case.  The other way round, the parser now refuses `true` or `false` inside a
   coupling, `sigma2.amplitude`, `g0` or `g1` tensor, which it read as 1 or 0 while the
   schema refused it.  Numeric strings pass the schema only at keys that read them, and
   at an integer key only without a fractional part or with an exponent, so `'1e-1'`
-  passes there and the parser refuses it.  `order`, `rank`, `orders`, component indices,
+  passes there and the parser refuses it.  `rank`, `orders`, component indices,
   `gl_chunk_size`, `qmc_coupling_chunk_size`, `propagator_cache_bytes` and
   `contraction_max_bytes` share their check with L1, which takes an integer only.  The
   schema gives them the type `integer`, which in JSON Schema includes `8.0`, so `8.0` at
   these keys passes the schema and `sft-wick validate` refuses it.
 - The YAML integer reader takes `1000`, `1000.0`, `'1e3'` and `'1000'` as 1000, at the
-  keys that use it, `n_grid_r`, `n_grid_cos` and `n_grid_x` among them.  A coupling reads
+  keys that use it, `n_grid_r`, `n_grid_cos` and `n_grid_x` among them.  The `order` of a
+  non-local vertex uses it too; `order: 3.0` passed the schema and was refused with
+  "'order' ... is required", and a bad `order` is now refused for what it is, such as
+  "must be at least 1; got 0".  An `order` above 64, the most axes a tensor coupling can
+  have, is refused in a file: with a callable coupling `order: 9223372036854775807` ended
+  in a `MemoryError`, and with a tensor coupling a large order built a shape too large
+  for memory or for the message.  A coupling reads
   numeric strings as `sigma2.amplitude`, `g0` and `g1` do, so `1e-3`, which PyYAML reads
   as a string, works in a coupling in a file and in `--override`.
 - The resource report classes `qmc`, `qmc_scalar` and `nquad` as the scalar loop, which is

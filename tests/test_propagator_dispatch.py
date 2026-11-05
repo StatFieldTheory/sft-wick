@@ -482,6 +482,71 @@ def test_no_rule_at_a_position_means_dblquad_there():
     assert got == pytest.approx(want, rel=1e-5, abs=0.0)
 
 
+def _decaying_r(t, s):
+    return np.exp(-(t - s))
+
+
+def _decaying_kernel(n1, t1, n2, t2):
+    return np.exp(-abs(t1 - t2)) * np.eye(1)
+
+
+def _sigma2_that_raises(n1, t, n2):
+    raise RuntimeError("sigma2 broke")
+
+
+def _kernel_raising_late(n1, t1, n2, t2):
+    """Raises where the extreme probe cells read, past the 2-node probe."""
+    if t1 > 0.95 and t2 > 0.95:
+        raise ValueError("late " + "x" * 5000)
+    return _decaying_kernel(n1, t1, n2, t2)
+
+
+@pytest.mark.parametrize("model,error", [
+    (PropagatorModel(R_time=_decaying_r, kappa2=_decaying_kernel,
+                     n_components=1, sigma2=_sigma2_that_raises),
+     "RuntimeError: sigma2 broke at"),
+    (PropagatorModel(R_time=_decaying_r, kappa2=_kernel_raising_late,
+                     n_components=1),
+     "ValueError: late xxx"),
+], ids=["sigma2", "late-kernel"])
+def test_the_warning_quotes_the_error_the_rule_search_met(model, error):
+    """It re-ran 2 nodes: σ² was "R or the kernel", a kernel raising where
+    only the search read was "no rule converged", and the error went in
+    whole."""
+    cache = PropagatorCache(model, c_method="auto")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with pytest.raises((RuntimeError, ValueError)):
+            cache._C_value_direct(0.0, 1.0, 0.0, 1.0)
+    (text,) = [str(w.message) for w in caught if "dblquad" in str(w.message)]
+    assert f"raised {error}" in text and "raises the same error" in text
+    assert len(text) < 1000
+
+
+def _stepped_lag(dt):
+    return np.where(np.abs(np.asarray(dt, float)) < 0.37, 1.0, 0.2)
+
+
+def _inverse_distance(r):
+    if r == 0.0:
+        raise ZeroDivisionError("spatial at r=0")
+    return 1.0 / r
+
+
+def test_a_pair_quotes_its_own_search_not_the_origins():
+    """The origin raised, so the pair searched for itself and met a step;
+    the warning quoted the origin's error, which C at the pair never raises."""
+    from sft_wick.workflow.specs import _SeparableTranslationKappa2
+
+    kernel = _SeparableTranslationKappa2(_stepped_lag, _inverse_distance, 1)
+    cache = PropagatorCache(
+        PropagatorModel(R_time=_decaying_r, kappa2=kernel, n_components=1),
+        c_method="auto")
+    with pytest.warns(UserWarning, match="no Gauss-Legendre rule converged"):
+        assert cache._c_rule(np.asarray(1.0), np.asarray(0.0), 1.0)[0] == "dblquad"
+    assert np.isfinite(cache._C_value_direct(1.0, 1.0, 0.0, 1.0)).all()
+
+
 def test_an_explicit_build_method_keeps_its_rule_at_every_position():
     cache = PropagatorCache(
         _general_system(_SmoothOrStepped()).build_propagator_model(),

@@ -1426,8 +1426,15 @@ class NonLocalVertex:
         it has shape ``(N,)*order``."""
         if callable(self.coupling):
             return None
-        want = (int(n_components),) * int(self.order)
-        return _shape_problem(np.shape(self.coupling), want, n_components)
+        shape, n, order = np.shape(self.coupling), int(n_components), int(self.order)
+        if order <= 64:  # the most axes a numpy array can have
+            return _shape_problem(shape, (n,) * order, n_components)
+        # Past that no tensor fits, and ``(n,) * order`` need not fit in
+        # memory or in a message.
+        return (
+            f"the coupling has shape {shape}; with n_components = {n} it must "
+            f"have {order} axes of length {n}"
+        )
 
     def __post_init__(self) -> None:
         where = f"NonLocalVertex(name={shown(self.name)})"
