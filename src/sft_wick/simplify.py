@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter, defaultdict
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Mapping
 from fractions import Fraction
 from itertools import permutations, product
 from typing import NamedTuple
@@ -268,23 +268,39 @@ def _collect_terms(expr: Expr) -> Expr:
 # ---------------------------------------------------------------------------
 
 
-def _complete_permutation(perm: dict[str, str]) -> dict[str, str] | None:
+def _complete_permutation(
+    perm: dict[str, str],
+    dimensions: Mapping[str, int] | None = None,
+) -> dict[str, str] | None:
     """Extend a renaming of dummy labels to a permutation of them.
 
     Matching propagators names only the labels they carry.  A label that
     lives in the coupling alone is still a dummy, and it has to move out of
     the way: ``{j: i}`` alone would turn ``F_ij`` into ``F_ii``.
 
+    A summed index runs over its own range, so the labels that move out of
+    the way are paired within one range of ``dimensions``.  Labels not in
+    ``dimensions`` (points) form one more class.
+
     Returns ``None`` when two labels map to one, which no renaming of dummies
-    does.
+    does, or when a range cannot be closed.
     """
     images = set(perm.values())
     if len(images) != len(perm):
         return None
-    return {
-        **perm,
-        **dict(zip(sorted(images - perm.keys()), sorted(perm.keys() - images))),
-    }
+    dims = dimensions or {}
+    free_images: dict[int | None, list[str]] = defaultdict(list)
+    free_keys: dict[int | None, list[str]] = defaultdict(list)
+    for name in sorted(images - perm.keys()):
+        free_images[dims.get(name)].append(name)
+    for name in sorted(perm.keys() - images):
+        free_keys[dims.get(name)].append(name)
+    out = dict(perm)
+    for dim in set(free_images) | set(free_keys):
+        if len(free_images[dim]) != len(free_keys[dim]):
+            return None
+        out.update(zip(free_images[dim], free_keys[dim]))
+    return out
 
 
 def _same_time_edges(
@@ -465,7 +481,8 @@ def _try_add_index_perm(
     ref_prop: Propagator,
     other_prop: Propagator,
     flipped: bool,
-    internal_indices: set[str],
+    internal_indices: Collection[str],
+    dimensions: Mapping[str, int] | None = None,
 ) -> bool:
     """Try to add component-index mappings from other_prop to ref_prop.
 
@@ -474,6 +491,10 @@ def _try_add_index_perm(
     refused: skipping the identity would let ``R_ai R_bi`` and
     ``R_aj R_bi`` merge.  Equal indices outside ``internal_indices`` are
     not renamed and need no entry.
+
+    With ``dimensions``, an index is renamed only to one summed over the
+    same range: ``sum_{i<2} sum_{j<3} F_ij R_aj`` is not
+    ``sum_{i<2} sum_{j<3} F_ji R_ai``.
     """
     if flipped:
         pairs = [
@@ -491,6 +512,8 @@ def _try_add_index_perm(
         if ref_idx == other_idx and ref_idx not in internal_indices:
             continue
         if other_idx not in internal_indices or ref_idx not in internal_indices:
+            return False
+        if dimensions is not None and dimensions.get(other_idx) != dimensions.get(ref_idx):
             return False
         if other_idx in perm:
             if perm[other_idx] != ref_idx:
@@ -514,27 +537,146 @@ def _edge_key(p: Propagator) -> tuple:
 def _maps_edges_onto(
     ref_props: list[Propagator],
     other_props: list[Propagator],
-    perm: dict[str, str],
+    index_perm: dict[str, str],
+    point_perm: dict[str, str],
 ) -> bool:
-    """Whether renaming *other_props* by *perm* gives *ref_props* exactly."""
-    renamed = [
-        Propagator(
-            p.kind,
-            None if p.index_left is None else perm.get(p.index_left, p.index_left),
-            None if p.index_right is None else perm.get(p.index_right, p.index_right),
-            perm.get(p.spatial_left, p.spatial_left),
-            perm.get(p.spatial_right, p.spatial_right),
-        )
-        for p in other_props
-    ]
+    """Whether renaming *other_props* gives *ref_props* exactly."""
+    renamed = [_rename_dummies(p, index_perm, point_perm) for p in other_props]
     return Counter(map(_edge_key, renamed)) == Counter(map(_edge_key, ref_props))
+
+
+def _rename_dummies(
+    expr: Expr,
+    index_perm: dict[str, str],
+    point_perm: dict[str, str],
+) -> Expr:
+    """Rename dummy indices by *index_perm* and dummy points by *point_perm*.
+
+    A merge renames dummies across a whole term, so a ``delta(y_0, z)``
+    beside the propagators moves with ``y_0``.  The two renamings are kept
+    apart: an index and a point may carry the same name.
+    """
+    def ix(name: str | None) -> str | None:
+        return None if name is None else index_perm.get(name, name)
+
+    def pt(name: str) -> str:
+        return point_perm.get(name, name)
+
+    if isinstance(expr, Symbol):
+        indices = tuple(map(ix, expr.indices))
+        points = tuple(map(pt, expr.spatial_args))
+        if (indices, points) == (expr.indices, expr.spatial_args):
+            return expr
+        return Symbol(expr.name, indices, points, expr.local)
+    if isinstance(expr, Propagator):
+        renamed = (ix(expr.index_left), ix(expr.index_right),
+                   pt(expr.spatial_left), pt(expr.spatial_right))
+        if renamed == (expr.index_left, expr.index_right,
+                       expr.spatial_left, expr.spatial_right):
+            return expr
+        return Propagator(expr.kind, *renamed)
+    if isinstance(expr, KroneckerDelta):
+        pair = (ix(expr.index1), ix(expr.index2))
+        return expr if pair == (expr.index1, expr.index2) else KroneckerDelta(*pair)
+    if isinstance(expr, DiracDelta):
+        pair = (pt(expr.arg1), pt(expr.arg2))
+        return expr if pair == (expr.arg1, expr.arg2) else DiracDelta(*pair)
+    if isinstance(expr, Product):
+        return Product(tuple(_rename_dummies(f, index_perm, point_perm) for f in expr.factors))
+    if isinstance(expr, Sum):
+        return Sum(tuple(_rename_dummies(t, index_perm, point_perm) for t in expr.terms))
+    if isinstance(expr, SumOverIndex):
+        return SumOverIndex(ix(expr.index_name), expr.dimension,
+                            _rename_dummies(expr.body, index_perm, point_perm))
+    if isinstance(expr, IntegralOver):
+        return IntegralOver(pt(expr.variable),
+                            _rename_dummies(expr.body, index_perm, point_perm))
+    return expr
+
+
+def _index_profile(
+    props: list[Propagator],
+    points: list[tuple[str, str]],
+    internal_indices: Collection[str],
+    dimensions: Mapping[str, int] | None,
+) -> tuple[Counter, Counter]:
+    """What a renaming of internal indices leaves unchanged in *props*.
+
+    Each internal index is described by its range and the places it sits:
+    the edge, and the side (left or right of an R, the point of a C, either
+    side of a C at one point).  A renaming permutes the internal indices, so
+    two lists it maps onto each other have the same multiset of
+    descriptions and the same fixed indices in the same places.
+    """
+    places: dict[str, list[tuple]] = defaultdict(list)
+    fixed: list[tuple] = []
+    for p, (sl, sr) in zip(props, points):
+        edge = canonical_edge(p.kind, sl, sr)
+        if p.kind != "C":
+            sides = ("left", "right")
+        elif sl == sr:
+            sides = ("either", "either")
+        else:
+            sides = (sl, sr)
+        for name, side in ((p.index_left, sides[0]), (p.index_right, sides[1])):
+            if name in internal_indices:
+                places[name].append((edge, side))
+            else:
+                fixed.append((name, edge, side))
+    dims = dimensions or {}
+    return (
+        Counter((dims.get(name), tuple(sorted(at))) for name, at in places.items()),
+        Counter(fixed),
+    )
+
+
+def _components(
+    slots: list[tuple[int, list[tuple[int, bool]]]],
+    ref_props: list[Propagator],
+    other_props: list[Propagator],
+    internal_indices: Collection[str],
+) -> list[list[int]]:
+    """Split the slots into sets that share no candidate and no index.
+
+    Slots that compete for one propagator, or whose propagators share an
+    internal index on either side, constrain each other; anything else is
+    matched on its own, so a search does not retry one part for every way
+    of matching another.
+    """
+    parent = list(range(len(slots)))
+
+    def find(k: int) -> int:
+        while parent[k] != k:
+            parent[k] = parent[parent[k]]
+            k = parent[k]
+        return k
+
+    owner: dict[tuple[str, object], int] = {}
+    for k, (ri, options) in enumerate(slots):
+        rp = ref_props[ri]
+        labels = [("ref", n) for n in (rp.index_left, rp.index_right) if n in internal_indices]
+        for oi, _ in options:
+            op = other_props[oi]
+            labels.append(("prop", oi))
+            labels.extend(("other", n) for n in (op.index_left, op.index_right)
+                          if n in internal_indices)
+        for label in labels:
+            if label in owner:
+                parent[find(k)] = find(owner[label])
+            else:
+                owner[label] = k
+    out: dict[int, list[int]] = defaultdict(list)
+    for k in range(len(slots)):
+        out[find(k)].append(k)
+    return list(out.values())
 
 
 def _match_propagators_after_spatial(
     ref_props: list[Propagator],
     other_props: list[Propagator],
     spatial_perm: dict[str, str],
-    internal_indices: set[str],
+    internal_indices: Collection[str],
+    dimensions: Mapping[str, int] | None = None,
 ) -> dict[str, str] | None:
     """Find the component-index permutation after spatial relabeling.
 
@@ -542,108 +684,100 @@ def _match_propagators_after_spatial(
     matches them to *ref_props* by ``(kind, spatial_left,
     spatial_right)``.  For C propagators that match with reversed
     spatial arguments (C symmetry), the component indices are swapped.
+    ``C_ij(x, y) = C_ji(y, x)``, so a C at two equal points matches either
+    way round; one with equal indices has one orientation to try.
 
-    When multiple propagators share the same spatial signature, all
-    valid matchings are tried to find one that yields a consistent
-    component-index permutation.
+    Two lists with different :func:`_index_profile` are refused at once.
+    Otherwise each set of :func:`_components` is searched depth first:
+    each reference propagator takes an unused propagator on the same edge,
+    and the index renaming grows as it goes, so a choice that breaks it is
+    dropped with everything after it.  The first renaming found is
+    returned.
 
     Returns a dict ``{other_index -> ref_index}`` for internal
     indices, or ``None`` if no consistent matching exists.
     """
-    # Apply spatial perm to other props
-    remapped: list[tuple[Propagator, str, str, bool]] = []
-    for p in other_props:
-        sl = spatial_perm.get(p.spatial_left, p.spatial_left)
-        sr = spatial_perm.get(p.spatial_right, p.spatial_right)
-        remapped.append((p, sl, sr, False))
+    remapped = [
+        (
+            spatial_perm.get(p.spatial_left, p.spatial_left),
+            spatial_perm.get(p.spatial_right, p.spatial_right),
+        )
+        for p in other_props
+    ]
 
-    # Group ref props by (kind, canonical_spatial_left, canonical_spatial_right)
+    # Group both sides by (kind, canonical_spatial_left, canonical_spatial_right)
     # where canonical means sorted for C
     ref_groups: dict[tuple[str, str, str], list[int]] = defaultdict(list)
     for i, p in enumerate(ref_props):
-        key = canonical_edge(p.kind, p.spatial_left, p.spatial_right)
-        ref_groups[key].append(i)
+        ref_groups[canonical_edge(p.kind, p.spatial_left, p.spatial_right)].append(i)
+    other_groups: dict[tuple[str, str, str], list[int]] = defaultdict(list)
+    for i, (p, (sl, sr)) in enumerate(zip(other_props, remapped)):
+        other_groups[canonical_edge(p.kind, sl, sr)].append(i)
 
-    # Group remapped other props similarly, tracking whether C was flipped
-    other_groups: dict[tuple[str, str, str], list[tuple[int, bool]]] = defaultdict(list)
-    for i, (p, sl, sr, _) in enumerate(remapped):
-        canon_key = canonical_edge(p.kind, sl, sr)
-        flipped = (p.kind == "C" and sl > sr)
-        other_groups[canon_key].append((i, flipped))
-
-    # Check that groups match
-    if set(ref_groups.keys()) != set(other_groups.keys()):
+    if set(ref_groups) != set(other_groups):
         return None
-    for key in ref_groups:
-        if len(ref_groups[key]) != len(other_groups[key]):
-            return None
+    if any(len(ref_groups[key]) != len(other_groups[key]) for key in ref_groups):
+        return None
+    ref_points = [(p.spatial_left, p.spatial_right) for p in ref_props]
+    if (_index_profile(ref_props, ref_points, internal_indices, dimensions)
+            != _index_profile(other_props, remapped, internal_indices, dimensions)):
+        return None
 
-    # For each group, try all orderings of the other props
-    # Build the full matching as a Cartesian product of per-group permutations
-    group_keys = sorted(ref_groups.keys())
-    group_matchings: list[list[list[tuple[int, int, bool]]]] = []
+    def _orientations(ri: int, oi: int) -> tuple[bool, ...]:
+        rp, op = ref_props[ri], other_props[oi]
+        osl, osr = remapped[oi]
+        if rp.kind != "C":
+            return (False,) if (rp.spatial_left, rp.spatial_right) == (osl, osr) else ()
+        if osl == osr:
+            return (False,) if op.index_left == op.index_right else (False, True)
+        return ((rp.spatial_left, rp.spatial_right) != (osl, osr),)
 
-    for key in group_keys:
-        ri_list = ref_groups[key]
-        oi_list = other_groups[key]
-        # Try all permutations of other indices against ref indices
-        options: list[list[tuple[int, int, bool]]] = []
-        for oi_perm in permutations(oi_list):
-            # One list of orientations per matched pair.  C_ij(x, y) =
-            # C_ji(y, x), so a C at two equal points matches either way
-            # round and both orientations are tried.
-            choices: list[list[tuple[int, int, bool]]] = []
-            for ri, (oi, flipped) in zip(ri_list, oi_perm):
-                rp = ref_props[ri]
-                _, osl, osr, _ = remapped[oi]
-                if rp.kind == "C":
-                    both_canonical = (
-                        min(rp.spatial_left, rp.spatial_right) == min(osl, osr)
-                        and max(rp.spatial_left, rp.spatial_right) == max(osl, osr)
-                    )
-                    if not both_canonical:
-                        continue
-                    if osl == osr:
-                        choices.append([(ri, oi, False), (ri, oi, True)])
-                        continue
-                    # Determine if the actual (non-canonical) orders differ
-                    actual_flipped = (rp.spatial_left, rp.spatial_right) != (osl, osr)
-                    choices.append([(ri, oi, actual_flipped)])
-                else:
-                    # R: must match exactly after spatial perm
-                    if (rp.spatial_left, rp.spatial_right) != (osl, osr):
-                        continue
-                    choices.append([(ri, oi, False)])
-            if len(choices) == len(ri_list):
-                options.extend(list(m) for m in product(*choices))
-        if not options:
-            return None
-        group_matchings.append(options)
+    # Each reference propagator with the propagators it can take on its own
+    slots = [
+        (ri, [
+            (oi, flipped)
+            for oi in other_groups[key]
+            for flipped in _orientations(ri, oi)
+            if _try_add_index_perm(
+                {}, ref_props[ri], other_props[oi], flipped, internal_indices, dimensions,
+            )
+        ])
+        for key in sorted(ref_groups) for ri in ref_groups[key]
+    ]
+    if any(not options for _, options in slots):
+        return None
+    if len({oi for _, options in slots for oi, _ in options}) != len(other_props):
+        return None
 
-    # Try all combinations of per-group matchings
-    def _try_combinations(
-        group_idx: int,
-        perm: dict[str, str],
-    ) -> dict[str, str] | None:
-        if group_idx == len(group_matchings):
+    used: set[int] = set()
+
+    def _search(order: list[int], k: int, perm: dict[str, str]) -> dict[str, str] | None:
+        if k == len(order):
             return perm
-
-        for option in group_matchings[group_idx]:
+        ri, options = slots[order[k]]
+        for oi, flipped in options:
+            if oi in used:
+                continue
             new_perm = dict(perm)
-            if all(
-                _try_add_index_perm(
-                    new_perm, ref_props[ri], other_props[oi], flipped,
-                    internal_indices,
-                )
-                for ri, oi, flipped in option
+            if not _try_add_index_perm(
+                new_perm, ref_props[ri], other_props[oi], flipped,
+                internal_indices, dimensions,
             ):
-                result = _try_combinations(group_idx + 1, new_perm)
-                if result is not None:
-                    return result
-
+                continue
+            used.add(oi)
+            result = _search(order, k + 1, new_perm)
+            used.discard(oi)
+            if result is not None:
+                return result
         return None
 
-    return _try_combinations(0, {})
+    perm: dict[str, str] = {}
+    for part in _components(slots, ref_props, other_props, internal_indices):
+        found = _search(part, 0, {})
+        if found is None:
+            return None
+        perm.update(found)
+    return perm
 
 
 # ---------------------------------------------------------------------------
@@ -667,27 +801,34 @@ def collect_by_diagram(expr: Expr) -> Expr:
     - **Coupling permutation**: index permutations are applied to the
       outer coupling symbols, producing a sum of permuted couplings.
 
+    Only bound labels are dummies: an index summed by an enclosing
+    :class:`~sft_wick.expressions.SumOverIndex`, and only onto an index
+    summed over the same range, and a point integrated by an enclosing
+    :class:`~sft_wick.expressions.IntegralOver`.  A free index is fixed.
+    A renaming reaches every factor of the term, including factors outside
+    the inner sum that carry a dummy, such as a Kronecker delta.
+
     Example::
 
-        F_{i0 i1 i2} × [R_{a i2}(x,y) C_{i0 i1}(y,y)
-                         + R_{a i1}(x,y) C_{i0 i2}(y,y)]
+        sum_{i0 i1 i2} F_{i0 i1 i2} × [R_{a i2}(x,y) C_{i0 i1}(y,y)
+                                       + R_{a i1}(x,y) C_{i0 i2}(y,y)]
 
     becomes::
 
-        (F_{i0 i1 i2} + F_{i0 i2 i1}) × R_{a i2}(x,y) C_{i0 i1}(y,y)
+        sum_{i0 i1 i2} (F_{i0 i1 i2} + F_{i0 i2 i1}) × R_{a i2}(x,y) C_{i0 i1}(y,y)
     """
-    return _collect_inner(expr, frozenset(), frozenset())
+    return _collect_inner(expr, frozenset(), {})
 
 
 def _collect_inner(
     expr: Expr,
     integration_vars: frozenset[str],
-    summation_indices: frozenset[str],
+    summation_indices: Mapping[str, int],
 ) -> Expr:
     """Recursive worker for :func:`collect_by_diagram`.
 
-    Accumulates integration variables and summation indices as it
-    descends through wrapper nodes, then processes the inner
+    Accumulates integration variables and summed indices with their
+    ranges as it descends through wrapper nodes, then processes the inner
     Product/Sum structure.
     """
     if isinstance(expr, IntegralOver):
@@ -696,7 +837,7 @@ def _collect_inner(
         return IntegralOver(expr.variable, body)
 
     if isinstance(expr, SumOverIndex):
-        new_sindices = summation_indices | {expr.index_name}
+        new_sindices = {**summation_indices, expr.index_name: expr.dimension}
         body = _collect_inner(expr.body, integration_vars, new_sindices)
         return SumOverIndex(expr.index_name, expr.dimension, body)
 
@@ -721,22 +862,28 @@ def _collect_inner(
     the_sum = expr.factors[sum_idx]
     outer_factors = list(expr.factors[:sum_idx]) + list(expr.factors[sum_idx + 1:])
 
-    # Separate outer factors by type
-    outer_symbols: list[Symbol] = []
+    # Couplings, and any other outer factor that carries a dummy, are renamed
+    # with each term; the rest stay outside as a common factor.
+    dummies = integration_vars | summation_indices.keys()
+    outer_symbols: list[Expr] = []
     outer_other: list[Expr] = []
     for f in outer_factors:
-        if isinstance(f, Symbol):
+        if isinstance(f, Symbol) or expr_labels(f) & dummies:
             outer_symbols.append(f)
         else:
             outer_other.append(f)
 
-    # Internal indices: those that appear in coupling symbols
+    # Internal indices: the summed indices those factors carry
     internal_indices: set[str] = set()
-    for sym in outer_symbols:
-        internal_indices.update(sym.indices)
+    for f in outer_symbols:
+        internal_indices.update(expr_labels(f) & summation_indices.keys())
+    dimensions = {name: summation_indices[name] for name in internal_indices}
 
-    if not internal_indices and not integration_vars:
-        return expr  # nothing to collect
+    # Nothing to rename, and no coupling index under which equal terms merge
+    if not internal_indices and not integration_vars and not any(
+        isinstance(f, Symbol) and f.indices for f in outer_symbols
+    ):
+        return expr
 
     # --- Group Sum terms by canonical diagram form ---
     # Pre-group by exact spatial signature to avoid redundant canonical
@@ -762,11 +909,12 @@ def _collect_inner(
             props = [term]
             non_props = []
         else:
-            ungroupable.append(term)
-            continue
+            props = []
 
         if not props:
-            ungroupable.append(term)
+            # No diagram to match: the term keeps the outer factors
+            parts = [*outer_symbols, term]
+            ungroupable.append(Product(tuple(parts)) if len(parts) > 1 else term)
             continue
 
         sig = tuple(sorted(
@@ -810,11 +958,22 @@ def _collect_inner(
                 if orig != target:
                     spatial_perm[orig] = target
 
-            # Component index permutation via propagator matching
+            # Component index permutation via propagator matching, completed
+            # to renamings of the dummy indices and the dummy points that map
+            # the term onto the reference propagators.
             comp_perm = _match_propagators_after_spatial(
-                ref_props, props, spatial_perm, internal_indices,
+                ref_props, props, spatial_perm, internal_indices, dimensions,
             )
-            if comp_perm is None:
+            index_perm = (
+                None if comp_perm is None
+                else _complete_permutation(comp_perm, dimensions)
+            )
+            point_perm = _complete_permutation(spatial_perm)
+            if (
+                index_perm is None
+                or point_perm is None
+                or not _maps_edges_onto(ref_props, props, index_perm, point_perm)
+            ):
                 # Cannot merge: add as separate term with coupling
                 parts = list(outer_symbols) + non_props + props
                 ungroupable.append(
@@ -822,17 +981,10 @@ def _collect_inner(
                 )
                 continue
 
-            full_perm = _complete_permutation({**spatial_perm, **comp_perm})
-            if full_perm is None or not _maps_edges_onto(ref_props, props, full_perm):
-                parts = list(outer_symbols) + non_props + props
-                ungroupable.append(
-                    Product(tuple(parts)) if len(parts) > 1 else parts[0]
-                )
-                continue
-
-            # Apply to outer coupling symbols + inner non-props
+            # Apply to the renamed outer factors + inner non-props
             permuted_factors = [
-                _apply_index_sub(f, full_perm) for f in (*outer_symbols, *non_props)
+                _rename_dummies(f, index_perm, point_perm)
+                for f in (*outer_symbols, *non_props)
             ]
 
             if not permuted_factors:
@@ -862,7 +1014,7 @@ def _collect_inner(
     new_sum_terms.extend(ungroupable)
 
     if not new_sum_terms:
-        return Product(tuple(outer_other)) if outer_other else ZERO
+        return ZERO  # an empty inner sum
 
     if len(new_sum_terms) == 1:
         new_inner = new_sum_terms[0]

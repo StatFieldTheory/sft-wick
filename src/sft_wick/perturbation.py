@@ -9,6 +9,7 @@ source-connected contributions under the linked-cluster assumptions.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from functools import cached_property
 from math import factorial, prod
@@ -1732,6 +1733,7 @@ def compute_moment(
                     pairings.extend(p for _, p in routings)
 
                 internal_indices = {name for name, _ in seq.summation_indices}
+                dimensions = dict(seq.summation_indices)
 
                 # The legs of an equal_time vertex share one time; two
                 # contractions that group them differently are
@@ -1747,6 +1749,7 @@ def compute_moment(
                     internal_indices,
                     seq.points,
                     same_time_groups=same_time_groups,
+                    dimensions=dimensions,
                 )
                 if _is_zero(inner):
                     continue
@@ -2013,6 +2016,7 @@ def _collect_grouped_wick(
     internal_indices: set[str],
     integration_vars: frozenset[str],
     same_time_groups: tuple[tuple[str, ...], ...] = (),
+    dimensions: Mapping[str, int] | None = None,
 ) -> Expr:
     """Pre-collect Wick contraction results grouped by spatial signature.
 
@@ -2034,6 +2038,10 @@ def _collect_grouped_wick(
     moved a leg from one equal-time group to another would evaluate the
     other contractions with the wrong time structure; the canonical form
     therefore keeps the groups (see :func:`_canonical_diagram_form`).
+
+    ``dimensions`` gives the range of each summed index; an index is
+    renamed only onto one with the same range, which matters when fields
+    with different component counts meet at one vertex.
     """
     from collections import defaultdict
 
@@ -2054,6 +2062,7 @@ def _collect_grouped_wick(
                 ref_props,
                 props,
                 internal_indices,
+                dimensions,
             )
             if comp_perm is not None:
                 perms.append(comp_perm)
@@ -2104,6 +2113,7 @@ def _collect_grouped_wick(
                     ref_props,
                     spatial_perm,
                     internal_indices,
+                    dimensions,
                 )
                 if cross_result is None:
                     # Cannot merge: add each within-group perm separately
@@ -2294,6 +2304,7 @@ def _fast_component_match(
     ref_props: list[Propagator],
     other_props: list[Propagator],
     internal_indices: set[str],
+    dimensions: Mapping[str, int] | None = None,
 ) -> dict[str, str] | None:
     """Fast component-index matching for props with identical spatial structure.
 
@@ -2357,7 +2368,8 @@ def _fast_component_match(
                 oi, o_flip = oi_list[0]
                 actual_flip = r_flip != o_flip
                 if not _try_add_index_perm(
-                    perm, ref_props[ri], other_props[oi], actual_flip, internal_indices
+                    perm, ref_props[ri], other_props[oi], actual_flip, internal_indices,
+                    dimensions,
                 ):
                     return None
             else:
@@ -2374,6 +2386,7 @@ def _fast_component_match(
                             other_props[oi],
                             actual_flip,
                             internal_indices,
+                            dimensions,
                         ):
                             ok = False
                             break
@@ -2395,7 +2408,7 @@ def _fast_component_match(
         if len(ri_list) == 1:
             ri, oi = ri_list[0], oi_list[0]
             if not _try_add_index_perm(
-                perm, ref_props[ri], other_props[oi], False, internal_indices
+                perm, ref_props[ri], other_props[oi], False, internal_indices, dimensions
             ):
                 return None
         else:
@@ -2410,6 +2423,7 @@ def _fast_component_match(
                         other_props[oi],
                         False,
                         internal_indices,
+                        dimensions,
                     ):
                         ok = False
                         break

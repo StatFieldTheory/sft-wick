@@ -1,5 +1,7 @@
 """Tests for the simplification pipeline and diagram-based collection."""
 
+import signal
+
 import numpy as np
 import pytest
 from sft_wick import Action, Field, Vertex, compute_moment
@@ -239,7 +241,8 @@ class TestCollectByDiagram:
         assert "R_" in latex
 
     def test_two_terms_same_topology_different_indices(self):
-        """Two terms with same spatial topology but different index routings."""
+        """Two terms with same spatial topology but different index routings
+        merge under the summed ``i1 <-> i2``."""
         F = Symbol("F", ("i0", "i1", "i2"))
         r1 = Propagator("R", "a", "i2", "x", "y_0")
         c1 = Propagator("C", "i0", "i1", "y_0", "y_0")
@@ -248,12 +251,15 @@ class TestCollectByDiagram:
 
         inner_sum = Sum((Product((r1, c1)), Product((r2, c2))))
         expr = Product((Rational(-1), F, inner_sum))
+        for name in ("i2", "i1", "i0"):
+            expr = SumOverIndex(name, 3, expr)
 
         result = collect_by_diagram(expr)
         latex = result.to_latex()
 
-        # Should contain two F terms summed (permuted couplings)
-        assert latex.count("F_") >= 2
+        # One propagator pair with two permuted couplings
+        assert latex.count("F_") == 2
+        assert latex.count("R_") == 1
 
     def test_through_integral_wrapper(self):
         """collect_by_diagram works through IntegralOver wrapper."""
@@ -490,7 +496,8 @@ def _value(expr, tables, env, positions):
     if isinstance(expr, KroneckerDelta):
         return float(env[expr.index1] == env[expr.index2])
     if isinstance(expr, Symbol):
-        return tables[expr.name][tuple(env[i] for i in expr.indices)]
+        points = () if expr.local else tuple(positions[s] for s in expr.spatial_args)
+        return tables[expr.name][tuple(env[i] for i in expr.indices) + points]
     if isinstance(expr, Propagator):
         left, right = positions[expr.spatial_left], positions[expr.spatial_right]
         a = 0 if expr.index_left is None else env[expr.index_left]
@@ -838,3 +845,123 @@ def test_collect_renames_every_occurrence_of_a_dummy_index(delta):
     assert _value(collected, tables, env, points) == pytest.approx(
         _value(expr, tables, env, points), rel=1e-13, abs=0.0
     )
+
+
+def _r(first, second):
+    return Propagator("R", first, second, "x", "w")
+
+
+def _scope_case(case):
+    """``sum_i G_ai (R_ai + R_ia)`` with a free; ``sum_{i<2} sum_{j<3}
+    F_ij (R_ai + R_aj)``; ``sum_ij delta_ia F_ij (R_ai + R_aj)`` with the
+    delta outside the inner sum; ``sum_i delta_ia G_ia (2 + R_ii)``, a term
+    with no propagator; the free index ``a`` beside an integrated point
+    ``a``; and ``sum_ij G_ij H(i) (R_ai + R_aj)`` with ``i`` also a free
+    point."""
+    if case == "bare term":
+        return SumOverIndex("i", 3, Product((
+            KroneckerDelta("i", "a"), Symbol("G", ("i", "a")),
+            Sum((Rational(2), _r("i", "i"))))))
+    if case == "point named like an index":
+        return SumOverIndex("i", 3, SumOverIndex("j", 3, Product((
+            Symbol("G", ("i", "j")), Symbol("H", (), ("i",)),
+            Sum((_r("a", "i"), _r("a", "j")))))))
+    if case == "shared name":
+        def branch(first, second):
+            return Product((Propagator("R", "e", "e", "x", first),
+                            Propagator("C", "e", "e", second, "w")))
+        return SumOverIndex("e", 3, IntegralOver("a", IntegralOver("b", Product((
+            KroneckerDelta("a", "c"), Symbol("G", ("e", "e")),
+            Sum((branch("a", "b"), branch("b", "a"))))))))
+    if case == "free index":
+        return SumOverIndex("i", 3, Product((
+            Symbol("G", ("a", "i")), Sum((_r("a", "i"), _r("i", "a"))))))
+    body = Product((Symbol("G", ("i", "j")), Sum((_r("a", "i"), _r("a", "j")))))
+    if case == "two ranges":
+        return SumOverIndex("i", 2, SumOverIndex("j", 3, body))
+    return SumOverIndex("i", 3, SumOverIndex("j", 3, Product(
+        (KroneckerDelta("i", "a"),) + body.factors)))
+
+
+@pytest.mark.parametrize(
+    "case", ["free index", "two ranges", "outer delta", "bare term", "shared name",
+             "point named like an index"])
+def test_collect_renames_only_bound_indices_within_their_range(case):
+    """A merge renames a summed index onto one summed over the same range,
+    and renames it in every factor.  Renaming the free a, swapping an index
+    over two values with one over three, or leaving a delta outside the sum
+    unrenamed gave 8, 186 and 14 against direct sums of 12, 231 and 18 on
+    integer tables.  A term with no propagator lost the outer factors, and
+    a point swap renamed the index of the same name, or an index swap the
+    point."""
+    rng = np.random.default_rng(11)
+    c = rng.normal(size=(3, 2, 3, 2))
+    tables = {"G": rng.normal(size=(3, 3)), "R": rng.normal(size=(3, 2, 3, 2)),
+              "C": c + c.transpose(2, 3, 0, 1), "H": rng.normal(size=2)}
+    points = {"x": 0, "w": 1, "i": 1}
+    expr = _scope_case(case)
+    collected = collect_by_diagram(expr)
+    for a in range(3):
+        env = {"a": a, "c": 1}
+        assert _value(collected, tables, env, points) == pytest.approx(
+            _value(expr, tables, env, points), rel=1e-13, abs=0.0
+        )
+
+
+@pytest.mark.parametrize("collect_topology", [True, False])
+def test_fields_with_different_component_counts(monkeypatch, collect_topology):
+    """At a psi(3) phi(3) chi(2) vertex both engines renamed an index over
+    three values onto one over two: -215.2 against -129.2 for the Wick sum
+    before collection."""
+    import sft_wick.perturbation as perturbation
+
+    def order_two(topology):
+        phi = Field("phi", "physical", n_components=3)
+        psi = Field("psi", "response", n_components=3)
+        chi = Field("chi", "physical", n_components=2)
+        result = compute_moment(
+            [phi("a", "x"), phi("b", "y")], Action([Vertex([psi, phi, chi], "F")]),
+            order=2, collect_topology=topology, response_phase=False,
+        )
+        return result.order(2)
+
+    rng = np.random.default_rng(7)
+    c = rng.normal(size=(3, 3, 3, 3))
+    tables = {"F": rng.normal(size=(3, 3, 3)), "R": rng.normal(size=(3, 3, 3, 3)),
+              "C": c + c.transpose(2, 3, 0, 1)}
+    env, points = {"a": 0, "b": 2}, {"x": 0, "y": 1}
+    got = _value(order_two(collect_topology), tables, env, points)
+    monkeypatch.setattr(perturbation, "collect_by_diagram", lambda e: e)
+    wick_sum = _value(order_two(False), tables, env, points)
+    assert got == pytest.approx(wick_sum, rel=1e-12, abs=0.0)
+
+
+@pytest.fixture
+def hang_fails():
+    """Listing every matching of twelve C at one point, 12! 2**12 of them,
+    would not end in the life of the test."""
+
+    def expired(signum, frame):
+        pytest.fail("still matching")
+
+    previous = signal.signal(signal.SIGALRM, expired)
+    signal.alarm(10)
+    yield
+    signal.alarm(0)
+    signal.signal(signal.SIGALRM, previous)
+
+
+def test_collect_matches_c_at_one_point_without_listing_every_matching(hang_fails):
+    """Seven such C took 0.22 s and 320 MB when every matching was built
+    before the first was tried."""
+    names = [f"i{k}" for k in range(24)]
+
+    def branch(order):
+        return Product(tuple(
+            Propagator("C", order[2 * k], order[2 * k + 1], "w", "w") for k in range(12)))
+
+    swapped = [names[k + 1 if k % 2 == 0 else k - 1] for k in range(24)]
+    expr = Product((Symbol("F", tuple(names)), Sum((branch(names), branch(swapped)))))
+    for name in reversed(names):
+        expr = SumOverIndex(name, 2, expr)
+    assert collect_by_diagram(expr).to_latex().count("C_{") == 12

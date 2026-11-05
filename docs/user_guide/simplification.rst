@@ -87,7 +87,10 @@ Diagram-Based Collection
 (not part of ``simplify()``) that groups terms by **Feynman diagram
 isomorphism**.  Two terms are equivalent if their propagator graphs
 are isomorphic under relabeling of dummy integration variables and
-summation indices.
+summation indices.  A dummy is a label bound by an enclosing
+``IntegralOver`` or ``SumOverIndex``; a free label is fixed, and a summed
+index is renamed only onto one summed over the same range.  The renaming
+reaches every factor of a term, including factors outside the inner sum.
 
 The algorithm computes a **canonical graph form** for each term by
 trying all permutations of internal spatial variables (integration
