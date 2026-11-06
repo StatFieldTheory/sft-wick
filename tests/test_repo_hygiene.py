@@ -67,7 +67,13 @@ CONTENT_ALLOWLIST = {"tests/test_repo_hygiene.py"}
 #: Full hashes of published commits whose message and content are accepted
 #: as they are, so that a flagged commit already in public history does not
 #: fail every later run.
-PUBLISHED_COMMIT_ALLOWLIST: frozenset[str] = frozenset()
+PUBLISHED_COMMIT_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        # Two lines of tools/benchmark_joint_statistic_reuse.py, removed
+        # again by 5cac974; history is kept so 0.7.0 keeps its commits.
+        "04c9ec858ecaaa5969ad4abf0c879f41cf78354c",
+    }
+)
 
 
 def development_name(text: str) -> bool:
