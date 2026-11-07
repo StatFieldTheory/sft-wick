@@ -186,6 +186,9 @@ class SweepResult:
                 group_cols.append(hue)
             if facet_col is not None:
                 group_cols.append(facet_col)
+            # x, hue and facet_col may name one column; pandas 2 refuses a
+            # repeated grouping key.
+            group_cols = list(dict.fromkeys(group_cols))
             df = df.groupby(group_cols, as_index=False)[y].sum()
 
         if facet_col is None:
