@@ -1298,8 +1298,11 @@ is the bare propagator ``exp(-gamma (t - t'))``:
 Three requests are rejected rather than silently mis-answered: a time outside
 the propagator table (see :ref:`table-limits`), an empty list in the grid
 (which would produce no rows), and a point whose ``t_<point>`` column would
-collide with an existing one.  A response observable whose externals are all
-at the same time warns.
+collide with an existing one.  A response observable warns when a response
+point is at a time no other external point can be later than, where its value
+is exactly 0: every external at one time, or an ``integrate_over`` that leaves
+a response point at ``t_final``.  A response point swept by
+``integrate_over`` does not warn.
 
 .. _n-point-sweeps:
 

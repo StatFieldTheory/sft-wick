@@ -158,9 +158,10 @@ class SweepConfig:
     n_gauss: int = 8  # used only when method='gauss_legendre'
     #: ``{point: [times]}`` pinning externals at UNEQUAL times, swept as a
     #: further Cartesian axis (mirrors ``positions_grid``).  Omit to pin every
-    #: external at ``t_final``, which is what every sweep did before and
-    #: which makes any observable with a response leg identically 0, since
-    #: Theta kills the R joining two externals at the same time.
+    #: external that ``integrate_over`` does not sweep at ``t_final``, which
+    #: is what every sweep did before.  An observable with a response point
+    #: pinned there is identically 0: its R needs a later point, and no point
+    #: is later.
     external_times_grid: dict | None = None
     reuse_integrands: bool = False
     gl_chunk_size: int | None = DEFAULT_GL_CHUNK_SIZE

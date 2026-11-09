@@ -218,6 +218,17 @@ display field `response_phase` (not compared), read by `to_latex` and
 `to_latex_evaluated`.  `evaluate_coupling` and the integrators always use the physical
 phase, so `response_phase` changes no number.
 
+### Fixed: the zero-response warning fired on a swept response point
+
+`Expansion.evaluate` and `Expansion.sweep` warned that an observable with a response
+leg "will be exactly 0" whenever no `external_times` were given, `integrate_over`
+included.  A swept response point has no single time, and its value is not 0: at
+order 0 with `gamma = 1` and `t_final = 4`, `<phi_a(x) psi_b(y)>` is 3.01832 with
+both points swept and 0.98168 with `y` alone, and both warned.  The warning now
+fires only when a response point is at a time no other external point can be later
+than: every external at one time, or an `integrate_over` that leaves a response
+point at `t_final` (`{"x"}` here, value 0).  No value changes.
+
 ### Changed: other refusals
 
 - `apply_response_phase` raises `ValueError` on a product over a sum whose terms hold

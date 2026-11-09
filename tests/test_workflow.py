@@ -462,6 +462,59 @@ def test_WF11_equal_times_still_give_zero_for_a_response(demo1_system):
     assert float(tot["value"].iloc[0]) == pytest.approx(0.0, abs=1e-14)
 
 
+def _wf11_response(demo1_system, entry, integrate_over, T=4.0):
+    """R(x, y) at order 0 through ``evaluate`` or ``sweep`` with both points at
+    the origin: the value and the response warnings raised on the way."""
+    exp = demo1_system.expand(("phi_a(x)", "psi_b(y)"), orders=[0])
+    props = _wf11_props(demo1_system)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        if entry == "evaluate":
+            value = exp.evaluate(
+                props, positions={"x": 0.0, "y": 0.0}, t_final=T,
+                component_pair=(0, 0), orders=[0],
+                integrate_over=integrate_over, method="nquad",
+            ).total
+        else:
+            value = exp.sweep(
+                props, positions_grid={"x": [0.0], "y": [0.0]},
+                t_final_grid=[T], component_pairs=[(0, 0)], orders=[0],
+                integrate_over=integrate_over, method="nquad",
+            ).totals()["value"].iloc[0]
+    warned = [w for w in caught if "response leg" in str(w.message)]
+    return complex(value).real, warned
+
+
+@pytest.mark.parametrize("entry", ["evaluate", "sweep"])
+@pytest.mark.parametrize(
+    "integrate_over, closed_form",
+    [("all", lambda T: T - 1.0 + np.exp(-T)), ({"y"}, lambda T: 1.0 - np.exp(-T))],
+    ids=["all", "psi_point"],
+)
+def test_WF11_a_swept_response_point_is_not_warned_about(
+    demo1_system, entry, integrate_over, closed_form,
+):
+    """With the time of y swept over [0, T] the value is not 0, so the
+    equal-time warning must not fire.
+
+    R(t_x, t_y) = exp(-(t_x - t_y)) for t_y < t_x integrates to
+    T - 1 + exp(-T) with both points swept and to 1 - exp(-T) with y alone
+    (x at T).  The warning used to fire on both.
+    """
+    value, warned = _wf11_response(demo1_system, entry, integrate_over)
+    assert value == pytest.approx(closed_form(4.0), rel=1e-9, abs=0.0)
+    assert not warned, [str(w.message) for w in warned]
+
+
+@pytest.mark.parametrize("entry", ["evaluate", "sweep"])
+def test_WF11_a_held_response_point_is_still_warned_about(demo1_system, entry):
+    """Sweeping x alone leaves y at T, the latest time, so no point is later
+    than y, the value is exactly 0 and the warning stays."""
+    value, warned = _wf11_response(demo1_system, entry, {"x"})
+    assert value == pytest.approx(0.0, abs=1e-14)
+    assert warned
+
+
 def test_WF11_default_sweep_is_unchanged(demo1_system):
     """Omitting `external_times_grid` must reproduce the old rows exactly.
 

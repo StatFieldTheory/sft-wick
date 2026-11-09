@@ -61,35 +61,56 @@ def _check_sweep_columns(pos_keys, et_keys, comp_cols) -> None:
         )
 
 
-def _guard_external_times(expansion, ext_times, label):
-    """Warn when a response leg's externals share a time.
+def _swept_points(integrate_over, points) -> set[str]:
+    """The external points ``integrate_over`` sweeps.  An unknown name or a
+    string other than ``"all"`` is left to
+    :func:`sft_wick.evaluate._resolve_integrate_over` to refuse."""
+    if integrate_over is None:
+        return set()
+    if isinstance(integrate_over, str):
+        return set(points) if integrate_over == "all" else set()
+    return {str(p) for p in integrate_over}
 
-    Such an observable evaluates to EXACTLY 0 (Theta kills the R joining
-    them).  Before the response field was nameable this config could not be
-    written at all; now the natural first attempt returns a full table of
-    zeros with no hint why.
+
+def _guard_external_times(expansion, ext_times, integrate_over, label):
+    """Warn when a response leg sits at a point no other external can follow.
+
+    The R chain from an external response leg rises strictly in time and
+    ends at a later external physical point, so such an observable evaluates
+    to EXACTLY 0.  That is the case when every external shares one time, and
+    when ``integrate_over`` leaves a response point out: that point stays at
+    ``t_final`` and the swept points run below it.  A swept response point
+    has no single time, and its value is not 0.
+
+    Before the response field was nameable this config could not be written
+    at all; now the natural first attempt returns a full table of zeros with
+    no hint why.
     """
-    has_psi = any(
-        name == expansion.system.field.response_name
-        for (name, _comp, _sp) in (expansion.observable_repr or ())
+    response = expansion.system.field.response_name
+    legs = [
+        (name, str(sp))
+        for (name, _comp, sp) in (expansion.observable_repr or ())
         if isinstance(name, str)
+    ]
+    swept = _swept_points(integrate_over, [sp for _name, sp in legs])
+    held = sorted({sp for name, sp in legs if name == response and sp not in swept})
+    if not held:
+        return
+    if ext_times:
+        times = list(ext_times.values())
+        if len(set(times)) > 1 or len(times) < len(expansion.observable_repr):
+            return
+    warnings.warn(
+        f"{label}: the observable carries a response leg ('{response}') at a "
+        f"point no other external point can be later than "
+        f"({', '.join(held)}), so every value will be exactly 0: the response "
+        f"propagator is retarded and vanishes at equal times.  Pass "
+        f"`external_times_grid={{'x': [t], 'y': [t_prime]}}` (sweep) or "
+        f"`external_times=` (evaluate) to separate the times, or name the "
+        f"point in `integrate_over` to sweep it.",
+        UserWarning,
+        stacklevel=3,
     )
-    if has_psi:
-        times = list((ext_times or {}).values())
-        if not ext_times or (
-            len(set(times)) <= 1 and len(times) >= len(expansion.observable_repr)
-        ):
-            warnings.warn(
-                f"{label}: the observable carries a response leg "
-                f"('{expansion.system.field.response_name}') but its external "
-                f"points are all at the same time, so every value will be "
-                f"exactly 0 -- the response propagator is retarded and "
-                f"vanishes at equal times.  Pass "
-                f"`external_times_grid={{'x': [t], 'y': [t_prime]}}` (sweep) "
-                f"or `external_times=` (evaluate) to separate them.",
-                UserWarning,
-                stacklevel=3,
-            )
 
 
 def _refuse_outside(times, lo, hi, late_text, early_text) -> None:
@@ -653,7 +674,9 @@ class Expansion:
                 f"but the expansion's system has t_min={t_min}."
             )
 
-        _guard_external_times(self, external_times, "Expansion.evaluate")
+        _guard_external_times(
+            self, external_times, integrate_over, "Expansion.evaluate"
+        )
         _guard_point_names(
             self, propagators, diagram_terms, positions, "Expansion.evaluate"
         )
@@ -1049,7 +1072,9 @@ class Expansion:
         for _et in {
             tuple(sorted((ext or {}).items())) for _p, _t, ext, _c in grid_tasks
         }:
-            _guard_external_times(self, dict(_et) or None, "Expansion.sweep")
+            _guard_external_times(
+                self, dict(_et) or None, integrate_over, "Expansion.sweep"
+            )
 
         # A spatially structureless cache returns the same C at every
         # separation, so a positions sweep yields a column of identical
