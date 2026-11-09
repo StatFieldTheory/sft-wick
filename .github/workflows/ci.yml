@@ -37,6 +37,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      # The same tests have taken up to three times as long on one runner as
+      # on another, so the log records which CPU ran them.
+      - name: Show the runner's CPUs
+        run: lscpu
+
       - name: Run test suite
         # -m 'not slow' adds the heavy tests that the local default leaves
         # out; worksteal keeps the long tests from piling up on one worker.
