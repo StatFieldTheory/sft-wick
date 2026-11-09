@@ -464,6 +464,7 @@ def test_cli_failure_and_complete_report_table(tmp_path, monkeypatch, capsys):
     )
 
 
+@pytest.mark.heavy
 def test_real_fresh_static_gl_reuse_chunk_and_no_outputs(tmp_path):
     raw = _raw("gauss_legendre")
     output, expansion, propagators = [
@@ -493,6 +494,7 @@ def test_real_fresh_static_gl_reuse_chunk_and_no_outputs(tmp_path):
     assert all(case["stable"] for case in report["cases"].values())
 
 
+@pytest.mark.heavy
 def test_real_dynamic_qmc_relative_module_ignores_stale_bytecode(tmp_path):
     # Compile an equal-length old callback, then change source while preserving
     # timestamp and file size. -B alone would still load the stale bytecode.

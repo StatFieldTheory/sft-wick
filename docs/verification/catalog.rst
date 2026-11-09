@@ -19,7 +19,7 @@ this page is out of date.
    is what is actually enforced.  Which sites those are depends on
    the runtime magnitude of each compared value and cannot be read
    off the source, so it is measured:
-   ``PYTHONPATH=tools pytest tests/ -p approx_audit`` records the
+   ``PYTHONPATH=tools pytest tests/ -m 'not slow' -p approx_audit`` records the
    comparison-site observations (``tools/approx_audit.py``).
 
    Classified by the plugin over 475 runtime sites:

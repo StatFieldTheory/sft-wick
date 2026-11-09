@@ -170,6 +170,7 @@ def test_a_table_resolves_auto():
     (0.002, (0.5, 0.1)),
     (0.3, (300.0, 1e-3)),
 ])
+@pytest.mark.heavy
 def test_a_table_no_node_count_converges_on_takes_the_graded_rule(sigma_t, gamma):
     """A narrow kernel and a fast rate, ``auto`` on the defaults.  The first
     row sent ``dblquad`` past the ridge: 5.8e-10 against 5.0e-3.  The second
@@ -208,7 +209,8 @@ def _callable_system(kernel, gamma=0.3, t_min=2.0):
 @pytest.mark.parametrize("sigma_t, source", [
     (1000.0, "quadrature:gauss_legendre(n=20)"),
     (0.3, "quadrature:gauss_legendre(n=68)"),
-    (0.01, "quadrature:graded(levels=12)"),
+    pytest.param(0.01, "quadrature:graded(levels=12)",
+                 marks=pytest.mark.heavy),
 ])
 def test_auto_checks_a_user_kernel(sigma_t, source):
     """``dblquad``, unchecked, gave 1.71e-4 against 6.25e-3 at ``sigma_t =
@@ -220,6 +222,7 @@ def test_auto_checks_a_user_kernel(sigma_t, source):
         _equal_time_c(0.05, sigma_t, 0.3, 30.0), rel=1e-8, abs=0.0)
 
 
+@pytest.mark.heavy
 def test_a_cell_before_any_table_is_checked_and_needs_no_history():
     """It was ``dblquad`` here too, off by 0.97 at this cell."""
     def fresh():
@@ -239,6 +242,7 @@ def test_a_cell_before_any_table_is_checked_and_needs_no_history():
     assert other._C_value_direct(0.0, 0.0, 0.0, 30.0)[0, 0] == 0.0
 
 
+@pytest.mark.heavy
 def test_a_kink_inside_the_interval_reaches_the_warning():
     """Depths of the graded rule share their interior panels.  Comparing only
     those passed this kernel at 12 levels, off by 1.5e-5, with no warning."""
@@ -265,6 +269,7 @@ def _general_system(kernel, gamma=0.3):
         noise=sw.GaussianNoise(kappa2=sw.GeneralKappa2(fn=kernel)))
 
 
+@pytest.mark.heavy
 def test_a_lazy_table_finds_its_rule_at_each_position():
     """Off by 0.72 from an unchecked ``dblquad``."""
     props = _general_system(_WidthByPosition()).propagators(
@@ -273,6 +278,7 @@ def test_a_lazy_table_finds_its_rule_at_each_position():
         _equal_time_c(0.05, 0.01, 0.3, 12.0), rel=1e-8, abs=0.0)
 
 
+@pytest.mark.heavy
 def test_a_full_grid_is_checked_at_its_positions_whatever_was_resolved():
     """Off by 6.9e-2 at ``x = 1`` from the node count of the origin."""
     cache = PropagatorCache(
@@ -300,6 +306,7 @@ def _oscillating(t1, t2):
             * np.cos(4.9 * t1) * np.cos(4.9 * t2))
 
 
+@pytest.mark.heavy
 def test_a_position_keeps_the_count_it_converged_at_beside_a_narrow_one():
     """The narrow position sets the graded rule, and that rule was taken to
     resolve whatever a count of 30 does: the oscillating positions passed at
@@ -413,6 +420,7 @@ class _VanishesAtTheOrigin:
     (_RaisesOnAScalar(), np.array([0.3, 0.4])),
     (_VanishesAtTheOrigin(), 1.0),
 ])
+@pytest.mark.heavy
 def test_a_lazy_table_decides_nothing_at_an_origin_that_says_nothing(kernel, x):
     """Both ended in ``dblquad``, off by 8.0e-4 and 0.72, under a warning that
     no rule converged although none was tried where C is read."""
@@ -454,6 +462,7 @@ class _SmoothOrStepped:
         return (np.exp(-lag * lag) + step) * np.eye(1)
 
 
+@pytest.mark.heavy
 def test_no_rule_at_a_position_means_dblquad_there():
     """The warning said ``dblquad`` and the origin's 20 nodes built the table,
     1.3e-2 off at the cell below with 0 ``dblquad`` calls."""
@@ -533,6 +542,7 @@ def _inverse_distance(r):
     return 1.0 / r
 
 
+@pytest.mark.heavy
 def test_a_pair_quotes_its_own_search_not_the_origins():
     """The origin raised, so the pair searched for itself and met a step;
     the warning quoted the origin's error, which C at the pair never raises."""
@@ -595,6 +605,7 @@ def _c(cache, x1, t1, x2, t2):
     (_NarrowInsideABox(), 0.5, (0.0, 20.0, 5.0, 20.0), (0.0, 20.0, 0.0, 20.0)),
     (_RidgeAndLateStep(), 0.05, (0.0, 30.0, 0.0, 29.0), (0.0, 25.0, 0.0, 25.0)),
 ])
+@pytest.mark.heavy
 def test_the_rule_of_a_cell_does_not_depend_on_the_calls_before(
         kernel, gamma, first, cell):
     """A rule is a function of its cell, not of the cells read before."""
@@ -689,6 +700,7 @@ class _OneStrongComponent:
 
 
 @pytest.mark.parametrize("big, off", [(1e2, 0.0), (1e8, 0.0), (1e14, 0.0), (1e14, 1e-17)])
+@pytest.mark.heavy
 def test_an_entry_r_keeps_from_the_strong_component_has_no_rounding_of_it(big, off):
     """R mixes components here, but ``C_11`` holds no term of the strong
     one.  ``n=20`` passed on a difference of 1e-13 of ``C_00``, ``C_11`` 65 %
@@ -744,6 +756,7 @@ def test_an_entry_that_cancels_a_strong_component_keeps_its_rounding():
 
 
 @pytest.mark.parametrize("start", [73, 74, 120])
+@pytest.mark.heavy
 def test_a_large_starting_count_is_tested(start):
     """Above 73 the refinement passed the cap before any test, and a smooth
     kernel went to the graded rule, about 500 times slower."""
@@ -763,6 +776,7 @@ def test_a_count_given_to_a_cell_before_any_rule_is_used():
         cache._C_value_direct(0.0, 3.0, 0.0, 3.0, method="simpson")
 
 
+@pytest.mark.heavy
 def test_a_cell_past_the_table_takes_its_own_rule():
     """Off by 1.1e-1 from the 30 nodes of a table reaching ``t = 3``."""
     model = _callable_system(_NarrowGaussian(0.05, 0.05)).build_propagator_model()
@@ -847,6 +861,7 @@ def test_auto_table_agrees_with_an_independent_integral(sigma_t, gamma, t_max, t
     ("rotation", {"n_grid_cos": 2}),
     ("general", {"x_max": 1.0, "n_grid_x": 2}),
 ])
+@pytest.mark.heavy
 def test_every_table_path_uses_the_resolved_count(monkeypatch, homogeneity, table):
     system = _slow_system()
     if homogeneity == "rotation":
@@ -931,6 +946,7 @@ def test_dry_run_times_a_position_when_the_origin_says_nothing(tmp_path):
     assert est.c_source == "quadrature:per_position"
 
 
+@pytest.mark.heavy
 def test_dry_run_warns_once_where_no_rule_converges(tmp_path, monkeypatch):
     """The benchmark table ran the selection a second time, about 25 s, and
     the warning came twice."""
@@ -946,6 +962,7 @@ def test_dry_run_warns_once_where_no_rule_converges(tmp_path, monkeypatch):
     assert sum("falls back" in str(w.message) for w in caught) == 1
 
 
+@pytest.mark.heavy
 def test_dry_run_counts_both_time_orders_of_a_general_table(tmp_path, monkeypatch):
     """A general table stores the earlier-first half for any kernel, and the
     estimate counted one half: 324 cells of 702 at n_grid_t = 8, n_grid_x = 3."""
@@ -973,6 +990,7 @@ def test_dry_run_counts_both_time_orders_of_a_general_table(tmp_path, monkeypatc
     assert estimated == pytest.approx(sum(cells), rel=0.2, abs=0.0)
 
 
+@pytest.mark.heavy
 def test_dry_run_reports_the_count_the_run_uses(tmp_path, monkeypatch):
     from sft_wick.workflow.config import load_workflow_config
     from sft_wick.workflow.estimate import estimate_cost
@@ -1247,6 +1265,7 @@ def _singular_system(spatial, sigma_t):
     )
 
 
+@pytest.mark.heavy
 def test_a_kernel_singular_at_the_origin_finds_its_rule_at_the_pair():
     """The origin says nothing about ``r = 1`` when C is not finite there, so
     no ``dblquad`` follows from it: that value was 1e12 too small here.
@@ -1417,6 +1436,7 @@ def test_the_rule_of_c_reads_interior_times(width, amplitude):
         assert values == pytest.approx([exact(t) for t in times], rel=1e-7, abs=0.0)
 
 
+@pytest.mark.heavy
 def test_the_rule_of_c_reads_cells_with_the_later_second_time():
     """A ridge on one side of the lag.  The probes held ``t1 >= t2``, so the
     rule came from the side without it: 5e-2 and 1e-1 off at ``(8, 16)`` and
@@ -1510,6 +1530,7 @@ def test_a_translation_table_refuses_noise_not_even_in_the_separation(grid):
 
 
 @pytest.mark.parametrize("x, y", [(1.0, 0.0), (0.0, 1.0)])
+@pytest.mark.heavy
 def test_a_translation_table_takes_noise_even_in_the_separation(x, y):
     from scipy.integrate import dblquad
 

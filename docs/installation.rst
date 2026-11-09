@@ -51,7 +51,7 @@ information is printed as plain lines on stderr::
 
    pip install -e ".[parallel]"
 
-To include development dependencies (``pytest``, ``pytest-cov``):
+To include development dependencies (``pytest``, ``pytest-cov``, ``pytest-xdist``):
 
 .. code-block:: bash
 

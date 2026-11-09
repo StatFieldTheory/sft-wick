@@ -38,7 +38,9 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run test suite
-        run: pytest tests/ -v
+        # -m 'not slow' adds the heavy tests that the local default leaves
+        # out; worksteal keeps the long tests from piling up on one worker.
+        run: pytest tests/ -v -m "not slow" -n auto --dist worksteal --durations=25
 
   # Wall-clock gate for the shipped examples: the CPC referee could not get
   # output from the quick start within an hour.  The quickstart must finish

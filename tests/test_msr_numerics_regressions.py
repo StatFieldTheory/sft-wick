@@ -140,7 +140,8 @@ def test_F1_bounds_callable_uses_the_outer_variable():
     assert checked > 0, "no chained order-2 diagram found"
 
 
-@pytest.mark.parametrize("order,exact", [(1, -0.75), (2, 3.0)])
+@pytest.mark.parametrize("order,exact", [
+    (1, -0.75), pytest.param(2, 3.0, marks=pytest.mark.heavy)])
 def test_F1_quartic_series_matches_stationary_fokker_planck(order, exact):
     """<x^2> = 1/2 - (3/4) g + 3 g^2 + O(g^3) from P(x) ~ exp(-V/D).
 
@@ -163,6 +164,7 @@ def test_F1_quartic_series_matches_stationary_fokker_planck(order, exact):
     assert total == pytest.approx(exact, rel=1e-3, abs=0.0)
 
 
+@pytest.mark.heavy
 def test_F1_linear_perturbation_is_exactly_solvable():
     """Drift -k x shifts mu -> mu + k, so <x^2> = D/(mu+k) exactly.
 
@@ -1188,6 +1190,7 @@ def _f17_growing_setup():
 
 
 @pytest.mark.parametrize("r", [0.5, 2.0, 4.0])
+@pytest.mark.heavy
 def test_F17_spatial_table_stays_exact_for_a_nonseparable_kernel(r):
     """With a spatial table the kappa2 ratio must NOT be substituted.
 
@@ -1380,6 +1383,7 @@ def _f18_igs_pair(order):
 
 
 @pytest.mark.parametrize("order", [0, 2])
+@pytest.mark.heavy
 def test_F18_a_time_only_table_takes_vector_positions(order):
     """A bare numpy error on the time-only branch; the spatial branch took
     the same vectors.  The kernel reads the first coordinate, so this vector
@@ -1399,6 +1403,7 @@ def test_F18_a_time_only_table_takes_vector_positions(order):
 
 @pytest.mark.parametrize("order", [0, 1, 2])
 @pytest.mark.parametrize("r", [0.0, 1.0, 2.5])
+@pytest.mark.heavy
 def test_F18_spatial_table_does_not_move_a_separable_result(order, r):
     """Both C evaluation modes are valid here, so they must agree.
 
@@ -1479,6 +1484,7 @@ def _order_zero_on_a_time_table(kappa2, t_f):
     ],
     ids=["ended-kernel-1e-77-at-t_ref", "below-the-old-floor", "above-it"],
 )
+@pytest.mark.heavy
 def test_F18_time_table_ratio_has_no_absolute_floor(g, scale, t_f):
     """The ratio of two values is defined at any amplitude.  A floor of 1e-30
     on the denominator returned 0 below it.  The reference is the separable
@@ -1488,6 +1494,7 @@ def test_F18_time_table_ratio_has_no_absolute_floor(g, scale, t_f):
     assert value != 0.0
 
 
+@pytest.mark.heavy
 def test_F18_time_table_ratio_is_refused_where_kappa2_is_zero():
     """Noise that has ended by ``t_ref`` gives 0/0, and C there is not 0: this
     returned 0.0 against 0.0115."""
@@ -1520,6 +1527,7 @@ def test_F18_time_table_ratio_keeps_a_component_with_no_noise():
     assert factor == pytest.approx([np.exp(-0.5), 0.0], rel=1e-14, abs=0.0)
 
 
+@pytest.mark.heavy
 def test_F18_nonseparable_agrees_with_the_spatially_aware_integrator():
     """Cross-path: `integrate_moment` already routes through `C_at_batch`.
 

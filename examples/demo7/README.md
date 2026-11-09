@@ -206,5 +206,5 @@ conda activate sft-wick
 cd examples/demo7
 python space7_run.py            # items (a), (b), (c), (e)
 python space7_shot3d.py         # item (d)
-pytest ../../tests/test_demo7_space.py ../../tests/test_demo7_shot3d.py -q
+pytest ../../tests/test_demo7_space.py ../../tests/test_demo7_shot3d.py -m 'not slow' -q
 ```

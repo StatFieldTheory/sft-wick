@@ -31,7 +31,7 @@ cd sft-wick
 pip install -e ".[dev]"
 ```
 
-Dependencies: `numpy`, `scipy`, `networkx`, `matplotlib`, `pandas`, `pyyaml`, `tabulate`, `joblib`. Optional: `pip install "sft-wick[progress]"` adds `tqdm` progress bars (plain stderr lines are printed without it). The `parallel` extra is kept for compatibility with older install commands. For development: `pytest`, `pytest-cov`.
+Dependencies: `numpy`, `scipy`, `networkx`, `matplotlib`, `pandas`, `pyyaml`, `tabulate`, `joblib`. Optional: `pip install "sft-wick[progress]"` adds `tqdm` progress bars (plain stderr lines are printed without it). The `parallel` extra is kept for compatibility with older install commands. For development: `pytest`, `pytest-cov`, `pytest-xdist`.
 
 The install also registers a CLI entry point:
 
@@ -591,8 +591,15 @@ At order 6, the dominant cost is **component routing** (`_enumerate_component_ro
 ## Testing
 
 ```bash
-pytest tests/ -v
+# Default: every test except the `slow` benchmarks and the `heavy` tests
+pytest tests/ -n auto --dist worksteal
+
+# What CI runs: the `heavy` tests (10 s or more each) included
+pytest tests/ -m "not slow" -n auto --dist worksteal
 ```
+
+`-n` runs the tests on several processes through pytest-xdist, which the
+`dev` extra installs.  Without `-n` the same selections run in one process.
 
 Every test file, its test count (parametrised cases counted), what it
 checks, the independent reference it is checked against and its

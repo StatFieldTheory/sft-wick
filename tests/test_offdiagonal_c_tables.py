@@ -890,6 +890,7 @@ def test_closed_form_only_still_bypasses_the_tables():
         assert _rel(got, ref) < 1e-12, (u1, u2)
 
 
+@pytest.mark.heavy
 def test_a_time_only_table_hands_the_kernel_the_positions_as_given():
     """``integrate_two_point_qmc`` rescales a time-only table by κ² at the two
     points.  It wrapped them in arrays first, and ``np.diag(a(n1) * a(n2))``

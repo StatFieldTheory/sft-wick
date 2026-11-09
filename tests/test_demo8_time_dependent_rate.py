@@ -101,7 +101,8 @@ def test_scalar_R_gauss_legendre(exact, obs, order, comps):
            n_gauss=12)
 
 
-@pytest.mark.parametrize("method", ["gauss_legendre", "qmc_vectorized"])
+@pytest.mark.parametrize("method", [
+    "gauss_legendre", pytest.param("qmc_vectorized", marks=pytest.mark.heavy)])
 def test_matrix_R_on_the_batched_integrators_when_they_accept_it(exact, method):
     """These refuse a matrix R today.  The check runs the moment they take
     one."""
@@ -145,6 +146,7 @@ def table(exact):
 
 
 @pytest.mark.parametrize("order,comps", [(1, (0,)), (2, (0, 1))])
+@pytest.mark.heavy
 def test_the_package_c_table(table, order, comps):
     system, props = table
     obs = ONE if len(comps) == 1 else TWO
