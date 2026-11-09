@@ -888,9 +888,10 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "swept by integrate_over pairs like an integration variable "
         "instead, and two swept ones pair too, unless the full causal "
         "closure (a chain through a fixed external included) orders them; "
-        "a swept external below a carried lower cut is cut",
+        "a swept external below a carried lower cut is cut; the pairs, the "
+        "cuts and the values do not depend on PYTHONHASHSEED",
         "exact Itô moment hierarchy, transported over the lags between "
-        "the external times",
+        "the external times; runs under eight hash seeds, bit for bit",
         "exact / 1e-11",
     ),
     "tests/test_demo4_asymmetric_noise.py": (

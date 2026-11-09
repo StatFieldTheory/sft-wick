@@ -26,6 +26,9 @@ the two external times), which shares no code with the package.
 """
 from __future__ import annotations
 
+import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -212,6 +215,140 @@ def test_no_cut_no_bounds():
     always took, to the bit."""
     sp = _spatial([("v", "u"), ("u", "x")], [("v", "y")])
     assert _applied_cut_bounds(sp, sp.time_orderings, ()) == ({}, {})
+
+
+# --------------------------------------------------------------------------
+# the split does not follow PYTHONHASHSEED
+# --------------------------------------------------------------------------
+
+#: A process has one hash seed, so each runs in its own.  Python 3.11
+#: changed the hash of str, so the seeds that separate the old orders depend
+#: on the interpreter.  On the old code seeds 0 to 3 gave each script below
+#: more than one result on 3.11 to 3.14, but gave the cut script one result
+#: on 3.10, where only seed 6 of these eight gives it another.
+HASH_SEEDS = ("0", "1", "2", "3", "4", "5", "6", "7")
+
+#: The order-2 response <phi_a(y) psi_b(x) psi_c(w) psi_d(z)> with every
+#: external swept.  In a chain diagram the inner vertex is above two of the
+#: psi points and the outer vertex above all three, so the swept externals
+#: pair below two different variables.
+SWEPT_RESPONSE = """
+import json
+
+import numpy as np
+
+import sft_wick as sw
+from sft_wick.evaluate import _kink_pairs, analyze_spatial
+
+
+class ZeroC:
+    has_diagonal_kink = False
+
+    def __call__(self, x1, t1, x2, t2):
+        shape = np.broadcast(np.asarray(t1), np.asarray(t2)).shape
+        return np.zeros(shape + (2, 2))
+
+
+F = np.array([[[0.5, -0.3], [-0.3, 0.8]], [[-0.4, 0.6], [0.6, 0.25]]])
+system = sw.System(
+    field=sw.FieldSpec("phi", 2), linear=sw.DiagonalA(gamma=[0.45, 1.1]),
+    vertices=[sw.LocalVertex("F", coupling=F)], t_min=0.2,
+    noise=sw.GaussianNoise(kappa2=sw.SeparableTranslation(
+        temporal=sw.ExponentialTemporal(lam=0.0, sigma_t=0.5),
+        spatial=sw.ExponentialSpatial(sigma_x=1.0))))
+exp = system.expand(("phi_a(y)", "psi_b(x)", "psi_c(w)", "psi_d(z)"),
+                    orders=[2])
+props = system.propagators(t_max=2.0, c_closed_form=ZeroC(),
+                           c_closed_form_only=True,
+                           c_closed_form_vectorized=True, progress=False)
+res = exp.evaluate(props, positions=dict.fromkeys("yxwz", 0.0), t_final=1.7,
+                   component_pair=(1, 1, 1, 1), orders=[2],
+                   integrate_over="all", method="gauss_legendre", n_gauss=4)
+
+
+def bits(value):
+    value = complex(value)
+    return [value.real.hex(), value.imag.hex()]
+
+
+pairs = []
+for term in exp.diagrams(2):
+    sp = analyze_spatial(term)
+    pairs.append(_kink_pairs(sp, False, sp.time_orderings,
+                             swept=sp.external_points))
+print(json.dumps({"pairs": pairs, "total": bits(res.total),
+                  "per_diagram": [bits(d["value"]) for d in res.per_diagram]}))
+"""
+
+#: The cuts on a swept ``s`` in two structures where ``s`` takes two cuts:
+#: below ``u`` and ``v``, each also above a fixed external of its own; and
+#: below ``u`` and ``v`` only, which carry the lower cuts made on ``p`` and
+#: ``q``.
+CUT_ORDER = """
+import json
+from types import SimpleNamespace
+
+from sft_wick.evaluate import _constant_bounds, _kink_constant_cuts
+
+
+def cuts(orderings, ivars, fixed, extra=()):
+    points = {p for pair in orderings for p in pair}
+    sp = SimpleNamespace(
+        equal_time_aliases=(), time_integration_vars=ivars,
+        external_points=tuple(sorted((points - set(ivars)) | set(fixed))),
+        time_orderings=orderings, c_propagators=())
+    bounds = _constant_bounds(sp, orderings, fixed, 0.0, 1.9, extra,
+                              swept=("s",), swept_ceiling=1.9)
+    return _kink_constant_cuts(sp, False, bounds, fixed, orderings, (),
+                               extra, swept=("s",))
+
+
+print(json.dumps([
+    cuts([("s", "u"), ("f", "u"), ("s", "v"), ("g", "v")], ("u", "v"),
+         {"f": 0.6, "g": 1.1}),
+    cuts([("p", "u"), ("p", "v"), ("q", "u"), ("s", "u"), ("s", "v")],
+         ("p", "q", "u", "v"), {"f": 1.9},
+         extra=(("p", "ge", 0.5), ("q", "ge", 0.8))),
+]))
+"""
+
+
+def _under_hash_seeds(script: str) -> list:
+    """The JSON ``script`` prints, once per seed of ``HASH_SEEDS``."""
+    src = str(Path(sw.__file__).resolve().parents[1])
+    out = []
+    for seed in HASH_SEEDS:
+        done = subprocess.run(
+            [sys.executable, "-c", script], capture_output=True, text=True,
+            check=False,
+            env={**os.environ, "PYTHONHASHSEED": seed, "PYTHONPATH": src,
+                 "SFT_WICK_QUIET_CACHE": "1"})
+        assert done.returncode == 0, done.stderr
+        out.append(json.loads(done.stdout.strip().splitlines()[-1]))
+    return out
+
+
+def test_the_gauss_legendre_split_does_not_follow_the_hash_seed():
+    """The kink pairs set the order of the orientations, and the
+    orientations are the order in which ``_sum_kink_pieces`` adds the
+    pieces.  The swept externals used to pair in the iteration order of a
+    set of labels, so the pairs and one of the three diagram values followed
+    ``PYTHONHASHSEED``, by 1 ulp.  With NumPy 2.4 the total moved too."""
+    runs = _under_hash_seeds(SWEPT_RESPONSE)
+    assert max(len(pairs) for pairs in runs[0]["pairs"]) == 3
+    assert float.fromhex(runs[0]["total"][0]) != 0.0
+    assert runs == [runs[0]] * len(runs)
+
+
+def test_the_constant_cut_order_does_not_follow_the_hash_seed():
+    """``_sum_kink_pieces`` cuts at ``cuts[0]`` first.  In the first
+    structure the two cuts on ``s`` come from the swept externals of
+    ``_kink_candidates``, in the second from the lower bounds that
+    ``_applied_cut_bounds`` carries; both used to come out in an order
+    set by ``PYTHONHASHSEED``."""
+    runs = _under_hash_seeds(CUT_ORDER)
+    assert [len(cuts) for cuts in runs[0]] == [2, 2]
+    assert runs == [runs[0]] * len(runs)
 
 
 # --------------------------------------------------------------------------

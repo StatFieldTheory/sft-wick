@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8044 tests** in 134 files (parametrised
+The suite has **8046 tests** in 134 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -267,7 +267,7 @@ Propagator numerics
 Integrators
 -----------
 
-*2606 tests in 56 files.*
+*2608 tests in 56 files.*
 
 .. list-table::
    :header-rows: 1
@@ -479,10 +479,10 @@ Integrators
      - 1e-13
      - 7
    * - ``test_kink_split_external_time.py``
-     - a kink between an integration time and an external point pinned at a fixed time is cut, not paired: the variable's range is cut at that time, the cut is carried to the variables ordered against it and to the parents whose min() bound it enters, and no cut is made when every external sits at one time; an external swept by integrate_over pairs like an integration variable instead, and two swept ones pair too, unless the full causal closure (a chain through a fixed external included) orders them; a swept external below a carried lower cut is cut
-     - exact Itô moment hierarchy, transported over the lags between the external times
+     - a kink between an integration time and an external point pinned at a fixed time is cut, not paired: the variable's range is cut at that time, the cut is carried to the variables ordered against it and to the parents whose min() bound it enters, and no cut is made when every external sits at one time; an external swept by integrate_over pairs like an integration variable instead, and two swept ones pair too, unless the full causal closure (a chain through a fixed external included) orders them; a swept external below a carried lower cut is cut; the pairs, the cuts and the values do not depend on PYTHONHASHSEED
+     - exact Itô moment hierarchy, transported over the lags between the external times; runs under eight hash seeds, bit for bit
      - exact / 1e-11
-     - 38
+     - 40
    * - ``test_kink_split_nquad_couplings.py``
      - nquad splits the time domain at kinks as Gauss-Legendre does (white-noise C, matrix R); a coupling callable declaring has_coincident_time_kinks contributes its leg times (raw vertex) or partner times (already_R_contracted), read through the MSR wrapper; equal_time vertices contribute none
      - exact Itô moment hierarchy; the pairs by construction

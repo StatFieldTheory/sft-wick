@@ -809,8 +809,11 @@ def _kink_candidates(
         # contain max(external predecessors), just as upper limits contain
         # min(parents). Resolve the same full closure as the bound mapping;
         # an earlier external can reach the variable through an internal.
+        # Sorted: this order is the order of the pairs, so of the pieces
+        # _sum_kink_pieces adds and of the cut it takes first, and a set of
+        # labels iterates in an order PYTHONHASHSEED sets.
         reachable = _causal_reachability(tuple(orderings))
-        for var in ivars | set(swept):
+        for var in sorted(ivars | set(swept)):
             sources = [
                 v
                 for v in spatial.external_points
@@ -956,6 +959,11 @@ def _applied_cut_bounds(
 
     Empty in, empty out, so a diagram with no cut takes the mapping it
     always took.
+
+    The variables are visited in sorted order, so the keys come in an order
+    fixed by the inputs: :func:`_kink_constant_cuts` reads the lower bounds
+    in that order and :meth:`DiagramIntegrand._sum_kink_pieces` takes the
+    first cut it returns.
     """
     upper, lower = _cut_bounds(extra_bounds)
     if not upper and not lower:
@@ -964,10 +972,10 @@ def _applied_cut_bounds(
     later = _later_sets(ivars, orderings)
     out_up, out_lo = dict(upper), dict(lower)
     for v, t_star in lower.items():
-        for w in later.get(v, ()):  # v ≤ w, so w ≥ t*
+        for w in sorted(later.get(v, ())):  # v ≤ w, so w ≥ t*
             out_lo[w] = max(out_lo[w], t_star) if w in out_lo else t_star
     for v, t_star in upper.items():
-        for u in ivars:
+        for u in sorted(ivars):
             if v in later.get(u, ()):  # u ≤ v, so u ≤ t*
                 out_up[u] = min(out_up[u], t_star) if u in out_up else t_star
     return out_up, out_lo

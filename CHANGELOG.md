@@ -324,6 +324,11 @@ phase, so `response_phase` changes no number.
   not depend on the batch.
 - `integrate_two_point_qmc` reported a NaN error at `n_samples` 2 to 7, and a NaN that
   spread through a sum of diagrams.  All three QMC paths share one error rule.
+- The Gauss-Legendre and `nquad` split at kinks visited sets of time labels, so with
+  externals swept by `integrate_over` the order of the pieces it adds and the first
+  constant cut it takes followed `PYTHONHASHSEED`.  A diagram value, and with NumPy 2.4
+  the total, of an order-2 response with every external swept differed by 1 ulp
+  between two runs of one script.  The labels are now visited in sorted order.
 
 ### Changed: a κ² that is not separable finds its rules on the workers
 
