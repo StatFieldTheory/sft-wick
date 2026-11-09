@@ -1299,10 +1299,10 @@ Three requests are rejected rather than silently mis-answered: a time outside
 the propagator table (see :ref:`table-limits`), an empty list in the grid
 (which would produce no rows), and a point whose ``t_<point>`` column would
 collide with an existing one.  A response observable warns when a response
-point is at a time no other external point can be later than, where its value
-is exactly 0: every external at one time, or an ``integrate_over`` that leaves
-a response point at ``t_final``.  A response point swept by
-``integrate_over`` does not warn.
+point is not earlier than the latest time any physical external point can
+take, where its value is exactly 0: a pinned point sits at its time, any other
+point that ``integrate_over`` does not sweep at ``t_final``.  A response point
+swept by ``integrate_over`` does not warn.  A sweep warns once for the grid.
 
 .. _n-point-sweeps:
 

@@ -462,7 +462,7 @@ def test_WF11_equal_times_still_give_zero_for_a_response(demo1_system):
     assert float(tot["value"].iloc[0]) == pytest.approx(0.0, abs=1e-14)
 
 
-def _wf11_response(demo1_system, entry, integrate_over, T=4.0):
+def _wf11_response(demo1_system, entry, integrate_over, T=4.0, external_times=None):
     """R(x, y) at order 0 through ``evaluate`` or ``sweep`` with both points at
     the origin: the value and the response warnings raised on the way."""
     exp = demo1_system.expand(("phi_a(x)", "psi_b(y)"), orders=[0])
@@ -473,13 +473,18 @@ def _wf11_response(demo1_system, entry, integrate_over, T=4.0):
             value = exp.evaluate(
                 props, positions={"x": 0.0, "y": 0.0}, t_final=T,
                 component_pair=(0, 0), orders=[0],
-                integrate_over=integrate_over, method="nquad",
+                integrate_over=integrate_over, external_times=external_times,
+                method="nquad",
             ).total
         else:
             value = exp.sweep(
                 props, positions_grid={"x": [0.0], "y": [0.0]},
                 t_final_grid=[T], component_pairs=[(0, 0)], orders=[0],
                 integrate_over=integrate_over, method="nquad",
+                external_times_grid=(
+                    None if external_times is None
+                    else {k: [v] for k, v in external_times.items()}
+                ),
             ).totals()["value"].iloc[0]
     warned = [w for w in caught if "response leg" in str(w.message)]
     return complex(value).real, warned
@@ -509,10 +514,37 @@ def test_WF11_a_swept_response_point_is_not_warned_about(
 @pytest.mark.parametrize("entry", ["evaluate", "sweep"])
 def test_WF11_a_held_response_point_is_still_warned_about(demo1_system, entry):
     """Sweeping x alone leaves y at T, the latest time, so no point is later
-    than y, the value is exactly 0 and the warning stays."""
+    than y, the value is exactly 0 and the warning stays, once: ``sweep``
+    warns for the whole grid, not again from each point's ``evaluate``."""
     value, warned = _wf11_response(demo1_system, entry, {"x"})
     assert value == pytest.approx(0.0, abs=1e-14)
-    assert warned
+    assert len(warned) == 1, [str(w.message) for w in warned]
+
+
+@pytest.mark.parametrize("entry", ["evaluate", "sweep"])
+@pytest.mark.parametrize(
+    "external_times, expected",
+    [
+        ({"x": 2.0}, 0.0),
+        ({"x": 5.0}, np.exp(-1.0)),
+        ({"y": 2.0}, np.exp(-2.0)),
+    ],
+    ids=["phi_pinned_earlier", "phi_pinned_past_t_final", "psi_pinned_earlier"],
+)
+def test_WF11_the_warning_compares_the_response_point_with_pinned_points(
+    demo1_system, entry, external_times, expected,
+):
+    """With T = 4 and one point pinned, the other sits at T.  Pinning x at 2
+    leaves y at 4 with nothing later, so the value is exactly 0 and must warn;
+    the warning used to stay quiet there.  Pinning x at 5 or y at 2 puts x
+    after y, the value is R = exp(-(t_x - t_y)), and nothing may warn."""
+    value, warned = _wf11_response(
+        demo1_system, entry, None, external_times=external_times,
+    )
+    assert value == pytest.approx(expected, rel=1e-9, abs=1e-14)
+    assert len(warned) == (1 if expected == 0.0 else 0), [
+        str(w.message) for w in warned
+    ]
 
 
 def test_WF11_default_sweep_is_unchanged(demo1_system):

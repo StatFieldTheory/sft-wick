@@ -295,6 +295,8 @@ def _estimate(cfg, bench_seconds) -> CostEstimate:
             orders=[o],
             vertex_types=None if vt is None else labels_at[o],
             n_samples=n,
+            # One benchmark setting: the sweep warns for the whole grid.
+            _guard_response=False,
             **evaluate_kwargs(cfg),
         )
 

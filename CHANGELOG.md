@@ -218,16 +218,22 @@ display field `response_phase` (not compared), read by `to_latex` and
 `to_latex_evaluated`.  `evaluate_coupling` and the integrators always use the physical
 phase, so `response_phase` changes no number.
 
-### Fixed: the zero-response warning fired on a swept response point
+### Fixed: the zero-response warning on swept, pinned and swept-grid points
 
 `Expansion.evaluate` and `Expansion.sweep` warned that an observable with a response
 leg "will be exactly 0" whenever no `external_times` were given, `integrate_over`
-included.  A swept response point has no single time, and its value is not 0: at
-order 0 with `gamma = 1` and `t_final = 4`, `<phi_a(x) psi_b(y)>` is 3.01832 with
-both points swept and 0.98168 with `y` alone, and both warned.  The warning now
-fires only when a response point is at a time no other external point can be later
-than: every external at one time, or an `integrate_over` that leaves a response
-point at `t_final` (`{"x"}` here, value 0).  No value changes.
+included, and stayed quiet whenever `external_times` pinned some points but not all.
+At order 0 with `gamma = 1` and `t_final = 4`, `<phi_a(x) psi_b(y)>` is 3.01832 with
+both points swept and 0.98168 with `y` alone, and both warned; with `x` pinned at 2
+it is 0, and nothing warned.  The warning now fires when some response point is not
+earlier than the latest time any physical external point can take: a pinned point
+at its time, any other unswept point at `t_final`, a swept point up to the latest of
+`t_final` and the pinned times.  It never fires on a nonzero value: 0 of 320 random
+mixes of pinned, unpinned and swept points of an order-0 four-point response did.
+It can miss a zero that comes from how the response points pair with the physical
+ones.  `sweep` now warns once for its grid, naming how many of its
+`(external times, t_final)` settings are 0, instead of once more from each grid
+point.  No value changes.
 
 ### Changed: other refusals
 

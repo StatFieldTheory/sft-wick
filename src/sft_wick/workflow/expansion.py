@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import collections.abc
 import itertools
+import math
 import numbers
 import string
 import warnings
@@ -72,19 +73,19 @@ def _swept_points(integrate_over, points) -> set[str]:
     return {str(p) for p in integrate_over}
 
 
-def _guard_external_times(expansion, ext_times, integrate_over, label):
-    """Warn when a response leg sits at a point no other external can follow.
+def _held_response_points(
+    expansion, ext_times, integrate_over, t_final, t_min
+) -> list[str]:
+    """The response points of the observable that no physical external point
+    can be later than, at one ``(external_times, t_final)`` setting.
 
     The R chain from an external response leg rises strictly in time and
-    ends at a later external physical point, so such an observable evaluates
-    to EXACTLY 0.  That is the case when every external shares one time, and
-    when ``integrate_over`` leaves a response point out: that point stays at
-    ``t_final`` and the swept points run below it.  A swept response point
-    has no single time, and its value is not 0.
-
-    Before the response field was nameable this config could not be written
-    at all; now the natural first attempt returns a full table of zeros with
-    no hint why.
+    ends at a later external physical point, so one such point makes the
+    value EXACTLY 0.  A point pinned by ``external_times`` sits at its time
+    and any other unswept point at ``t_final``.  A point ``integrate_over``
+    sweeps runs from ``t_min`` to the latest of ``t_final`` and the pinned
+    times, the widest range the integrators can give it, so the test never
+    calls a nonzero value 0.
     """
     response = expansion.system.field.response_name
     legs = [
@@ -93,21 +94,63 @@ def _guard_external_times(expansion, ext_times, integrate_over, label):
         if isinstance(name, str)
     ]
     swept = _swept_points(integrate_over, [sp for _name, sp in legs])
-    held = sorted({sp for name, sp in legs if name == response and sp not in swept})
-    if not held:
+    pinned = {str(k): float(v) for k, v in (ext_times or {}).items()}
+    if not set(pinned) <= {sp for _name, sp in legs} or set(pinned) & swept:
+        # An unknown point, or one both pinned and swept: the evaluation
+        # refuses it, so say nothing here.
+        return []
+    ceiling = max([float(t_final), *pinned.values()])
+
+    def span(sp):
+        if sp in swept:
+            return float(t_min), ceiling
+        t = pinned.get(sp, float(t_final))
+        return t, t
+
+    latest_phi = max(
+        (span(sp)[1] for name, sp in legs if name != response), default=-math.inf
+    )
+    return sorted(
+        {sp for name, sp in legs if name == response and span(sp)[0] >= latest_phi}
+    )
+
+
+def _guard_external_times(expansion, settings, integrate_over, t_min, label):
+    """Warn once when a response point has no later physical external point.
+
+    ``settings`` lists the ``(external_times, t_final)`` pairs the call
+    evaluates: one for ``evaluate``, the grid's distinct pairs for ``sweep``.
+    See :func:`_held_response_points` for the test.
+
+    Before the response field was nameable this config could not be written
+    at all; now the natural first attempt returns a full table of zeros with
+    no hint why.
+    """
+    settings = list(settings)
+    hits = [
+        held
+        for ext_times, t_final in settings
+        if (held := _held_response_points(
+            expansion, ext_times, integrate_over, t_final, t_min
+        ))
+    ]
+    if not hits:
         return
-    if ext_times:
-        times = list(ext_times.values())
-        if len(set(times)) > 1 or len(times) < len(expansion.observable_repr):
-            return
+    points = sorted({sp for held in hits for sp in held})
+    scope = (
+        "every value"
+        if len(hits) == len(settings)
+        else f"the values at {len(hits)} of the {len(settings)} "
+        f"(external times, t_final) settings"
+    )
     warnings.warn(
-        f"{label}: the observable carries a response leg ('{response}') at a "
-        f"point no other external point can be later than "
-        f"({', '.join(held)}), so every value will be exactly 0: the response "
-        f"propagator is retarded and vanishes at equal times.  Pass "
-        f"`external_times_grid={{'x': [t], 'y': [t_prime]}}` (sweep) or "
-        f"`external_times=` (evaluate) to separate the times, or name the "
-        f"point in `integrate_over` to sweep it.",
+        f"{label}: the observable carries a response leg "
+        f"('{expansion.system.field.response_name}') at a point no other "
+        f"external point can be later than ({', '.join(points)}), so {scope} "
+        f"will be exactly 0: the response propagator is retarded and vanishes "
+        f"at equal times.  Pin the point earlier through "
+        f"`external_times_grid` (sweep) or `external_times` (evaluate), or "
+        f"name it in `integrate_over` to sweep it.",
         UserWarning,
         stacklevel=3,
     )
@@ -500,6 +543,7 @@ class Expansion:
         contraction_backend: str = "ordered",
         contraction_max_bytes: int = DEFAULT_CONTRACTION_MAX_BYTES,
         _lookup_cache: Any = None,
+        _guard_response: bool = True,
     ):
         """Integrate the expansion at a single ``(positions, t_final,
         component_pair)`` point.  Returns a :class:`Result`.
@@ -674,9 +718,14 @@ class Expansion:
                 f"but the expansion's system has t_min={t_min}."
             )
 
-        _guard_external_times(
-            self, external_times, integrate_over, "Expansion.evaluate"
-        )
+        if _guard_response:
+            _guard_external_times(
+                self,
+                [(external_times, t_final)],
+                integrate_over,
+                t_min,
+                "Expansion.evaluate",
+            )
         _guard_point_names(
             self, propagators, diagram_terms, positions, "Expansion.evaluate"
         )
@@ -1067,14 +1116,21 @@ class Expansion:
                     for comp in comp_tuples:
                         grid_tasks.append((positions, t_f, ext_times, comp))
 
-        # Warn once per distinct external-times combination rather than once
-        # per grid point, which would bury the message.
-        for _et in {
-            tuple(sorted((ext or {}).items())) for _p, _t, ext, _c in grid_tasks
-        }:
-            _guard_external_times(
-                self, dict(_et) or None, integrate_over, "Expansion.sweep"
-            )
+        # Warn once for the whole grid rather than once per grid point, which
+        # would bury the message; each point's ``evaluate`` is told not to.
+        _settings = sorted(
+            {
+                (tuple(sorted((ext or {}).items())), float(t_f))
+                for _p, t_f, ext, _c in grid_tasks
+            }
+        )
+        _guard_external_times(
+            self,
+            [(dict(_et) or None, t_f) for _et, t_f in _settings],
+            integrate_over,
+            float(self.system.t_min),
+            "Expansion.sweep",
+        )
 
         # A spatially structureless cache returns the same C at every
         # separation, so a positions sweep yields a column of identical
@@ -1153,6 +1209,7 @@ class Expansion:
                 n_gauss=n_gauss,
                 _progress_tick=tick,
                 _prepared=prepared.get(comp),
+                _guard_response=False,
                 gl_chunk_size=gl_chunk_size,
                 **(
                     {}
