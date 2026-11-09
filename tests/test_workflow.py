@@ -462,6 +462,179 @@ def test_WF11_equal_times_still_give_zero_for_a_response(demo1_system):
     assert float(tot["value"].iloc[0]) == pytest.approx(0.0, abs=1e-14)
 
 
+def _wf11_response(demo1_system, entry, integrate_over, T=4.0, external_times=None):
+    """R(x, y) at order 0 through ``evaluate`` or ``sweep`` with both points at
+    the origin: the value and the response warnings raised on the way."""
+    exp = demo1_system.expand(("phi_a(x)", "psi_b(y)"), orders=[0])
+    props = _wf11_props(demo1_system)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        if entry == "evaluate":
+            value = exp.evaluate(
+                props, positions={"x": 0.0, "y": 0.0}, t_final=T,
+                component_pair=(0, 0), orders=[0],
+                integrate_over=integrate_over, external_times=external_times,
+                method="nquad",
+            ).total
+        else:
+            value = exp.sweep(
+                props, positions_grid={"x": [0.0], "y": [0.0]},
+                t_final_grid=[T], component_pairs=[(0, 0)], orders=[0],
+                integrate_over=integrate_over, method="nquad",
+                external_times_grid=(
+                    None if external_times is None
+                    else {k: [v] for k, v in external_times.items()}
+                ),
+            ).totals()["value"].iloc[0]
+    warned = [w for w in caught if "response leg" in str(w.message)]
+    return complex(value).real, warned
+
+
+@pytest.mark.parametrize("entry", ["evaluate", "sweep"])
+@pytest.mark.parametrize(
+    "integrate_over, closed_form",
+    [("all", lambda T: T - 1.0 + np.exp(-T)), ({"y"}, lambda T: 1.0 - np.exp(-T))],
+    ids=["all", "psi_point"],
+)
+def test_WF11_a_swept_response_point_is_not_warned_about(
+    demo1_system, entry, integrate_over, closed_form,
+):
+    """With the time of y swept over [0, T] the value is not 0, so the
+    equal-time warning must not fire.
+
+    R(t_x, t_y) = exp(-(t_x - t_y)) for t_y < t_x integrates to
+    T - 1 + exp(-T) with both points swept and to 1 - exp(-T) with y alone
+    (x at T).  The warning used to fire on both.
+    """
+    value, warned = _wf11_response(demo1_system, entry, integrate_over)
+    assert value == pytest.approx(closed_form(4.0), rel=1e-9, abs=0.0)
+    assert not warned, [str(w.message) for w in warned]
+
+
+@pytest.mark.parametrize("entry", ["evaluate", "sweep"])
+def test_WF11_a_held_response_point_is_still_warned_about(demo1_system, entry):
+    """Sweeping x alone leaves y at T, the latest time, so no point is later
+    than y, the value is exactly 0 and the warning stays, once: ``sweep``
+    warns for the whole grid, not again from each point's ``evaluate``."""
+    value, warned = _wf11_response(demo1_system, entry, {"x"})
+    assert value == pytest.approx(0.0, abs=1e-14)
+    assert len(warned) == 1, [str(w.message) for w in warned]
+
+
+@pytest.mark.parametrize("entry", ["evaluate", "sweep"])
+@pytest.mark.parametrize(
+    "external_times, expected",
+    [
+        ({"x": 2.0}, 0.0),
+        ({"x": 5.0}, np.exp(-1.0)),
+        ({"y": 2.0}, np.exp(-2.0)),
+    ],
+    ids=["phi_pinned_earlier", "phi_pinned_past_t_final", "psi_pinned_earlier"],
+)
+def test_WF11_the_warning_compares_the_response_point_with_pinned_points(
+    demo1_system, entry, external_times, expected,
+):
+    """With T = 4 and one point pinned, the other sits at T.  Pinning x at 2
+    leaves y at 4 with nothing later, so the value is exactly 0 and must warn;
+    the warning used to stay quiet there.  Pinning x at 5 or y at 2 puts x
+    after y, the value is R = exp(-(t_x - t_y)), and nothing may warn."""
+    value, warned = _wf11_response(
+        demo1_system, entry, None, external_times=external_times,
+    )
+    assert value == pytest.approx(expected, rel=1e-9, abs=1e-14)
+    assert len(warned) == (1 if expected == 0.0 else 0), [
+        str(w.message) for w in warned
+    ]
+
+
+def test_WF11_a_sweep_counts_the_settings_that_are_zero(demo1_system):
+    """x pinned at 2.5 is later than y at T = 2, where R = exp(-0.5), and
+    earlier than y at T = 3, where the value is 0.  The sweep warns once and
+    names one of its two settings."""
+    exp = demo1_system.expand(("phi_a(x)", "psi_b(y)"), orders=[0])
+    props = _wf11_props(demo1_system)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        tot = exp.sweep(
+            props, positions_grid={"x": [0.0], "y": [0.0]},
+            t_final_grid=[2.0, 3.0], external_times_grid={"x": [2.5]},
+            component_pairs=[(0, 0)], orders=[0], method="nquad",
+        ).totals()
+    warned = [str(w.message) for w in caught if "response leg" in str(w.message)]
+    assert len(warned) == 1 and "1 of the 2" in warned[0], warned
+    values = {float(t): complex(v).real for t, v in zip(tot["t_final"], tot["value"])}
+    assert values[2.0] == pytest.approx(np.exp(-0.5), rel=1e-9, abs=0.0)
+    assert values[3.0] == pytest.approx(0.0, abs=1e-14)
+
+
+@pytest.mark.parametrize("entry", ["evaluate", "sweep", "integrate_diagrams"])
+def test_WF11_integrate_over_may_be_a_one_shot_iterator(demo1_system, entry):
+    """A generator of point names is read once.  With y swept, R integrates
+    to 1 - exp(-T).  The guard read the generator before the integrators, so
+    ``evaluate`` returned 0, and every grid point of a sweep after the first,
+    and every diagram of ``integrate_diagrams`` after the first, held y at
+    t_final.  ``integrate_diagrams`` gets the one diagram twice here."""
+    from sft_wick.evaluate import integrate_diagrams
+    from sft_wick.workflow.expansion import _component_indices
+
+    exp = demo1_system.expand(("phi_a(x)", "psi_b(y)"), orders=[0])
+    props = _wf11_props(demo1_system)
+    names = (p for p in ["y"])
+    if entry == "evaluate":
+        got = {4.0: exp.evaluate(
+            props, positions={"x": 0.0, "y": 0.0}, t_final=4.0,
+            component_pair=(0, 0), orders=[0], integrate_over=names,
+            method="nquad",
+        ).total}
+        expected = {4.0: 1.0 - np.exp(-4.0)}
+    elif entry == "sweep":
+        tot = exp.sweep(
+            props, positions_grid={"x": [0.0], "y": [0.0]},
+            t_final_grid=[3.0, 4.0], component_pairs=[(0, 0)], orders=[0],
+            integrate_over=names, method="nquad",
+        ).totals()
+        got = dict(zip(tot["t_final"], tot["value"]))
+        expected = {T: 1.0 - np.exp(-T) for T in (3.0, 4.0)}
+    else:
+        term = exp.diagrams(0)[0]
+        got = {4.0: integrate_diagrams(
+            [term, term], coupling_values=demo1_system.build_coupling_values(),
+            lambda_f=4.0, cache=props.cache, t_min=0.0, method="nquad",
+            fixed_indices=_component_indices((0, 0), exp.observable_repr),
+            positions={"x": 0.0, "y": 0.0}, integrate_over=names,
+        )[0]}
+        expected = {4.0: 2.0 * (1.0 - np.exp(-4.0))}
+    assert sorted(got) == sorted(expected)
+    for T, value in got.items():
+        assert complex(value).real == pytest.approx(expected[T], rel=1e-9, abs=0.0)
+
+
+def test_WF11_a_dry_run_warns_as_the_run_would(tmp_path):
+    """``sft-wick run --dry-run`` benchmarks one setting with the warning
+    off, so it warns for the grid itself.  With y held at t_final every value
+    is 0, and the dry run used to say nothing."""
+    from pathlib import Path
+
+    import yaml
+
+    from sft_wick.workflow.config import load_workflow_config
+    from sft_wick.workflow.estimate import estimate_cost
+
+    doc = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / "examples" / "quickstart.yaml")
+        .read_text()
+    )
+    doc["expand"] = {"observable": ["phi_a(x)", "psi_b(y)"], "orders": [0]}
+    doc["sweep"]["positions_grid"] = {"x": [0.0], "y": [0.0]}
+    path = tmp_path / "held.yaml"
+    path.write_text(yaml.safe_dump(doc, sort_keys=False))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        estimate_cost(load_workflow_config(str(path)))
+    warned = [str(w.message) for w in caught if "response leg" in str(w.message)]
+    assert len(warned) == 1 and "every value" in warned[0], warned
+
+
 def test_WF11_default_sweep_is_unchanged(demo1_system):
     """Omitting `external_times_grid` must reproduce the old rows exactly.
 

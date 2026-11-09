@@ -200,6 +200,17 @@ def _estimate(cfg, bench_seconds) -> CostEstimate:
     )
     n_grid = grid_points(sw)
     n_sep = _distinct_separations(sw.positions_grid)
+    # The benchmark below evaluates one setting and does not warn, so the
+    # warning the run gives for its grid is given here.
+    from .expansion import _guard_external_times, _time_settings
+
+    _guard_external_times(
+        expansion,
+        _time_settings(sw.t_final_grid, sw.external_times_grid),
+        sw.integrate_over,
+        float(system.t_min),
+        "Expansion.sweep",
+    )
 
     # Resolve the C path as the run would.
     pc = cfg.propagators
@@ -295,6 +306,8 @@ def _estimate(cfg, bench_seconds) -> CostEstimate:
             orders=[o],
             vertex_types=None if vt is None else labels_at[o],
             n_samples=n,
+            # One benchmark setting: _estimate warns for the whole grid.
+            _guard_response=False,
             **evaluate_kwargs(cfg),
         )
 

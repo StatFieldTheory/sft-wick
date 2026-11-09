@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8044 tests** in 134 files (parametrised
+The suite has **8061 tests** in 134 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -562,7 +562,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*2100 tests in 30 files.*
+*2117 tests in 30 files.*
 
 .. list-table::
    :header-rows: 1
@@ -687,7 +687,7 @@ Workflow and YAML
      - System / Expansion / Propagators / SweepResult surface; end-to-end vs the raw API; two-time sweeps
      - raw L0 pipeline (validate_phase5); closed forms
      - 1e-6
-     - 32
+     - 49
    * - ``test_workflow_cli.py``
      - sft-wick config errors: exit status 2 and one stderr line with code, dotted path and suggestion, malformed observables included; a line with a code and a reason for a file YAML cannot read; validate, schema and --print-resolved; overrides of keys the file leaves out; SFT_WICK_STRICT=0; the ConfigError / OverrideError types
      - the parsed config; an edited copy of the file; a real subprocess for the exit status

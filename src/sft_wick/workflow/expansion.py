@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import collections.abc
 import itertools
+import math
 import numbers
 import string
 import warnings
@@ -61,35 +62,115 @@ def _check_sweep_columns(pos_keys, et_keys, comp_cols) -> None:
         )
 
 
-def _guard_external_times(expansion, ext_times, label):
-    """Warn when a response leg's externals share a time.
+def _swept_points(integrate_over, points) -> set[str]:
+    """The external points ``integrate_over`` sweeps.  An unknown name or a
+    string other than ``"all"`` is left to
+    :func:`sft_wick.evaluate._resolve_integrate_over` to refuse."""
+    if integrate_over is None:
+        return set()
+    if isinstance(integrate_over, str):
+        return set(points) if integrate_over == "all" else set()
+    return {str(p) for p in integrate_over}
 
-    Such an observable evaluates to EXACTLY 0 (Theta kills the R joining
-    them).  Before the response field was nameable this config could not be
-    written at all; now the natural first attempt returns a full table of
-    zeros with no hint why.
+
+def _held_response_points(
+    expansion, ext_times, integrate_over, t_final, t_min
+) -> list[str]:
+    """The response points of the observable that no physical external point
+    can be later than, at one ``(external_times, t_final)`` setting.
+
+    The R chain from an external response leg rises strictly in time and
+    ends at a later external physical point, so one such point makes the
+    value EXACTLY 0.  A point pinned by ``external_times`` sits at its time
+    and any other unswept point at ``t_final``.  A point ``integrate_over``
+    sweeps runs from ``t_min`` to the latest of ``t_final`` and the pinned
+    times, the widest range the integrators can give it, so the test never
+    calls a nonzero value 0.
     """
-    has_psi = any(
-        name == expansion.system.field.response_name
-        for (name, _comp, _sp) in (expansion.observable_repr or ())
+    response = expansion.system.field.response_name
+    legs = [
+        (name, str(sp))
+        for (name, _comp, sp) in (expansion.observable_repr or ())
         if isinstance(name, str)
+    ]
+    swept = _swept_points(integrate_over, [sp for _name, sp in legs])
+    pinned = {str(k): float(v) for k, v in (ext_times or {}).items()}
+    if not set(pinned) <= {sp for _name, sp in legs} or set(pinned) & swept:
+        # An unknown point, or one both pinned and swept: the evaluation
+        # refuses it, so say nothing here.
+        return []
+    ceiling = max([float(t_final), *pinned.values()])
+
+    def span(sp):
+        if sp in swept:
+            return float(t_min), ceiling
+        t = pinned.get(sp, float(t_final))
+        return t, t
+
+    latest_phi = max(
+        (span(sp)[1] for name, sp in legs if name != response), default=-math.inf
     )
-    if has_psi:
-        times = list((ext_times or {}).values())
-        if not ext_times or (
-            len(set(times)) <= 1 and len(times) >= len(expansion.observable_repr)
-        ):
-            warnings.warn(
-                f"{label}: the observable carries a response leg "
-                f"('{expansion.system.field.response_name}') but its external "
-                f"points are all at the same time, so every value will be "
-                f"exactly 0 -- the response propagator is retarded and "
-                f"vanishes at equal times.  Pass "
-                f"`external_times_grid={{'x': [t], 'y': [t_prime]}}` (sweep) "
-                f"or `external_times=` (evaluate) to separate them.",
-                UserWarning,
-                stacklevel=3,
-            )
+    return sorted(
+        {sp for name, sp in legs if name == response and span(sp)[0] >= latest_phi}
+    )
+
+
+def _guard_external_times(expansion, settings, integrate_over, t_min, label):
+    """Warn once when a response point has no later physical external point.
+
+    ``settings`` lists the ``(external_times, t_final)`` pairs the call
+    evaluates: one for ``evaluate``, the grid's distinct pairs for ``sweep``.
+    See :func:`_held_response_points` for the test.
+
+    Before the response field was nameable this config could not be written
+    at all; now the natural first attempt returns a full table of zeros with
+    no hint why.
+    """
+    settings = list(settings)
+    hits = [
+        held
+        for ext_times, t_final in settings
+        if (held := _held_response_points(
+            expansion, ext_times, integrate_over, t_final, t_min
+        ))
+    ]
+    if not hits:
+        return
+    points = sorted({sp for held in hits for sp in held})
+    scope = (
+        "every value"
+        if len(hits) == len(settings)
+        else f"the values at {len(hits)} of the {len(settings)} "
+        f"(external times, t_final) settings"
+    )
+    field = expansion.system.field
+    warnings.warn(
+        f"{label}: the observable carries a response leg "
+        f"('{field.response_name}') at a point no external "
+        f"'{field.name}' point can be later than ({', '.join(points)}), so "
+        f"{scope} will be exactly 0: the response propagator is retarded and "
+        f"needs a '{field.name}' point later than its response point.  Pin "
+        f"the response point earlier, or a '{field.name}' point later, through "
+        f"`external_times_grid` (sweep) or `external_times` (evaluate), or "
+        f"name a held response point in `integrate_over` to sweep it.",
+        UserWarning,
+        stacklevel=3,
+    )
+
+
+def _time_settings(t_final_grid, external_times_grid) -> list[tuple[dict | None, float]]:
+    """The distinct ``(external_times, t_final)`` pairs of a sweep grid, in
+    sorted order: ``external_times`` is ``None`` when nothing is pinned."""
+    keys = list(external_times_grid or {})
+    combos = list(itertools.product(*(external_times_grid[k] for k in keys)))
+    distinct = sorted(
+        {
+            (tuple(sorted(zip(keys, combo))), float(t_f))
+            for t_f in t_final_grid
+            for combo in combos
+        }
+    )
+    return [(dict(pinned) or None, t_f) for pinned, t_f in distinct]
 
 
 def _refuse_outside(times, lo, hi, late_text, early_text) -> None:
@@ -479,6 +560,7 @@ class Expansion:
         contraction_backend: str = "ordered",
         contraction_max_bytes: int = DEFAULT_CONTRACTION_MAX_BYTES,
         _lookup_cache: Any = None,
+        _guard_response: bool = True,
     ):
         """Integrate the expansion at a single ``(positions, t_final,
         component_pair)`` point.  Returns a :class:`Result`.
@@ -591,7 +673,7 @@ class Expansion:
                 :doc:`/user_guide/workflow` for memory and callback limits.
         """
         from .result import Result
-        from sft_wick.evaluate import _execution_options
+        from sft_wick.evaluate import _execution_options, _read_integrate_over_once
 
         execution = _execution_options(
             propagator_cache_bytes,
@@ -599,6 +681,8 @@ class Expansion:
             contraction_backend,
             contraction_max_bytes,
         )
+        # The guard reads it before the integrators do.
+        integrate_over = _read_integrate_over_once(integrate_over)
 
         # Collect tasks (diagram_term + metadata) up-front, in stable order,
         # then dispatch the whole batch to ``integrate_diagrams`` which handles
@@ -653,7 +737,14 @@ class Expansion:
                 f"but the expansion's system has t_min={t_min}."
             )
 
-        _guard_external_times(self, external_times, "Expansion.evaluate")
+        if _guard_response:
+            _guard_external_times(
+                self,
+                [(external_times, t_final)],
+                integrate_over,
+                t_min,
+                "Expansion.evaluate",
+            )
         _guard_point_names(
             self, propagators, diagram_terms, positions, "Expansion.evaluate"
         )
@@ -769,8 +860,9 @@ class Expansion:
                 observables: with every external at one time, Θ kills the R
                 joining them and any observable carrying a response leg is
                 identically 0.  Each named point adds a ``t_<point>`` column
-                to the result rows.  Omit to pin everything at ``t_final``,
-                which reproduces the pre-existing rows exactly.  Every grid
+                to the result rows.  Omit to pin every external that
+                ``integrate_over`` does not sweep at ``t_final``, which
+                reproduces the pre-existing rows exactly.  Every grid
                 point is checked against the propagator table before the
                 first is integrated; see :ref:`table-limits`.
             component_pairs: the older name of ``component_tuples``,
@@ -838,7 +930,7 @@ class Expansion:
         Returns:
             :class:`SweepResult` with a pandas-friendly tidy table.
         """
-        from sft_wick.evaluate import _execution_options
+        from sft_wick.evaluate import _execution_options, _read_integrate_over_once
 
         execution = _execution_options(
             propagator_cache_bytes,
@@ -859,7 +951,8 @@ class Expansion:
                 component_tuples=component_tuples,
                 orders=orders,
                 vertex_types=vertex_types,
-                integrate_over=integrate_over,
+                # The guard and every grid point read it.
+                integrate_over=_read_integrate_over_once(integrate_over),
                 method=method,
                 n_samples=n_samples,
                 seed=seed,
@@ -1044,12 +1137,15 @@ class Expansion:
                     for comp in comp_tuples:
                         grid_tasks.append((positions, t_f, ext_times, comp))
 
-        # Warn once per distinct external-times combination rather than once
-        # per grid point, which would bury the message.
-        for _et in {
-            tuple(sorted((ext or {}).items())) for _p, _t, ext, _c in grid_tasks
-        }:
-            _guard_external_times(self, dict(_et) or None, "Expansion.sweep")
+        # Warn once for the whole grid rather than once per grid point, which
+        # would bury the message; each point's ``evaluate`` is told not to.
+        _guard_external_times(
+            self,
+            _time_settings(t_final_grid, external_times_grid),
+            integrate_over,
+            float(self.system.t_min),
+            "Expansion.sweep",
+        )
 
         # A spatially structureless cache returns the same C at every
         # separation, so a positions sweep yields a column of identical
@@ -1128,6 +1224,7 @@ class Expansion:
                 n_gauss=n_gauss,
                 _progress_tick=tick,
                 _prepared=prepared.get(comp),
+                _guard_response=False,
                 gl_chunk_size=gl_chunk_size,
                 **(
                     {}
