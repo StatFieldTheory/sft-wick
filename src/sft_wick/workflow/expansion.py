@@ -143,17 +143,34 @@ def _guard_external_times(expansion, settings, integrate_over, t_min, label):
         else f"the values at {len(hits)} of the {len(settings)} "
         f"(external times, t_final) settings"
     )
+    field = expansion.system.field
     warnings.warn(
         f"{label}: the observable carries a response leg "
-        f"('{expansion.system.field.response_name}') at a point no other "
-        f"external point can be later than ({', '.join(points)}), so {scope} "
-        f"will be exactly 0: the response propagator is retarded and vanishes "
-        f"at equal times.  Pin the point earlier through "
+        f"('{field.response_name}') at a point no external "
+        f"'{field.name}' point can be later than ({', '.join(points)}), so "
+        f"{scope} will be exactly 0: the response propagator is retarded and "
+        f"needs a '{field.name}' point later than its response point.  Pin "
+        f"the response point earlier, or a '{field.name}' point later, through "
         f"`external_times_grid` (sweep) or `external_times` (evaluate), or "
-        f"name it in `integrate_over` to sweep it.",
+        f"name a held response point in `integrate_over` to sweep it.",
         UserWarning,
         stacklevel=3,
     )
+
+
+def _time_settings(t_final_grid, external_times_grid) -> list[tuple[dict | None, float]]:
+    """The distinct ``(external_times, t_final)`` pairs of a sweep grid, in
+    sorted order: ``external_times`` is ``None`` when nothing is pinned."""
+    keys = list(external_times_grid or {})
+    combos = list(itertools.product(*(external_times_grid[k] for k in keys)))
+    distinct = sorted(
+        {
+            (tuple(sorted(zip(keys, combo))), float(t_f))
+            for t_f in t_final_grid
+            for combo in combos
+        }
+    )
+    return [(dict(pinned) or None, t_f) for pinned, t_f in distinct]
 
 
 def _refuse_outside(times, lo, hi, late_text, early_text) -> None:
@@ -656,7 +673,7 @@ class Expansion:
                 :doc:`/user_guide/workflow` for memory and callback limits.
         """
         from .result import Result
-        from sft_wick.evaluate import _execution_options
+        from sft_wick.evaluate import _execution_options, _read_integrate_over_once
 
         execution = _execution_options(
             propagator_cache_bytes,
@@ -664,6 +681,8 @@ class Expansion:
             contraction_backend,
             contraction_max_bytes,
         )
+        # The guard reads it before the integrators do.
+        integrate_over = _read_integrate_over_once(integrate_over)
 
         # Collect tasks (diagram_term + metadata) up-front, in stable order,
         # then dispatch the whole batch to ``integrate_diagrams`` which handles
@@ -841,8 +860,9 @@ class Expansion:
                 observables: with every external at one time, Θ kills the R
                 joining them and any observable carrying a response leg is
                 identically 0.  Each named point adds a ``t_<point>`` column
-                to the result rows.  Omit to pin everything at ``t_final``,
-                which reproduces the pre-existing rows exactly.  Every grid
+                to the result rows.  Omit to pin every external that
+                ``integrate_over`` does not sweep at ``t_final``, which
+                reproduces the pre-existing rows exactly.  Every grid
                 point is checked against the propagator table before the
                 first is integrated; see :ref:`table-limits`.
             component_pairs: the older name of ``component_tuples``,
@@ -910,7 +930,7 @@ class Expansion:
         Returns:
             :class:`SweepResult` with a pandas-friendly tidy table.
         """
-        from sft_wick.evaluate import _execution_options
+        from sft_wick.evaluate import _execution_options, _read_integrate_over_once
 
         execution = _execution_options(
             propagator_cache_bytes,
@@ -931,7 +951,8 @@ class Expansion:
                 component_tuples=component_tuples,
                 orders=orders,
                 vertex_types=vertex_types,
-                integrate_over=integrate_over,
+                # The guard and every grid point read it.
+                integrate_over=_read_integrate_over_once(integrate_over),
                 method=method,
                 n_samples=n_samples,
                 seed=seed,
@@ -1118,15 +1139,9 @@ class Expansion:
 
         # Warn once for the whole grid rather than once per grid point, which
         # would bury the message; each point's ``evaluate`` is told not to.
-        _settings = sorted(
-            {
-                (tuple(sorted((ext or {}).items())), float(t_f))
-                for _p, t_f, ext, _c in grid_tasks
-            }
-        )
         _guard_external_times(
             self,
-            [(dict(_et) or None, t_f) for _et, t_f in _settings],
+            _time_settings(t_final_grid, external_times_grid),
             integrate_over,
             float(self.system.t_min),
             "Expansion.sweep",

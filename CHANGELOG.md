@@ -138,6 +138,7 @@ No value of a declared kernel moves.
 | A negative kernel width at L1 | a kernel growing with `abs(dt)`, a factor 52 | `ValueError` naming the width |
 | A point left out of `positions`, or misspelt, beside a located one | 30 percent off at order 0, 45 at order 2 | `ValueError` |
 | `n_samples: 4096.9`, `seed: 1.5`, `t_max: true` in YAML | truncated, or read as 1 | refused at the key |
+| `integrate_over` given as a one-shot iterator (a generator, `iter(...)`) | every grid point of a sweep and every diagram of `integrate_diagrams` after the first held the named points at `t_final`: order 0 of `<phi_a(x) psi_b(y)>` with `y` swept, 0.9502 and 0 over `t_final_grid = [3, 4]` against 0.9502 and 0.9817 | read once into a tuple by `Expansion.evaluate`, `Expansion.sweep` and `integrate_diagrams` |
 
 The positions check is narrower than a required key: an extra name beside a position
 for every point, `{}`, all positions 0 with a point left out, a point sharing an R
@@ -233,7 +234,10 @@ mixes of pinned, unpinned and swept points of an order-0 four-point response did
 It can miss a zero that comes from how the response points pair with the physical
 ones.  `sweep` now warns once for its grid, naming how many of its
 `(external times, t_final)` settings are 0, instead of once more from each grid
-point.  No value changes.
+point, and `sft-wick run --dry-run` gives the same warning for the grid.  The
+message no longer says the response propagator vanishes at equal times: it says
+which points have no later physical point, and that pinning a physical point later
+also helps.  No value changes.
 
 ### Changed: other refusals
 

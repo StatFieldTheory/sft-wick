@@ -3761,6 +3761,19 @@ def _rotation_cos(x1, x2) -> float:
     return float(np.dot(v1, v2) / (n1 * n2))
 
 
+def _read_integrate_over_once(integrate_over: Any) -> Any:
+    """``integrate_over`` with an iterable of names read into a tuple.
+
+    Each diagram, grid point and check reads ``integrate_over`` again, so a
+    one-shot iterator (a generator, ``iter(...)``, ``map``) is empty for
+    every reader after the first, and that reader holds every external at
+    its time.  ``None`` and strings pass unchanged.
+    """
+    if integrate_over is None or isinstance(integrate_over, str):
+        return integrate_over
+    return tuple(integrate_over)
+
+
 def _resolve_integrate_over(
     integrate_over: Any,
     ext_vars: list[str],
@@ -9600,7 +9613,7 @@ def integrate_diagrams(
             fixed_indices=fixed_indices,
             n_jobs=n_jobs,
             positions=positions,
-            integrate_over=integrate_over,
+            integrate_over=_read_integrate_over_once(integrate_over),
             n_gauss=n_gauss,
             external_times=external_times,
             progress_tick=progress_tick,

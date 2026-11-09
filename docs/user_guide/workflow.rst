@@ -1298,11 +1298,14 @@ is the bare propagator ``exp(-gamma (t - t'))``:
 Three requests are rejected rather than silently mis-answered: a time outside
 the propagator table (see :ref:`table-limits`), an empty list in the grid
 (which would produce no rows), and a point whose ``t_<point>`` column would
-collide with an existing one.  A response observable warns when a response
-point is not earlier than the latest time any physical external point can
-take, where its value is exactly 0: a pinned point sits at its time, any other
-point that ``integrate_over`` does not sweep at ``t_final``.  A response point
-swept by ``integrate_over`` does not warn.  A sweep warns once for the grid.
+collide with an existing one.  A response observable warns when its value is
+exactly 0 because no physical external point can be later than one of its
+response points: when the earliest time that response point can take is not
+earlier than the latest time every physical point can take.  A pinned point
+sits at its time, a point that ``integrate_over`` sweeps runs from ``t_min`` to
+the latest of ``t_final`` and the pinned times, and any other point sits at
+``t_final``.  A sweep warns once for its grid, and ``sft-wick run --dry-run``
+warns as the run would.
 
 .. _n-point-sweeps:
 
