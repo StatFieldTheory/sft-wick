@@ -5,9 +5,11 @@ sft-wick.
 reach the package's code by any import.  The AST walk checks each file's own
 imports, with relative imports resolved: the oracle may import the standard
 library, numpy, scipy, yaml, hypothesis, the two engines in
-``examples/reference`` and its own modules other than the lowering.  Only
-``validation/lower.py`` and ``validation/lower_v042.py`` (the lowering onto a
-release) may import sft_wick, and no other oracle module may import them.  A
+``examples/reference`` and its own modules other than the package side.  The
+package side is ``validation/lower.py`` and ``validation/lower_v042.py`` (the
+lowering onto a release), the only modules that may import sft_wick, and
+``validation/worker.py``, which runs a lowering in its own process; no other
+oracle module may import any of them, by a relative or an absolute name.  A
 subprocess then imports every other oracle module, runs the oracle on a
 case of every demo and on a model with every noise block, and checks that
 no sft_wick module was loaded on the way, which catches an import made by a
@@ -24,13 +26,13 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINES = ("ito_moments", "hormander_moments")
-LOWERING = ("lower.py", "lower_v042.py")
+PACKAGE_SIDE = ("lower.py", "lower_v042.py", "worker.py")
 ALLOWED = {"numpy", "scipy", "yaml", "hypothesis", "validation", *ENGINES}
 
 
 def _oracle_files() -> list:
     files = [f for f in sorted((ROOT / "validation").glob("*.py"))
-             if f.name not in LOWERING]
+             if f.name not in PACKAGE_SIDE]
     return files + [ROOT / "examples" / "reference" / f"{name}.py"
                     for name in ENGINES]
 
@@ -60,6 +62,8 @@ def _imports(path: Path, package: str = "validation") -> list:
         elif isinstance(node, ast.ImportFrom):
             if node.level == 0:
                 out.append((node.lineno, node.module))
+                out += [(node.lineno, f"{node.module}.{a.name}")
+                        for a in node.names if a.name != "*"]
             elif node.level > 1:
                 out.append((node.lineno, "<beyond the package>"))
             elif node.module:
@@ -78,8 +82,8 @@ def _forbidden(module: str) -> bool:
     top = module.split(".")[0]
     if top not in ALLOWED and top not in sys.stdlib_module_names:
         return True
-    lowering = {f"validation.{name[:-3]}" for name in LOWERING}
-    return any(module == m or module.startswith(m + ".") for m in lowering)
+    side = {f"validation.{name[:-3]}" for name in PACKAGE_SIDE}
+    return any(module == m or module.startswith(m + ".") for m in side)
 
 
 def test_VI1_the_oracle_files_import_only_allowed_modules():
@@ -103,11 +107,21 @@ def test_VI2_the_ast_walk_sees_each_spelling_of_an_import(tmp_path):
                      "from .lower import to_system\n"
                      "from validation.lower_v042 import to_system\n"
                      "from . import lower\n"
-                     "from .. import outside\n")
+                     "from .. import outside\n"
+                     "from validation import lower\n"
+                     "from validation import lower_v042 as L\n"
+                     "from validation import worker, modelspec\n"
+                     "from . import stages\n")
     found = [module for _, module in _imports(probe)]
     assert [m for m in found if m.startswith("sft_wick")] == [
-        "sft_wick.evaluate", "sft_wick", "sft_wick.workflow", "sft_wick"]
-    assert sum(_forbidden(m) for m in found) == 8
+        "sft_wick.evaluate", "sft_wick", "sft_wick.System",
+        "sft_wick.workflow", "sft_wick"]
+    assert sorted(m for m in found if _forbidden(m)) == sorted([
+        "sft_wick.evaluate", "sft_wick", "sft_wick.System",
+        "sft_wick.workflow", "sft_wick", "validation.lower",
+        "validation.lower_v042", "validation.lower_v042.to_system",
+        "validation.lower", "<beyond the package>", "validation.lower",
+        "validation.lower_v042", "validation.worker"])
     assert not _forbidden("validation.modelspec")
     assert not _forbidden("validation.lowering_notes")
 

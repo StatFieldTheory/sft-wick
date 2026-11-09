@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8142 tests** in 137 files (parametrised
+The suite has **8242 tests** in 140 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -267,7 +267,7 @@ Propagator numerics
 Integrators
 -----------
 
-*2687 tests in 59 files.*
+*2787 tests in 62 files.*
 
 .. list-table::
    :header-rows: 1
@@ -553,20 +553,35 @@ Integrators
      - closed-form spectral C of a two-node density; the erf and Gauss-Legendre C of test_custom_cache_aliasing; the same subclass without the write or the buffer; the plain cache
      - 1e-13 (closed form); 2e-4 through the 16 x 16 table; 1e-12; bit equality
      - 43
+   * - ``test_validation_demo_package.py``
+     - the package values committed for demos 4, 5 and 7, rebuilt from a ModelSpec through validation/lower.py: the 1,497 values whose route the lowering shares are counted, and up to five deterministic evaluations per demo part and integrator are rerun, covering every tag of demo 4's case table and a two-time case with distinct components
+     - the demos' results files; the oracle
+     - 1e-12 relative; stored zeros to 1e-15; the declared tolerance against the oracle
+     - 11
    * - ``test_validation_demos.py``
      - every hierarchy value committed for demos 4, 5 (parts A and C) and 7 (items a-e), 1,772 values, rebuilt from a ModelSpec with the oracle's own state layout and channel tags; demo 4 level A at F = 0 and its four-point joint cumulant
      - the demos' results files; Campbell's theorem (examples/demo4/poisson_noise.py)
      - 1e-12 relative; stored zeros to 1e-15
      - 11
    * - ``test_validation_hierarchy.py``
-     - the oracle's ModelSpec compiler (validation/hierarchy.py; no sft-wick code) on what no demo exercises: OU blocks loaded onto both components, shared white noise, two positions, two-time and integrated legs, t_min != 0; a constant source, static cumulants of orders 1-3 and a white cumulant with no index symmetry, the joint cumulant; multiplicative noise at two positions; two independent initial-law families; the spatial kernels in 2-D and 3-D; the termination guard, JSON round trip, refusals
-     - Lyapunov equation by scipy.linalg.expm; closed forms; exact identities (shared noise, a deterministic shift)
-     - 1e-12 (1e-13 for the mean, 1e-14 for the kernels)
-     - 62
+     - the oracle's ModelSpec compiler (validation/hierarchy.py; no sft-wick code) on what no demo exercises: OU blocks loaded onto both components, shared white noise, two positions, two-time and integrated legs, t_min != 0; a constant source, static cumulants of orders 1-3 and a white cumulant with no index symmetry, the joint cumulant; multiplicative noise at two positions; two independent initial-law families; the spatial kernels in 2-D and 3-D and the Gaussian overlap of Poisson pulses in 1-D and 2-D; the termination guard, JSON round trip, refusals
+     - Lyapunov equation by scipy.linalg.expm; closed forms; exact identities (shared noise, a deterministic shift); scipy quad and dblquad
+     - 1e-12 (1e-13 for the mean, 1e-14 for the kernels, 1e-10 for the overlap)
+     - 65
    * - ``test_validation_imports.py``
-     - the oracle in validation/ and the two reference engines import only the standard library, numpy, scipy, yaml, hypothesis and each other, and never the lowering (an AST walk with relative imports resolved, over every file but validation/lower.py and lower_v042.py); running the oracle on every demo and on a model with every noise block loads no sft_wick module
+     - the oracle in validation/ and the two reference engines import only the standard library, numpy, scipy, yaml, hypothesis and each other, and never the package side (an AST walk with relative and absolute names resolved, over every file but validation/lower.py, lower_v042.py and worker.py); running the oracle on every demo and on a model with every noise block loads no sft_wick module
      - the import statements; sys.modules of a fresh interpreter
      - exact
+     - 5
+   * - ``test_validation_lower.py``
+     - the lowering of a ModelSpec onto sft-wick (validation/lower.py): the closed-form integrals of C against mpmath at resonant, negative and large rates; each method of the triangle integral and of its moments against the others at every switch between them; C before t_min; the closed-form C against the oracle's free two-time function and against the noise callables integrated by quadrature; package against oracle channel by channel for the source, F, G, static and white cumulants, white and exponential Poisson pulses, Stratonovich multiplicative noise beside white noise, loaded OU blocks in 3-D, one component, diagonal blocks under the default diag_C, two times, integrated legs and the joint cumulant at the scale of its cancellation, pinned by hand; the C routes; orders, refused legs and refused noise; QMC errors added in quadrature; the comparison rules, the declared tolerances and negative controls for raw moments and joint cumulants
+     - mpmath; scipy quad and dblquad; the oracle (validation/hierarchy.py)
+     - 1e-13 (integrals), 1e-14 (moments); 1e-12 (closed-form C against the oracle), 1e-9 (against quadrature); the declared tolerances
+     - 81
+   * - ``test_validation_worker.py``
+     - the worker that runs a lowering in its own process (validation/worker.py): one stream with jobs that differ only in C source, flags, orders and weight, lines that are not JSON, not UTF-8 or nested too deeply, malformed timeouts, refusals by the lowering and by the package, a package from the wrong directory and a job past its deadline, with stdout carrying only results; a lowering that prints to sys.stdout and file descriptor 1; the deadline against an except Exception; the bounded cache; the version read from a source tree and from unpacked wheels
+     - the lowering run in the test process; pyproject.toml
+     - 1e-14 relative
      - 5
    * - ``test_vectorized_r_time.py``
      - vectorised response callables: the four built-in DiagonalA R classes on arrays, R_time_batch / R_matrix_batch calling a vectorised R once per batch and any other R once per distinct causal pair, ExplicitR(vectorized=True), the YAML key R_time_vectorized and its load-time probe; pickling and two workers; 2-D and broadcast times; channel totals on every integrator with scalar and matrix R, constant and time-dependent rates, t_min != 0; static, equal_time and already_R_contracted κ³ with a matrix R

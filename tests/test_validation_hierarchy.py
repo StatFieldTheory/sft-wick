@@ -13,7 +13,8 @@ with it.
 * Multiplicative noise at two positions, which shares its Wiener processes
   between them, and an initial law with two independent noise families:
   identities that hold exactly.
-* The spatial kernels in two and three dimensions against their formulas.
+* The spatial kernels in two and three dimensions against their formulas,
+  and the Gaussian overlap of Poisson pulses against direct integration.
 * The termination guard, the JSON round trip and the refusals.
 """
 from __future__ import annotations
@@ -419,3 +420,32 @@ def test_VH14_kernels_in_two_and_three_dimensions(kind, params, formula,
     kernel = Kernel(kind, params)
     assert kernel(x, y) == pytest.approx(formula(x, y), rel=1e-14, abs=0.0)
     assert kernel(x, x) == pytest.approx(formula(x, x), rel=1e-14, abs=0.0)
+
+
+@pytest.mark.parametrize("points,comps,powers", [
+    (((0.3,), (-0.5,), (0.9,)), (0, 1, 1), (1, 2, 3)),
+    (((0.2, -0.7), (-0.4, 0.6)), (0, 1), (1, 1)),
+    (((0.2, -0.7), (-0.4, 0.6), (0.5, 0.1)), (1, 0, 1), (2, 1, 3))])
+def test_VH15_the_pulse_overlap_against_direct_integration(points, comps,
+                                                           powers):
+    """``∫ d^dz Π_j e^{−k_j |x_j − z|²/(2 s_{a_j}²)}``, which the oracle's jump
+    moments and the lowering's Campbell cumulants share."""
+    from scipy.integrate import dblquad, quad
+
+    p = Poisson(1.0, (1.0, 1.0), (0.5, 0.9), "white", None)
+    w = [k / p.width[a] ** 2 for a, k in zip(comps, powers)]
+
+    def integrand(*z):
+        return math.exp(-0.5 * sum(
+            wj * math.dist(x, z) ** 2 for wj, x in zip(w, points)))
+
+    if len(points[0]) == 1:
+        want = quad(lambda z: integrand(z), -12, 12, epsabs=0.0,
+                    epsrel=1e-13, points=[x[0] for x in points])[0]
+    else:
+        want = dblquad(lambda b, a: integrand(a, b), -12, 12, -12, 12,
+                       epsabs=0.0, epsrel=1e-12)[0]
+    xs = np.array(points, dtype=float)[:, None, :]
+    got = p.overlap(comps, xs, powers)
+    assert got.shape == (1,)
+    assert got[0] == pytest.approx(want, rel=1e-10, abs=0.0)

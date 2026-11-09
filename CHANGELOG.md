@@ -19,6 +19,23 @@ relative, and the stored zeros come back as 0.  `PolySDE.add_cubic_drift` is new
 test walks the imports of `validation/` and the two engines and refuses sft_wick
 outside the lowering modules.
 
+`validation/lower.py` lowers a model description onto the L1 API and sums the
+package's diagrams by the oracle's channels.  It does not lower response legs, or
+white Poisson pulses beside multiplicative noise.  Its closed form of C covers every
+other model the description holds.  Its triangle integrals and their moments agree
+with mpmath to 1.5e-14 relative or better for times up to 20 and rate times time from
+-40 to 1e6.  C adds the rounding of t1 - t2 times a rate, up to 1.1e-13 on that range,
+where C is below 1e-57.  `validation/compare.py`
+compares the two with a tolerance per integrator and per source of C, and fails a row
+that is not finite.  `hierarchy.moments_with_scale` returns the scale a joint
+cumulant cancels at, which a zero is compared against.  The 1,497 package values
+committed for demos 4, 5 and 7 that the lowering reaches by the demos' own route come
+back to within 3.8e-16 relative, QMC included, and each lies within its tolerance of
+the oracle.  `python -m validation.worker` runs a lowering in its own process on JSON
+lines, so the oracle's process never imports the package.  Each job has a time limit,
+and its result names the package it loaded, the C route, and the stage and origin of
+a failure.
+
 ### Fixed: rates a relative test tells apart were called equal
 
 `DiagonalA` lowered rates to one scalar R, component 0's, when `np.allclose` called

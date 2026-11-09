@@ -45,7 +45,8 @@ import ito_moments as im  # noqa: E402
 
 from .modelspec import ModelSpec, Observable, as_array  # noqa: E402
 
-__all__ = ["Embedding", "moments", "tags_up_to", "check_terminates"]
+__all__ = ["Embedding", "moments", "moments_with_scale", "tags_up_to",
+           "check_terminates"]
 
 Tag = tuple
 
@@ -66,17 +67,6 @@ def _symmetrised(tensor: np.ndarray, comps: tuple) -> float:
     """The tensor symmetrised over its legs, at the index tuple ``comps``."""
     perms = set(itertools.permutations(comps))
     return float(sum(tensor[p] for p in perms) / len(perms))
-
-
-def _overlap(widths: Sequence[float], xs: np.ndarray,
-             powers: Sequence[int]) -> float:
-    r"""``∫ d^dz Π_j e^{−k_j |x_j − z|²/(2 s_j²)}`` in closed form."""
-    w = np.array([k / s ** 2 for k, s in zip(powers, widths)])
-    total = w.sum()
-    mean = (w[:, None] * xs).sum(axis=0) / total
-    spread = float((w * ((xs - mean) ** 2).sum(axis=1)).sum())
-    d = xs.shape[1]
-    return (2.0 * math.pi / total) ** (d / 2.0) * math.exp(-0.5 * spread)
 
 
 class _Family:
@@ -280,8 +270,8 @@ class Embedding:
                 powers.append(g)
             amp = p.nu * math.prod(p.amplitude[a] ** g
                                    for a, g in zip(comps, powers))
-            return amp * _overlap([p.width[a] for a in comps],
-                                  np.array(xs, dtype=float), powers)
+            return amp * float(p.overlap(
+                comps, np.array(xs, dtype=float)[:, None, :], powers)[0])
 
         return im.PolySDE(D=self.D, n_tags=self.n_tags, jump_moment=moment,
                           max_jump_order=max(tags), jump_tag=tags.__getitem__)
@@ -337,8 +327,7 @@ class Embedding:
                 comps = [key_of[s][0] for s in block]
                 xs = np.array([self.points[key_of[s][1]] for s in block])
                 amp = p.nu * math.prod(p.amplitude[a] for a in comps)
-                return (amp * _overlap([p.width[a] for a in comps], xs,
-                                       [1] * len(comps))
+                return (amp * float(p.overlap(comps, xs[:, None, :])[0])
                         / sum(1.0 / p.tau[a] for a in comps))
 
             sizes = (2, *p.orders)
@@ -404,11 +393,17 @@ class Embedding:
                        tags: Sequence[Tag]) -> dict:
         """The joint cumulant of the legs, from the raw moments of every
         subset: ``m(S) = Σ_{B ∋ first} κ(B) m(S∖B)``, with the tags of the
-        two factors adding.
+        two factors adding.  See :meth:`joint_cumulant_with_scale`."""
+        return self.joint_cumulant_with_scale(legs, tags)[0]
 
-        The subtraction leaves a residue of a few ulp of the raw moment at
-        the same tag where the cumulant is exactly 0, so compare a zero
-        against the raw moment's scale, not against 0.
+    def joint_cumulant_with_scale(self, legs: Sequence[tuple],
+                                  tags: Sequence[Tag]) -> tuple:
+        """The joint cumulant and the largest ``|term|`` of the subtraction
+        (a raw moment or a product ``κ(B) m(S∖B)``) at any tag of the grid.
+
+        Where the cumulant is exactly 0 the subtraction leaves a residue of
+        a few ulp of that scale, which can be nonzero when every raw moment
+        of the full leg set is 0.
         """
         n = len(legs)
         grid = sorted({low for t in tags
@@ -417,6 +412,7 @@ class Embedding:
         raw = {mask: self.raw_moment([legs[j] for j in range(n)
                                       if mask >> j & 1], grid)
                for mask in range(1, 1 << n)}
+        scale = max(abs(v) for values in raw.values() for v in values.values())
         cum: dict = {}
         for mask in sorted(raw, key=lambda x: bin(x).count("1")):
             first = mask & -mask
@@ -426,22 +422,28 @@ class Embedding:
             while True:
                 block = sub | first
                 if block != mask:
-                    _subtract_product(value, cum[block], raw[mask ^ block],
-                                      grid)
+                    scale = max(scale, _subtract_product(
+                        value, cum[block], raw[mask ^ block], grid))
                 if sub == 0:
                     break
                 sub = (sub - 1) & rest
             cum[mask] = value
-        return {tuple(t): cum[(1 << n) - 1][tuple(t)] for t in tags}
+        return ({tuple(t): cum[(1 << n) - 1][tuple(t)] for t in tags},
+                float(scale))
 
 
-def _subtract_product(out: dict, p: dict, q: dict, grid: list) -> None:
-    """``out −= p · q`` as polynomials in the tags, truncated to ``grid``."""
+def _subtract_product(out: dict, p: dict, q: dict, grid: list) -> float:
+    """``out −= p · q`` as polynomials in the tags, truncated to ``grid``;
+    returns the largest ``|term|``."""
+    largest = 0.0
     for K in grid:
         total = 0.0
         for K1 in itertools.product(*(range(k + 1) for k in K)):
-            total += p[K1] * q[tuple(a - b for a, b in zip(K, K1))]
+            term = p[K1] * q[tuple(a - b for a, b in zip(K, K1))]
+            largest = max(largest, abs(term))
+            total += term
         out[K] -= total
+    return largest
 
 
 def check_terminates(emb: Embedding) -> None:
@@ -485,6 +487,15 @@ def _points(obs: Observable) -> tuple:
 def moments(model: ModelSpec, obs: Observable,
             tags: Sequence[Tag]) -> dict:
     """The coefficients of ``obs`` at each tag over ``model.channels()``."""
+    return moments_with_scale(model, obs, tags)[0]
+
+
+def moments_with_scale(model: ModelSpec, obs: Observable,
+                       tags: Sequence[Tag]) -> tuple:
+    """:func:`moments` and the scale a zero is compared against: the
+    largest ``|value|`` for a raw moment; for a joint cumulant, the largest
+    term its subtraction cancels (:meth:`Embedding.joint_cumulant_with_scale`).
+    """
     tags = [tuple(int(x) for x in t) for t in tags]
     n_tags = len(model.channels())
     if any(len(t) != n_tags or min(t, default=0) < 0 for t in tags):
@@ -515,5 +526,6 @@ def moments(model: ModelSpec, obs: Observable,
             legs.append((emb.phi[(leg.comp, i)],
                          obs.time(leg.label) - model.t_min))
     if obs.target == "connected":
-        return emb.joint_cumulant(legs, tags)
-    return emb.raw_moment(legs, tags)
+        return emb.joint_cumulant_with_scale(legs, tags)
+    values = emb.raw_moment(legs, tags)
+    return values, max((abs(v) for v in values.values()), default=0.0)

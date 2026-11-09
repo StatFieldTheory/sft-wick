@@ -151,26 +151,35 @@ class Kernel:
         a, b = np.asarray(_position(x1)), np.asarray(_position(x2))
         if a.shape != b.shape:
             raise ValueError("kernel positions differ in dimension")
+        return float(self.values(a[None, :], b[None, :])[0])
+
+    def values(self, x1: np.ndarray, x2: np.ndarray) -> np.ndarray:
+        """``K`` at ``n`` pairs of points; ``x1`` and ``x2`` have shape
+        ``(n, d)``."""
+        a, b = np.asarray(x1, dtype=float), np.asarray(x2, dtype=float)
+        if a.ndim != 2 or a.shape != b.shape:
+            raise ValueError("kernel positions must both have shape (n, d)")
         p = self.params
-        r = float(np.sqrt(np.sum((a - b) ** 2)))
+        r = np.sqrt(np.sum((a - b) ** 2, axis=1))
         if self.kind == "constant":
-            return 1.0
+            return np.ones(a.shape[0])
         if self.kind == "exponential":
-            return math.exp(-r / p[0])
+            return np.exp(-r / p[0])
         if self.kind == "gaussian":
-            return math.exp(-r * r / (2.0 * p[0] ** 2))
+            return np.exp(-r * r / (2.0 * p[0] ** 2))
         if self.kind == "damped_cosine":
-            return math.exp(-r / p[0]) * math.cos(p[1] * r)
+            return np.exp(-r / p[0]) * np.cos(p[1] * r)
         if self.kind == "legendre":
-            na, nb = float(np.sqrt(a @ a)), float(np.sqrt(b @ b))
-            if na == 0.0 or nb == 0.0:
+            na = np.sqrt(np.sum(a * a, axis=1))
+            nb = np.sqrt(np.sum(b * b, axis=1))
+            if np.any(na == 0.0) or np.any(nb == 0.0):
                 raise ValueError("a legendre kernel needs non-zero vectors")
-            cos = min(1.0, max(-1.0, float(a @ b) / (na * nb)))
-            return float(legendre.legval(cos, p))
+            cos = np.clip(np.sum(a * b, axis=1) / (na * nb), -1.0, 1.0)
+            return legendre.legval(cos, p)
         s, c, length = p
-        g = math.exp(-(float(np.sum((a - c) ** 2))
-                       + float(np.sum((b - c) ** 2))) / (2.0 * length ** 2))
-        return g * math.exp(-r * r / (2.0 * s ** 2))
+        g = np.exp(-(np.sum((a - c) ** 2, axis=1) + np.sum((b - c) ** 2, axis=1))
+                   / (2.0 * length ** 2))
+        return g * np.exp(-r * r / (2.0 * s ** 2))
 
 
 @dataclass(frozen=True)
@@ -262,6 +271,22 @@ class Poisson:
         if any(m < 3 for m in orders):
             raise ValueError("Poisson orders are cumulant orders m >= 3")
         _set(self, "orders", orders)
+
+    def overlap(self, comps: Any, xs: np.ndarray,
+                powers: Any = None) -> np.ndarray:
+        r"""``∫ d^dz Π_j e^{−k_j |x_j − z|²/(2 s_{a_j}²)}`` in closed form.
+
+        ``comps`` and ``powers`` (default 1) have one entry per leg ``j``;
+        ``xs`` has shape ``(m, n, d)``.  Returns shape ``(n,)``.
+        """
+        xs = np.asarray(xs, dtype=float)
+        k = np.ones(len(comps)) if powers is None else np.asarray(powers, float)
+        w = np.array([kj / self.width[a] ** 2 for a, kj in zip(comps, k)])
+        total = w.sum()
+        mean = np.einsum("j,jnd->nd", w, xs) / total
+        spread = np.einsum("j,jn->n", w, np.sum((xs - mean) ** 2, axis=2))
+        d = xs.shape[2]
+        return (2.0 * math.pi / total) ** (d / 2.0) * np.exp(-0.5 * spread)
 
 
 @dataclass(frozen=True)

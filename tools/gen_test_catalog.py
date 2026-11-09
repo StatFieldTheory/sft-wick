@@ -862,10 +862,10 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Integrators",
         "the oracle in validation/ and the two reference engines import "
         "only the standard library, numpy, scipy, yaml, hypothesis and each "
-        "other, and never the lowering (an AST walk with relative imports "
-        "resolved, over every file but validation/lower.py and "
-        "lower_v042.py); running the oracle on every demo and on a model "
-        "with every noise block loads no sft_wick module",
+        "other, and never the package side (an AST walk with relative and "
+        "absolute names resolved, over every file but validation/lower.py, "
+        "lower_v042.py and worker.py); running the oracle on every demo and "
+        "on a model with every noise block loads no sft_wick module",
         "the import statements; sys.modules of a fresh interpreter",
         "exact",
     ),
@@ -878,10 +878,61 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "of orders 1-3 and a white cumulant with no index symmetry, the "
         "joint cumulant; multiplicative noise at two positions; two "
         "independent initial-law families; the spatial kernels in 2-D and "
-        "3-D; the termination guard, JSON round trip, refusals",
+        "3-D and the Gaussian overlap of Poisson pulses in 1-D and 2-D; the "
+        "termination guard, JSON round trip, refusals",
         "Lyapunov equation by scipy.linalg.expm; closed forms; exact "
-        "identities (shared noise, a deterministic shift)",
-        "1e-12 (1e-13 for the mean, 1e-14 for the kernels)",
+        "identities (shared noise, a deterministic shift); scipy quad and "
+        "dblquad",
+        "1e-12 (1e-13 for the mean, 1e-14 for the kernels, 1e-10 for the "
+        "overlap)",
+    ),
+    "tests/test_validation_lower.py": (
+        "Integrators",
+        "the lowering of a ModelSpec onto sft-wick (validation/lower.py): "
+        "the closed-form integrals of C against mpmath at resonant, "
+        "negative and large rates; each method of the triangle integral "
+        "and of its moments against the others at every switch between "
+        "them; C before t_min; the closed-form C against the oracle's free "
+        "two-time function and against the noise callables integrated by "
+        "quadrature; package against oracle channel by channel for the "
+        "source, F, G, static and white cumulants, white and exponential "
+        "Poisson pulses, Stratonovich multiplicative noise beside white "
+        "noise, loaded OU blocks in 3-D, one component, diagonal blocks "
+        "under the default diag_C, two times, integrated legs and the joint "
+        "cumulant at the scale of its cancellation, pinned by hand; the C "
+        "routes; orders, refused legs and refused noise; QMC errors added in "
+        "quadrature; the comparison rules, the declared tolerances and "
+        "negative controls for raw moments and joint cumulants",
+        "mpmath; scipy quad and dblquad; the oracle "
+        "(validation/hierarchy.py)",
+        "1e-13 (integrals), 1e-14 (moments); 1e-12 (closed-form C against "
+        "the oracle), 1e-9 (against quadrature); the declared tolerances",
+    ),
+    "tests/test_validation_demo_package.py": (
+        "Integrators",
+        "the package values committed for demos 4, 5 and 7, rebuilt from a "
+        "ModelSpec through validation/lower.py: the 1,497 values whose "
+        "route the lowering shares are counted, and up to five "
+        "deterministic evaluations per demo part and integrator are rerun, "
+        "covering every tag of demo 4's case table and a two-time case "
+        "with distinct components",
+        "the demos' results files; the oracle",
+        "1e-12 relative; stored zeros to 1e-15; the declared tolerance "
+        "against the oracle",
+    ),
+    "tests/test_validation_worker.py": (
+        "Integrators",
+        "the worker that runs a lowering in its own process "
+        "(validation/worker.py): one stream with jobs that differ only in C "
+        "source, flags, orders and weight, lines that are not JSON, not "
+        "UTF-8 or nested too deeply, malformed timeouts, refusals by the "
+        "lowering and by the package, a package from the wrong directory and "
+        "a job past its deadline, with stdout carrying only results; a "
+        "lowering that prints to sys.stdout and file descriptor 1; the "
+        "deadline against an except Exception; the bounded cache; the "
+        "version read from a source tree and from unpacked wheels",
+        "the lowering run in the test process; pyproject.toml",
+        "1e-14 relative",
     ),
     "tests/test_validation_demos.py": (
         "Integrators",
