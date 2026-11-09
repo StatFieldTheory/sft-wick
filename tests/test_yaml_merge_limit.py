@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import random
 import signal
-import time
 
 import pytest
 import yaml
@@ -36,16 +35,46 @@ from sft_wick.workflow.resource_compare import _safe_mapping
 @pytest.fixture
 def hang_fails():
     """Reading a growing merge would not end in the life of the test.  The
-    failure is a ``BaseException``, which no handler in the parser catches."""
+    failure is a ``BaseException``, which no handler in the parser catches.
+    The alarm counts wall-clock time, and these tests take under a second
+    alone but several times that on a CI runner shared by four workers, so
+    it allows a minute."""
 
     def expired(signum, frame):
         pytest.fail("still merging")
 
     previous = signal.signal(signal.SIGALRM, expired)
-    signal.alarm(5)
+    signal.alarm(60)
     yield
     signal.alarm(0)
     signal.signal(signal.SIGALRM, previous)
+
+
+class _Merges:
+    """The pairs PyYAML's merges add, watched at ``flatten_mapping``.
+
+    Each mapping it flattens is kept with the pairs written in it, before
+    the first flatten, and ``added`` is what the mappings hold now beyond
+    those.  A mapping flattened again, or merged into itself, counts once.
+    """
+
+    def __init__(self, monkeypatch) -> None:
+        written: dict = {}
+        flatten = yaml.constructor.SafeConstructor.flatten_mapping
+
+        def watched(constructor, node):
+            if node not in written:
+                written[node] = sum(
+                    key.tag != cf._MERGE_TAG for key, _ in node.value)
+            flatten(constructor, node)
+
+        monkeypatch.setattr(
+            yaml.constructor.SafeConstructor, "flatten_mapping", watched)
+        self._written = written
+
+    def added(self) -> int:
+        return sum(len(node.value) - kept
+                   for node, kept in self._written.items())
 
 
 def _doubling(depth: int) -> str:
@@ -104,25 +133,31 @@ SHAPES = {
 
 
 @pytest.mark.parametrize("text, path", SHAPES.values(), ids=SHAPES)
-def test_ML1_growth_is_refused_at_once(hang_fails, text, path):
-    started = time.perf_counter()
+def test_ML1_growth_is_refused_at_once(hang_fails, monkeypatch, text, path):
+    """PyYAML has added no more than the limit when the refusal comes.  A
+    refusal after the file is read adds 4.5e6 pairs on the square shape, and
+    one after the list that passes the limit adds that list too."""
+    merges = _Merges(monkeypatch)
     with pytest.raises(ConfigError) as info:
         _load_yaml(text)
-    assert time.perf_counter() - started < 2.0
+    assert merges.added() <= cf._MAX_MERGED_PAIRS
     assert (info.value.code, info.value.path) == ("invalid_value", path)
     assert "\n" not in str(info.value)
     assert len(str(info.value)) < 120
 
 
-def test_ML1_a_chain_of_any_depth_costs_no_more(hang_fails):
-    """The file stops at the same link however far it goes on."""
-    timings = []
+def test_ML1_a_chain_of_any_depth_costs_no_more(hang_fails, monkeypatch):
+    """The file stops at the same link however far it goes on: PyYAML adds
+    the same pairs before the refusal at every depth."""
+    merges = _Merges(monkeypatch)
+    seen = []
     for depth in (24, 400, 4000):
-        started = time.perf_counter()
-        with pytest.raises(ConfigError):
+        before = merges.added()
+        with pytest.raises(ConfigError) as info:
             _load_yaml(_doubling(depth))
-        timings.append(time.perf_counter() - started)
-    assert max(timings) < 2.0
+        seen.append((merges.added() - before, info.value.path))
+    assert seen == [seen[0]] * 3
+    assert 0 < seen[0][0] <= cf._MAX_MERGED_PAIRS
 
 
 def test_ML1_a_mapping_as_a_key_is_refused_by_yaml(hang_fails):
