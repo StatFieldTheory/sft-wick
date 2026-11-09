@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8063 tests** in 134 files (parametrised
+The suite has **8142 tests** in 137 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -267,7 +267,7 @@ Propagator numerics
 Integrators
 -----------
 
-*2608 tests in 56 files.*
+*2687 tests in 59 files.*
 
 .. list-table::
    :header-rows: 1
@@ -474,10 +474,10 @@ Integrators
      - 1e-10
      - 26
    * - ``test_ito_moments_reference.py``
-     - the exact Itô moment-hierarchy reference used by demos 4 and 5 (examples/reference/ito_moments.py; no sft-wick code): OU variance, quadratic-drift correction, shot-noise cumulants, multiplicative noise, a non-normal linear system
+     - the exact Itô moment-hierarchy reference used by demos 4 and 5 (examples/reference/ito_moments.py; no sft-wick code): OU variance, quadratic- and cubic-drift corrections, shot-noise cumulants, multiplicative noise, a non-normal linear system
      - closed forms; Campbell's theorem; Lyapunov equation
      - 1e-13
-     - 7
+     - 8
    * - ``test_kink_split_external_time.py``
      - a kink between an integration time and an external point pinned at a fixed time is cut, not paired: the variable's range is cut at that time, the cut is carried to the variables ordered against it and to the parents whose min() bound it enters, and no cut is made when every external sits at one time; an external swept by integrate_over pairs like an integration variable instead, and two swept ones pair too, unless the full causal closure (a chain through a fixed external included) orders them; a swept external below a carried lower cut is cut; the pairs, the cuts and the values do not depend on PYTHONHASHSEED
      - exact Itô moment hierarchy, transported over the lags between the external times; runs under eight hash seeds, bit for bit
@@ -553,6 +553,21 @@ Integrators
      - closed-form spectral C of a two-node density; the erf and Gauss-Legendre C of test_custom_cache_aliasing; the same subclass without the write or the buffer; the plain cache
      - 1e-13 (closed form); 2e-4 through the 16 x 16 table; 1e-12; bit equality
      - 43
+   * - ``test_validation_demos.py``
+     - every hierarchy value committed for demos 4, 5 (parts A and C) and 7 (items a-e), 1,772 values, rebuilt from a ModelSpec with the oracle's own state layout and channel tags; demo 4 level A at F = 0 and its four-point joint cumulant
+     - the demos' results files; Campbell's theorem (examples/demo4/poisson_noise.py)
+     - 1e-12 relative; stored zeros to 1e-15
+     - 11
+   * - ``test_validation_hierarchy.py``
+     - the oracle's ModelSpec compiler (validation/hierarchy.py; no sft-wick code) on what no demo exercises: OU blocks loaded onto both components, shared white noise, two positions, two-time and integrated legs, t_min != 0; a constant source, static cumulants of orders 1-3 and a white cumulant with no index symmetry, the joint cumulant; multiplicative noise at two positions; two independent initial-law families; the spatial kernels in 2-D and 3-D; the termination guard, JSON round trip, refusals
+     - Lyapunov equation by scipy.linalg.expm; closed forms; exact identities (shared noise, a deterministic shift)
+     - 1e-12 (1e-13 for the mean, 1e-14 for the kernels)
+     - 62
+   * - ``test_validation_imports.py``
+     - the oracle in validation/ and the two reference engines import only the standard library, numpy, scipy, yaml, hypothesis and each other, and never the lowering (an AST walk with relative imports resolved, over every file but validation/lower.py and lower_v042.py); running the oracle on every demo and on a model with every noise block loads no sft_wick module
+     - the import statements; sys.modules of a fresh interpreter
+     - exact
+     - 5
    * - ``test_vectorized_r_time.py``
      - vectorised response callables: the four built-in DiagonalA R classes on arrays, R_time_batch / R_matrix_batch calling a vectorised R once per batch and any other R once per distinct causal pair, ExplicitR(vectorized=True), the YAML key R_time_vectorized and its load-time probe; pickling and two workers; 2-D and broadcast times; channel totals on every integrator with scalar and matrix R, constant and time-dependent rates, t_min != 0; static, equal_time and already_R_contracted κ³ with a matrix R
      - the scalar calls of the same R (np.vectorize, the old path)

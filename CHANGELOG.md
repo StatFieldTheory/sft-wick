@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Added: an oracle that shares no code with the package
+
+`validation/` ships in the sdist, not in the wheel.  `validation/modelspec.py`
+describes a model and an observable as plain data, and `validation/hierarchy.py`
+compiles the description into the exact moment hierarchy of a Markov embedding, on
+`examples/reference/ito_moments.py` and `hormander_moments.py`.  A model has N
+components, constant rates, a source, quadratic and cubic drift, coloured blocks
+loaded onto the components, white noise, affine multiplicative noise (Itô or
+Stratonovich), compound-Poisson noise with white or exponential pulses, and static or
+white cumulants.  An observable has one or two external times, integrated legs and
+the moment or the connected target.  Each vertex type is a channel of its own, so the
+hierarchy returns a value per channel content.  Every hierarchy value committed for
+demos 4, 5 and 7, 1,772 values, comes back from a model description to within 4.2e-15
+relative, and the stored zeros come back as 0.  `PolySDE.add_cubic_drift` is new.  A
+test walks the imports of `validation/` and the two engines and refuses sft_wick
+outside the lowering modules.
+
 ### Fixed: rates a relative test tells apart were called equal
 
 `DiagonalA` lowered rates to one scalar R, component 0's, when `np.allclose` called

@@ -853,10 +853,45 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "Integrators",
         "the exact Itô moment-hierarchy reference used by demos 4 and 5 "
         "(examples/reference/ito_moments.py; no sft-wick code): OU "
-        "variance, quadratic-drift correction, shot-noise cumulants, "
-        "multiplicative noise, a non-normal linear system",
+        "variance, quadratic- and cubic-drift corrections, shot-noise "
+        "cumulants, multiplicative noise, a non-normal linear system",
         "closed forms; Campbell's theorem; Lyapunov equation",
         "1e-13",
+    ),
+    "tests/test_validation_imports.py": (
+        "Integrators",
+        "the oracle in validation/ and the two reference engines import "
+        "only the standard library, numpy, scipy, yaml, hypothesis and each "
+        "other, and never the lowering (an AST walk with relative imports "
+        "resolved, over every file but validation/lower.py and "
+        "lower_v042.py); running the oracle on every demo and on a model "
+        "with every noise block loads no sft_wick module",
+        "the import statements; sys.modules of a fresh interpreter",
+        "exact",
+    ),
+    "tests/test_validation_hierarchy.py": (
+        "Integrators",
+        "the oracle's ModelSpec compiler (validation/hierarchy.py; no "
+        "sft-wick code) on what no demo exercises: OU blocks loaded onto "
+        "both components, shared white noise, two positions, two-time and "
+        "integrated legs, t_min != 0; a constant source, static cumulants "
+        "of orders 1-3 and a white cumulant with no index symmetry, the "
+        "joint cumulant; multiplicative noise at two positions; two "
+        "independent initial-law families; the spatial kernels in 2-D and "
+        "3-D; the termination guard, JSON round trip, refusals",
+        "Lyapunov equation by scipy.linalg.expm; closed forms; exact "
+        "identities (shared noise, a deterministic shift)",
+        "1e-12 (1e-13 for the mean, 1e-14 for the kernels)",
+    ),
+    "tests/test_validation_demos.py": (
+        "Integrators",
+        "every hierarchy value committed for demos 4, 5 (parts A and C) "
+        "and 7 (items a-e), 1,772 values, rebuilt from a ModelSpec with "
+        "the oracle's own state layout and channel tags; demo 4 level A at "
+        "F = 0 and its four-point joint cumulant",
+        "the demos' results files; Campbell's theorem "
+        "(examples/demo4/poisson_noise.py)",
+        "1e-12 relative; stored zeros to 1e-15",
     ),
     "tests/test_gl_white_noise_kinks.py": (
         "Integrators",
