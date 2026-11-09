@@ -869,6 +869,24 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "the import statements; sys.modules of a fresh interpreter",
         "exact",
     ),
+    "tests/test_validation_fuzz.py": (
+        "Integrators",
+        "the random cases of the fuzzer (validation/draw.py), the fuzzer "
+        "(validation/fuzz.py) and the shrinker (validation/shrink.py): "
+        "twenty seeds covering every drawn feature, each case pinned by a "
+        "digest and the oracle's largest non-trivial value pinned, with the "
+        "package within the declared Gauss-Legendre tolerance of the "
+        "oracle; the admissible flags held in the closed-form C on 300 "
+        "draws and each condition of isotropy needed; one case with its "
+        "flags on through the worker subprocess on three integrators; a "
+        "planted fault in the cubic drift found in exactly the cases that "
+        "have one and shrunk to the source and cubic drift; the verdict of "
+        "every worker status, origin and stage; the summary's counts; the "
+        "watchdog against a job that blocks the alarm, and a crashed worker",
+        "the oracle (validation/hierarchy.py); the closed-form C",
+        "1e-12 (pinned oracle values); 1e-13 (isotropic C); the declared "
+        "tolerances",
+    ),
     "tests/test_validation_hierarchy.py": (
         "Integrators",
         "the oracle's ModelSpec compiler (validation/hierarchy.py; no "
@@ -930,7 +948,9 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "a job past its deadline, with stdout carrying only results; a "
         "lowering that prints to sys.stdout and file descriptor 1; the "
         "deadline against an except Exception; the bounded cache; the "
-        "version read from a source tree and from unpacked wheels",
+        "version read from a source tree and from unpacked wheels; an error "
+        "in an oracle callable that the package called reported as a "
+        "callback",
         "the lowering run in the test process; pyproject.toml",
         "1e-14 relative",
     ),

@@ -36,6 +36,16 @@ lines, so the oracle's process never imports the package.  Each job has a time l
 and its result names the package it loaded, the C route, and the stage and origin of
 a failure.
 
+`validation/draw.py` draws a model and an observable from a seed: general models with
+no symmetry the physics does not force, models with a diagonal C, and isotropic models
+with equal rates and `C = c·I`, each with the expansion flags it admits switched on.
+`python -m validation.fuzz` compares the package with the oracle on drawn cases
+through the worker, and `validation/shrink.py` reduces a failing case one feature at
+a time.  On 300 cases every comparison that finished agreed: 299 on Gauss-Legendre,
+300 on QMC and 254 on nquad, the others past 240 s.  A fault of 1e-3 planted in any
+one of nine quantities (F, h, S2, W3, the Poisson rate, g1, an OU amplitude, `t_min`,
+a rate) fails exactly the cases where it reaches a compared value.
+
 ### Fixed: rates a relative test tells apart were called equal
 
 `DiagonalA` lowered rates to one scalar R, component 0's, when `np.allclose` called

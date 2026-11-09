@@ -18,7 +18,8 @@ the environment variable ``VALIDATION_EXPECT_PACKAGE`` sets a default).
 A result holds ``id``, the package's location, version and the source of
 that version, and ``status``: ``ok``, ``error`` or ``timeout``.  A result
 with status ``ok`` holds ``values`` as ``[tag, value, error]`` rows, the C
-route the package reports (``c_route``), the expansion flags, the time to
+route the package reports (``c_route``), the method, settings and
+expansion flags it ran, the time to
 build the expansion and propagators (``build_seconds``, absent when
 ``cached``) and the time to evaluate (``seconds``).  The quadrature tables
 of ``c_source='table'`` are built lazily by the first evaluation of a key,
@@ -26,9 +27,10 @@ so their time and their failures fall under ``evaluate``.  Any other
 result carries the ``stage`` that failed: ``parse`` (the line is not JSON),
 ``job`` (the job is malformed, or the package is from the wrong tree),
 ``lower``, ``expand``, ``propagators`` or ``evaluate``.  An error carries
-its ``origin`` (``validation`` for the lowering and the oracle's callables,
-``package`` for sft_wick, ``other`` otherwise) and the traceback; a timeout
-and a parse failure carry neither.  Every result counts the warnings raised
+its ``origin`` and the traceback: ``validation`` for the lowering,
+``package`` for sft_wick, ``callback`` for an oracle callable (the closed
+form of C, a Campbell cumulant) that the package called and that raised,
+``other`` otherwise.  A timeout and a parse failure carry neither.  Every result counts the warnings raised
 (``warnings_total``) and lists the most common kinds.
 
 While the worker runs, file descriptor 1 (which ``sys.stdout`` writes to
@@ -40,76 +42,27 @@ from __future__ import annotations
 
 import argparse
 import collections
-import contextlib
 import importlib
 import json
-import math
 import os
 import re
-import signal
 import sys
-import threading
 import time
 import traceback
 import warnings
 from pathlib import Path
 from types import ModuleType
-from typing import Iterator
 
-from .stages import STAGE_ATTR
+from .stages import STAGE_ATTR, JobTimeout, deadline
 
 __all__ = ["DEFAULT_TIMEOUT", "DEFAULT_CACHE_SIZE", "JobTimeout", "deadline",
            "package_identity", "run_job", "main"]
 
 DEFAULT_TIMEOUT = 600.0
 DEFAULT_CACHE_SIZE = 4
-#: The alarm repeats at this interval until a :class:`JobTimeout` escapes:
-#: one raised inside a weakref callback or ``__del__`` is only printed.
-ALARM_REPEAT = 1.0
 MAX_WARNING_KINDS = 20
 _WARNING_KINDS_KEPT = 1000
 VALIDATION_DIR = Path(__file__).resolve().parent
-
-
-class JobTimeout(BaseException):
-    """A job ran past its deadline.  It derives from ``BaseException`` so that
-    no ``except Exception`` in the package swallows it."""
-
-
-def _check_timeout(value) -> float | None:
-    """``None``, or a finite positive number of seconds."""
-    if value is None:
-        return None
-    if (isinstance(value, bool) or not isinstance(value, (int, float))
-            or not math.isfinite(value) or value <= 0):
-        raise ValueError(f"timeout must be a positive number of seconds or "
-                         f"null, got {value!r}")
-    return float(value)
-
-
-@contextlib.contextmanager
-def deadline(seconds: float | None) -> Iterator[bool]:
-    """Raise :class:`JobTimeout` after ``seconds`` of wall time, and again
-    every :data:`ALARM_REPEAT` seconds until it escapes.  Yields whether the
-    limit is enforced: it needs ``SIGALRM`` and the main thread."""
-    seconds = _check_timeout(seconds)
-    if (seconds is None or not hasattr(signal, "setitimer")
-            or threading.current_thread() is not threading.main_thread()):
-        yield False
-        return
-    message = f"no result within {seconds:g} s"
-
-    def on_alarm(signum, frame):
-        raise JobTimeout(message)
-
-    previous = signal.getsignal(signal.SIGALRM)
-    try:
-        signal.signal(signal.SIGALRM, on_alarm)
-        signal.setitimer(signal.ITIMER_REAL, seconds, ALARM_REPEAT)
-        yield True
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0.0)
-        signal.signal(signal.SIGALRM, previous)
 
 
 def _project_version(pyproject: Path, name: str) -> str | None:
@@ -170,11 +123,25 @@ def _classify(filename: str, package_dir: Path) -> str | None:
     return None
 
 
+def _innermost(kinds: list) -> str | None:
+    """The origin of a list of frame kinds, outermost first: the innermost
+    kind, ``callback`` when a validation frame was called from a package
+    frame (the package called an oracle callable)."""
+    origin = None
+    for kind in kinds:
+        if kind == "validation" and origin in ("package", "callback"):
+            origin = "callback"
+        elif kind is not None:
+            origin = kind
+    return origin
+
+
 def _origin(exc: BaseException, package_dir: Path) -> str:
-    """``validation`` or ``package``: the innermost frame in either tree of
-    the deepest exception in the chain that has one (a frame in numpy or
-    scipy belongs to its caller).  A joblib worker's traceback, carried as
-    text in the cause, is read from its file names."""
+    """``validation``, ``package`` or ``callback``: the innermost frame in
+    either tree of the deepest exception in the chain that has one (a frame
+    in numpy or scipy belongs to its caller), with ``callback`` for a
+    validation frame below a package frame.  A joblib worker's traceback,
+    carried as text in the cause, is read from its file names."""
     found = "other"
     seen: set = set()
     chain = []
@@ -183,17 +150,17 @@ def _origin(exc: BaseException, package_dir: Path) -> str:
         chain.append(exc)
         exc = exc.__cause__ or exc.__context__
     for link in chain:
-        origin = None
+        kinds = []
         tb = link.__traceback__
         while tb is not None:
-            origin = _classify(tb.tb_frame.f_code.co_filename,
-                               package_dir) or origin
+            kinds.append(_classify(tb.tb_frame.f_code.co_filename,
+                                   package_dir))
             tb = tb.tb_next
         remote = getattr(link, "tb", None)
         if isinstance(remote, str):
-            for filename in re.findall(r'File "([^"]+)"', remote):
-                origin = _classify(filename, package_dir) or origin
-        found = origin or found
+            kinds += [_classify(f, package_dir)
+                      for f in re.findall(r'File "([^"]+)"', remote)]
+        found = _innermost(kinds) or found
     return found
 
 
@@ -280,7 +247,8 @@ def run_job(job: dict, cache: dict, lowering: ModuleType,
                 values = low.evaluate(job["method"], orders=job.get("orders"),
                                       **job.get("settings", {}))
                 out["seconds"] = time.perf_counter() - t0
-            out.update(ok=True, status="ok",
+            out.update(ok=True, status="ok", method=job["method"],
+                       settings=job.get("settings", {}),
                        c_route=str(low.props.c_source),
                        flags={k: bool(v) for k, v in low.flags.items()},
                        values=[[list(t), v, e] for t, (v, e) in values.items()])

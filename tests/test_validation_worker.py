@@ -33,7 +33,8 @@ import validation.lower as lw
 from validation import demo_cases as dc
 from validation.modelspec import (Kernel, Leg, ModelSpec, Observable, OUBlock,
                                   model_to_dict, observable_to_dict)
-from validation.worker import JobTimeout, deadline, package_identity, run_job
+from validation.worker import (JobTimeout, _innermost, deadline,
+                               package_identity, run_job)
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = re.search(r'^version\s*=\s*"([^"]+)"',
@@ -247,3 +248,32 @@ def test_VW5_the_version_comes_from_the_package_s_own_source(tmp_path):
     assert identity["version_source"].startswith("several dist-info")
     own = _fake_package(tmp_path / "own" / "sft_wick", version_attr="1.2.3")
     assert package_identity(own)["version"] == "1.2.3"
+
+
+BROKEN_C = """
+from validation import lower
+
+sw = lower.sw
+Lowered = lower.Lowered
+# The closed form of C now fails inside validation/lower.py when the
+# package calls it.
+lower.closed_form_c = lambda model: lower.ClosedFormC(None)
+"""
+
+
+def test_VW6_an_error_in_an_oracle_callable_is_a_callback(tmp_path):
+    assert _innermost(["validation", "package", "validation"]) == "callback"
+    assert _innermost(["validation", "validation"]) == "validation"
+    assert _innermost(["validation", "package", None]) == "package"
+    assert _innermost(["package", "validation", "package"]) == "package"
+    (tmp_path / "broken_c_lowering.py").write_text(BROKEN_C)
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join(
+        [str(ROOT / "src"), str(ROOT), str(tmp_path)]))
+    out = subprocess.run([sys.executable, "-m", "validation.worker",
+                          "--lowering", "broken_c_lowering"],
+                         input=_job("broken C", weight=1), cwd=ROOT, env=env,
+                         capture_output=True, text=True, check=True,
+                         timeout=300)
+    (result,) = [json.loads(line) for line in out.stdout.splitlines()]
+    assert result["status"] == "error" and result["origin"] == "callback"
+    assert "AttributeError" in result["error"]

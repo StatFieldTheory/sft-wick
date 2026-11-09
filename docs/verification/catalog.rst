@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8242 tests** in 140 files (parametrised
+The suite has **8271 tests** in 141 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -267,7 +267,7 @@ Propagator numerics
 Integrators
 -----------
 
-*2787 tests in 62 files.*
+*2816 tests in 63 files.*
 
 .. list-table::
    :header-rows: 1
@@ -563,6 +563,11 @@ Integrators
      - the demos' results files; Campbell's theorem (examples/demo4/poisson_noise.py)
      - 1e-12 relative; stored zeros to 1e-15
      - 11
+   * - ``test_validation_fuzz.py``
+     - the random cases of the fuzzer (validation/draw.py), the fuzzer (validation/fuzz.py) and the shrinker (validation/shrink.py): twenty seeds covering every drawn feature, each case pinned by a digest and the oracle's largest non-trivial value pinned, with the package within the declared Gauss-Legendre tolerance of the oracle; the admissible flags held in the closed-form C on 300 draws and each condition of isotropy needed; one case with its flags on through the worker subprocess on three integrators; a planted fault in the cubic drift found in exactly the cases that have one and shrunk to the source and cubic drift; the verdict of every worker status, origin and stage; the summary's counts; the watchdog against a job that blocks the alarm, and a crashed worker
+     - the oracle (validation/hierarchy.py); the closed-form C
+     - 1e-12 (pinned oracle values); 1e-13 (isotropic C); the declared tolerances
+     - 28
    * - ``test_validation_hierarchy.py``
      - the oracle's ModelSpec compiler (validation/hierarchy.py; no sft-wick code) on what no demo exercises: OU blocks loaded onto both components, shared white noise, two positions, two-time and integrated legs, t_min != 0; a constant source, static cumulants of orders 1-3 and a white cumulant with no index symmetry, the joint cumulant; multiplicative noise at two positions; two independent initial-law families; the spatial kernels in 2-D and 3-D and the Gaussian overlap of Poisson pulses in 1-D and 2-D; the termination guard, JSON round trip, refusals
      - Lyapunov equation by scipy.linalg.expm; closed forms; exact identities (shared noise, a deterministic shift); scipy quad and dblquad
@@ -579,10 +584,10 @@ Integrators
      - 1e-13 (integrals), 1e-14 (moments); 1e-12 (closed-form C against the oracle), 1e-9 (against quadrature); the declared tolerances
      - 81
    * - ``test_validation_worker.py``
-     - the worker that runs a lowering in its own process (validation/worker.py): one stream with jobs that differ only in C source, flags, orders and weight, lines that are not JSON, not UTF-8 or nested too deeply, malformed timeouts, refusals by the lowering and by the package, a package from the wrong directory and a job past its deadline, with stdout carrying only results; a lowering that prints to sys.stdout and file descriptor 1; the deadline against an except Exception; the bounded cache; the version read from a source tree and from unpacked wheels
+     - the worker that runs a lowering in its own process (validation/worker.py): one stream with jobs that differ only in C source, flags, orders and weight, lines that are not JSON, not UTF-8 or nested too deeply, malformed timeouts, refusals by the lowering and by the package, a package from the wrong directory and a job past its deadline, with stdout carrying only results; a lowering that prints to sys.stdout and file descriptor 1; the deadline against an except Exception; the bounded cache; the version read from a source tree and from unpacked wheels; an error in an oracle callable that the package called reported as a callback
      - the lowering run in the test process; pyproject.toml
      - 1e-14 relative
-     - 5
+     - 6
    * - ``test_vectorized_r_time.py``
      - vectorised response callables: the four built-in DiagonalA R classes on arrays, R_time_batch / R_matrix_batch calling a vectorised R once per batch and any other R once per distinct causal pair, ExplicitR(vectorized=True), the YAML key R_time_vectorized and its load-time probe; pickling and two workers; 2-D and broadcast times; channel totals on every integrator with scalar and matrix R, constant and time-dependent rates, t_min != 0; static, equal_time and already_R_contracted κ³ with a matrix R
      - the scalar calls of the same R (np.vectorize, the old path)
