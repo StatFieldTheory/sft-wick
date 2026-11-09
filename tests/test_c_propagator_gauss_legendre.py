@@ -250,7 +250,9 @@ class TestGaussLegendreVsDblquad:
         still costs several times the fixed 20-node rule (5.9 ms) once
         the interval is long, and that ratio grows with ``t``.  The
         floor is set well below the measured ~6× so CI noise cannot
-        flip it."""
+        flip it.  Each method's time is its fastest of five calls, so
+        a process that is paused during one call (by the other workers
+        of a ``pytest -n`` run, say) cannot decide the ratio."""
         model = _make_translation_model()
         cache_db = PropagatorCache(model, c_method="dblquad")
 
@@ -263,17 +265,16 @@ class TestGaussLegendreVsDblquad:
         _ = _C_value_direct_gl(model, n1, T, n2, T, n_gauss=20)
         _ = cache_db._C_value_direct(n1, T, n2, T)
 
-        # Average ~3 calls each.  The variance is small.
-        n_reps = 3
-        t0 = time.time()
-        for _ in range(n_reps):
-            _C_value_direct_gl(model, n1, T, n2, T, n_gauss=20)
-        t_gl = (time.time() - t0) / n_reps
+        def fastest(call, n_reps=5):
+            best = float("inf")
+            for _ in range(n_reps):
+                t0 = time.perf_counter()
+                call()
+                best = min(best, time.perf_counter() - t0)
+            return best
 
-        t0 = time.time()
-        for _ in range(n_reps):
-            cache_db._C_value_direct(n1, T, n2, T)
-        t_db = (time.time() - t0) / n_reps
+        t_gl = fastest(lambda: _C_value_direct_gl(model, n1, T, n2, T, n_gauss=20))
+        t_db = fastest(lambda: cache_db._C_value_direct(n1, T, n2, T))
 
         speedup = t_db / t_gl
         assert speedup >= 2.5, (

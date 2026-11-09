@@ -1340,7 +1340,11 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
 
 
 def collect_counts() -> Counter:
-    """``{test file: number of collected tests}`` from pytest."""
+    """``{test file: number of collected tests}`` from pytest.
+
+    Counts what CI runs: every test except the ``slow`` benchmarks.  The
+    ``heavy`` tests, which the local default deselects, are counted.
+    """
     proc = subprocess.run(
         [
             sys.executable,
@@ -1350,6 +1354,8 @@ def collect_counts() -> Counter:
             "-q",
             "-p",
             "no:cacheprovider",
+            "-m",
+            "not slow",
             "tests/",
         ],
         cwd=ROOT,
@@ -1393,7 +1399,7 @@ def _approx_audit_lines():
     if not path.exists():  # pragma: no cover
         return [
             "   The approx-audit summary is missing; regenerate it with",
-            "   ``PYTHONPATH=tools pytest tests/ -p approx_audit``.",
+            "   ``PYTHONPATH=tools pytest tests/ -m 'not slow' -p approx_audit``.",
         ]
     d = json.loads(path.read_text())
     b = d["buckets"]
@@ -1481,7 +1487,7 @@ def render(counts: Counter) -> str:
         "   is what is actually enforced.  Which sites those are depends on",
         "   the runtime magnitude of each compared value and cannot be read",
         "   off the source, so it is measured:",
-        "   ``PYTHONPATH=tools pytest tests/ -p approx_audit`` records the",
+        "   ``PYTHONPATH=tools pytest tests/ -m 'not slow' -p approx_audit`` records the",
         "   comparison-site observations (``tools/approx_audit.py``).",
         "",
         *_approx_audit_lines(),

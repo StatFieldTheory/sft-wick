@@ -140,6 +140,7 @@ def _max_rel(a, b):
     return float(np.max(np.abs(a - b)) / np.max(np.abs(a)))
 
 
+@pytest.mark.heavy
 def test_TV1_C_from_kappa2_and_white_noise_in_u_equals_C_in_t():
     for a, b in _c_pair(_c_system("u")):
         assert np.all(np.abs(a) > 0)
@@ -378,6 +379,7 @@ def test_TV2_diagrams_in_u_equal_diagrams_in_t(kind, obs, order, comps, ext,
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("what", ["gamma_shift", "kappa2_power",
                                   "sigma2_power"])
+@pytest.mark.heavy
 def test_TV3_wrong_C_factor_is_detected(what):
     u_system = {
         "gamma_shift": lambda: _c_system("u", gamma=_GammaU(shift=False)),
@@ -496,6 +498,7 @@ def _eds(variable, n):
         method="gauss_legendre", n_gauss=n).total))
 
 
+@pytest.mark.heavy
 def test_TV4_steep_variable_needs_the_change_of_variable():
     chi_12, chi_16 = _eds("chi", 12), _eds("chi", 16)
     lam_16 = _eds("lambda", 16)

@@ -90,6 +90,7 @@ def tables(exact):
             for n in (11, 31)}
 
 
+@pytest.mark.heavy
 def test_the_table_converges_in_its_step(exact, tables):
     """Order 2 reads C in the band around the diagonal, where a tensor
     product over (t1, t2) crossed the kink.  In the (min(t1,t2), |t1-t2|)

@@ -147,6 +147,7 @@ def runs():
 
 
 @pytest.mark.parametrize("variant", sorted(ROUTES))
+@pytest.mark.heavy
 def test_package_matches_the_hierarchy(runs, variant):
     for row in runs[variant]:
         if row["status"] == "refused":

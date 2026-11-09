@@ -790,6 +790,7 @@ def test_integrand_latex_prints_only_the_R_it_multiplies():
         assert ig.to_latex().count("R(t_") == 1
 
 
+@pytest.mark.heavy
 def test_a_chain_of_aliases_reads_one_time_on_every_integrator():
     """A leg of an equal-time vertex can be the partner of an absorbed leg, so
     an alias points at an alias.  The batched integrators read through the

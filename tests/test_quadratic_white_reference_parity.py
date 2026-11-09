@@ -367,7 +367,8 @@ _FROZEN_BIT_SLOTS = [
 ]
 
 
-@pytest.mark.parametrize("latent", [6, 10, 20, 30])
+@pytest.mark.parametrize("latent", [
+    6, 10, 20, pytest.param(30, marks=pytest.mark.heavy)])
 def test_mixed_values_keep_frozen_bits_or_round_correctly(frozen, latent):
     # Every value the frozen 0.7.0 implementation returned is returned with
     # the same bits or as the correctly rounded exact value; a value it

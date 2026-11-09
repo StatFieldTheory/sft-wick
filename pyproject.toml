@@ -49,6 +49,10 @@ progress = [
 dev = [
     "pytest>=7.0",
     "pytest-cov",
+    # Runs the suite on several processes (pytest -n auto --dist worksteal).
+    # 3.6 runs each test in the worker's main thread, which the SIGALRM
+    # hang guards in the tests need.
+    "pytest-xdist>=3.6",
     # docs/verification/catalog.rst advertises "60-digit mpmath at the branch
     # boundary" as demo 3's independent reference, but the test obtains it via
     # pytest.importorskip.  Undeclared, that check silently SKIPPED in CI while
@@ -92,5 +96,6 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
     "slow: long-running performance benchmarks (deselected by default)",
+    "heavy: correctness tests that take 10 s or more each (deselected by default; CI runs them with -m 'not slow')",
 ]
-addopts = "-m 'not slow'"
+addopts = "-m 'not slow and not heavy'"

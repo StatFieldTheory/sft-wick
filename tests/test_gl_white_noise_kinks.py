@@ -587,6 +587,7 @@ def test_the_cusp_probe_reads_the_range_it_is_asked_about(window, span):
     assert _probe_diagonal_cusp(model, (0.0, 0.0), span)
 
 
+@pytest.mark.heavy
 def test_a_kernel_that_vanishes_at_the_origin_is_probed_where_it_is_read():
     """Order 2 at ``x = y = 1`` against the exact moment hierarchy of the
     Markov embedding, which imports nothing from the package.  The verdict

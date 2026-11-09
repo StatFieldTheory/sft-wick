@@ -262,6 +262,7 @@ def _reference_C00(temporal, t1, t2):
 
 
 @pytest.mark.parametrize("width", [0.5, 1.1, 1.2])
+@pytest.mark.heavy
 def test_a_table_keeps_both_time_orders_of_a_kernel_of_short_reach(width):
     """Past the last lag the swap was read at the kernel is 0 on both sides,
     so a one-sided kernel took a half table: 22 and 14 percent off, on the
@@ -276,6 +277,7 @@ def test_a_table_keeps_both_time_orders_of_a_kernel_of_short_reach(width):
             _reference_C00(temporal, t1, t2), rel=2e-3, abs=0.0)
 
 
+@pytest.mark.heavy
 def test_a_value_does_not_depend_on_the_separation_read_first():
     """The first read decided for every later separation.  At a separation
     where the spatial factor is 0 the swap compares 0 with 0: 0.79377 against
@@ -311,9 +313,10 @@ AT_60_DEGREES = np.array([0.5, np.sqrt(0.75)])
 
 
 @pytest.mark.parametrize("mode, bump, x, y, build", [
-    ("general", _bump_x, 0.0, 1.0,
-     lambda c: c.precompute_C_table_general(
-         t_max=3.0, n_grid_t=5, x_max=2.0, n_grid_x=5)),
+    pytest.param("general", _bump_x, 0.0, 1.0,
+                 lambda c: c.precompute_C_table_general(
+                     t_max=3.0, n_grid_t=5, x_max=2.0, n_grid_x=5),
+                 marks=pytest.mark.heavy),
     ("general", _bump_x, 0.0, 1.0,
      lambda c: c.precompute_C_table_general(t_max=3.0, n_grid_t=5)),
     ("rotation", _bump_cos, UNIT, AT_60_DEGREES,
