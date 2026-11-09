@@ -120,7 +120,8 @@ def test_order_4_two_point():
     ((1.0, 1.0), "gauss_legendre", 1e-10, dict(n_gauss=16)),
     ((0.6, 1.6), "gauss_legendre", 1e-10, dict(n_gauss=16)),
     ((0.6, 1.6), "qmc_vectorized", 1e-3, dict(n_samples=2 ** 13, seed=3)),
-    ((0.6, 1.6), "qmc_scalar", 1e-3, dict(n_samples=2 ** 13, seed=3)),
+    pytest.param((0.6, 1.6), "qmc_scalar", 1e-3,
+                 dict(n_samples=2 ** 13, seed=3), marks=pytest.mark.heavy),
 ], ids=["scalar-R", "matrix-R-gauss_legendre", "matrix-R-qmc_vectorized",
         "matrix-R-qmc_scalar"])
 def test_multiplicative_channels(gammas, method, rel, kw):

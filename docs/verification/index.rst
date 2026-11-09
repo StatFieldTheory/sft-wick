@@ -486,8 +486,9 @@ Running the tests
    pytest tests/test_workflow.py tests/test_workflow_config.py \
           tests/test_diagonal_A_time_dependent.py -v
 
-   # Everything (per-file test counts: docs/verification/catalog.rst)
-   pytest tests/ -v
+   # Everything CI runs, heavy tests included
+   # (per-file test counts: docs/verification/catalog.rst)
+   pytest tests/ -m "not slow" -n auto --dist worksteal
 
    # Demo notebooks (minutes)
    cd examples/demo1 && python run_simulation.py --n_real 5000 && \

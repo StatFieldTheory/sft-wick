@@ -21,8 +21,12 @@ Running Tests
 
 .. code-block:: bash
 
-   # All tests
-   pytest tests/ -v
+   # Default: every test except the slow benchmarks and the heavy tests,
+   # on all cores (pytest-xdist, from the dev extra)
+   pytest tests/ -n auto --dist worksteal
+
+   # What CI runs: the heavy tests (10 s or more each) included
+   pytest tests/ -m "not slow" -n auto --dist worksteal
 
    # Single file
    pytest tests/test_wick.py -v

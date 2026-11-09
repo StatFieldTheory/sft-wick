@@ -255,5 +255,5 @@ pytest ../../tests/test_demo8_reference.py \
        ../../tests/test_demo8_time_dependent_rate.py \
        ../../tests/test_demo8_oscillator.py \
        ../../tests/test_demo8_kernels.py \
-       ../../tests/test_demo8_white_noise_table.py -q
+       ../../tests/test_demo8_white_noise_table.py -m 'not slow' -q
 ```

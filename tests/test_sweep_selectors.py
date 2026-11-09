@@ -587,8 +587,11 @@ def test_SS9_python_override_of_external_times_takes_an_array(fk_dir):
     ({"sweep.t_final_grid": "1.7"}, r"^sweep\.t_final_grid: must be a list"),
     ({"sweep.positions_grid.y": b"0.55"},
      r"^sweep\.positions_grid\.y: must be a list"),
-    ({"expand.observable": {"phi_a(x)", "phi_b(y)"}},
-     r"^expand\.observable: .*set"),
+    # The repr of a set depends on PYTHONHASHSEED, which differs between
+    # pytest-xdist workers, so this case carries a fixed id.
+    pytest.param({"expand.observable": {"phi_a(x)", "phi_b(y)"}},
+                 r"^expand\.observable: .*set",
+                 id="expand.observable-as-a-set"),
     ({"sweep.component_tuples": "01"},
      r"^sweep\.component_tuples: must be a non-empty list"),
     ({"sweep.component_tuples": np.zeros((0, 2), dtype=int)},

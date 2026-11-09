@@ -199,6 +199,6 @@ cd examples/demo5
 python run.py                      # ~12 min, 10 of them the mixing variant's order 4
 python multiplicative.py           # ~30 s
 python white_l1_multiplicative.py  # ~5 min, 3 of them the two matrix R QMC runs
-pytest ../../tests/test_demo5_white_noise.py -q
+pytest ../../tests/test_demo5_white_noise.py -m 'not slow' -q
 pytest ../../tests/test_multiplicative_noise_l1.py -q
 ```

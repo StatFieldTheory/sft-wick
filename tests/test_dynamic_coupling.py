@@ -1126,7 +1126,10 @@ def _dc4_reference(gamma, lam, F, t_final, t_min):
     return F * A(t_final) * inner
 
 
-@pytest.mark.parametrize("method", list(_DC4_METHODS))
+@pytest.mark.parametrize("method", [
+    pytest.param(m, marks=pytest.mark.heavy) if m == "nquad" else m
+    for m in _DC4_METHODS
+])
 @pytest.mark.parametrize(
     "x, y", [(0.7, -0.4), (3e6, -2e6), (1e-9, 2e-9)],
     ids=["moderate", "large", "small"],

@@ -21,8 +21,13 @@ it is NOT concentrated where one would guess: the 10 affected sites in
 
 Usage::
 
-    PYTHONPATH=tools pytest tests/ -p approx_audit \
+    PYTHONPATH=tools pytest tests/ -m 'not slow' -p approx_audit \
         --approx-audit-out=audit.csv
+
+``-m 'not slow'`` includes the ``heavy`` tests, which the default
+selection leaves out.  Run it in one process: it refuses ``-n``
+(pytest-xdist), because each worker would write its own share of the
+sites over the same files.
 
 Read the ``effective_rel`` column: it is what the site actually enforces
 as a relative tolerance, against ``rel_written`` which is what it reads
@@ -75,6 +80,10 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
+    if getattr(config.option, "numprocesses", None) or hasattr(config, "workerinput"):
+        raise _pytest.UsageError(
+            "approx_audit keeps its rows in one process and writes them to "
+            "one file; run it without -n (pytest-xdist)")
     _pytest.approx = _approx
 
 

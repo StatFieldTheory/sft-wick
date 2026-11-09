@@ -22,6 +22,7 @@ import sft_wick as sw
 
 @pytest.mark.parametrize("selection", ["all", "list", "tuple", "generator"])
 @pytest.mark.parametrize("vertex_name", ["F", "G"])
+@pytest.mark.heavy
 def test_verified_gaussian_rows_accept_all_and_iterable_types(
         selection, vertex_name, tmp_path, monkeypatch):
     """Default GL refinement keeps all labels and one-shot selections."""
@@ -107,6 +108,7 @@ def test_kernel_permutation_short_time_and_resonance(sigma_t):
 
 
 @pytest.mark.parametrize("r,t,n_gauss", [(0.0, 0.1, 10), (0.6, 3.0, 18), (0.0, 15.0, 28)])
+@pytest.mark.heavy
 def test_fffk_all_components_match_independent_moments(r, t, n_gauss):
     system = budget.make_system(budget.LAM, sw.NonLocalVertex(
         "K", 3, coupling=kernel.coupling_fn_vectorized,
@@ -127,6 +129,7 @@ def test_fffk_late_time_matches_independent_moments():
 
 
 @pytest.mark.parametrize("r,t", [(0.0, 0.2), (0.6, 3.0)])
+@pytest.mark.heavy
 def test_ffk4_matches_independent_moments(r, t):
     system = budget.make_system(budget.LAM, sw.NonLocalVertex(
         "K4", 4, coupling=kernel4.coupling_fn_vectorized,

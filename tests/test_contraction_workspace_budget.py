@@ -188,13 +188,30 @@ def _traced_peak(call):
             tracemalloc.stop()
 
 
+def _steady_peak(call, limit):
+    """:func:`_traced_peak`, measured twice more when the peak is above
+    ``limit``; the median of the three readings is kept.
+
+    The call allocates the same bytes each time.  tracemalloc also traces
+    the other threads of the process (the pytest-xdist receiver, for one),
+    and an allocation or a free there during the call moves one reading up
+    or down.  The median discards one such reading in either direction, so
+    an overrun that repeats still fails."""
+    result, peak = _traced_peak(call)
+    if peak <= limit:
+        return result, peak
+    readings = sorted([peak] + [_traced_peak(call)[1] for _ in range(2)])
+    return result, readings[1]
+
+
 def _measured(cases, module, name, monkeypatch):
     """``(label, budget, peak, operands)`` of every case, each run at its
     smallest budget, which it must not decline."""
     rows = []
     for label, call, operands in cases:
         budget = _smallest_budget(call, module, name, monkeypatch)
-        result, peak = _traced_peak(lambda: call(budget))
+        result, peak = _steady_peak(
+            lambda: call(budget), budget + _allowance(operands))
         assert result is not None, f"{label}: declined at its own budget"
         assert call(budget - 1) is None
         rows.append((label, budget, peak, operands))
@@ -593,6 +610,7 @@ def test_range_scan_allocates_one_block():
     rng = np.random.default_rng(9910)
     array = _signed(rng, (1000, 1000))
     array[3, 4] = 0.0
-    scanned, peak = _traced_peak(lambda: finite_range(array))
+    limit = 8 * 2**16 + _allowance(0)
+    scanned, peak = _steady_peak(lambda: finite_range(array), limit)
     assert scanned == _reference_range(array)
-    assert peak <= 8 * 2**16 + _allowance(0)
+    assert peak <= limit
