@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8063 tests** in 134 files (parametrised
+The suite has **8302 tests** in 143 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -267,7 +267,7 @@ Propagator numerics
 Integrators
 -----------
 
-*2608 tests in 56 files.*
+*2847 tests in 65 files.*
 
 .. list-table::
    :header-rows: 1
@@ -474,10 +474,10 @@ Integrators
      - 1e-10
      - 26
    * - ``test_ito_moments_reference.py``
-     - the exact Itô moment-hierarchy reference used by demos 4 and 5 (examples/reference/ito_moments.py; no sft-wick code): OU variance, quadratic-drift correction, shot-noise cumulants, multiplicative noise, a non-normal linear system
+     - the exact Itô moment-hierarchy reference used by demos 4 and 5 (examples/reference/ito_moments.py; no sft-wick code): OU variance, quadratic- and cubic-drift corrections, shot-noise cumulants, multiplicative noise, a non-normal linear system
      - closed forms; Campbell's theorem; Lyapunov equation
      - 1e-13
-     - 7
+     - 8
    * - ``test_kink_split_external_time.py``
      - a kink between an integration time and an external point pinned at a fixed time is cut, not paired: the variable's range is cut at that time, the cut is carried to the variables ordered against it and to the parents whose min() bound it enters, and no cut is made when every external sits at one time; an external swept by integrate_over pairs like an integration variable instead, and two swept ones pair too, unless the full causal closure (a chain through a fixed external included) orders them; a swept external below a carried lower cut is cut; the pairs, the cuts and the values do not depend on PYTHONHASHSEED
      - exact Itô moment hierarchy, transported over the lags between the external times; runs under eight hash seeds, bit for bit
@@ -553,6 +553,51 @@ Integrators
      - closed-form spectral C of a two-node density; the erf and Gauss-Legendre C of test_custom_cache_aliasing; the same subclass without the write or the buffer; the plain cache
      - 1e-13 (closed form); 2e-4 through the 16 x 16 table; 1e-12; bit equality
      - 43
+   * - ``test_validation_demo_package.py``
+     - the package values committed for demos 4, 5 and 7, rebuilt from a ModelSpec through validation/lower.py: the 1,497 values whose route the lowering shares are counted, and up to five deterministic evaluations per demo part and integrator are rerun, covering every tag of demo 4's case table and a two-time case with distinct components
+     - the demos' results files; the oracle
+     - 1e-12 relative; stored zeros to 1e-15; the declared tolerance against the oracle
+     - 11
+   * - ``test_validation_demos.py``
+     - every hierarchy value committed for demos 4, 5 (parts A and C) and 7 (items a-e), 1,772 values, rebuilt from a ModelSpec with the oracle's own state layout and channel tags; demo 4 level A at F = 0 and its four-point joint cumulant
+     - the demos' results files; Campbell's theorem (examples/demo4/poisson_noise.py)
+     - 1e-12 relative; stored zeros to 1e-15
+     - 11
+   * - ``test_validation_draw.py``
+     - properties of the fuzzer's sampler (validation/draw.py) over 300 seeds per property chosen by hypothesis, derandomized: a seed gives one case, which survives the JSON round trip, and a forced kind is kept; the flags agree with the model and its kind, and Poisson noise is drawn as the sampler's rules say; the observable is one the oracle and the package both take; the largest weight and the tags up to it
+     - the sampler's own rules; the binomial count of tags
+     - exact
+     - 4
+   * - ``test_validation_fuzz.py``
+     - the random cases of the fuzzer (validation/draw.py), the fuzzer (validation/fuzz.py) and the shrinker (validation/shrink.py): twenty seeds covering every drawn feature, each case pinned by a digest and the oracle's largest non-trivial value pinned, with the package within the declared Gauss-Legendre tolerance of the oracle; the admissible flags held in the closed-form C on 300 draws and each condition of isotropy needed; one case with its flags on through the worker subprocess on three integrators; a planted fault in the cubic drift found in exactly the cases that have one and shrunk to the source and cubic drift; the verdict of every worker status, origin and stage; the summary's counts; the watchdog against a job stuck in compiled code, and a crashed worker with its return code; a worker past its memory limit killed, an oracle past its limit stopped in the main thread and only measured in another, both limits reaching the records through a run, a case started only when every running case and the new one fit under their limits with the reserve left, a run that waits for the reserve and ends once every case has run, a run stopped by SIGTERM or SIGKILL that leaves no process running, a process told a parent it no longer has that ends at once, and a pool process that dies replaced, with the case that killed it recorded and the case started beside it run again alone and passing; the shrinker under the run's two limits
+     - the oracle (validation/hierarchy.py); the closed-form C
+     - 1e-12 (pinned oracle values); 1e-13 (isotropic C); the declared tolerances
+     - 38
+   * - ``test_validation_hierarchy.py``
+     - the oracle's ModelSpec compiler (validation/hierarchy.py; no sft-wick code) on what no demo exercises: OU blocks loaded onto both components, shared white noise, two positions, two-time and integrated legs, t_min != 0; a constant source, static cumulants of orders 1-3 and a white cumulant with no index symmetry, the joint cumulant; multiplicative noise at two positions; two independent initial-law families; the spatial kernels in 2-D and 3-D and the Gaussian overlap of Poisson pulses in 1-D and 2-D; the termination guard, JSON round trip, refusals
+     - Lyapunov equation by scipy.linalg.expm; closed forms; exact identities (shared noise, a deterministic shift); scipy quad and dblquad
+     - 1e-12 (1e-13 for the mean, 1e-14 for the kernels, 1e-10 for the overlap)
+     - 65
+   * - ``test_validation_imports.py``
+     - the oracle in validation/ and the two reference engines import only the standard library, numpy, scipy, yaml, hypothesis, psutil and each other, and never the package side (an AST walk with relative and absolute names resolved, over every file but validation/lower.py, lower_v042.py and worker.py), nor lowering_parts.py, the closed form of C the lowerings share; running the oracle on every demo and on a model with every noise block loads no sft_wick module
+     - the import statements; sys.modules of a fresh interpreter
+     - exact
+     - 5
+   * - ``test_validation_lower.py``
+     - the lowering of a ModelSpec onto sft-wick (validation/lower.py, the closed form of C in validation/lowering_parts.py): the closed-form integrals of C against mpmath at resonant, negative and large rates; each method of the triangle integral and of its moments against the others at every switch between them; C before t_min; the closed-form C against the oracle's free two-time function and against the noise callables integrated by quadrature; package against oracle channel by channel for the source, F, G, static and white cumulants, white and exponential Poisson pulses, Stratonovich multiplicative noise beside white noise, loaded OU blocks in 3-D, one component, diagonal blocks under the default diag_C, two times, integrated legs and the joint cumulant at the scale of its cancellation, pinned by hand; the C routes; orders, refused legs and refused noise; QMC errors added in quadrature; the comparison rules, the declared tolerances and negative controls for raw moments and joint cumulants
+     - mpmath; scipy quad and dblquad; the oracle (validation/hierarchy.py)
+     - 1e-13 (integrals), 1e-14 (moments); 1e-12 (closed-form C against the oracle), 1e-9 (against quadrature); the declared tolerances
+     - 81
+   * - ``test_validation_lower_v042.py``
+     - the lowering onto sft-wick 0.4.2 (validation/lower_v042.py) run on the current release, which has none of the 0.4.2 bugs: the pinned fuzz seeds that 0.4.2 can express, and three more, agree with the oracle channel by channel and together cover every feature 0.4.2 can express in the first 300 draws; multiplicative noise and the connected target are refused; the module imports nothing of the current lowering or the worker
+     - the oracle (validation/hierarchy.py); the import statements
+     - the declared Gauss-Legendre tolerance
+     - 17
+   * - ``test_validation_worker.py``
+     - the worker that runs a lowering in its own process (validation/worker.py): one stream with jobs that differ only in C source, flags, orders and weight, lines that are not JSON, not UTF-8 or nested too deeply, malformed timeouts, refusals by the lowering and by the package, a package from the wrong directory and a job past its deadline, with stdout carrying only results; a lowering that prints to sys.stdout and file descriptor 1; the deadline against an except Exception; the bounded cache; the version read from a source tree and from unpacked wheels; an error in an oracle callable that the package called reported as a callback
+     - the lowering run in the test process; pyproject.toml
+     - 1e-14 relative
+     - 6
    * - ``test_vectorized_r_time.py``
      - vectorised response callables: the four built-in DiagonalA R classes on arrays, R_time_batch / R_matrix_batch calling a vectorised R once per batch and any other R once per distinct causal pair, ExplicitR(vectorized=True), the YAML key R_time_vectorized and its load-time probe; pickling and two workers; 2-D and broadcast times; channel totals on every integrator with scalar and matrix R, constant and time-dependent rates, t_min != 0; static, equal_time and already_R_contracted κ³ with a matrix R
      - the scalar calls of the same R (np.vectorize, the old path)

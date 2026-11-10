@@ -133,6 +133,12 @@ class PolySDE:
             self.drift.append((int(i), float(Q[i, j, k]),
                                unit(self.D, j, k), tag))
 
+    def add_cubic_drift(self, G: np.ndarray, tag: Tag) -> None:
+        """``f_i(X) ⊃ Σ_jkl G_ijkl X_j X_k X_l``."""
+        for i, j, k, m in zip(*np.nonzero(G)):
+            self.drift.append((int(i), float(G[i, j, k, m]),
+                               unit(self.D, j, k, m), tag))
+
     def add_constant_diffusion(self, S: np.ndarray,
                                tag: Tag | None = None) -> None:
         """Additive white noise with covariance rate ``S``."""

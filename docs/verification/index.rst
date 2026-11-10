@@ -471,6 +471,17 @@ noise-induced drift is never formed on the reference side.
 ``decaying_drift.py`` is a quadratic drift decaying in time, the
 reference behind ``tests/test_local_callable_coupling.py``.
 
+Random models against an exact reference
+-----------------------------------------
+
+The demos fix their models by hand.  ``validation/`` draws models at
+random, from a seed, compiles each into the moment hierarchy of its Markov
+embedding, and compares the package with it channel by channel on
+Gauss-Legendre, QMC and ``nquad``.  The oracle shares no code with the
+package, and a test walks its imports to keep it so.  :doc:`oracle`
+describes the oracle, the fuzzer and its runs, among them a replay on the
+0.4.2 release that finds the errors 0.5.0 to 0.7.0 fixed.
+
 Running the tests
 -----------------
 

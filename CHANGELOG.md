@@ -2,6 +2,115 @@
 
 ## Unreleased
 
+### Added: an oracle that shares no code with the package
+
+`validation/` ships in the sdist, not in the wheel.  `validation/modelspec.py`
+describes a model and an observable as plain data, and `validation/hierarchy.py`
+compiles the description into the exact moment hierarchy of a Markov embedding, on
+`examples/reference/ito_moments.py` and `hormander_moments.py`.  A model has N
+components, constant rates, a source, quadratic and cubic drift, coloured blocks
+loaded onto the components, white noise, affine multiplicative noise (Itô or
+Stratonovich), compound-Poisson noise with white or exponential pulses, and static or
+white cumulants.  An observable has one or two external times, integrated legs and
+the moment or the connected target.  Each vertex type is a channel of its own, so the
+hierarchy returns a value per channel content.  Every hierarchy value committed for
+demos 4, 5 and 7, 1,772 values, comes back from a model description to within 4.2e-15
+relative, and the stored zeros come back as 0.  `PolySDE.add_cubic_drift` is new.  A
+test walks the imports of `validation/` and the two engines and refuses sft_wick
+outside the lowering modules.
+
+`validation/lower.py` lowers a model description onto the L1 API and sums the
+package's diagrams by the oracle's channels.  It does not lower response legs, or
+white Poisson pulses beside multiplicative noise.  Its closed form of C covers every
+other model the description holds.  Its triangle integrals and their moments agree
+with mpmath to 1.5e-14 relative or better for times up to 20 and rate times time from
+-40 to 1e6.  C adds the rounding of t1 - t2 times a rate, up to 1.1e-13 on that range,
+where C is below 1e-57.  `validation/compare.py`
+compares the two with a tolerance per integrator and per source of C, and fails a row
+that is not finite.  `hierarchy.moments_with_scale` returns the scale a joint
+cumulant cancels at, which a zero is compared against.  The 1,497 package values
+committed for demos 4, 5 and 7 that the lowering reaches by the demos' own route come
+back to within 3.8e-16 relative, QMC included, and each lies within its tolerance of
+the oracle.  `python -m validation.worker` runs a lowering in its own process on JSON
+lines, so the oracle's process never imports the package.  Each job has a time limit,
+and its result names the package it loaded, the C route, and the stage and origin of
+a failure.
+
+`validation/draw.py` draws a model and an observable from a seed: general models with
+no symmetry the physics does not force, models with a diagonal C, and isotropic models
+with equal rates and `C = c·I`, each with the expansion flags it admits switched on.
+`python -m validation.fuzz` compares the package with the oracle on drawn cases
+through the worker, and `validation/shrink.py` reduces a failing case one feature at
+a time.  On 300 cases every comparison that finished agreed: 299 on Gauss-Legendre,
+300 on QMC and 254 on nquad, the others past 240 s.  A fault of 1e-3 planted in any
+one of nine quantities (F, h, S2, W3, the Poisson rate, g1, an OU amplitude, `t_min`,
+a rate) fails exactly the cases where it reaches a compared value.
+
+`validation/lower_v042.py` lowers a model description onto sft-wick 0.4.2 and refuses
+what 0.4.2 lacks, multiplicative noise and the connected target.  The parts of the
+lowering that do not depend on the release move to `validation/lowering_parts.py`,
+and the 1,497 demo values come back unchanged.  On this release the 0.4.2 lowering
+agrees with the oracle on Gauss-Legendre for the 14 fixed seeds it can express.
+Through the worker on the 0.4.2 wheel, 1,000 drawn cases gave 749 failing comparisons
+of the 893 that finished.  Each failure was compared again with every known cause
+removed, then with each put back in turn.  The failures this left over, and the
+Gauss-Legendre failures put down to kinks, were run on 0.5.0, 0.6.0, 0.7.0 and on
+commits between 0.5.0 and 0.6.0.  Every failure is attributed except 19 whose variant
+ran past 240 s:
+
+| error in 0.4.2 | fixed in | first seed | failures that need it | smallest case found |
+|---|---|---|---|---|
+| `System.t_min` does not reach the integrators | 0.5.0 | 1 | 668 | N = 1, a static first cumulant, `⟨φ⟩` |
+| `iso_C=True` multiplies C by N | 0.5.0 | 5 | 300 | N = 2, isotropic OU and F, `⟨φ_0⟩` at twice the oracle |
+| the diagonal-C fast path ignores pinned labels (`nquad`) | 0.5.0 | 5 | 80 | N = 2, OU on one component and F, `⟨φ_1 φ_0⟩` |
+| Gauss-Legendre and `nquad` do not split at kinks | 0.5.0, 0.6.0, 0.7.0 | 5 | 95 | N = 1, F and a white third cumulant, one external time pinned |
+| a callable cumulant is evaluated at one leg order | 0.5.0 | 235 | 13 | N = 2, white Poisson pulses and F |
+| an `equal_time` vertex takes the leg structure of one routing | 0.6.0 | 140 | 11 | N = 2, a source and a white second cumulant, three legs |
+
+A failure needs every error whose removal it takes to pass, so the column sums to
+more than 749.  For 12 of the `t_min` failures and 2 of the `iso_C` ones, the variant
+without the fix ran past 240 s.  12 Gauss-Legendre failures with `t_min > 0` count
+under kinks only: their variant with the `t_min` error also converged with nodes, so
+whether they need that fix is not decided.  The kink row's 0.7.0 is two cases with
+one external integrated and the other pinned; 4 of the row's 95 were not run on a
+later release.  The first three rows are the errors the replay set out to find.  Of
+the 265 failures among seeds 0 to 299, the cases of the 300-case run above, 264 pass
+on this release and one ran past its time limit there.
+
+`python -m validation.fuzz run` bounds memory.  `--max-rss-gb` (default 2) limits the
+resident memory of each worker, read by its parent every 0.25 s, and
+`--oracle-max-rss-gb` (default 8) that of each oracle evaluation; a job past its limit
+is stopped and recorded as `memory` or `oracle-memory`.  `shrink` takes the same two
+limits.  `--min-available-gb` is the memory a run leaves to the rest of the machine
+(default 8, or a quarter of the physical memory when that is less).  A case starts only
+when the memory available, less both limits of every running case and of the new one, is
+still that much; with no case running, a case starts once that much is available.  A
+limit of 0 is no limit.  Available and physical memory are the host's; cgroup limits are
+not read.  Both limits are of a whole process: before Python 3.13 a pool process runs
+many cases and an oracle's limit counts what earlier cases left in it, and from 3.13
+each case runs in a new process.  Records keep the largest samples, `peak_rss_mb` and
+`oracle_rss_mb`.  A run stopped by an interrupt or `SIGTERM` kills its pool and its
+workers, and a pool process or a worker whose parent has gone ends itself within a
+second.  When a pool process dies, every case running in the pool runs again, alone, in
+a new pool, and a case that kills its pool process twice while it runs alone is recorded
+as `harness-error`.  The fuzzer needs psutil.  `tests/test_validation_draw.py` checks
+properties of the draw on seeds that a derandomized hypothesis chooses, and hypothesis
+and psutil join the dev dependencies.  `docs/verification/oracle.rst` describes the
+oracle, the fuzzer and its runs.
+
+On 10,000 drawn cases, with 240 s per job and an oracle limit of 8 GB:
+
+| integrator | pass | fail | timeout | oracle-memory |
+|---|---|---|---|---|
+| Gauss-Legendre, 14 nodes | 9,916 | 0 | 13 | 71 |
+| QMC, 2^14 samples | 9,926 | 3 | 0 | 71 |
+
+Each QMC failure lies 15 to 53 times its own error estimate from the oracle, where
+Gauss-Legendre agrees with it to 1e-17, and passes with other Sobol seeds or more
+samples; the tolerance was not changed.  Run again, 11 of the 13 Gauss-Legendre
+timeouts pass with 1200 s per job, and 39 of the 71 oracles finish under a limit of
+16 GB, where every comparison that finishes passes; the other 32 go past 16 GB.
+
 ### Fixed: rates a relative test tells apart were called equal
 
 `DiagonalA` lowered rates to one scalar R, component 0's, when `np.allclose` called

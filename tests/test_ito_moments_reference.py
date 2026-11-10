@@ -1,11 +1,12 @@
 """The Itô moment-hierarchy reference (``examples/reference/ito_moments.py``)
 against results known in closed form.
 
-The reference is what demos 4 and 5 are checked against, so it is pinned
-here on its own, with no sft-wick code involved: an OU variance, the first
-correction from a quadratic drift, Campbell's theorem for shot noise, the
-Itô (not Stratonovich) moments of multiplicative noise, and a non-normal
-two-dimensional linear system against its Lyapunov equation.
+The reference is what demos 4 to 8 and the oracle in ``validation/`` are
+checked against, so it is pinned here on its own, with no sft-wick code
+involved: an OU variance, the first corrections from a quadratic and from a
+cubic drift, Campbell's theorem for shot noise, the Itô (not Stratonovich)
+moments of multiplicative noise, and a non-normal two-dimensional linear
+system against its Lyapunov equation.
 """
 from __future__ import annotations
 
@@ -46,6 +47,32 @@ def test_quadratic_drift_first_order_mean():
     exact = SIGMA ** 2 * (1 - np.exp(-GAMMA * T)) ** 2 / (2 * GAMMA ** 2)
     assert got[((1,), (1,))][0] == pytest.approx(exact, rel=1e-13, abs=0.0)
     assert got[((1,), (0,))][0] == 0.0
+
+
+def test_cubic_drift_first_order_from_a_deterministic_start():
+    """dX_i = (−γ_i X_i + ε G_ijkl X_j X_k X_l)dt, X(0) = x⁰: the ε¹
+    coefficient of X_i(T) is Σ_jkl G_ijkl x⁰_j x⁰_k x⁰_l (e^{−γ_i T} −
+    e^{−σT})/(σ − γ_i) with σ = γ_j + γ_k + γ_l; the process is
+    deterministic, so E[X_0 X_1] at ε¹ follows from it."""
+    rates, x0 = np.array([0.8, 1.7]), np.array([0.9, -0.6])
+    G = np.random.default_rng(3).normal(size=(2, 2, 2, 2))
+    sde = im.PolySDE(D=2, n_tags=1)
+    sde.add_linear_drift(-np.diag(rates))
+    sde.add_cubic_drift(G, tag=(1,))
+    got = im.solve(sde, [((1, 0), (1,)), ((0, 1), (1,)), ((1, 1), (1,))],
+                   [T], initial=lambda a, k: (np.prod(x0 ** np.array(a))
+                                              if k == (0,) else 0.0))
+    first = np.zeros(2)
+    for i, j, k, m in np.ndindex(G.shape):
+        sigma = rates[j] + rates[k] + rates[m]
+        first[i] += (G[i, j, k, m] * x0[j] * x0[k] * x0[m]
+                     * (np.exp(-rates[i] * T) - np.exp(-sigma * T))
+                     / (sigma - rates[i]))
+    zeroth = x0 * np.exp(-rates * T)
+    assert got[((1, 0), (1,))][0] == pytest.approx(first[0], rel=1e-13, abs=0.0)
+    assert got[((0, 1), (1,))][0] == pytest.approx(first[1], rel=1e-13, abs=0.0)
+    assert got[((1, 1), (1,))][0] == pytest.approx(
+        zeroth[0] * first[1] + first[0] * zeroth[1], rel=1e-13, abs=0.0)
 
 
 NU, H = 1.3, 0.6
