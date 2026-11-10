@@ -93,12 +93,20 @@ refuses multiplicative noise at two positions.  Two in ten models are
 drawn with a diagonal C, and two in ten are isotropic, with equal rates and
 ``C = c I``, so ``iso_R`` and ``iso_C`` apply.  ``diag_C`` is switched on
 wherever C comes out diagonal, which holds for about one general model in
-ten as well: 45 % of the cases in all.  Only
-numpy's ``default_rng`` draws, in a fixed order, so a seed gives the same
-case on every platform.  ``tests/test_validation_draw.py`` checks properties
-of the draw on seeds that a derandomized hypothesis chooses: a seed gives
-one case, the flags agree with the model, and the observable is one the
-oracle and the package both take.
+ten as well: 45 % of the cases in all.  Only numpy's ``default_rng``
+draws, in a fixed order.  Its ``Generator.uniform`` computes
+``low + (high - low) * u`` and rounds the product and the sum together
+where the build fuses the multiply and the add (macOS arm64) and
+separately where it does not (Linux x86_64).  On seeds 0 to 9999 the two
+roundings give every case the same structure and the same non-float
+values, and floats that differ by at most 4.5e-16.  On macOS arm64, numpy
+2.3.5, 2.4.2, 2.4.4 and 2.5.4 draw the same cases of seeds 0 to 9999.  The
+runs below were drawn on macOS arm64.  Each record holds the model and
+observable of its case, and ``shrink`` starts from them.
+``tests/test_validation_draw.py`` checks properties of the draw on seeds
+that a derandomized hypothesis chooses: a seed gives one case, the flags
+agree with the model, and the observable is one the oracle and the
+package both take.
 
 Running the fuzzer
 ------------------

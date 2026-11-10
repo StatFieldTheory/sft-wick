@@ -15,10 +15,16 @@ so ``iso_R`` and ``iso_C`` apply as well.  Exponential Poisson pulses keep
 cumulant orders up to 3, white pulses up to 4: order 4 with exponential
 pulses costs minutes per integrator.
 
-The same seed gives the same case on every platform and numpy version: only
-``numpy.random.default_rng`` draws, in a fixed order, and every derived
-number is formed in Python floats (a BLAS product rounds differently from
-build to build).  Imports no sft-wick code.
+Only ``numpy.random.default_rng`` draws, in a fixed order, and no number
+of the model or the observable goes through a BLAS product (a BLAS product
+rounds differently from build to build).  On macOS arm64, numpy 2.3.5,
+2.4.2, 2.4.4 and 2.5.4 draw the same cases of seeds 0 to 9999.  Across
+builds the floats can differ in the last bits: ``Generator.uniform``
+computes ``low + (high - low) * u`` and rounds the product and the sum
+together where numpy's build fuses the multiply and the add (macOS arm64)
+and separately where it does not (Linux x86_64).  On seeds 0 to 9999 the
+two roundings give every case the same structure and non-float values, and
+floats within 4.5e-16.  Imports no sft-wick code.
 """
 from __future__ import annotations
 

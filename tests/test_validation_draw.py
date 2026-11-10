@@ -7,7 +7,8 @@ millisecond.  The settings derandomize hypothesis, so the examples change
 only with its version and with the modules already imported, whose
 constants it also draws; a random search belongs to the fuzz runs, which are
 evidence and not tests.  A failure prints the seed and the kind, and
-``draw(seed, kind)`` gives the same case on any machine.  Checked:
+``draw(seed, kind)`` gives the case again; on another kind of machine its
+floats can differ in the last bits (:mod:`validation.draw`).  Checked:
 
 * a seed gives one case, the same on a second draw, and the case survives
   the JSON round trip of its model and observable; a forced kind is kept;
