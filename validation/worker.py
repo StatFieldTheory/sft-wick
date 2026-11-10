@@ -4,8 +4,8 @@ r"""The package side of a comparison, in its own process.
 4] < jobs.jsonl > results.jsonl`` reads one JSON job per line and writes
 one JSON result per line, so the process that compares never loads
 sft_wick.  ``--lowering`` names the module that lowers a ModelSpec onto the
-release under test (``validation.lower``, or ``validation.lower_v042`` once
-added).
+release under test (``validation.lower``, or ``validation.lower_v042`` for
+0.4.2).
 
 A job holds ``model`` and ``observable`` (the JSON of
 :mod:`validation.modelspec`), ``max_weight`` and ``method``, and optionally

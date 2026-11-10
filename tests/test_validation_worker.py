@@ -251,13 +251,13 @@ def test_VW5_the_version_comes_from_the_package_s_own_source(tmp_path):
 
 
 BROKEN_C = """
-from validation import lower
+from validation import lower, lowering_parts
 
 sw = lower.sw
 Lowered = lower.Lowered
-# The closed form of C now fails inside validation/lower.py when the
-# package calls it.
-lower.closed_form_c = lambda model: lower.ClosedFormC(None)
+# The closed form of C now fails inside validation/lowering_parts.py when
+# the package calls it.
+lower.closed_form_c = lambda model: lowering_parts.ClosedFormC(None)
 """
 
 

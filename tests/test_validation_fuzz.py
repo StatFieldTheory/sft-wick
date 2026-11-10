@@ -31,6 +31,7 @@ import numpy as np
 import pytest
 
 import validation.lower as lw
+import validation.lowering_parts as lp
 from validation.compare import compare_values, tolerance
 from validation.draw import admissible_flags, draw
 import validation.fuzz as fz
@@ -111,7 +112,7 @@ def _c_at_random_points(case, rng, n=6):
     t1 = model.t_min + rng.uniform(0.1, 1.5, size=n)
     t2 = model.t_min + rng.uniform(0.1, 1.5, size=n)
     t2[1] = t1[1]
-    return lw.closed_form_c(model)(x, t1, y, t2)
+    return lp.closed_form_c(model)(x, t1, y, t2)
 
 
 def test_VZ3_the_admissible_flags_hold_in_the_closed_form():

@@ -46,6 +46,37 @@ a time.  On 300 cases every comparison that finished agreed: 299 on Gauss-Legend
 one of nine quantities (F, h, S2, W3, the Poisson rate, g1, an OU amplitude, `t_min`,
 a rate) fails exactly the cases where it reaches a compared value.
 
+`validation/lower_v042.py` lowers a model description onto sft-wick 0.4.2 and refuses
+what 0.4.2 lacks, multiplicative noise and the connected target.  The parts of the
+lowering that do not depend on the release move to `validation/lowering_parts.py`,
+and the 1,497 demo values come back unchanged.  On this release the 0.4.2 lowering
+agrees with the oracle on Gauss-Legendre for the 14 fixed seeds it can express.
+Through the worker on the 0.4.2 wheel, 1,000 drawn cases gave 749 failing comparisons
+of the 893 that finished.  Each failure was compared again with every known cause
+removed, then with each put back in turn.  The failures this left over, and the
+Gauss-Legendre failures put down to kinks, were run on 0.5.0, 0.6.0, 0.7.0 and on
+commits between 0.5.0 and 0.6.0.  Every failure is attributed except 19 whose variant
+ran past 240 s:
+
+| error in 0.4.2 | fixed in | first seed | failures that need it | smallest case found |
+|---|---|---|---|---|
+| `System.t_min` does not reach the integrators | 0.5.0 | 1 | 668 | N = 1, a static first cumulant, `⟨φ⟩` |
+| `iso_C=True` multiplies C by N | 0.5.0 | 5 | 300 | N = 2, isotropic OU and F, `⟨φ_0⟩` at twice the oracle |
+| the diagonal-C fast path ignores pinned labels (`nquad`) | 0.5.0 | 5 | 80 | N = 2, OU on one component and F, `⟨φ_1 φ_0⟩` |
+| Gauss-Legendre and `nquad` do not split at kinks | 0.5.0, 0.6.0, 0.7.0 | 5 | 95 | N = 1, F and a white third cumulant, one external time pinned |
+| a callable cumulant is evaluated at one leg order | 0.5.0 | 235 | 13 | N = 2, white Poisson pulses and F |
+| an `equal_time` vertex takes the leg structure of one routing | 0.6.0 | 140 | 11 | N = 2, a source and a white second cumulant, three legs |
+
+A failure needs every error whose removal it takes to pass, so the column sums to
+more than 749.  For 12 of the `t_min` failures and 2 of the `iso_C` ones, the variant
+without the fix ran past 240 s.  12 Gauss-Legendre failures with `t_min > 0` count
+under kinks only: their variant with the `t_min` error also converged with nodes, so
+whether they need that fix is not decided.  The kink row's 0.7.0 is two cases with
+one external integrated and the other pinned; 4 of the row's 95 were not run on a
+later release.  The first three rows are the errors the replay set out to find.  Of
+the 265 failures among seeds 0 to 299, the cases of the 300-case run above, 264 pass
+on this release and one ran past its time limit there.
+
 ### Fixed: rates a relative test tells apart were called equal
 
 `DiagonalA` lowered rates to one scalar R, component 0's, when `np.allclose` called

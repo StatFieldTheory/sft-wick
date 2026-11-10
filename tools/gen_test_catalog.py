@@ -864,7 +864,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "only the standard library, numpy, scipy, yaml, hypothesis and each "
         "other, and never the package side (an AST walk with relative and "
         "absolute names resolved, over every file but validation/lower.py, "
-        "lower_v042.py and worker.py); running the oracle on every demo and "
+        "lower_v042.py and worker.py), nor lowering_parts.py, the closed "
+        "form of C the lowerings share; running the oracle on every demo and "
         "on a model with every noise block loads no sft_wick module",
         "the import statements; sys.modules of a fresh interpreter",
         "exact",
@@ -906,7 +907,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     ),
     "tests/test_validation_lower.py": (
         "Integrators",
-        "the lowering of a ModelSpec onto sft-wick (validation/lower.py): "
+        "the lowering of a ModelSpec onto sft-wick (validation/lower.py, "
+        "the closed form of C in validation/lowering_parts.py): "
         "the closed-form integrals of C against mpmath at resonant, "
         "negative and large rates; each method of the triangle integral "
         "and of its moments against the others at every switch between "
@@ -937,6 +939,18 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "the demos' results files; the oracle",
         "1e-12 relative; stored zeros to 1e-15; the declared tolerance "
         "against the oracle",
+    ),
+    "tests/test_validation_lower_v042.py": (
+        "Integrators",
+        "the lowering onto sft-wick 0.4.2 (validation/lower_v042.py) run on "
+        "the current release, which has none of the 0.4.2 bugs: the pinned "
+        "fuzz seeds that 0.4.2 can express, and three more, agree with the "
+        "oracle channel by channel and together cover every feature 0.4.2 "
+        "can express in the first 300 draws; multiplicative noise and the "
+        "connected target are refused; the module imports nothing of the "
+        "current lowering or the worker",
+        "the oracle (validation/hierarchy.py); the import statements",
+        "the declared Gauss-Legendre tolerance",
     ),
     "tests/test_validation_worker.py": (
         "Integrators",

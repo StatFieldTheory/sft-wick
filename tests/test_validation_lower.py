@@ -1,5 +1,6 @@
-"""The lowering of a ModelSpec onto sft-wick (``validation/lower.py``) and
-the comparison with the oracle (``validation/compare.py``).
+"""The lowering of a ModelSpec onto sft-wick (``validation/lower.py``, with
+the closed form of C in ``validation/lowering_parts.py``) and the comparison
+with the oracle (``validation/compare.py``).
 
 * The closed-form integrals of C against mpmath, near resonant rates, at
   negative rates and at large rate times time; each method of the
@@ -25,6 +26,7 @@ import pytest
 from scipy.integrate import dblquad, quad
 
 import validation.lower as lw
+import validation.lowering_parts as lp
 from validation import demo_cases as dc
 from validation.compare import (TABLE, TOLERANCES, Tolerance, compare_values,
                                 tolerance)
@@ -63,7 +65,7 @@ def _coloured_mp(al, be, p, q, T1, T2):
     (-0.3, -0.3, 200.0, 200.0, 20.0, 20.0),
     (0.01, 0.01, 50.0, 50.0, 20.0, 20.0)])
 def test_VL1_coloured_integral_matches_mpmath(al, be, p, q, T1, T2):
-    got = lw.coloured_integral(al, be, p, q, np.array([T1]), np.array([T2]))
+    got = lp.coloured_integral(al, be, p, q, np.array([T1]), np.array([T2]))
     assert got[0] == pytest.approx(_coloured_mp(al, be, p, q, T1, T2),
                                    rel=1e-13, abs=0.0)
 
@@ -91,7 +93,7 @@ def _arr(*values):
 
 def _dispatcher_matches_mpmath_on_both_sides(x, y, T):
     for xi in (x * (1 - 1e-9), x * (1 + 1e-9)):
-        assert lw._triangle(*_arr(xi, y, T)).item() == pytest.approx(
+        assert lp._triangle(*_arr(xi, y, T)).item() == pytest.approx(
             _triangle_mp(xi, y, T), rel=1e-13, abs=0.0)
 
 
@@ -103,10 +105,10 @@ def _dispatcher_matches_mpmath_on_both_sides(x, y, T):
 def test_VL2_triangle_methods_agree_at_the_rate_time_switch(y, T, sign):
     """At ``|xT| = TRIANGLE_SWITCH`` (``yT < 4``, so the rate-ratio switch
     does not apply) the difference formula and the series both hold."""
-    x = sign * lw.TRIANGLE_SWITCH / T
+    x = sign * lp.TRIANGLE_SWITCH / T
     want = _triangle_mp(x, y, T)
-    far = lw._triangle_far(*_arr(x, y, T, x + y)).item()
-    series = lw._triangle_series(*_arr(x, y, T)).item()
+    far = lp._triangle_far(*_arr(x, y, T, x + y)).item()
+    series = lp._triangle_series(*_arr(x, y, T)).item()
     assert far == pytest.approx(want, rel=1e-13, abs=0.0)
     assert series == pytest.approx(want, rel=1e-13, abs=0.0)
     _dispatcher_matches_mpmath_on_both_sides(x, y, T)
@@ -120,10 +122,10 @@ def test_VL3_triangle_methods_agree_at_the_rate_ratio_switch(yT, T, sign):
     difference formula loses at most a factor 9 and the series converges
     as ``RATE_RATIO^{−n}``; inside, the difference would cancel as ``yT``."""
     y = yT / T
-    x = sign * y / lw.RATE_RATIO
+    x = sign * y / lp.RATE_RATIO
     want = _triangle_mp(x, y, T)
-    far = lw._triangle_far(*_arr(x, y, T, x + y)).item()
-    series = lw._triangle_series(*_arr(x, y, T)).item()
+    far = lp._triangle_far(*_arr(x, y, T, x + y)).item()
+    series = lp._triangle_series(*_arr(x, y, T)).item()
     assert far == pytest.approx(want, rel=1e-13, abs=0.0)
     assert series == pytest.approx(want, rel=1e-13, abs=0.0)
     _dispatcher_matches_mpmath_on_both_sides(x, y, T)
@@ -153,31 +155,31 @@ def test_VL4_moment_methods_agree_at_their_switches(K):
     then the dispatcher at the extremes."""
     for z in (K * (1 - 1e-9), float(K), K * (1 + 1e-9)):
         zs = np.array([z])
-        _all_moments_match(lw._moments_upward(K, zs)[:, 0], K, z)
-        _all_moments_match(lw._moments_downward(K, zs)[:, 0], K, z)
+        _all_moments_match(lp._moments_upward(K, zs)[:, 0], K, z)
+        _all_moments_match(lp._moments_downward(K, zs)[:, 0], K, z)
     for z in (1 - 1e-9, 1.0, 1 + 1e-9):
         zs = np.array([z])
         want = _moment_mp(K, z)
-        assert lw._moments_series(K, zs)[K - 1, 0] == pytest.approx(
+        assert lp._moments_series(K, zs)[K - 1, 0] == pytest.approx(
             want, rel=1e-14, abs=0.0)
-        assert lw._moment_gamma(K, zs)[0] == pytest.approx(
+        assert lp._moment_gamma(K, zs)[0] == pytest.approx(
             want, rel=1e-14, abs=0.0)
     for z in (0.0, 1e-300, -1e-12):
         zs = np.array([z])
-        _all_moments_match(lw._moments_series(K, zs)[:, 0], K, z)
+        _all_moments_match(lp._moments_series(K, zs)[:, 0], K, z)
         if z >= 0:
-            _all_moments_match(lw._moments_downward(K, zs)[:, 0], K, z)
+            _all_moments_match(lp._moments_downward(K, zs)[:, 0], K, z)
     zs = np.array([-300.0, -40.0, -1.0, 0.5, 2.5, 37.0, 1e6])
-    got = lw._moments(K, zs)
+    got = lp._moments(K, zs)
     for j, z in enumerate(zs):
         _all_moments_match(got[:, j], K, z, rel=3e-15 * max(1.0, -z / 40))
 
 
 def test_VL5_white_integral_and_the_zero_rate():
     T1, T2 = np.array([1.4, 0.3]), np.array([0.9, 2.0])
-    got = lw.white_integral(0.0, 0.0, T1, T2)
+    got = lp.white_integral(0.0, 0.0, T1, T2)
     assert got == pytest.approx(np.minimum(T1, T2), rel=1e-15, abs=0.0)
-    got = lw.white_integral(-0.4, 0.4, np.array([1.0]), np.array([2.0]))
+    got = lp.white_integral(-0.4, 0.4, np.array([1.0]), np.array([2.0]))
     assert got[0] == pytest.approx(np.exp(-0.4), rel=1e-14, abs=0.0)
 
 
@@ -196,13 +198,13 @@ X3, Y3 = (0.2, -0.3, 0.5), (-0.4, 0.6, 0.1)
 
 
 def test_VL6_c_is_zero_before_t_min_and_earlier_times_are_refused():
-    c = lw.closed_form_c(GAUSSIAN)
+    c = lp.closed_form_c(GAUSSIAN)
     t0 = GAUSSIAN.t_min
     times = np.array([t0 - 2.0, t0 - 1e-9, t0, t0 + 0.4])
     got = c(np.array([X3] * 4), times, np.array([Y3] * 4), np.full(4, 1.2))
     assert np.all(got[:3] == 0.0) and np.all(np.abs(got[3]) > 0.0)
     assert np.all(c(np.array(X3), 1.2, np.array(Y3), t0 - 0.5) == 0.0)
-    blowing = lw.closed_form_c(ModelSpec(
+    blowing = lp.closed_form_c(ModelSpec(
         gamma=(-50.0,), ou=(OUBlock(1.0, 0.5, Kernel("constant", ()), (1.0,)),),
         white=((0.1,),)))
     for t1, t2 in ((20.0, -1.0), (20.0, 0.0), (-1.0, 20.0)):
@@ -221,7 +223,7 @@ def test_VL7_closed_form_c_is_the_free_two_time_function(pulse):
     model = dataclasses.replace(GAUSSIAN, poisson=Poisson(
         p.nu, p.amplitude, p.width, pulse,
         p.tau if pulse == "exponential" else None))
-    c = lw.closed_form_c(model)
+    c = lp.closed_form_c(model)
     times = [(1.6, 1.6), (1.6, 0.9), (0.9, 1.6), (0.35, 1.2)]
     batch = c(np.array([X3] * 4), np.array([t for t, _ in times]),
               np.array([Y3] * 4), np.array([s for _, s in times]))
@@ -241,7 +243,7 @@ def test_VL7_closed_form_c_is_the_free_two_time_function(pulse):
 def _c_by_quadrature(model, a, b, x, t1, y, t2):
     """``∫∫ R_a κ²_ab R_b + ∫ R_a σ²_ab R_b`` from the callables the package
     is given, with the square split on its diagonal."""
-    kappa2, sigma2 = lw.Kappa2Of(model), lw.Sigma2Of(model)
+    kappa2, sigma2 = lp.Kappa2Of(model), lp.Sigma2Of(model)
     g, t0 = model.gamma, model.t_min
 
     def coloured(u, s):
@@ -267,7 +269,7 @@ def _c_by_quadrature(model, a, b, x, t1, y, t2):
 def test_VL8_the_noise_callables_integrate_to_the_closed_form(model):
     """``Kappa2Of`` and ``Sigma2Of`` feed the package's tables and its
     diagonal probes; ``ClosedFormC`` is written separately."""
-    c = lw.closed_form_c(model)
+    c = lp.closed_form_c(model)
     x, y = np.array([0.2, -0.3]), np.array([-0.4, 0.6])
     for t1, t2 in ((1.6, 0.9), (0.9, 1.6)):
         want = c(x, t1, y, t2)
@@ -392,7 +394,7 @@ def test_VL11_the_c_routes_and_the_flags_they_admit():
     the refusal of ``diag_C`` on loaded blocks."""
     model = dc.demo5_model("isotropic")
     obs = Observable([(0, "x"), (0, "y")], {"x": 0.0, "y": 0.7}, 2.1)
-    assert lw.diagonal_c(model) and not lw.diagonal_c(GAUSSIAN)
+    assert lp.diagonal_c(model) and not lp.diagonal_c(GAUSSIAN)
     low = lw.Lowered(model, obs, 2, dict(iso_C=True), "auto")
     assert low.props.c_source == "closed_form:builtin"
     got = low.evaluate("gauss_legendre", n_gauss=12)
@@ -418,7 +420,7 @@ def test_VL11_the_c_routes_and_the_flags_they_admit():
                           low.evaluate("gauss_legendre", n_gauss=12), TABLE)
     assert all(r.ok for r in rows), [r for r in rows if not r.ok]
     loaded = FEATURES["source, F, G"][0]
-    assert not lw.diagonal_c(loaded)
+    assert not lp.diagonal_c(loaded)
     with pytest.raises(ValueError, match="diag_C"):
         lw.Lowered(loaded, _observable(loaded, POS), 0, dict(diag_C=True))
 

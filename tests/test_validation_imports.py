@@ -9,7 +9,11 @@ library, numpy, scipy, yaml, hypothesis, the two engines in
 package side is ``validation/lower.py`` and ``validation/lower_v042.py`` (the
 lowering onto a release), the only modules that may import sft_wick, and
 ``validation/worker.py``, which runs a lowering in its own process; no other
-oracle module may import any of them, by a relative or an absolute name.  A
+oracle module may import any of them, by a relative or an absolute name.
+``validation/lowering_parts.py`` holds what the two lowerings share (the
+closed form of C, the noise callables).  It is checked as an oracle file and
+imports no sft_wick, but no other oracle module may import it either, so the
+oracle's C never comes from the closed form the package is given.  A
 subprocess then imports every other oracle module, runs the oracle on a
 case of every demo and on a model with every noise block, and checks that
 no sft_wick module was loaded on the way, which catches an import made by a
@@ -27,6 +31,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 ENGINES = ("ito_moments", "hormander_moments")
 PACKAGE_SIDE = ("lower.py", "lower_v042.py", "worker.py")
+#: Shared by the lowerings; an oracle file, but no oracle module imports it.
+LOWERING_PARTS = ("lowering_parts.py",)
 ALLOWED = {"numpy", "scipy", "yaml", "hypothesis", "validation", *ENGINES}
 
 
@@ -82,7 +88,7 @@ def _forbidden(module: str) -> bool:
     top = module.split(".")[0]
     if top not in ALLOWED and top not in sys.stdlib_module_names:
         return True
-    side = {f"validation.{name[:-3]}" for name in PACKAGE_SIDE}
+    side = {f"validation.{name[:-3]}" for name in PACKAGE_SIDE + LOWERING_PARTS}
     return any(module == m or module.startswith(m + ".") for m in side)
 
 
@@ -111,7 +117,8 @@ def test_VI2_the_ast_walk_sees_each_spelling_of_an_import(tmp_path):
                      "from validation import lower\n"
                      "from validation import lower_v042 as L\n"
                      "from validation import worker, modelspec\n"
-                     "from . import stages\n")
+                     "from . import stages\n"
+                     "from .lowering_parts import c_matrix\n")
     found = [module for _, module in _imports(probe)]
     assert [m for m in found if m.startswith("sft_wick")] == [
         "sft_wick.evaluate", "sft_wick", "sft_wick.System",
@@ -121,7 +128,8 @@ def test_VI2_the_ast_walk_sees_each_spelling_of_an_import(tmp_path):
         "sft_wick.workflow", "sft_wick", "validation.lower",
         "validation.lower_v042", "validation.lower_v042.to_system",
         "validation.lower", "<beyond the package>", "validation.lower",
-        "validation.lower_v042", "validation.worker"])
+        "validation.lower_v042", "validation.worker",
+        "validation.lowering_parts"])
     assert not _forbidden("validation.modelspec")
     assert not _forbidden("validation.lowering_notes")
 

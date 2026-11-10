@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8271 tests** in 141 files (parametrised
+The suite has **8288 tests** in 142 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -267,7 +267,7 @@ Propagator numerics
 Integrators
 -----------
 
-*2816 tests in 63 files.*
+*2833 tests in 64 files.*
 
 .. list-table::
    :header-rows: 1
@@ -574,15 +574,20 @@ Integrators
      - 1e-12 (1e-13 for the mean, 1e-14 for the kernels, 1e-10 for the overlap)
      - 65
    * - ``test_validation_imports.py``
-     - the oracle in validation/ and the two reference engines import only the standard library, numpy, scipy, yaml, hypothesis and each other, and never the package side (an AST walk with relative and absolute names resolved, over every file but validation/lower.py, lower_v042.py and worker.py); running the oracle on every demo and on a model with every noise block loads no sft_wick module
+     - the oracle in validation/ and the two reference engines import only the standard library, numpy, scipy, yaml, hypothesis and each other, and never the package side (an AST walk with relative and absolute names resolved, over every file but validation/lower.py, lower_v042.py and worker.py), nor lowering_parts.py, the closed form of C the lowerings share; running the oracle on every demo and on a model with every noise block loads no sft_wick module
      - the import statements; sys.modules of a fresh interpreter
      - exact
      - 5
    * - ``test_validation_lower.py``
-     - the lowering of a ModelSpec onto sft-wick (validation/lower.py): the closed-form integrals of C against mpmath at resonant, negative and large rates; each method of the triangle integral and of its moments against the others at every switch between them; C before t_min; the closed-form C against the oracle's free two-time function and against the noise callables integrated by quadrature; package against oracle channel by channel for the source, F, G, static and white cumulants, white and exponential Poisson pulses, Stratonovich multiplicative noise beside white noise, loaded OU blocks in 3-D, one component, diagonal blocks under the default diag_C, two times, integrated legs and the joint cumulant at the scale of its cancellation, pinned by hand; the C routes; orders, refused legs and refused noise; QMC errors added in quadrature; the comparison rules, the declared tolerances and negative controls for raw moments and joint cumulants
+     - the lowering of a ModelSpec onto sft-wick (validation/lower.py, the closed form of C in validation/lowering_parts.py): the closed-form integrals of C against mpmath at resonant, negative and large rates; each method of the triangle integral and of its moments against the others at every switch between them; C before t_min; the closed-form C against the oracle's free two-time function and against the noise callables integrated by quadrature; package against oracle channel by channel for the source, F, G, static and white cumulants, white and exponential Poisson pulses, Stratonovich multiplicative noise beside white noise, loaded OU blocks in 3-D, one component, diagonal blocks under the default diag_C, two times, integrated legs and the joint cumulant at the scale of its cancellation, pinned by hand; the C routes; orders, refused legs and refused noise; QMC errors added in quadrature; the comparison rules, the declared tolerances and negative controls for raw moments and joint cumulants
      - mpmath; scipy quad and dblquad; the oracle (validation/hierarchy.py)
      - 1e-13 (integrals), 1e-14 (moments); 1e-12 (closed-form C against the oracle), 1e-9 (against quadrature); the declared tolerances
      - 81
+   * - ``test_validation_lower_v042.py``
+     - the lowering onto sft-wick 0.4.2 (validation/lower_v042.py) run on the current release, which has none of the 0.4.2 bugs: the pinned fuzz seeds that 0.4.2 can express, and three more, agree with the oracle channel by channel and together cover every feature 0.4.2 can express in the first 300 draws; multiplicative noise and the connected target are refused; the module imports nothing of the current lowering or the worker
+     - the oracle (validation/hierarchy.py); the import statements
+     - the declared Gauss-Legendre tolerance
+     - 17
    * - ``test_validation_worker.py``
      - the worker that runs a lowering in its own process (validation/worker.py): one stream with jobs that differ only in C source, flags, orders and weight, lines that are not JSON, not UTF-8 or nested too deeply, malformed timeouts, refusals by the lowering and by the package, a package from the wrong directory and a job past its deadline, with stdout carrying only results; a lowering that prints to sys.stdout and file descriptor 1; the deadline against an except Exception; the bounded cache; the version read from a source tree and from unpacked wheels; an error in an oracle callable that the package called reported as a callback
      - the lowering run in the test process; pyproject.toml
