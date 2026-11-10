@@ -7,8 +7,11 @@ still fails with the same integrator, and stops when no candidate does or
 the budget of evaluations is spent.  A candidate keeps the flags of the
 case it came from where it still admits them and never switches one on; a
 flag it can no longer admit is switched off and named in the step.  Run it
-as ``python -m validation.fuzz shrink DIR --seed S --method M``.  Imports no
-sft-wick code: the package runs in the worker subprocess.
+as ``python -m validation.fuzz shrink DIR --seed S --method M``; the worker
+and every oracle run under the memory limits of a run, ``--max-rss-gb`` and
+``--oracle-max-rss-gb`` with the same defaults, and a candidate past one is
+not kept.  Imports no sft-wick code: the package runs in the worker
+subprocess.
 """
 from __future__ import annotations
 
@@ -19,11 +22,12 @@ from pathlib import Path
 import numpy as np
 
 from .draw import Case, admissible_flags
-from .fuzz import Worker, job_of, oracle_of, records_of, verdict
+from .fuzz import (DEFAULT_MAX_RSS_GB, DEFAULT_ORACLE_MAX_RSS_GB, GB, Worker,
+                   job_of, limits_of, oracle_of, records_of, verdict)
 from .modelspec import (Leg, ModelSpec, Observable, model_from_dict,
                         model_to_dict, observable_from_dict,
                         observable_to_dict)
-from .stages import JobTimeout
+from .stages import JobMemory, JobTimeout
 
 __all__ = ["without_component", "candidates", "shrink", "main"]
 
@@ -124,10 +128,11 @@ def candidates(case: Case):
 
 
 def _still_fails(case: Case, method: str, worker: Worker, timeout: float,
-                 oracle_timeout: float | None) -> dict | None:
+                 oracle_timeout: float | None,
+                 oracle_max_rss: float | None = None) -> dict | None:
     try:
-        ref, scale = oracle_of(case, oracle_timeout)
-    except (JobTimeout, Exception):  # noqa: BLE001  (not a usable candidate)
+        ref, scale = oracle_of(case, oracle_timeout, oracle_max_rss)
+    except (JobTimeout, JobMemory, Exception):  # noqa: BLE001  (not usable)
         return None
     job = job_of(case, method, timeout)
     got = verdict(worker.run(job), ref, scale, method, job=job)
@@ -136,12 +141,18 @@ def _still_fails(case: Case, method: str, worker: Worker, timeout: float,
 
 def shrink(case: Case, method: str, package: str, lowering: str,
            timeout: float, budget: int = 200, extra_path: tuple = (),
-           oracle_timeout: float | None = 600.0) -> tuple:
-    """The smallest case reached, the steps taken, and its verdict."""
-    worker = Worker(Path(package), lowering, extra_path)
+           oracle_timeout: float | None = 600.0,
+           max_rss: float | None = DEFAULT_MAX_RSS_GB * GB,
+           oracle_max_rss: float | None = DEFAULT_ORACLE_MAX_RSS_GB * GB
+           ) -> tuple:
+    """The smallest case reached, the steps taken, and its verdict; the
+    worker runs under ``max_rss`` and every oracle under ``oracle_max_rss``
+    bytes of resident memory (``None`` for no limit)."""
+    worker = Worker(Path(package), lowering, extra_path, max_rss)
     steps: list = []
     try:
-        result = _still_fails(case, method, worker, timeout, oracle_timeout)
+        result = _still_fails(case, method, worker, timeout, oracle_timeout,
+                              oracle_max_rss)
         if result is None:
             raise ValueError("the case does not fail")
         spent, changed = 1, True
@@ -160,7 +171,7 @@ def shrink(case: Case, method: str, package: str, lowering: str,
                             flags)
                 spent += 1
                 got = _still_fails(cand, method, worker, timeout,
-                                   oracle_timeout)
+                                   oracle_timeout, oracle_max_rss)
                 if got is not None:
                     case, result, changed = cand, got, True
                     steps.append(step + (f" ({', '.join(lost)} off)"
@@ -186,7 +197,8 @@ def main(args) -> None:
                 r["flags"])
     small, steps, result = shrink(case, args.method, args.package,
                                   args.lowering, args.timeout, args.budget,
-                                  tuple(args.extra_path), args.oracle_timeout)
+                                  tuple(args.extra_path), args.oracle_timeout,
+                                  **limits_of(args))
     out = dict(seed=args.seed, method=args.method, steps=steps,
                model=model_to_dict(small.model),
                observable=observable_to_dict(small.observable),

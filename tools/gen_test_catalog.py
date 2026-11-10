@@ -861,8 +861,8 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
     "tests/test_validation_imports.py": (
         "Integrators",
         "the oracle in validation/ and the two reference engines import "
-        "only the standard library, numpy, scipy, yaml, hypothesis and each "
-        "other, and never the package side (an AST walk with relative and "
+        "only the standard library, numpy, scipy, yaml, hypothesis, psutil "
+        "and each other, and never the package side (an AST walk with relative and "
         "absolute names resolved, over every file but validation/lower.py, "
         "lower_v042.py and worker.py), nor lowering_parts.py, the closed "
         "form of C the lowerings share; running the oracle on every demo and "
@@ -883,10 +883,33 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "planted fault in the cubic drift found in exactly the cases that "
         "have one and shrunk to the source and cubic drift; the verdict of "
         "every worker status, origin and stage; the summary's counts; the "
-        "watchdog against a job that blocks the alarm, and a crashed worker",
+        "watchdog against a job stuck in compiled code, and a crashed "
+        "worker with its return code; "
+        "a worker past its memory limit killed, an oracle past its limit "
+        "stopped in the main thread and only measured in another, both "
+        "limits reaching the records through a run, a case started only when "
+        "every running case and the new one fit under their limits with the "
+        "reserve left, a run that waits for the reserve and ends once every "
+        "case has run, a run stopped by SIGTERM or SIGKILL that leaves no "
+        "process running, a process told a parent it no longer has that "
+        "ends at once, and a pool process that dies replaced, with the case "
+        "that killed it recorded and the case started beside it run again "
+        "alone and passing; the shrinker under the run's two limits",
         "the oracle (validation/hierarchy.py); the closed-form C",
         "1e-12 (pinned oracle values); 1e-13 (isotropic C); the declared "
         "tolerances",
+    ),
+    "tests/test_validation_draw.py": (
+        "Integrators",
+        "properties of the fuzzer's sampler (validation/draw.py) over 300 "
+        "seeds per property chosen by hypothesis, derandomized: a "
+        "seed gives one case, which survives the JSON round trip, and a "
+        "forced kind is kept; the flags agree with the model and its kind, "
+        "and Poisson noise is drawn as the sampler's rules say; "
+        "the observable is one the oracle and the package both take; the "
+        "largest weight and the tags up to it",
+        "the sampler's own rules; the binomial count of tags",
+        "exact",
     ),
     "tests/test_validation_hierarchy.py": (
         "Integrators",

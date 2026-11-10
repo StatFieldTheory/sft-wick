@@ -176,6 +176,7 @@ pairings, canonical forms, custom simplification), see
    user_guide/index
    examples/index
    verification/index
+   verification/oracle
    verification/catalog
    api/index
    citing

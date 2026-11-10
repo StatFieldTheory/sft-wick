@@ -4,8 +4,9 @@ sft-wick.
 ``validation/hierarchy.py`` is compared against the package, so it must not
 reach the package's code by any import.  The AST walk checks each file's own
 imports, with relative imports resolved: the oracle may import the standard
-library, numpy, scipy, yaml, hypothesis, the two engines in
-``examples/reference`` and its own modules other than the package side.  The
+library, numpy, scipy, yaml, hypothesis, psutil (the fuzzer's memory
+limits), the two engines in ``examples/reference`` and its own modules
+other than the package side.  The
 package side is ``validation/lower.py`` and ``validation/lower_v042.py`` (the
 lowering onto a release), the only modules that may import sft_wick, and
 ``validation/worker.py``, which runs a lowering in its own process; no other
@@ -33,7 +34,8 @@ ENGINES = ("ito_moments", "hormander_moments")
 PACKAGE_SIDE = ("lower.py", "lower_v042.py", "worker.py")
 #: Shared by the lowerings; an oracle file, but no oracle module imports it.
 LOWERING_PARTS = ("lowering_parts.py",)
-ALLOWED = {"numpy", "scipy", "yaml", "hypothesis", "validation", *ENGINES}
+ALLOWED = {"numpy", "scipy", "yaml", "hypothesis", "psutil", "validation",
+           *ENGINES}
 
 
 def _oracle_files() -> list:

@@ -5,9 +5,11 @@ the largest tag weight compared, and the expansion flags the model admits.
 Three kinds of model are drawn.  A ``general`` model takes every feature
 independently: rates, widths and loadings differ between components (in a
 tenth of them the rates are equal, a scalar R beside a dense C), amplitudes
-take both signs, points are distinct, legs are labelled in a random order,
-and ``t_min`` is not 0.  Its observables with two or more legs pin one
-leg's time with probability 0.6.  A ``diagonal`` model has a diagonal C, so
+take both signs, points are distinct (except under multiplicative noise,
+where every leg sits at one point, since the package refuses it at two
+positions), legs are labelled in a random order, and ``t_min`` is not 0.
+Its observables with two or more legs pin one leg's time with probability
+0.6.  A ``diagonal`` model has a diagonal C, so
 ``diag_C`` applies.  An ``isotropic`` model has equal rates and ``C = c·I``,
 so ``iso_R`` and ``iso_C`` apply as well.  Exponential Poisson pulses keep
 cumulant orders up to 3, white pulses up to 4: order 4 with exponential

@@ -56,3 +56,6 @@ examples/demo3/results/
 .agent-state/
 .agents/
 docs/research/
+
+# hypothesis writes its example and constants caches here
+.hypothesis/

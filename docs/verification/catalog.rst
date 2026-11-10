@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8288 tests** in 142 files (parametrised
+The suite has **8302 tests** in 143 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -267,7 +267,7 @@ Propagator numerics
 Integrators
 -----------
 
-*2833 tests in 64 files.*
+*2847 tests in 65 files.*
 
 .. list-table::
    :header-rows: 1
@@ -563,18 +563,23 @@ Integrators
      - the demos' results files; Campbell's theorem (examples/demo4/poisson_noise.py)
      - 1e-12 relative; stored zeros to 1e-15
      - 11
+   * - ``test_validation_draw.py``
+     - properties of the fuzzer's sampler (validation/draw.py) over 300 seeds per property chosen by hypothesis, derandomized: a seed gives one case, which survives the JSON round trip, and a forced kind is kept; the flags agree with the model and its kind, and Poisson noise is drawn as the sampler's rules say; the observable is one the oracle and the package both take; the largest weight and the tags up to it
+     - the sampler's own rules; the binomial count of tags
+     - exact
+     - 4
    * - ``test_validation_fuzz.py``
-     - the random cases of the fuzzer (validation/draw.py), the fuzzer (validation/fuzz.py) and the shrinker (validation/shrink.py): twenty seeds covering every drawn feature, each case pinned by a digest and the oracle's largest non-trivial value pinned, with the package within the declared Gauss-Legendre tolerance of the oracle; the admissible flags held in the closed-form C on 300 draws and each condition of isotropy needed; one case with its flags on through the worker subprocess on three integrators; a planted fault in the cubic drift found in exactly the cases that have one and shrunk to the source and cubic drift; the verdict of every worker status, origin and stage; the summary's counts; the watchdog against a job that blocks the alarm, and a crashed worker
+     - the random cases of the fuzzer (validation/draw.py), the fuzzer (validation/fuzz.py) and the shrinker (validation/shrink.py): twenty seeds covering every drawn feature, each case pinned by a digest and the oracle's largest non-trivial value pinned, with the package within the declared Gauss-Legendre tolerance of the oracle; the admissible flags held in the closed-form C on 300 draws and each condition of isotropy needed; one case with its flags on through the worker subprocess on three integrators; a planted fault in the cubic drift found in exactly the cases that have one and shrunk to the source and cubic drift; the verdict of every worker status, origin and stage; the summary's counts; the watchdog against a job stuck in compiled code, and a crashed worker with its return code; a worker past its memory limit killed, an oracle past its limit stopped in the main thread and only measured in another, both limits reaching the records through a run, a case started only when every running case and the new one fit under their limits with the reserve left, a run that waits for the reserve and ends once every case has run, a run stopped by SIGTERM or SIGKILL that leaves no process running, a process told a parent it no longer has that ends at once, and a pool process that dies replaced, with the case that killed it recorded and the case started beside it run again alone and passing; the shrinker under the run's two limits
      - the oracle (validation/hierarchy.py); the closed-form C
      - 1e-12 (pinned oracle values); 1e-13 (isotropic C); the declared tolerances
-     - 28
+     - 38
    * - ``test_validation_hierarchy.py``
      - the oracle's ModelSpec compiler (validation/hierarchy.py; no sft-wick code) on what no demo exercises: OU blocks loaded onto both components, shared white noise, two positions, two-time and integrated legs, t_min != 0; a constant source, static cumulants of orders 1-3 and a white cumulant with no index symmetry, the joint cumulant; multiplicative noise at two positions; two independent initial-law families; the spatial kernels in 2-D and 3-D and the Gaussian overlap of Poisson pulses in 1-D and 2-D; the termination guard, JSON round trip, refusals
      - Lyapunov equation by scipy.linalg.expm; closed forms; exact identities (shared noise, a deterministic shift); scipy quad and dblquad
      - 1e-12 (1e-13 for the mean, 1e-14 for the kernels, 1e-10 for the overlap)
      - 65
    * - ``test_validation_imports.py``
-     - the oracle in validation/ and the two reference engines import only the standard library, numpy, scipy, yaml, hypothesis and each other, and never the package side (an AST walk with relative and absolute names resolved, over every file but validation/lower.py, lower_v042.py and worker.py), nor lowering_parts.py, the closed form of C the lowerings share; running the oracle on every demo and on a model with every noise block loads no sft_wick module
+     - the oracle in validation/ and the two reference engines import only the standard library, numpy, scipy, yaml, hypothesis, psutil and each other, and never the package side (an AST walk with relative and absolute names resolved, over every file but validation/lower.py, lower_v042.py and worker.py), nor lowering_parts.py, the closed form of C the lowerings share; running the oracle on every demo and on a model with every noise block loads no sft_wick module
      - the import statements; sys.modules of a fresh interpreter
      - exact
      - 5

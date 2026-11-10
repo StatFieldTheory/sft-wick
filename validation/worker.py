@@ -36,7 +36,10 @@ form of C, a Campbell cumulant) that the package called and that raised,
 While the worker runs, file descriptor 1 (which ``sys.stdout`` writes to
 and child processes inherit) points at stderr, so stdout carries only
 results, whatever the package, a callable or a child process prints.  At most ``--cache-size`` lowered expansions are
-kept, the least recently used dropped first.
+kept, the least recently used dropped first.  With ``VALIDATION_PARENT_PID``
+set, as the fuzzer sets it, the worker ends itself within a second of that
+process no longer being its parent
+(:func:`~validation.stages.exit_with_parent`).
 """
 from __future__ import annotations
 
@@ -53,7 +56,11 @@ import warnings
 from pathlib import Path
 from types import ModuleType
 
-from .stages import STAGE_ATTR, JobTimeout, deadline
+from .stages import STAGE_ATTR, JobTimeout, deadline, exit_with_parent
+
+#: The environment variable that names the process the worker must outlive
+#: no longer than a second.
+PARENT_ENV = "VALIDATION_PARENT_PID"
 
 __all__ = ["DEFAULT_TIMEOUT", "DEFAULT_CACHE_SIZE", "JobTimeout", "deadline",
            "package_identity", "run_job", "main"]
@@ -280,6 +287,8 @@ def main(argv: list | None = None) -> None:
     parser.add_argument("--lowering", default="validation.lower")
     parser.add_argument("--cache-size", type=int, default=DEFAULT_CACHE_SIZE)
     args = parser.parse_args(argv)
+    if os.environ.get(PARENT_ENV):
+        exit_with_parent(int(os.environ[PARENT_ENV]))
     os.environ["SFT_WICK_QUIET_CACHE"] = "1"
     sys.stdout.flush()
     results = os.fdopen(os.dup(1), "w", buffering=1)
