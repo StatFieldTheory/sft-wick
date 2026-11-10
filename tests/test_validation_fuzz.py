@@ -6,8 +6,10 @@ The fuzz runs themselves are evidence, not tests.  Here:
 
 * twenty seeds chosen to cover every feature the draw produces, each
   among the fastest on Gauss-Legendre: the case each seed draws is pinned
-  by a digest, the oracle's value at its largest non-trivial tag is pinned,
-  and the package agrees with the oracle at the declared tolerance;
+  by a digest of its values at 12 significant digits (the same whether
+  ``Generator.uniform`` fuses its multiply and add or not), the oracle's
+  value at its largest non-trivial tag is pinned, and the package agrees
+  with the oracle at the declared tolerance;
 * the flags a drawn model admits hold in the closed-form C (diagonal when
   ``diag_C`` is on and not otherwise, ``c·I`` under ``iso_C``), and each
   condition of isotropy is needed;
@@ -59,33 +61,56 @@ from validation.modelspec import (Kernel, ModelSpec, OUBlock, model_to_dict,
 #: seed -> (digest of the drawn case, the oracle's largest non-trivial tag,
 #: its value)
 PINNED = {
-    3: ("f486157610d0e0a4", (0, 0, 1), 0.19751212714378039),
-    31: ("290e32240af2453d", (0, 1, 0, 0, 0, 1), -0.02259668903510387),
-    33: ("bdfa5dbd6e102db8", (0, 0, 0, 2, 0), 0.07739741254075931),
-    36: ("b60699ae6c1f8f99", (0, 0, 1, 0, 0), 0.2361350531869894),
-    90: ("e6029195f4146022", (1, 0, 0, 1, 0), 0.3761686541778702),
-    111: ("4387278694d644a1", (1,), 0.029027832470631915),
-    114: ("6b58e88f620cc72d", (0, 0, 1, 0, 0), -0.2778670955799529),
-    115: ("f952b7a9178dc2f2", (0, 0, 1), -0.003975471795966948),
-    126: ("306ff7c7f011cfcf", (0, 0, 1, 0, 0), 0.07904396931756681),
-    134: ("8786957c56362817", (0, 0, 0, 2), 0.042946599314231594),
-    146: ("736b8708e2b53ef2", (0, 0, 0, 1, 0), 0.02767548481651758),
-    151: ("c7e54699309b24c4", (1, 1, 0), 0.04824125826703164),
-    152: ("f9c85876f948a8d6", (0, 0, 0, 2, 0), 0.039645434810868345),
-    172: ("b2c2dfd887fd871e", (0, 1, 0, 0, 1), -0.02450277498453415),
-    202: ("309b9dba6e0c453f", (0, 0, 1), 0.03580627821933865),
-    207: ("0c20247f8abf090d", (1, 0, 0, 1, 0), -0.06389580956914867),
-    214: ("58a1903abb79e40c", (0, 0, 0, 0, 1), -0.07658215593832465),
-    233: ("b42fcb98fcefb03a", (0, 0, 1, 0, 0), 0.1434404035667054),
-    266: ("d945d1c9c7770989", (1, 0, 0, 1, 0, 0), -0.03194929137434738),
-    292: ("b969fec28dd762bf", (2, 0, 0, 0), 0.01713158569089783),
+    3: ("e2a693b621fa61eb", (0, 0, 1), 0.19751212714378039),
+    31: ("ebb6e6975f0cfc99", (0, 1, 0, 0, 0, 1), -0.02259668903510387),
+    33: ("eb0c0b2bba43094b", (0, 0, 0, 2, 0), 0.07739741254075931),
+    36: ("eaa5033a6d78fa3e", (0, 0, 1, 0, 0), 0.2361350531869894),
+    90: ("94ef8624fe310a8b", (1, 0, 0, 1, 0), 0.3761686541778702),
+    111: ("336496208a5a10ae", (1,), 0.029027832470631915),
+    114: ("30f86c46195dcc2d", (0, 0, 1, 0, 0), -0.2778670955799529),
+    115: ("d04edf72d402b5d6", (0, 0, 1), -0.003975471795966948),
+    126: ("f3767b97605841fd", (0, 0, 1, 0, 0), 0.07904396931756681),
+    134: ("5dcea93451711889", (0, 0, 0, 2), 0.042946599314231594),
+    146: ("35f8d8f071cd2eab", (0, 0, 0, 1, 0), 0.02767548481651758),
+    151: ("5f650196538754ab", (1, 1, 0), 0.04824125826703164),
+    152: ("aabe2f660a9f24b9", (0, 0, 0, 2, 0), 0.039645434810868345),
+    172: ("956882cf3967110d", (0, 1, 0, 0, 1), -0.02450277498453415),
+    202: ("c1a05d49f5b3c4bd", (0, 0, 1), 0.03580627821933865),
+    207: ("b38eab85ed82d803", (1, 0, 0, 1, 0), -0.06389580956914867),
+    214: ("76f3eba0f5569b73", (0, 0, 0, 0, 1), -0.07658215593832465),
+    233: ("8b7a274f5ba8f94c", (0, 0, 1, 0, 0), 0.1434404035667054),
+    266: ("9fbf77a9f60c2cdf", (1, 0, 0, 1, 0, 0), -0.03194929137434738),
+    292: ("40bf0e93ebd1430e", (2, 0, 0, 0), 0.01713158569089783),
 }
 
 
+def _rounded(value):
+    """``value`` with every float at 12 significant digits."""
+    if isinstance(value, dict):
+        return {key: _rounded(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_rounded(item) for item in value]
+    if isinstance(value, float):
+        return float(f"{value:.12g}")
+    return value
+
+
 def _digest(case) -> str:
-    blob = json.dumps([model_to_dict(case.model),
-                       observable_to_dict(case.observable), case.max_weight,
-                       case.flags], sort_keys=True)
+    """The digest of the case with its floats at 12 significant digits.
+
+    numpy's ``Generator.uniform`` computes ``low + (high - low) * u`` and
+    rounds the product and the sum together where the build fuses the
+    multiply and the add (macOS arm64) and separately where it does not
+    (Linux x86_64).  A uniform draw can then differ in its last bit between
+    the two, and a pinned time near 0, computed from several draws, by more
+    ulps; on seeds 0 to 9999 the floats of a case differ by at most
+    4.5e-16.  The rounding gives every pinned seed the same digest on both.
+    Two of seeds 0 to 9999 (5544 and 9937) still differ after it, so a seed
+    added to :data:`PINNED` can fail on the other kind of machine."""
+    blob = json.dumps(_rounded([model_to_dict(case.model),
+                                observable_to_dict(case.observable),
+                                case.max_weight, case.flags]),
+                      sort_keys=True)
     return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 
