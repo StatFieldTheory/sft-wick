@@ -202,7 +202,12 @@ def _estimate(cfg, bench_seconds) -> CostEstimate:
     n_sep = _distinct_separations(sw.positions_grid)
     # The benchmark below evaluates one setting and does not warn, so the
     # warning the run gives for its grid is given here.
-    from .expansion import _guard_external_times, _time_settings
+    from .expansion import (
+        _guard_diagonal_c,
+        _guard_external_times,
+        _latest_time_read,
+        _time_settings,
+    )
 
     _guard_external_times(
         expansion,
@@ -216,6 +221,16 @@ def _estimate(cfg, bench_seconds) -> CostEstimate:
     pc = cfg.propagators
     few_nodes = _few_nodes(propagators_kwargs(cfg, _load_c_closed_form(pc)))
     props = system.propagators(**few_nodes)
+    # Likewise the reading of the noise under diag_C: made here once for
+    # the grid, as the sweep makes it, and not by the benchmark, whose one
+    # setting has a time window of its own.
+    _guard_diagonal_c(
+        expansion,
+        props,
+        sw.positions_grid,
+        _latest_time_read(expansion, sw.t_final_grid, sw.external_times_grid),
+        "Expansion.sweep",
+    )
     notes: list[str] = []
     cache = props.cache
     if props.c_source.startswith("closed_form") or pc.c_closed_form_only:
@@ -306,8 +321,10 @@ def _estimate(cfg, bench_seconds) -> CostEstimate:
             orders=[o],
             vertex_types=None if vt is None else labels_at[o],
             n_samples=n,
-            # One benchmark setting: _estimate warns for the whole grid.
+            # One benchmark setting: _estimate warns and reads the noise
+            # for the whole grid.
             _guard_response=False,
+            _guard_diagonal=False,
             **evaluate_kwargs(cfg),
         )
 

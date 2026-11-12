@@ -1189,9 +1189,12 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "callable-γ scalar/matrix R decided on the whole spline grid; the "
         "Γ spline reaches a negative t_min; t_max beyond t_max_cache "
         "refused; diag_R / diag_C refused when R or C has off-diagonal "
-        "entries (dense R, mixing κ² or σ²), diagonal structures accepted",
-        "scipy quad of the rate; Lyapunov equation of the Markov embedding",
-        "1e-5 (spline) / 1e-10",
+        "entries (dense R, mixing κ² or σ², a mixing κ² that raises at "
+        "some probe points, a mixing κ² or σ² of vector positions read at "
+        "the positions of evaluate and sweep), diagonal structures accepted",
+        "scipy quad of the rate; Lyapunov equation of the Markov embedding; "
+        "scipy dblquad of R κ² R",
+        "1e-5 (spline) / 1e-10 / 1e-9",
     ),
     "tests/test_demo3_shot_noise.py": (
         "Propagator numerics",
