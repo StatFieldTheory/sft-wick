@@ -6,6 +6,7 @@ problem.  Lowers high-level specification objects to raw
 from __future__ import annotations
 
 import collections.abc
+import math
 import re
 from dataclasses import dataclass, field, replace
 from functools import cached_property
@@ -47,9 +48,13 @@ from .specs import (
 #: Offsets from ``t_min`` at which R, κ² and σ² are probed for off-diagonal
 #: component entries, and the positions used for κ² and σ².  Irregular
 #: values, so that a kernel is unlikely to vanish off the diagonal at every
-#: probe point by coincidence.
+#: probe point by coincidence.  The position pairs are: one point, the
+#: origin and another point, two points of opposite sign, and two distinct
+#: points of the same sign.  The last is the only pair that a kernel
+#: defined at positive positions can be read at, and the only one where the
+#: angle between two non-zero positions is 0.
 _PROBE_TIME_PAIRS = ((0.37, 0.0), (1.3, 0.55), (2.9, 1.7), (0.8, 0.8), (4.1, 0.2))
-_PROBE_POSITION_PAIRS = ((0.0, 0.0), (0.0, 0.43), (1.1, -0.7))
+_PROBE_POSITION_PAIRS = ((0.0, 0.0), (0.0, 0.43), (1.1, -0.7), (0.9, 0.35))
 _OFFDIAG_RTOL = 1e-12
 
 _DIAG_R_REFUSAL = (
@@ -69,6 +74,16 @@ _DIAG_C_REFUSAL = (
     "quadrature or from a closed form that returns the full (N, N) C."
 )
 
+_DIAG_C_AT_POSITIONS_REFUSAL = (
+    "{kernel} of the noise has off-diagonal component entries between the "
+    "positions {x1} and {x2}, where {reader} can read C: {size:.1e} of its "
+    "largest entry at {times} (an entry above {rtol:g} of the largest is "
+    "read as mixing).  A C built from it has them there, and diag_C=True "
+    "({flagged}) keeps only C_aa, which would give a wrong result without "
+    "an error.  Pass diag_C=False to System.expand and to "
+    "System.propagators, or to the model of a cache built by hand."
+)
+
 _COLLECT_TOPOLOGY_REFUSAL = (
     "collect_topology=False builds no diagrams above order 0, so those "
     "orders would evaluate to 0 without an error.  Keep collect_topology "
@@ -78,7 +93,8 @@ _COLLECT_TOPOLOGY_REFUSAL = (
 
 def _offdiagonal(mat: Any) -> bool:
     """Whether a square matrix has an off-diagonal entry larger than
-    ``_OFFDIAG_RTOL`` times its largest entry."""
+    ``_OFFDIAG_RTOL`` times its largest entry.  ``False`` for a matrix that
+    holds a NaN or an inf."""
     m = np.asarray(mat)
     if m.ndim != 2 or m.shape[0] != m.shape[1] or m.shape[0] < 2:
         return False
@@ -89,16 +105,146 @@ def _offdiagonal(mat: Any) -> bool:
 
 def _probe_offdiagonal(fn: Callable, arg_sets: Iterable[tuple]) -> bool | None:
     """``True`` if ``fn`` returns a matrix with an off-diagonal entry for
-    any argument tuple, ``False`` if it never does, ``None`` if it raises.
+    any argument tuple, ``False`` if every tuple is read and none shows
+    one, ``None`` if ``fn`` or the reading of what it returns raises at
+    one or more tuples and none of the others shows one.
 
-    A kernel written for vector positions may reject the scalar probe
-    positions.  That says nothing about its component structure, so the
-    guards below read ``None`` as "cannot tell" and do not refuse.
+    Each tuple is read on its own.  A kernel of the angle between two
+    positions may raise at a zero position and is then read at the
+    position pairs with no zero.  A kernel written for vector positions
+    may reject every scalar probe position.  That says nothing about its
+    component structure, so the guards below read ``None`` as "cannot
+    tell" and do not refuse.
+    """
+    raised = False
+    for args in arg_sets:
+        try:
+            if _offdiagonal(fn(*args)):
+                return True
+        except Exception:  # noqa: BLE001 (a user callable; see the docstring)
+            raised = True
+    return None if raised else False
+
+
+def _first_offdiagonal(fn: Callable, arg_sets: Iterable[tuple]) -> tuple | None:
+    """``(args, size)`` of the first argument tuple at which ``fn`` returns
+    a matrix with an off-diagonal entry, or ``None``; ``size`` is the
+    largest off-diagonal entry over the largest entry.  Each tuple is read
+    on its own, and one at which ``fn`` raises is left out, as in
+    :func:`_probe_offdiagonal`."""
+    for args in arg_sets:
+        try:
+            mat = np.asarray(fn(*args))
+            if _offdiagonal(mat):
+                off = float(np.abs(mat - np.diag(np.diag(mat))).max())
+                return args, off / float(np.abs(mat).max())
+        except Exception:  # noqa: BLE001 (a user callable)
+            continue
+    return None
+
+
+_REAL_SCALARS = (bool, int, float)
+
+
+def _is_real_position(x: Any) -> bool:
+    """Whether ``x`` is a real number, a real array, or a list or tuple of
+    such: a position NumPy turns into a float array with no code of the
+    caller.  Exact types only: a subclass of ndarray, list or tuple, and an
+    object with an array form of its own, are not."""
+    kind = type(x)
+    if kind in _REAL_SCALARS or isinstance(x, (np.bool_, np.integer, np.floating)):
+        return True
+    if kind is np.ndarray:
+        return x.dtype.kind in "biuf"
+    return kind in (list, tuple) and all(_is_real_position(v) for v in x)
+
+
+def _real_positions(x1: Any, x2: Any) -> tuple | None:
+    """The two positions as float arrays made for the reading, as the C
+    tables hand a kernel a real position, or ``None`` when either is not a
+    real position (:func:`_is_real_position`) or has no float array (an
+    integer above the float range, a ragged list).
+
+    A position of another kind (a label, a complex number, an object with
+    an array form of its own) is not read.  Turning it into an array, or
+    copying it, would run the caller's own conversion code, and handing it
+    over as it is would let a kernel that writes into its argument change
+    the positions of the call.
     """
     try:
-        return any(_offdiagonal(fn(*args)) for args in arg_sets)
-    except Exception:  # noqa: BLE001 (a user callable; see the docstring)
+        if not (_is_real_position(x1) and _is_real_position(x2)):
+            return None
+        return np.array(x1, dtype=float), np.array(x2, dtype=float)
+    except (TypeError, ValueError, OverflowError, RecursionError):
         return None
+
+
+def _window_time_pairs(t_lo: float, t_hi: float) -> list[tuple[float, float]]:
+    """Time pairs inside the window ``(t_lo, t_hi)`` for a reading of the
+    noise by a call whose latest time is ``t_hi``.
+
+    The end of the window twice and its start twice, then the offsets of
+    ``_PROBE_TIME_PAIRS`` counted from the start of the window and back from
+    its end, scaled to its length.  A window longer than the largest offset
+    gets the unscaled offsets as well: the scaled lags grow with the window,
+    and a cross term that is zero at equal times and confined to short lags
+    would show at none of them.
+
+    Every time is kept one rounding step inside the window.  C is an
+    integral of the kernel over the window, so a kernel that changes at
+    ``t_lo`` or at ``t_hi`` (one that mixes components from the latest time
+    of the call on, or only before ``t_min``) adds nothing to C there, and
+    a sum of offsets can round to a time past either end.
+    """
+    # math.nextafter, not NumPy's: next to 0 the step is a subnormal number,
+    # which a caller's np.errstate(under="raise") turns into an error.
+    first, last = math.nextafter(t_lo, t_hi), math.nextafter(t_hi, t_lo)
+    if not (t_lo < t_hi and first <= last):
+        return []
+    span = t_hi - t_lo
+    largest = max(max(pair) for pair in _PROBE_TIME_PAIRS)
+    steps = [span / largest] + ([1.0] if span > largest else [])
+    pairs = [(t_hi, t_hi), (t_lo, t_lo)]
+    for step in steps:
+        for a, b in _PROBE_TIME_PAIRS:
+            pairs.append((t_lo + a * step, t_lo + b * step))
+            pairs.append((t_hi - b * step, t_hi - a * step))
+    return list(
+        dict.fromkeys(
+            (min(max(a, first), last), min(max(b, first), last)) for a, b in pairs
+        )
+    )
+
+
+def _diag_c_refusal_at(hit: tuple, reader: str, flagged: str) -> str:
+    """The refusal for a hit of :meth:`System._noise_offdiagonal_at`:
+    ``reader`` names what reads C at the two positions and ``flagged`` what
+    carries ``diag_C=True``."""
+    kernel, x1, x2, times, size = hit
+
+    def plain(x: Any) -> Any:
+        # Only real positions are read (_real_positions), so x is a number,
+        # an ndarray, or a list or tuple of them.
+        if isinstance(x, (np.ndarray, np.generic)):
+            return x.tolist()
+        if type(x) in (list, tuple):
+            return type(x)(plain(v) for v in x)
+        return x
+
+    return _DIAG_C_AT_POSITIONS_REFUSAL.format(
+        kernel=kernel,
+        x1=shown(plain(x1)),
+        x2=shown(plain(x2)),
+        reader=reader,
+        size=size,
+        times=(
+            f"the times {shown(times[0])} and {shown(times[1])}"
+            if len(times) == 2
+            else f"the time {shown(times[0])}"
+        ),
+        rtol=_OFFDIAG_RTOL,
+        flagged=flagged,
+    )
 
 
 _OBS_PATTERN = re.compile(
@@ -315,8 +461,9 @@ class System:
         """Whether R(t, t') has off-diagonal component entries.
 
         ``False`` for a scalar R and for :class:`DiagonalA`; otherwise the
-        R callable is probed at causal time pairs (``None`` if it cannot be
-        evaluated there).
+        R callable is probed at causal time pairs, each on its own (``None``
+        if it raises at one or more and shows no off-diagonal entry at the
+        others).
         """
         if self.iso_R:
             return False
@@ -376,6 +523,89 @@ class System:
         if any(p is True for p in parts):
             return True
         return None if None in parts else False
+
+    def _position_kernels(self, model: Any = None) -> list[tuple[str, Callable, bool]]:
+        """``(name, callable, takes two times)`` of the noise kernels whose
+        component structure can depend on the positions: a κ² that is not
+        separable and a callable σ².  The other kinds are settled by
+        :meth:`_c_offdiagonal`, and one component has no off-diagonal
+        entry.
+
+        With ``model``, the :class:`~sft_wick.evaluate.PropagatorModel` of
+        a cache, the callables are that model's and the kinds are still
+        this system's: beside a system with a separable κ², the κ² of a
+        model is not read.  A cache from :meth:`propagators` holds this
+        system's callables; a spectral cache takes its C from a spectrum
+        and holds a κ² that is a multiple of the identity.
+        """
+        n = self.n_components
+        if n < 2:
+            return []
+        kernels = []
+        kappa2, sigma2 = self.noise.kappa2, self.noise.sigma2
+        if not isinstance(kappa2, (SeparableTranslation, SeparableRotation)):
+            fn = (
+                kappa2.build_callable(n)
+                if model is None
+                else getattr(model, "kappa2", None)
+            )
+            kernels.append(("κ²", fn, True))
+        if sigma2 is not None and not isinstance(
+            sigma2, (ConstantImpulse, MultiplicativeImpulse)
+        ):
+            fn = (
+                sigma2.build_callable(n)
+                if model is None
+                else getattr(model, "sigma2", None)
+            )
+            kernels.append(("σ²", fn, False))
+        return [kernel for kernel in kernels if callable(kernel[1])]
+
+    def _noise_offdiagonal_at(
+        self, position_pairs: Iterable[tuple], t_hi: float, model: Any = None
+    ) -> tuple | None:
+        """``(kernel name, x1, x2, times, size)`` of the first of
+        ``position_pairs`` at which κ² or σ² returns a matrix with an
+        off-diagonal component entry at one of the time pairs read, or
+        ``None``.  ``times`` are the time arguments of that reading and
+        ``size`` is the entry over the largest entry of the matrix.
+
+        :meth:`_c_offdiagonal` reads the kernels at scalar positions and at
+        offsets from ``t_min`` that do not depend on the call.  A call knows
+        its positions and its latest time ``t_hi``, and this reads the
+        kernels there: at each position pair and each of
+        :func:`_window_time_pairs`, with NumPy's floating-point warnings
+        off.  A pair is read when both positions are real
+        (:func:`_real_positions`), and each call is handed float arrays of
+        its own.  A pair with a position of another kind is not read, and
+        a point at which a kernel raises is left out.  ``model`` selects
+        the kernels of a cache (:meth:`_position_kernels`).
+        """
+        t_lo = float(self.t_min)
+        kernels = self._position_kernels(model)
+        if not kernels or not float(t_hi) > t_lo:
+            return None  # nothing to read, or no C at or below t_min
+        times = _window_time_pairs(t_lo, float(t_hi))
+        one_time = [(t,) for t in dict.fromkeys(a for a, _ in times)]
+        with np.errstate(all="ignore"):
+            # One pass over the pairs, which a sweep hands as a generator.
+            for x1, x2 in position_pairs:
+                handed = _real_positions(x1, x2)
+                if handed is None:
+                    continue
+                a1, a2 = handed
+                for name, fn, two_times in kernels:
+                    hit = _first_offdiagonal(
+                        fn,
+                        (
+                            (a1.copy(), m[0], a2.copy()) + tuple(m[1:])
+                            for m in (times if two_times else one_time)
+                        ),
+                    )
+                    if hit is not None:
+                        args, size = hit
+                        return name, x1, x2, (args[1], *args[3:]), size
+        return None
 
     # --------------------------------------------------------------- #
     # Lowering to raw API objects
@@ -567,8 +797,12 @@ class System:
                 with ``diag_C=True``, when C has them (a dense R, a
                 component-mixing κ² such as ``GeneralKappa2``, or a
                 matrix σ²).  Callable kernels are probed at a few time
-                and position pairs, and one that cannot be evaluated
-                there is not refused.  Also raised when two external
+                and scalar position pairs, each on its own.  One that
+                shows no off-diagonal entry at the pairs where it returns
+                is not refused here, so a kernel that raises at every
+                scalar position passes; :meth:`Expansion.evaluate` and
+                :meth:`Expansion.sweep` read κ² and σ² again at the
+                positions of the call.  Also raised when two external
                 operators share a spatial label at an interacting order,
                 for an empty ``orders``, for an empty or a set observable,
                 and for a ``FieldOperator`` of another field or with a
@@ -682,6 +916,7 @@ class System:
             observable_repr=obs_repr,
             raw_result=payload["raw_result"],
             target=target,
+            diag_C=diag_C,
         )
 
     def propagators(

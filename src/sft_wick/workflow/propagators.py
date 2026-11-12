@@ -443,6 +443,18 @@ def propagators_from_cache(cache) -> "Propagators":
     of which system it was meant for.  It IS checked at use, in
     :meth:`Expansion.evaluate`, where both numbers are known.
 
+    ``model.diag_C`` of the cache is read at use too.  When it is true, or
+    the expansion was built with ``diag_C=True``, :meth:`Expansion.evaluate`
+    and ``sweep`` read ``kappa2`` and ``sigma2`` of the cache's model at the
+    positions of the call and raise ``ValueError`` on an off-diagonal
+    component entry.  The system of the expansion decides which of the two
+    is read: ``kappa2`` when its κ² is not separable (a ``GeneralKappa2``),
+    ``sigma2`` when its σ² is a callable (a ``CustomImpulse``).  Beside a
+    system with a separable κ² the ``kappa2`` of the model is not read, and
+    a model that mixes components there with ``diag_C=True`` gives 0 for an
+    off-diagonal pair with no error.  The model of a spectral cache holds a
+    ``kappa2`` that is a multiple of the identity.
+
     A cache that overrides the batch methods, or a method whose array the
     package's ``C_at_batch`` returns (``_assemble_C``, ``_lazy_lookup``,
     ``_closed_form_at_batch_diag``), may return one reused buffer, because

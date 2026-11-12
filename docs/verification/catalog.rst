@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8302 tests** in 143 files (parametrised
+The suite has **8319 tests** in 143 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -607,7 +607,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*2117 tests in 30 files.*
+*2134 tests in 30 files.*
 
 .. list-table::
    :header-rows: 1
@@ -664,10 +664,10 @@ Workflow and YAML
      - exact / displayed precision
      - 5
    * - ``test_l1_structure_guards.py``
-     - callable-γ scalar/matrix R decided on the whole spline grid; the Γ spline reaches a negative t_min; t_max beyond t_max_cache refused; diag_R / diag_C refused when R or C has off-diagonal entries (dense R, mixing κ² or σ²), diagonal structures accepted
-     - scipy quad of the rate; Lyapunov equation of the Markov embedding
-     - 1e-5 (spline) / 1e-10
-     - 24
+     - callable-γ scalar/matrix R decided on the whole spline grid; the Γ spline reaches a negative t_min; t_max beyond t_max_cache refused; diag_R / diag_C refused when R or C has off-diagonal entries (dense R, mixing κ² or σ², a mixing κ² that raises at some probe points, a mixing κ² or σ² of vector positions read at the positions of evaluate and sweep), diagonal structures accepted
+     - scipy quad of the rate; Lyapunov equation of the Markov embedding; scipy dblquad of R κ² R
+     - 1e-5 (spline) / 1e-10 / 1e-9
+     - 38
    * - ``test_local_callable_coupling.py``
      - a callable local coupling at L1 and in YAML: the rank contract, the MSR factor, the argument shapes, and a drift F0 (1 + beta x) exp(-lambda t) at orders 1-2 with t_min = 0.5 on every integrator
      - exact Itô moment hierarchy of a Markov embedding with a deterministic state u = exp(-lambda t)
@@ -727,7 +727,7 @@ Workflow and YAML
      - sft-wick validate reports what run refuses, in one line with status 2 before any stage: diag_R and diag_C, empty and repeated axes, pinned and integrated points, joined points at two positions, plot columns, output paths, the closed-form C module and flags; the shapes at every position on each axis; high-point observables validate with one pairing per R assignment; the neighbour of each refusal runs; what only the diagrams decide stops the run after the expansion
      - the refusal of the integrators, compared directly over observables, targets, integrators and table kinds; a run with the closed form passed on
      - exact
-     - 132
+     - 135
    * - ``test_workflow.py``
      - System / Expansion / Propagators / SweepResult surface; end-to-end vs the raw API; two-time sweeps
      - raw L0 pipeline (validate_phase5); closed forms

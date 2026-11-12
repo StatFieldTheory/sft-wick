@@ -70,6 +70,22 @@ def C_fn(n1, t1, n2, t2):
 """
 
 
+#: A κ² of positions in R^3 times a matrix; no scalar position reads it.
+VECTOR_KAPPA2 = """
+import numpy as np
+
+M = np.array({matrix})
+
+
+def kappa2(n1, t1, n2, t2):
+    if np.shape(n1) != (3,) or np.shape(n2) != (3,):
+        raise TypeError("positions are vectors of three coordinates")
+    apart = np.linalg.norm(np.subtract(n1, n2))
+    m = M if min(t1, t2) >= {mixes_from} else np.diag(np.diag(M))
+    return np.exp(-abs(t1 - t2) - apart) * m
+"""
+
+
 RATE_MODULE = """
 import numpy as np
 
@@ -133,6 +149,25 @@ def _rate_spline(doc, tmp_path):
                                "t_max_cache": 4.0, "n_grid_cache": 201}
     doc["propagators"].update(c_closed_form_module="c_fn.py",
                               c_closed_form_only=True)
+
+
+def _vector_kappa2(matrix, mixes_from=0.0, t_final=(1.0,), pinned=None):
+    """The κ² above with ``matrix``, whose off-diagonal entries start at the
+    time ``mixes_from``, read at two positions in R^3 and at ``t_final``, or
+    at the ``pinned`` times of the two points."""
+    def apply(doc, tmp_path):
+        _file(tmp_path, "k2.py",
+              VECTOR_KAPPA2.format(matrix=matrix, mixes_from=mixes_from))
+        doc["system"]["noise"] = {"kappa2": {"type": "callable_module",
+                                             "module": "k2.py",
+                                             "attr": "kappa2"}}
+        doc["sweep"]["positions_grid"] = {"x": [[0.3, -0.2, 0.9]],
+                                          "y": [[-0.5, 0.4, 0.1]]}
+        doc["sweep"]["t_final_grid"] = list(t_final)
+        if pinned is not None:
+            doc["sweep"]["external_times_grid"] = pinned
+        doc["propagators"].update(t_max=1.0, n_grid_t=5)
+    return apply
 
 
 def _module(name: str, text: str, *steps):
@@ -199,6 +234,15 @@ REFUSED = {
         "invalid_value", "expand.diag_C"),
     "dense_R_under_propagators_diag_C": (
         _all(_dense_r, _set("expand", "diag_R", False),
+             _set("expand", "diag_C", False)),
+        "invalid_value", "propagators.diag_C"),
+    "mixing_kappa2_of_vectors_under_diag_C": (
+        _vector_kappa2([[1.0, 0.3], [0.3, 0.8]]),
+        "invalid_value", "expand.diag_C"),
+    "mixing_kappa2_of_vectors_under_propagators_diag_C": (
+        _all(_vector_kappa2([[1.0, 0.3], [0.3, 0.8]], mixes_from=0.6,
+                            t_final=[0.3],
+                            pinned={"x": [0.3, 1.0], "y": [1.0]}),
              _set("expand", "diag_C", False)),
         "invalid_value", "propagators.diag_C"),
     "empty_t_final_grid": (_set("sweep", "t_final_grid", []),
@@ -351,6 +395,9 @@ def test_VR1_every_command_refuses_before_any_stage(tmp_path, capsys,
 # ---------------------------------------------------------------------------
 
 ACCEPTED = {
+    "kappa2_of_vectors_mixing_past_the_pinned_times_under_diag_C":
+        _vector_kappa2([[1.0, 0.3], [0.3, 0.8]], mixes_from=0.6,
+                       t_final=[1.0], pinned={"x": [0.5], "y": [0.5]}),
     "t_final_at_the_end_of_the_table": _set("sweep", "t_final_grid", [1.0, 3.0]),
     "unread_t_final_past_the_table": _all(
         _set("sweep", "t_final_grid", [9.0]),

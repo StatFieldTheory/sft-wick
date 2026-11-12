@@ -15,7 +15,7 @@ import string
 import warnings
 from collections import defaultdict, deque
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Iterator, Mapping
 
 import numpy as np
 
@@ -414,6 +414,89 @@ def _guard_point_names(expansion, propagators, diagram_terms, positions, label):
         )
 
 
+def _position_pairs(axes) -> Iterator[tuple]:
+    """The position pairs at which a diagram can read C on a grid of
+    external positions: every position of one point with every position of
+    another, in both orders, then every position with itself.
+
+    ``axes`` holds one list of positions per external point.  Every point a
+    C propagator ends at shares its position with an external point (the
+    response propagators that lead from a vertex to an external point carry
+    ``δ(n − n')``), so these are all the pairs.  Two positions of one point
+    never meet in one grid point and are not paired.  The pairs are yielded
+    one at a time: a sweep of two long axes has too many to hold.
+    """
+    axes = [list(axis) for axis in axes]
+    for first, second in itertools.combinations(axes, 2):
+        for a, b in itertools.product(first, second):
+            yield a, b
+            yield b, a
+    for axis in axes:
+        for a in axis:
+            yield a, a
+
+
+def _latest_time_read(expansion, t_finals, pinned_axes) -> float | None:
+    """The latest external time a call reads: among the pinned ones, and
+    ``t_final`` when a point is left free (the rule of
+    :func:`_guard_table_reach`)."""
+    points = {str(sp) for (_name, _comp, sp) in expansion.observable_repr or ()}
+    times = [float(t) for axis in (pinned_axes or {}).values() for t in axis]
+    if not points <= {str(k) for k in pinned_axes or ()}:
+        times.extend(float(t) for t in t_finals)
+    return max(times, default=None)
+
+
+def _guard_diagonal_c(expansion, propagators, axes, t_hi, label) -> None:
+    """Refuse ``diag_C`` when the noise of the system mixes components at
+    the positions this call reads.
+
+    :meth:`System.expand` and :meth:`System.propagators` probe a callable
+    κ² or σ² at scalar positions and at times that do not depend on the
+    call, and a kernel that raises there is let through.  The positions and
+    the latest time ``t_hi`` are known here, so both kernels are read again
+    at the pairs :func:`_position_pairs` yields from them, once per call:
+    a sweep reads its whole grid before the first point and tells each
+    point's ``evaluate`` not to.
+
+    Two flags drop the off-diagonal entries of C, and either is enough: the
+    one the expansion was built with (:attr:`Expansion.diag_C`), which
+    merges the two indices of every C propagator, and ``model.diag_C`` of
+    the propagator cache, whose lookups return ``C_aa``.  The kernels read
+    are those of the cache's model, for the kinds the system declares as
+    callables (:meth:`System._position_kernels`): a spectral cache holds a
+    κ² of its own, a multiple of the identity, and the system's is not read
+    for it.  A closed
+    form of C is not read: under ``diag_C`` its diagonal is what every
+    lookup takes.  A kernel that raises at a position counts as unknown
+    there, as in the probes of :class:`System`, and is not refused.
+    """
+    from .system import _diag_c_refusal_at
+
+    model = getattr(getattr(propagators, "cache", None), "model", None)
+    flagged = [
+        name
+        for name, on in (
+            ("set in System.expand", expansion.diag_C),
+            ("set on the propagator tables", getattr(model, "diag_C", False)),
+        )
+        if on
+    ]
+    system = expansion.system
+    if not flagged or t_hi is None or not system._position_kernels(model):
+        return  # no flag, no time read, or no kernel to read
+    located = {str(k): list(v) for k, v in (axes or {}).items()}
+    points = dict.fromkeys(str(sp) for (_n, _c, sp) in expansion.observable_repr or ())
+    hit = system._noise_offdiagonal_at(
+        # A point left out sits at the default coordinate 0.
+        _position_pairs([located.get(p, [0.0]) for p in points]),
+        t_hi,
+        model,
+    )
+    if hit is not None:
+        raise ValueError(_diag_c_refusal_at(hit, label, " and ".join(flagged)))
+
+
 @dataclass(frozen=True)
 class _PreparedSweepPoint:
     """Static bindings for one component tuple, owned by one sweep call."""
@@ -437,6 +520,11 @@ class Expansion:
         raw_result: the underlying :class:`PerturbativeResult`
             (advanced users).
         target: ``'moment'`` or ``'connected'`` (see :meth:`System.expand`).
+        diag_C: the ``diag_C`` flag :meth:`System.expand` built the diagrams
+            with, or ``None`` when it is not recorded (an expansion pickled
+            before the field existed).  :meth:`evaluate` and :meth:`sweep`
+            read it to refuse a C with off-diagonal entries at their
+            positions.
     """
 
     system: Any  # sft_wick.workflow.System (forward decl avoids cycle)
@@ -446,6 +534,8 @@ class Expansion:
     raw_result: Any
     # Default also applies when loading pre-target pickled expansions.
     target: str = "moment"
+    # Likewise for expansions pickled before the flag was recorded.
+    diag_C: bool | None = None
 
     # --------------------------------------------------------------- #
     # Inspection
@@ -561,6 +651,7 @@ class Expansion:
         contraction_max_bytes: int = DEFAULT_CONTRACTION_MAX_BYTES,
         _lookup_cache: Any = None,
         _guard_response: bool = True,
+        _guard_diagonal: bool = True,
     ):
         """Integrate the expansion at a single ``(positions, t_final,
         component_pair)`` point.  Returns a :class:`Result`.
@@ -576,7 +667,16 @@ class Expansion:
                 with a located point in every selected diagram, or the cache
                 has no spatial structure and no vertex has a callable
                 coupling, which reads the positions.  With no entry, or every
-                entry at 0, a point left out sits at 0.
+                entry at 0, a point left out sits at 0.  ``ValueError`` too
+                when ``diag_C=True`` is set on the expansion or on the
+                propagators and a callable κ² or σ² shows an off-diagonal
+                component entry at a pair of these positions, at one of
+                the time pairs read inside the window from ``t_min`` to the
+                latest time of the call (in most windows 12 pairs, 22 in
+                one longer than 4.1); a kernel that raises there is not
+                refused, a mixing between the time pairs read is not seen,
+                and a position that is not a real number, a real array, or
+                a list or tuple of them is not read.
             t_final: upper time bound for external-time integration
                 (``lambda_f``).  ``ValueError`` if a time read is outside
                 the propagator table or a position past its full spatial
@@ -758,6 +858,16 @@ class Expansion:
             "Expansion.evaluate",
         )
         _guard_single_site(self, diagram_terms, positions)
+        if _guard_diagonal:
+            _guard_diagonal_c(
+                self,
+                propagators,
+                {k: [v] for k, v in (positions or {}).items()},
+                _latest_time_read(
+                    self, [t_final], {k: [v] for k, v in (external_times or {}).items()}
+                ),
+                "Expansion.evaluate",
+            )
 
         _total, details = integrate_diagrams(
             diagram_terms,
@@ -851,7 +961,12 @@ class Expansion:
                 Each key's list is swept independently; result is the
                 full Cartesian product.  E.g.
                 ``{"x": [0.0], "y": [0.0, 0.5, 1.0]}``.  A point left out
-                is refused as in :meth:`evaluate`.
+                is refused as in :meth:`evaluate`, and so is ``diag_C`` on
+                a κ² or σ² that shows a mixing of components at a pair of
+                these positions that one grid point holds, or at one of
+                them with itself.  They are read once for the whole grid,
+                at the time pairs of :meth:`evaluate` for the latest time
+                on the grid.
             t_final_grid: list of upper time bounds.  Also the default time
                 for any external point not named in ``external_times_grid``.
             external_times_grid: ``{point: [times]}`` pinning external points
@@ -1137,6 +1252,16 @@ class Expansion:
                     for comp in comp_tuples:
                         grid_tasks.append((positions, t_f, ext_times, comp))
 
+        # One reading of the noise for the whole grid, before the first point;
+        # each point's ``evaluate`` is told not to repeat it.
+        _guard_diagonal_c(
+            self,
+            propagators,
+            positions_grid,
+            _latest_time_read(self, t_final_grid, external_times_grid),
+            "Expansion.sweep",
+        )
+
         # Warn once for the whole grid rather than once per grid point, which
         # would bury the message; each point's ``evaluate`` is told not to.
         _guard_external_times(
@@ -1225,6 +1350,7 @@ class Expansion:
                 _progress_tick=tick,
                 _prepared=prepared.get(comp),
                 _guard_response=False,
+                _guard_diagonal=False,
                 gl_chunk_size=gl_chunk_size,
                 **(
                     {}

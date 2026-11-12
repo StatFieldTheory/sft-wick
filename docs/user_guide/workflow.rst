@@ -1239,7 +1239,7 @@ Section reference: ``expand``
    * - ``diag_R`` / ``diag_C``
      - ``bool``
      - ``true``
-     - Apply diagonal-propagator simplification (collapses index sums where R/C is component-diagonal).  Raises ``ValueError`` when R or C has off-diagonal entries (from a dense R, a component-mixing κ² or a white-noise matrix); for C, set ``propagators.diag_C: false``, which sets this flag with it and tabulates every ``C_ab``
+     - Apply diagonal-propagator simplification (collapses index sums where R/C is component-diagonal).  Raises ``ValueError`` when R or C has off-diagonal entries (from a dense R, a component-mixing κ² or a white-noise matrix); for C, set ``propagators.diag_C: false``, which sets this flag with it and tabulates every ``C_ab``.  A callable κ² or σ² is read at a few times and scalar positions here, and again at the positions and over the time window of the sweep
    * - ``iso_R`` / ``iso_C``
      - ``bool`` or ``null``
      - ``null`` / ``false``
@@ -1409,7 +1409,7 @@ Section reference: ``propagators``
    * - ``diag_C``
      - ``bool``
      - ``true``
-     - ``false`` keeps the off-diagonal entries of C: every table holds all :math:`N^2` entries :math:`C_{ab}` and every lookup returns them. Needed when C is not component-diagonal (a dense R, a component-mixing :math:`\kappa^2`, a matrix :math:`\sigma^2`), for which ``true`` is refused. No closed form is required: a Gauss-Legendre cell costs what a diagonal one costs, a ``dblquad`` cell :math:`N^2` adaptive integrals instead of :math:`N`. Sets ``expand.diag_C`` to ``false`` with it
+     - ``false`` keeps the off-diagonal entries of C: every table holds all :math:`N^2` entries :math:`C_{ab}` and every lookup returns them. Needed when C is not component-diagonal (a dense R, a component-mixing :math:`\kappa^2`, a matrix :math:`\sigma^2`), for which ``true`` is refused: at once for a constant or multiplicative :math:`\sigma^2` with off-diagonal entries, for a dense R that shows the mixing at a few times, and for a callable :math:`\kappa^2` or :math:`\sigma^2` that shows it at a few times and scalar positions; a callable :math:`\kappa^2` or :math:`\sigma^2` that shows none there is refused when the positions and the time window of the sweep show it. A dense R is not read again at the sweep. No closed form is required: a Gauss-Legendre cell costs what a diagonal one costs, a ``dblquad`` cell :math:`N^2` adaptive integrals instead of :math:`N`. Sets ``expand.diag_C`` to ``false`` with it
    * - ``interp_method``
      - ``str``
      - ``"linear"``

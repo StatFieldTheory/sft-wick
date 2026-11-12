@@ -37,6 +37,7 @@ def check_run_refusals(cfg: WorkflowConfig, system) -> None:
     _check_axes(cfg)
     _check_isotropy(cfg, system)
     _check_position_shapes(cfg, system)
+    _check_diagonal_at_positions(cfg, system)
     _check_pinned_points(cfg)
     with _refused_at("expand.observable"):
         _refuse_joined_points(
@@ -82,6 +83,39 @@ def _check_diagonal(cfg: WorkflowConfig, system) -> None:
         return
     where = "expand.diag_C" if expand.diag_C else "propagators.diag_C"
     raise ConfigError("invalid_value", where, _DIAG_C_REFUSAL)
+
+
+def _check_diagonal_at_positions(cfg: WorkflowConfig, system) -> None:
+    """The refusal of :meth:`Expansion.sweep` of ``diag_C``, which reads a
+    callable κ² or σ² at the positions and up to the latest time of the
+    grid.  ``propagators.diag_C: false`` turns ``expand.diag_C`` off too, so
+    nothing is read then."""
+    from .expansion import _position_pairs
+    from .system import _diag_c_refusal_at
+
+    if not cfg.propagators.diag_C or not system._position_kernels():
+        return
+    grid = cfg.sweep.positions_grid
+    hit = system._noise_offdiagonal_at(
+        _position_pairs(
+            [grid.get(p, [0.0]) for p in sorted(cf._observable_points(cfg.expand))]
+        ),
+        max((t for _path, t in _read_times(cfg)), default=float(system.t_min)),
+    )
+    if hit is None:
+        return
+    on_expansion = cfg.expand.diag_C
+    detail = _diag_c_refusal_at(
+        hit,
+        "the sweep",
+        (
+            "set in System.expand and set on the propagator tables"
+            if on_expansion
+            else "set on the propagator tables"
+        ),
+    )
+    where = "expand.diag_C" if on_expansion else "propagators.diag_C"
+    raise ConfigError("invalid_value", where, detail)
 
 
 def _check_isotropy(cfg: WorkflowConfig, system) -> None:

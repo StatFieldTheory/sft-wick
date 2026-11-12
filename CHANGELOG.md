@@ -248,6 +248,9 @@ No value of a declared kernel moves.
 | A point left out of `positions`, or misspelt, beside a located one | 30 percent off at order 0, 45 at order 2 | `ValueError` |
 | `n_samples: 4096.9`, `seed: 1.5`, `t_max: true` in YAML | truncated, or read as 1 | refused at the key |
 | `integrate_over` given as a one-shot iterator (a generator, `iter(...)`) | every grid point of a sweep and every diagram of `integrate_diagrams` after the first held the named points at `t_final`: order 0 of `<phi_a(x) psi_b(y)>` with `y` swept, 0.9502 and 0 over `t_final_grid = [3, 4]` against 0.9502 and 0.9817 | read once into a tuple by `Expansion.evaluate`, `Expansion.sweep` and `integrate_diagrams` |
+| `diag_C=True`, and `diag_R=True` for a dense R (the defaults), on a κ², σ² or dense R callable that mixes components and raises at a point `System.expand` and `System.propagators` read before any point that shows the mixing, such as a κ² of the angle between two positions that raises at a zero position | accepted, because the first point that raised ended the reading: order 0 of `<phi_0 phi_1>` 0.0 against 0.1336 for a κ² with the angular factor `1 + (cos θ) / 2`, and 273 of the 5,479 models with an off-diagonal C in the first 10,000 draws of `validation/` | each point is read on its own, and an off-diagonal entry at any of them is the `ValueError` of the other mixing kernels (at L2 a `ConfigError` before any stage: at `expand.diag_R` for a dense R with that flag on, otherwise at `expand.diag_C`, or at `propagators.diag_C` when `expand.diag_C` is `false`) |
+| `diag_C=True` on a κ² or σ² callable that shows its mixing only between two non-zero positions of the same sign: a kernel of the angle that is zero at opposite positions, or one that is finite at positive positions only | accepted, because each of the three position pairs read held a zero or two positions of opposite sign: order 0 of `<phi_0 phi_1>` 0.0 against 0.1782 for a κ² with the angular factor `1 + cos θ`, 0.0 against 0.0324 for one with the spatial factor `sqrt(x1 x2) exp(-abs(x1 - x2))` | a fourth pair, `(0.9, 0.35)`, is read, and an off-diagonal entry there is the same `ValueError`; a kernel of this kind that shows none there, such as one finite at negative positions only or one whose mixing does not reach a separation of 0.55, is left to the reading at the positions of the call (next row) |
+| `diag_C=True` on a κ² or σ² callable that `System.expand` and `System.propagators` cannot read where the call evaluates: a kernel of vector positions, which raises at every scalar position, or a mixing that starts later than the times they read | accepted: order 0 of `<phi_0 phi_1>` 0.0 against 0.0189 for a κ² of positions of three coordinates | `Expansion.evaluate` and `Expansion.sweep` read κ² and σ² again, at the pairs of positions that two points of the call hold together and at each position with itself, at time pairs of its window, and an off-diagonal entry there is a `ValueError` (at L2 a `ConfigError` at `expand.diag_C`, or at `propagators.diag_C` when `expand.diag_C` is `false`, before any stage).  So is one in a cache built by hand from such a kernel with `diag_C=True` in its model, which returned 0.0 for the same pair.  The reading is made at positions that are real numbers, real arrays, or lists or tuples of them, each handed as a new float array, as the C tables hand them; a position of another kind (a label, a complex number, an object with an array form of its own) is not read.  A cache without tables hands a kernel the position as the call gave it, so a kernel that needs that object (an integer site used as an index, a tuple used as a key) raises in the reading and stays accepted on such a cache |
 
 The positions check is narrower than a required key: an extra name beside a position
 for every point, `{}`, all positions 0 with a point left out, a point sharing an R
@@ -257,11 +260,59 @@ out is still refused for it on a cache with no spatial table.  At L1 a 0-d coupl
 length stay too.  `CustomImpulse` and a callable rate of the wrong length are not
 checked.
 
+A callable κ² or σ² is now read twice.  `System.expand` and `System.propagators` read it
+at five time pairs counted from `t_min` and four pairs of scalar positions, as they
+read an R callable at its times.  `Expansion.evaluate` and `Expansion.sweep` read it at
+every position of one point paired with every position of another, in both orders, and at
+every position paired with itself, a sweep once for its whole grid, and at 12 time pairs
+inside the window from `t_min` to the latest time the call reads, 22 in a window longer
+than 4.1.  Two positions on one axis of a sweep are not paired: no grid point holds both.
+The times stay one rounding step inside the window: a mixing
+that starts at the latest time read, or ends at `t_min`, adds nothing to C.  The second
+reading runs when `diag_C=True` is set in `System.expand` or on the propagator tables,
+and reads the kernels of the cache's model in place of the system's, so beside a system
+with a mixing `GeneralKappa2` a `spectral_cache`, whose C comes from a spectrum and
+whose model holds a κ² that is a multiple of the identity, is evaluated.  The system
+still decides which kernel is read, κ² for a `GeneralKappa2` and σ² for a
+`CustomImpulse`: a cache built by hand whose model mixes components, beside a system
+with a separable κ², is not read and still returns 0.0 for an off-diagonal pair.  It
+calls a κ² 12 times per pair read: 48 times for two points and 3,612 times before a sweep
+of 100 positions against one (88 and 6,622 in the longer window), and 242,400 times
+before one of 100 against 100.  A σ² takes one time and is called 10 times per pair,
+19 in the longer window.  These are the counts of most windows.  Where two of the times
+round to one value there are fewer: 18 calls of a σ² per pair from `t_min = 0` to 4.3,
+20 time pairs from `t_min = 0.1` to 4.2.  A σ² is called once more where the scaled time
+at the end of the window rounds below it: 11 times per pair from `t_min = -3` to -0.9.
+The calls are made also when C comes from a closed form and nothing else calls the
+kernel.  `Expansion.diag_C` records the flag of `System.expand`; it is `None` on an
+expansion pickled before, which is then read for the flag of its tables only.
+
+`diag_C=True`, and `diag_R=True` for an R, stay accepted for a mixing callable that
+does one of three things at each point read, not necessarily the same one at every
+point: it raises, such as a kernel handed a position outside its domain, or at a call
+one that needs the integer or the tuple the call gave and is handed a float array, or
+returns something the reading raises on, such as a boolean matrix; it returns a matrix
+whose off-diagonal entries are at most 1e-12 of its largest entry, such as a cross term
+confined to lags that no time pair read has; or it returns a matrix that holds a NaN or
+an inf, which is read as showing no off-diagonal entry.  A call at positions that are
+not real numbers or real arrays, such as labels or complex numbers, makes no reading.
+A dense R is not read at the times of a call, so one whose off-diagonal entries start
+after `t_min + 4.1` stays accepted.  L0 makes neither reading.
+
 Newly refused at L1, as at their YAML keys: `ConstantImpulse` of another `N` or not
 square, a kernel width that is not positive, unequal rates of the wrong length,
 `NonLocalVertex` of an order that is not an integer of at least 1.  Also newly refused:
 an `ExponentialTemporal` width whose reciprocal overflows, below about 5.57e-309.  The
 closed form returned NaN there, and a 40-node Gauss-Legendre rule gives 0.
+
+The reading at the positions of a call refuses one thing that returned a right number:
+with `diag_C=True` on a κ² or σ² that mixes components there, a call whose diagrams
+read no non-zero off-diagonal entry of C (at order 0: `<phi_1 phi_1>`, which reads C_11
+only, a response function, which reads no C, or two pinned times of which one precedes
+the mixing, where C is diagonal), as `System.expand` already refuses it for a kernel it
+can read.  `diag_C=False` in `System.expand` and `System.propagators`
+is the way out.  The message gives the two positions, the times and the size of the
+entry read, since an entry above 1e-12 of the largest counts, rounding included.
 
 Under a constant `gamma` the YAML parser now reads `n_grid_cache`, refusing a value
 below 2, and requires `t_max_cache` and `t_min_cache` to be finite numbers, so `.inf`
