@@ -1472,6 +1472,41 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "tools/gen_test_catalog.py",
         "exact",
     ),
+    "tests/test_mutation_harness.py": (
+        "Workflow and YAML",
+        "the verdicts of tools/mutation_check.py: only pytest exit code 1 "
+        "kills, 0 survives, any other code is an error; a selector must exit "
+        "0 with a passing test on clean source, including one whose only "
+        "match is deselected by addopts; the old text must match once, "
+        "overlaps counted, in a file inside the package; corpus entries are "
+        "validated and the corpus applies to the current source",
+        "a toy project in tmp_path run by real pytest subprocesses, the "
+        "source bytes on disk at each run; a scripted runner for the other "
+        "exit codes",
+        "exact",
+    ),
+    "tests/test_mutation_harness_sweep.py": (
+        "Workflow and YAML",
+        "tools/mutation_check.py restores the source after an exception, "
+        "from atexit, on SIGTERM mid-run and, from its journal, on the run "
+        "after a SIGKILL; a looping mutant is killed with its process group "
+        "at the time limit; sweep counts, exit status, -k, --shard, "
+        "--baseline-only, the empty corpus and the setup checks",
+        "a toy project in tmp_path; a scripted runner; a harness process "
+        "signalled while its mutated run waits; the pid of a test's child",
+        "exact (bytes of the source)",
+    ),
+    "tests/test_mutation_harness_trees.py": (
+        "Workflow and YAML",
+        "tools/mutation_check.py --matrix lists every failing test file, "
+        "--root sweeps a copy and leaves the tree byte-identical, a failed "
+        "or unsafe copy is refused and removed, and every "
+        "pytest and child process imports the mutated tree while another "
+        "copy of the package is first on PYTHONPATH",
+        "a toy project in tmp_path and a second one on PYTHONPATH; the file "
+        "each process imported, logged by the toy tests; digests of both trees",
+        "exact",
+    ),
     "tests/test_generated_docs_in_sync.py": (
         "Workflow and YAML",
         "every committed file that a script writes (demo 2's error budget, "

@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8319 tests** in 143 files (parametrised
+The suite has **8524 tests** in 146 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -607,7 +607,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*2134 tests in 30 files.*
+*2339 tests in 33 files.*
 
 .. list-table::
    :header-rows: 1
@@ -678,6 +678,21 @@ Workflow and YAML
      - exact moment hierarchy in Hörmander form (no noise-induced drift formed); finite differences of g
      - 1e-9 (GL) / 2e-3 (qmc_scalar)
      - 32
+   * - ``test_mutation_harness.py``
+     - the verdicts of tools/mutation_check.py: only pytest exit code 1 kills, 0 survives, any other code is an error; a selector must exit 0 with a passing test on clean source, including one whose only match is deselected by addopts; the old text must match once, overlaps counted, in a file inside the package; corpus entries are validated and the corpus applies to the current source
+     - a toy project in tmp_path run by real pytest subprocesses, the source bytes on disk at each run; a scripted runner for the other exit codes
+     - exact
+     - 97
+   * - ``test_mutation_harness_sweep.py``
+     - tools/mutation_check.py restores the source after an exception, from atexit, on SIGTERM mid-run and, from its journal, on the run after a SIGKILL; a looping mutant is killed with its process group at the time limit; sweep counts, exit status, -k, --shard, --baseline-only, the empty corpus and the setup checks
+     - a toy project in tmp_path; a scripted runner; a harness process signalled while its mutated run waits; the pid of a test's child
+     - exact (bytes of the source)
+     - 74
+   * - ``test_mutation_harness_trees.py``
+     - tools/mutation_check.py --matrix lists every failing test file, --root sweeps a copy and leaves the tree byte-identical, a failed or unsafe copy is refused and removed, and every pytest and child process imports the mutated tree while another copy of the package is first on PYTHONPATH
+     - a toy project in tmp_path and a second one on PYTHONPATH; the file each process imported, logged by the toy tests; digests of both trees
+     - exact
+     - 34
    * - ``test_observable_operator_inputs.py``
      - FieldOperator observables in System.expand (order 0 at distinct times, the FK channel at order 2, the same expansion as the string spelling, one index per shared letter); literal labels and foreign fields refused; set and frozenset observables refused, a dict's keys view accepted in its insertion order, the keys view of another mapping (a ChainMap's included) refused; a physical field named psi refused; each record draws for operators the caller built or cached, each edge joins the operators of its pair, a drawing reads no uid, and no call moves the uids back
      - closed-form inner and scipy quad outer integral of the exponential covariance; the FK channel of a constant kappa^3 as a 1-D quad

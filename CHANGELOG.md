@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+### Added: a mutation harness for the test suite
+
+`tools/mutation_check.py` applies one source edit at a time from a corpus in
+`tools/mutations/`, runs the pytest selector named for it and restores the file.
+Only pytest exit code 1 is a kill; 0 is a survivor and any other code, a collection
+error included, is an error.  A run that exceeds its time limit (by default 10 times
+its selector's baseline duration plus 30 s, or `--timeout`) is killed with its whole
+process group and reported as `TIMEOUT`, which is not a kill.  The corpus is checked
+when the tool starts.  Before writing a mutant the tool requires the edit's `old`
+text to occur once in the target file, overlapping occurrences counted, the target
+to be a file inside `src/sft_wick`, and the selector to exit 0 with a passing test
+on clean source; a selector whose only tests are `slow` or `heavy` fails that check
+with "no passing test" until it carries its own `-m`.  The source is restored from a
+`finally`, from SIGINT, SIGTERM and SIGHUP handlers and from `atexit`; after a
+SIGKILL, the next run restores it from a journal written before each mutant.
+`--matrix` runs every selected test and lists the failing test files under each
+mutant, and `--root DIR` runs the sweep in a copy of the tree and leaves the tree
+unwritten.  Every process the harness starts gets the tree's `src` first on its
+import path, and the harness refuses to start when a probe import finds another
+copy of the package; a test that starts a child with its own environment, or with
+`-I` or `-E`, is outside that guarantee.  The corpus is empty; with no entry the
+tool exits with status 2.  `docs/verification/mutation.rst` describes it.
+
 ### Added: an oracle that shares no code with the package
 
 `validation/` ships in the sdist, not in the wheel.  `validation/modelspec.py`

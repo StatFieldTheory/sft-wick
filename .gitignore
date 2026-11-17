@@ -47,6 +47,10 @@ sims_fscale/*.log
 # reproduction block lands an untracked artefact in the tree.
 /results/
 
+# tools/mutation_check.py: the journal of a mutant in flight.  A run killed
+# by SIGKILL leaves it, and the next run restores the source from it.
+.mutation-inflight.json
+
 # demo 3: on-disk expansion cache and regenerable run outputs
 examples/demo3/.expansion_cache/
 examples/demo3/results/
