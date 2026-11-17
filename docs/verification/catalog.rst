@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8319 tests** in 143 files (parametrised
+The suite has **8533 tests** in 145 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -132,7 +132,7 @@ Symbolic engine
 Multiplicities and canonical forms
 ----------------------------------
 
-*90 tests in 2 files.*
+*304 tests in 4 files.*
 
 .. list-table::
    :header-rows: 1
@@ -143,6 +143,11 @@ Multiplicities and canonical forms
      - Reference
      - Tolerance
      - Tests
+   * - ``test_certify_imports.py``
+     - sft_wick/_certify.py imports only the standard library and no sft_wick module (an AST walk over import statements, relative imports and import calls, which must name a literal module); loading the file by path and counting loads no sft_wick module and no third-party module
+     - the import statements; sys.modules of a fresh interpreter
+     - exact
+     - 3
    * - ``test_deductive_expansion.py``
      - every pairing at order ≤ 2 classified by vanishing reason; routing counts of spatial topologies; canonical-form deduplication
      - brute-force Wick reference (tests/brute_wick.py, no sft-wick imports)
@@ -153,6 +158,11 @@ Multiplicities and canonical forms
      - isomorphic relabellings hash-compare equal
      - exact
      - 12
+   * - ``test_pairing_counter.py``
+     - counts of valid operator pairings from the standard-library counter (no psi-psi pair, no response propagator on one point, no directed response cycle): cubic, quartic and double-psi vertices by order, mixed sequences, unequal externals, external psi, three-psi and phi-free vertices, one leg per point with an owner map, labels shared by owners, moment and connected targets, direct enumeration against the subset recursion at 13 psi, input refusals
+     - every pairing enumerated and classified by tests/brute_wick.py up to 14 operators, with a union-find on owners for the connected target; a pruned search with the same rules at 18 and 20 operators; the two algorithms of the counter against each other above that
+     - exact
+     - 211
 
 Propagator numerics
 -------------------

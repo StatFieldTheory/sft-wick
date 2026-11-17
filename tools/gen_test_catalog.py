@@ -400,6 +400,31 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "brute-force Wick reference (tests/brute_wick.py, no sft-wick imports)",
         "exact",
     ),
+    "tests/test_pairing_counter.py": (
+        "Multiplicities and canonical forms",
+        "counts of valid operator pairings from the standard-library counter "
+        "(no psi-psi pair, no response propagator on one point, no directed "
+        "response cycle): cubic, quartic and double-psi vertices by order, mixed "
+        "sequences, unequal externals, external psi, three-psi and phi-free "
+        "vertices, one leg per point with an owner map, labels shared by owners, "
+        "moment and connected targets, direct enumeration against the subset "
+        "recursion at 13 psi, input refusals",
+        "every pairing enumerated and classified by tests/brute_wick.py up to 14 "
+        "operators, with a union-find on owners for the connected target; a "
+        "pruned search with the same rules at 18 and 20 operators; the two "
+        "algorithms of the counter against each other above that",
+        "exact",
+    ),
+    "tests/test_certify_imports.py": (
+        "Multiplicities and canonical forms",
+        "sft_wick/_certify.py imports only the standard library and no sft_wick "
+        "module (an AST walk over import statements, relative imports and "
+        "import calls, which must name a literal module); loading the file by "
+        "path and counting loads no "
+        "sft_wick module and no third-party module",
+        "the import statements; sys.modules of a fresh interpreter",
+        "exact",
+    ),
     "tests/test_diagrams.py": (
         "Multiplicities and canonical forms",
         "FeynmanDiagram canonical form and isomorphism deduplication",
