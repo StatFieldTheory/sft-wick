@@ -482,6 +482,14 @@ package, and a test walks its imports to keep it so.  :doc:`oracle`
 describes the oracle, the fuzzer and its runs, among them a replay on the
 0.4.2 release that finds the errors 0.5.0 to 0.7.0 fixed.
 
+Mutants against the test suite
+------------------------------
+
+``tools/mutation_check.py`` applies one source edit at a time, runs the
+tests named for it and reports whether they fail.  :doc:`mutation`
+describes the verdicts, the kill matrix and how the tool makes sure the
+mutated tree is the one imported.
+
 Running the tests
 -----------------
 

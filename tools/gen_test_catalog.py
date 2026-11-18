@@ -6,6 +6,12 @@ what is checked, the independent reference it is checked against, the
 tolerance, and the number of collected tests (parametrised cases
 included, taken from ``pytest --collect-only``).
 
+When ``docs/verification/kill_matrix.json`` exists (written by
+``tools/kill_matrix.py`` from a sweep of the mutation corpus), every table
+gains a column with the number of corpus mutants under which a test of the
+file failed, and the page ends with the mutants no test killed.  Without the
+file the page has neither.
+
 The descriptive columns come from :data:`FILE_META` below, a curated
 table, because "what reference does this test use" is not something a
 script can read off reliably.  The counts are always measured.
@@ -30,6 +36,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "verification" / "catalog.rst"
+KILL_MATRIX = ROOT / "docs" / "verification" / "kill_matrix.json"
+#: The default of :func:`render`: read :data:`KILL_MATRIX` if it exists.
+FROM_FILE = object()
 
 # Subject areas, in the order they appear in the catalogue.
 SUBJECTS = [
@@ -1472,6 +1481,71 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "tools/gen_test_catalog.py",
         "exact",
     ),
+    "tests/test_mutation_harness.py": (
+        "Workflow and YAML",
+        "the verdicts of tools/mutation_check.py: only pytest exit code 1 "
+        "kills, 0 survives, any other code is an error; a selector must exit "
+        "0 with a passing test on clean source, including one whose only "
+        "match is deselected by addopts; the old text must match once, "
+        "overlaps counted, in a file inside the package; corpus entries are "
+        "validated and the corpus applies to the current source",
+        "a toy project in tmp_path run by real pytest subprocesses, the "
+        "source bytes on disk at each run; a scripted runner for the other "
+        "exit codes",
+        "exact",
+    ),
+    "tests/test_mutation_harness_sweep.py": (
+        "Workflow and YAML",
+        "tools/mutation_check.py restores the source after an exception, "
+        "from atexit, on SIGTERM mid-run and, from its journal, on the run "
+        "after a SIGKILL; a looping mutant is killed with its process group "
+        "at the time limit; sweep counts, exit status, -k, --shard, "
+        "--baseline-only, the empty corpus and the setup checks",
+        "a toy project in tmp_path; a scripted runner; a harness process "
+        "signalled while its mutated run waits; the pid of a test's child",
+        "exact (bytes of the source)",
+    ),
+    "tests/test_mutation_harness_trees.py": (
+        "Workflow and YAML",
+        "tools/mutation_check.py --matrix lists every failing test file, "
+        "--root sweeps a copy and leaves the tree byte-identical, a failed "
+        "or unsafe copy is refused and removed, and every "
+        "pytest and child process imports the mutated tree while another "
+        "copy of the package is first on PYTHONPATH",
+        "a toy project in tmp_path and a second one on PYTHONPATH; the file "
+        "each process imported, logged by the toy tests; digests of both trees",
+        "exact",
+    ),
+    "tests/test_mutation_harness_layout.py": (
+        "Workflow and YAML",
+        "tools/mutation_check.py run on a package that is not sft_wick under "
+        "a source root that is not src, with the corpus outside the project, "
+        "through --project-root, --package, --source-root and --corpus: "
+        "baseline, kill, survivor, --matrix, --root, recovery after SIGKILL "
+        "and the import probe; no command, environment, journal or output "
+        "of those runs names sft_wick; bad layout options exit 3; the tool "
+        "files name the default layout in one place",
+        "a toy package toypkg under lib/ whose sitecustomize logs the "
+        "command line and environment of every process; a second copy on "
+        "PYTHONPATH and one in the project root; the source of the tool "
+        "files, parsed",
+        "exact",
+    ),
+    "tests/test_mutation_corpus.py": (
+        "Workflow and YAML",
+        "the corpus of tools/mutations/ has 15 historical and 15 operator "
+        "entries, each old text occurs once in its file, no two entries "
+        "write the same file text, a historical entry cites its fix and an "
+        "existing CHANGELOG heading; docs/verification/kill_matrix.json names "
+        "the current corpus by digest and only test files the fast suite still "
+        "runs, records at least 29 kills and a classification and reason for "
+        "every other mutant; tools/kill_matrix.py on a fixture (a "
+        "classification dropped when its entry changes, a kill by a flaky "
+        "test file alone refused) and the catalogue's kill column",
+        "the current source and CHANGELOG; the node IDs pytest collects; a "
+        "two-entry corpus and a hand-written sweep report",
+        "exact",
+    ),
     "tests/test_generated_docs_in_sync.py": (
         "Workflow and YAML",
         "every committed file that a script writes (demo 2's error budget, "
@@ -1599,7 +1673,85 @@ def _approx_audit_lines():
     return lines
 
 
-def render(counts: Counter) -> str:
+def load_kill_matrix() -> dict | None:
+    """The kill matrix of the mutation corpus, or None without the file."""
+    import json
+
+    if not KILL_MATRIX.exists():
+        return None
+    return json.loads(KILL_MATRIX.read_text(encoding="utf-8"))
+
+
+def _kills_per_file(kill_matrix: dict) -> Counter:
+    """``{test file: mutants under which one of its tests failed}``."""
+    kills: Counter = Counter()
+    for mutant in kill_matrix["mutants"]:
+        if mutant["verdict"] == "KILLED":
+            kills.update(set(mutant["failed_files"]))
+    return kills
+
+
+def _swept_against(kill_matrix: dict) -> str:
+    """The sentence that gives the number of tests the rows were swept
+    against: one number, or the lowest and highest when rows were swept at
+    different times."""
+    counts = sorted({m["fast_suite_tests"] for m in kill_matrix["mutants"]
+                     if m.get("fast_suite_tests") is not None})
+    if len(counts) > 1:
+        return (f"The rows were swept against the {counts[0]} to {counts[-1]} "
+                "tests the fast suite collected then;")
+    count = counts[0] if counts else kill_matrix.get("fast_suite_tests", "?")
+    return f"The sweep ran the {count} tests the fast suite collected then;"
+
+
+def _kill_matrix_lines(kill_matrix: dict) -> list[str]:
+    """The closing section: the sweep's totals and the surviving mutants."""
+    mutants = kill_matrix["mutants"]
+    survivors = [m for m in mutants if m["verdict"] != "KILLED"]
+    lines = [
+        "Mutation kill matrix",
+        "--------------------",
+        "",
+        f"The local default suite killed {kill_matrix['killed']} of the "
+        f"{len(mutants)} mutants of",
+        "``tools/mutations/``; the *Killed mutants* column above counts, per",
+        "file, the mutants under which one of its tests failed.  The sweep and",
+        "the classification of survivors are described in :doc:`mutation`.",
+        _swept_against(kill_matrix),
+        "a test added since has no kills until the next sweep.",
+        "",
+        "Surviving mutants",
+        "~~~~~~~~~~~~~~~~~",
+        "",
+    ]
+    if not survivors:
+        return lines + ["Every mutant was killed.", ""]
+    lines += [
+        ".. list-table::",
+        "   :header-rows: 1",
+        "   :widths: 30 12 16 42",
+        "",
+        "   * - Mutant",
+        "     - Kind",
+        "     - Classification",
+        "     - Reason",
+    ]
+    for m in survivors:
+        lines += [
+            f"   * - ``{m['label']}``",
+            f"     - {m['kind']}",
+            f"     - {m.get('classification') or 'unclassified'}",
+            f"     - {m.get('reason') or ''}",
+        ]
+    return lines + [""]
+
+
+def render(counts: Counter, kill_matrix=FROM_FILE) -> str:
+    """The catalogue page; ``kill_matrix`` is :data:`KILL_MATRIX` read by
+    default, a matrix, or None for none."""
+    if kill_matrix is FROM_FILE:
+        kill_matrix = load_kill_matrix()
+    kills = _kills_per_file(kill_matrix) if kill_matrix else None
     files = test_files()
     missing = [f for f in files if f not in FILE_META]
     if missing:
@@ -1665,7 +1817,8 @@ def render(counts: Counter) -> str:
             "",
             ".. list-table::",
             "   :header-rows: 1",
-            "   :widths: 22 34 26 10 8",
+            "   :widths: " + ("22 34 26 10 8" if kills is None
+                             else "20 32 24 10 7 7"),
             "",
             "   * - File",
             "     - What is checked",
@@ -1673,6 +1826,8 @@ def render(counts: Counter) -> str:
             "     - Tolerance",
             "     - Tests",
         ]
+        if kills is not None:
+            lines.append("     - Killed mutants")
         for f, what, ref, tol, n in rows:
             lines += [
                 f"   * - ``{f.removeprefix('tests/')}``",
@@ -1681,7 +1836,11 @@ def render(counts: Counter) -> str:
                 f"     - {tol}",
                 f"     - {n}",
             ]
+            if kills is not None:
+                lines.append(f"     - {kills.get(f, 0)}")
         lines.append("")
+    if kill_matrix:
+        lines += _kill_matrix_lines(kill_matrix)
     return "\n".join(lines) + "\n"
 
 

@@ -2,6 +2,68 @@
 
 ## Unreleased
 
+### Added: a mutation harness for the test suite
+
+`tools/mutation_check.py` applies one source edit at a time from a corpus in
+`tools/mutations/`, runs the pytest selector named for it and restores the file.
+Only pytest exit code 1 is a kill; 0 is a survivor and any other code, a collection
+error included, is an error.  A run that exceeds its time limit (by default 10 times
+its selector's baseline duration plus 30 s, or `--timeout`) is killed with its whole
+process group and reported as `TIMEOUT`, which is not a kill.  The corpus is checked
+when the tool starts.  Before writing a mutant the tool requires the edit's `old`
+text to occur once in the target file, overlapping occurrences counted, the target
+to be a file inside the package directory, and the selector to exit 0 with a passing
+test on clean source; a selector whose only tests are `slow` or `heavy` fails that
+check with "no passing test" until it carries its own `-m`.  The source is restored
+from a `finally`, from SIGINT, SIGTERM and SIGHUP handlers and from `atexit`; after
+a SIGKILL, the next run restores it from a journal written before each mutant.
+`--matrix` runs every selected test and lists the failing test files under each
+mutant, and `--root DIR` runs the sweep in a copy of the tree and leaves the tree
+unwritten.  Every process the harness starts gets the tree's source root (`src` by
+default) first on its import path, and the harness refuses to start when a probe
+import finds another copy of the package; a test that starts a child with its own
+environment, or with `-I` or `-E`, is outside that guarantee.  `--project-root`,
+`--package`, `--source-root` and `--corpus` describe another project's layout: the
+project root, the import name of the package, the directory put on the import path
+and the corpus directory, which may lie outside the project.  Without them the
+harness tests this repository, `sft_wick` under `src` with the corpus in
+`tools/mutations/`.  `--extra-path` adds a further directory of the project after the
+source root, because pytest's `pythonpath` is replaced, not extended.  `--root` still
+names the destination of a copy.  `--corpus` is required with the other layout
+options.  A package name that is not a dotted import name, a missing project root,
+source root, extra path, package directory or corpus, a source root or extra path
+that is absolute or contains `..`, and a package directory that a symbolic link
+leads outside the project stop the harness with status 3 before any test runs.  In
+Python the layout is the frozen dataclass `Layout`, passed as the keyword `layout`
+and defaulting to `DEFAULT_LAYOUT`; `tree_env` takes it too, so a stand-in for it
+must accept that keyword.  With no entry the tool exits with status 2.
+
+An entry may carry a seventh field, `kind`, `historical` or `operator`; any other
+value stops the tool with status 3.  The corpus has 30 entries.  The 15 historical
+ones reintroduce, by hand against the current source, defects fixed in f6c4e5d (the
+iso_C trace, `t_min`, a diagonal flag on a non-diagonal system), 8771c52 and 10ddce1 (a shared
+external label), c9daf92 (leg order), ae0dbf9 (an R-group position), 043720d (an R
+cache mismatch), 46134e3 (a kink against a pinned external time), ecb19fb,
+774ff9d, 3ef85c3, 0ab76ab, b35e247 (the leg structure of vertex copies), 964c2c9 (a
+declared coupling kink) and f62230c with 6b391f1 (the C kink of Gauss-Legendre);
+each makes its fix's own test file fail.  The 15 operator ones edit `_isotropic_C`, `_kept_r_propagators`,
+`_split_callable_occurrences`, `apply_diagonal`, the MSR factors and Θ(0).  A mutant
+counts as killed when the local default suite fails on it, a refusal test that no
+longer sees its refusal included.  `tools/kill_matrix.py` writes
+`docs/verification/kill_matrix.json` from a `--matrix` sweep: the verdict and
+failing test files of each mutant, a classification (`coverage gap` or
+`equivalent`) and a reason for each survivor, a digest of each entry and of the
+corpus, and the number and a digest of the collected fast suite; it refuses a kill
+that only a test file known to be flaky gives, joins several reports, and with
+`--reuse` keeps the rows of entries whose digest is unchanged.  `tests/test_mutation_corpus.py`
+requires that file to match the corpus, to name only test files the fast suite
+still runs, and to record at least 29 kills.  When the file exists the
+validation catalogue gains a column of killed mutants per test file and a table of
+survivors.  The harness sets `MUTATION_HARNESS=1` for every process it starts, and
+the tests that compare the corpus with the source skip under it.  The workflow
+`.github/workflows/mutation.yml` runs the sweep in six shards on `workflow_dispatch`
+and then checks that `src/` is unchanged.  `docs/verification/mutation.rst` describes it.
+
 ### Added: an oracle that shares no code with the package
 
 `validation/` ships in the sdist, not in the wheel.  `validation/modelspec.py`
