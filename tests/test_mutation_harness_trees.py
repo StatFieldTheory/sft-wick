@@ -236,7 +236,8 @@ def test_origin_check_refuses_a_tree_that_imports_another_one(
     # imports the package of ``elsewhere``.  The sweep must not start.
     root, module = toy
     before = tree_digest(root)
-    monkeypatch.setattr(harness.tree, "tree_env", lambda root_: dict(os.environ))
+    monkeypatch.setattr(harness.tree, "tree_env",
+                        lambda root_, **_: dict(os.environ))
     assert harness.import_origin(root) == (elsewhere / PACKAGE_REL).resolve()
     log = []
     code = harness.main([], root=root, mutations=[mutation(harness, CASES["killed"])],

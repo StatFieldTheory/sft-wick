@@ -2,20 +2,21 @@ The mutation harness
 ====================
 
 ``tools/mutation_check.py`` measures whether the test suite notices defects.
-It applies one textual edit, a mutant, to a file under ``src/sft_wick``,
-runs the pytest selector named for that edit, restores the file and reports
-whether a selected test failed.  ``tools/mutation_tree.py`` holds the code
-that starts processes on a tree, copies it and keeps the journal described
-below.  Both use the standard library only and are not part of the wheel,
-which packages ``src/sft_wick`` alone.  Their tests are listed in
-:doc:`catalog`.
+It applies one textual edit, a mutant, to a file of the package under test,
+by default ``src/sft_wick``, runs the pytest selector named for that edit,
+restores the file and reports whether a selected test failed.
+``tools/mutation_tree.py`` holds the code that starts processes on a tree,
+copies it and keeps the journal described below.  Both use the standard
+library only and are not part of the wheel, which packages ``src/sft_wick``
+alone.  Their tests are listed in :doc:`catalog`.
 
 The corpus
 ----------
 
-The mutants are kept in ``tools/mutations/``, one module per source area,
-each with a list ``ENTRIES`` of ``(label, path, old, new, tests, why)``.
-``path`` is relative to ``src/sft_wick``, ``old`` is replaced by ``new``,
+The mutants are kept in ``tools/mutations/`` unless ``--corpus`` names
+another directory, one module per source area, each with a list ``ENTRIES``
+of ``(label, path, old, new, tests, why)``.  ``path`` is relative to the
+package directory, ``src/sft_wick`` by default, ``old`` is replaced by ``new``,
 ``tests`` is a pytest selector and ``why`` names the defect the mutant
 stands for.  The harness reads every ``*.py`` module of the directory, in
 the order of the file names, when it starts.  It stops with exit status 3,
@@ -33,17 +34,19 @@ Two checks run on the unmutated source before a mutant is written:
 
 * ``old`` occurs once in the target file, overlapping occurrences counted.
   No occurrence is ``STALE``, two or more are ``AMBIGUOUS``.  A target that
-  is not a file, is not UTF-8, or resolves outside ``src/sft_wick`` through
-  a symbolic link is ``STALE``.
+  is not a file, is not UTF-8, or resolves outside the package directory
+  through a symbolic link is ``STALE``.
 * the selector exits 0 with at least one passing test, counted from the
   JUnit report.  Otherwise the entry is ``SELECTOR BROKEN``.  Each distinct
   selector runs once.
 
-The project's ``addopts`` deselects the tests marked ``slow`` and
-``heavy``.  A selector whose only matches carry one of those markers runs
-no test, and the verdict is ``SELECTOR BROKEN`` with "no passing test" and
-the markers in the reason.  A ``-m`` in the selector replaces the one in
-``addopts``, so ``-m slow`` or ``-m 'slow or heavy'`` selects such a test.
+This repository's ``addopts`` deselects the tests marked ``slow`` and
+``heavy``.  A selector whose only matches carry one of those markers runs no
+test, and the verdict is ``SELECTOR BROKEN`` with "no passing test" and the
+two markers in the reason.  With ``--project-root``, the reason asks to check
+the selector and the markers of the project's ``addopts`` instead.  A
+``-m`` in the selector replaces the one in ``addopts``, so ``-m slow`` or
+``-m 'slow or heavy'`` selects such a test.
 
 With the mutant applied, pytest's exit code decides:
 
@@ -69,7 +72,8 @@ The exit status is 0 when every selected mutant is ``KILLED``
 (``BASELINE OK`` under ``--baseline-only``) and every target file has the
 bytes it had at the start, and also when the requested shard is empty; 1
 otherwise; 2 when no label matches ``-k``, which includes an empty corpus;
-and 3 when the corpus, the ``--json`` directory or the tree cannot be used.
+and 3 when the layout options, the corpus, the ``--json`` directory or the
+tree cannot be used.
 
 Running it
 ----------
@@ -105,8 +109,73 @@ the same as without it.
 directory outside the tree, and runs the sweep in the copy.  ``.git``,
 ``.claude``, ``.agent-state``, the caches, ``_build`` directories and the
 journal are left out of the copy, and symbolic links are copied as links.
-A copy that fails is removed and the harness exits with status 3.  The tree
-the tool lives in is not written, and the copy is left in place.
+A copy that fails is removed and the harness exits with status 3.  The
+project is not written, and the copy is left in place.
+
+Another project's layout
+------------------------
+
+Four options describe the project under test.  Without them the harness
+tests this repository.
+
+==================  ======================================================
+option              meaning, and the default
+==================  ======================================================
+``--project-root``  the project to test, swept in place unless ``--root``
+                    is given; the repository that holds the tool
+``--package``       the import name of the package, dotted for a
+                    subpackage; ``sft_wick``
+``--source-root``   the directory, relative to the project root, that is
+                    put on the import path, with the package under it;
+                    ``src``
+``--corpus``        the directory of the corpus modules, inside or outside
+                    the project; ``tools/mutations`` beside the tool
+``--extra-path``    a further directory, relative to the project root, put
+                    on the import path after the source root; repeatable;
+                    none
+==================  ======================================================
+
+``--root`` keeps its meaning: it names the destination of a copy, and
+``--project-root`` names the tree that is copied.  ``--project-root``,
+``--corpus``, ``--root`` and ``--json`` are read against the working
+directory; ``--source-root`` and ``--extra-path`` against the project root.
+``--corpus`` is required whenever ``--project-root``, ``--package`` or
+``--source-root`` is given, so that the corpus of this repository is never
+applied to another project.  For a package ``pkg`` under ``lib/``, run
+from the calling project's root with its own corpus:
+
+.. code-block:: bash
+
+   python path/to/mutation_check.py --project-root . --package pkg \
+       --source-root lib --corpus ci/mutations
+
+The ``path`` of each corpus entry is then relative to ``lib/pkg``, and
+every process the harness starts gets ``lib``, as an absolute path, first
+in ``PYTHONPATH`` and in pytest's ``pythonpath``, followed by the extra
+paths.  The ``-o pythonpath`` option replaces the ``pythonpath`` list of
+the project's pytest configuration, so a project whose tests import from a
+second directory names it with ``--extra-path``.  The package may be a
+namespace package.  The harness stops with exit status 3, naming the
+option, before any test runs when ``--corpus`` is missing as described
+above, when the package name is not a dotted import name, when the project
+root, the source root, an extra path or the package directory is not a
+directory, when the source root or an extra path is absolute or contains
+``..``, when the package directory resolves outside the project root
+through a symbolic link, or when the corpus is not a directory.
+
+In Python, the same description is a ``Layout``, a frozen dataclass with
+the fields ``root``, ``package``, ``source_root``, ``corpus``,
+``extra_paths`` and ``deselected_markers``, the markers named in that
+reason.
+``DEFAULT_LAYOUT`` holds the values of this repository.  The functions that
+need the layout, such as ``load_corpus``, ``run_mutation``, ``sweep``,
+``mutated_copy``, ``run_in_tree`` and ``origin_problem``, take it as the
+keyword ``layout`` and default to ``DEFAULT_LAYOUT``.  The two tool files
+name this repository's package and ``src`` only in ``DEFAULT_LAYOUT``.
+``tests/test_mutation_harness_layout.py`` runs the script on a toy package
+``toypkg`` under ``lib/`` with its corpus outside the toy tree, and checks
+that ``sft_wick`` occurs in none of the commands, environments, journals or
+output of those runs.
 
 ``mutated_copy``, ``run_in_tree`` and ``run_mutant_in_copy`` give other
 tools a copy of the tree with one mutant applied, and run a command on it
@@ -123,15 +192,19 @@ through a ``.pth`` file, and a sweep that imported it would report every
 mutant as surviving.  The harness guards against this in three ways:
 
 * every process it starts runs with the tree as working directory and with
-  the tree's ``src``, as an absolute path, first in ``PYTHONPATH``.
+  the tree's source root, as an absolute path, first in ``PYTHONPATH``.
   ``PYTHONPATH`` entries come before the entries of ``.pth`` files, and the
   child processes of the tests inherit the variable.
-* pytest gets ``-o pythonpath=<tree>/src``.  The ``pythonpath`` of
-  ``pyproject.toml`` takes precedence over ``PYTHONPATH`` in the pytest
-  process, and is read relative to the directory pytest starts in.
-* before a sweep, one Python process with that environment imports
-  ``sft_wick`` and the harness stops with exit status 3 unless the package
-  comes from the tree's ``src``.
+* pytest gets ``-o pythonpath=<tree>/<source root>``, followed by the extra
+  paths, each quoted because pytest splits the value with ``shlex``.  The
+  ``pythonpath`` of ``pyproject.toml`` takes precedence over ``PYTHONPATH``
+  in the pytest process, and is read relative to the directory pytest
+  starts in.
+* before a sweep, one Python process with that environment imports the
+  package and the harness stops with exit status 3 unless the package
+  comes from the tree's source root.  The probe also catches a second copy
+  of the package in the project root itself, which ``python -c`` and
+  ``python -m pytest`` put ahead of ``PYTHONPATH``.
 
 ``tests/test_mutation_harness_trees.py`` puts a second toy package first on
 ``PYTHONPATH`` and checks, from a log written by the toy tests, that both

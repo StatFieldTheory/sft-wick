@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8524 tests** in 146 files (parametrised
+The suite has **8559 tests** in 147 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -607,7 +607,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*2339 tests in 33 files.*
+*2374 tests in 34 files.*
 
 .. list-table::
    :header-rows: 1
@@ -683,6 +683,11 @@ Workflow and YAML
      - a toy project in tmp_path run by real pytest subprocesses, the source bytes on disk at each run; a scripted runner for the other exit codes
      - exact
      - 97
+   * - ``test_mutation_harness_layout.py``
+     - tools/mutation_check.py run on a package that is not sft_wick under a source root that is not src, with the corpus outside the project, through --project-root, --package, --source-root and --corpus: baseline, kill, survivor, --matrix, --root, recovery after SIGKILL and the import probe; no command, environment, journal or output of those runs names sft_wick; bad layout options exit 3; the tool files name the default layout in one place
+     - a toy package toypkg under lib/ whose sitecustomize logs the command line and environment of every process; a second copy on PYTHONPATH and one in the project root; the source of the tool files, parsed
+     - exact
+     - 35
    * - ``test_mutation_harness_sweep.py``
      - tools/mutation_check.py restores the source after an exception, from atexit, on SIGTERM mid-run and, from its journal, on the run after a SIGKILL; a looping mutant is killed with its process group at the time limit; sweep counts, exit status, -k, --shard, --baseline-only, the empty corpus and the setup checks
      - a toy project in tmp_path; a scripted runner; a harness process signalled while its mutated run waits; the pid of a test's child

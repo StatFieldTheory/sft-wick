@@ -12,18 +12,32 @@ its selector's baseline duration plus 30 s, or `--timeout`) is killed with its w
 process group and reported as `TIMEOUT`, which is not a kill.  The corpus is checked
 when the tool starts.  Before writing a mutant the tool requires the edit's `old`
 text to occur once in the target file, overlapping occurrences counted, the target
-to be a file inside `src/sft_wick`, and the selector to exit 0 with a passing test
-on clean source; a selector whose only tests are `slow` or `heavy` fails that check
-with "no passing test" until it carries its own `-m`.  The source is restored from a
-`finally`, from SIGINT, SIGTERM and SIGHUP handlers and from `atexit`; after a
-SIGKILL, the next run restores it from a journal written before each mutant.
+to be a file inside the package directory, and the selector to exit 0 with a passing
+test on clean source; a selector whose only tests are `slow` or `heavy` fails that
+check with "no passing test" until it carries its own `-m`.  The source is restored
+from a `finally`, from SIGINT, SIGTERM and SIGHUP handlers and from `atexit`; after
+a SIGKILL, the next run restores it from a journal written before each mutant.
 `--matrix` runs every selected test and lists the failing test files under each
 mutant, and `--root DIR` runs the sweep in a copy of the tree and leaves the tree
-unwritten.  Every process the harness starts gets the tree's `src` first on its
-import path, and the harness refuses to start when a probe import finds another
-copy of the package; a test that starts a child with its own environment, or with
-`-I` or `-E`, is outside that guarantee.  The corpus is empty; with no entry the
-tool exits with status 2.  `docs/verification/mutation.rst` describes it.
+unwritten.  Every process the harness starts gets the tree's source root (`src` by
+default) first on its import path, and the harness refuses to start when a probe
+import finds another copy of the package; a test that starts a child with its own
+environment, or with `-I` or `-E`, is outside that guarantee.  `--project-root`,
+`--package`, `--source-root` and `--corpus` describe another project's layout: the
+project root, the import name of the package, the directory put on the import path
+and the corpus directory, which may lie outside the project.  Without them the
+harness tests this repository, `sft_wick` under `src` with the corpus in
+`tools/mutations/`.  `--extra-path` adds a further directory of the project after the
+source root, because pytest's `pythonpath` is replaced, not extended.  `--root` still
+names the destination of a copy.  `--corpus` is required with the other layout
+options.  A package name that is not a dotted import name, a missing project root,
+source root, extra path, package directory or corpus, a source root or extra path
+that is absolute or contains `..`, and a package directory that a symbolic link
+leads outside the project stop the harness with status 3 before any test runs.  In
+Python the layout is the frozen dataclass `Layout`, passed as the keyword `layout`
+and defaulting to `DEFAULT_LAYOUT`; `tree_env` takes it too, so a stand-in for it
+must accept that keyword.  The corpus is empty; with no entry the tool exits with
+status 2.  `docs/verification/mutation.rst` describes it.
 
 ### Added: an oracle that shares no code with the package
 

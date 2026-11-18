@@ -1507,6 +1507,21 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "each process imported, logged by the toy tests; digests of both trees",
         "exact",
     ),
+    "tests/test_mutation_harness_layout.py": (
+        "Workflow and YAML",
+        "tools/mutation_check.py run on a package that is not sft_wick under "
+        "a source root that is not src, with the corpus outside the project, "
+        "through --project-root, --package, --source-root and --corpus: "
+        "baseline, kill, survivor, --matrix, --root, recovery after SIGKILL "
+        "and the import probe; no command, environment, journal or output "
+        "of those runs names sft_wick; bad layout options exit 3; the tool "
+        "files name the default layout in one place",
+        "a toy package toypkg under lib/ whose sitecustomize logs the "
+        "command line and environment of every process; a second copy on "
+        "PYTHONPATH and one in the project root; the source of the tool "
+        "files, parsed",
+        "exact",
+    ),
     "tests/test_generated_docs_in_sync.py": (
         "Workflow and YAML",
         "every committed file that a script writes (demo 2's error budget, "

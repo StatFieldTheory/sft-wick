@@ -7,10 +7,12 @@ The project has the layout of this repository: a package ``sft_wick`` under
 ``addopts`` deselects the ``slow`` and ``heavy`` markers, and a few test
 files.  :data:`CASES` lists the mutations of that module the tests apply.
 
-The toy package has the name of the real one so that the harness, which
-looks for ``src/sft_wick``, runs on it unchanged.  It is imported only by the
-``pytest`` subprocesses the harness starts in the toy project.  The test
-process itself imports neither the toy package nor the real one.
+By default the toy package has the name and place of the real one, so that
+the harness runs on it with its default layout.  :func:`make_project` writes
+it under another name and source root on request, for the tests of the
+layout options.  The toy package is imported only by the subprocesses the
+harness starts in the toy project.  The test process itself imports neither
+the toy package nor the real one.
 
 ``tools/`` is not a package, so the harness is loaded by path.  pytest does
 not collect this file, because its name does not start with ``test_``.
@@ -24,6 +26,7 @@ import dataclasses
 import hashlib
 import importlib.util
 import pathlib
+import shlex
 import signal
 import sys
 import types
@@ -248,18 +251,35 @@ def loaded_harness():
         sys.modules.pop(name, None)
 
 
+def for_package(text: str, package: str) -> str:
+    """``text`` with the toy package imported as ``package``."""
+    return text.replace("sft_wick", package)
+
+
 def make_project(root: pathlib.Path,
-                 source: bytes = TOY_SOURCE.encode()) -> pathlib.Path:
-    """Write the toy project under ``root``; return the path of its module."""
-    package = root / PACKAGE_REL
-    package.mkdir(parents=True)
+                 source: bytes = TOY_SOURCE.encode(), *,
+                 package: str = "sft_wick",
+                 source_root: str = "src") -> pathlib.Path:
+    """Write the toy project under ``root``; return the path of its module.
+
+    The package ``package``, dotted for a subpackage, is placed under
+    ``root / source_root`` with an ``__init__.py`` at every level, and the
+    test files import it under that name.
+    """
+    package_dir = root.joinpath(source_root, *package.split("."))
+    package_dir.mkdir(parents=True)
     (root / "tests").mkdir()
-    (root / "pytest.ini").write_text(TOY_INI)
-    (package / "__init__.py").write_text("")
-    (root / "tests" / "test_toy.py").write_text(TOY_TESTS)
-    (root / "tests" / "test_more.py").write_text(TOY_MORE_TESTS)
-    (root / "tests" / "test_red.py").write_text(TOY_RED_TESTS)
-    module = package / "harness_toy.py"
+    (root / "pytest.ini").write_text(TOY_INI.replace(
+        "pythonpath = src", f"pythonpath = {shlex.quote(source_root)}"))
+    level = package_dir
+    while level != root / source_root:
+        (level / "__init__.py").write_text("")
+        level = level.parent
+    for name, text in (("test_toy.py", TOY_TESTS),
+                       ("test_more.py", TOY_MORE_TESTS),
+                       ("test_red.py", TOY_RED_TESTS)):
+        (root / "tests" / name).write_text(for_package(text, package))
+    module = package_dir / "harness_toy.py"
     module.write_bytes(source)
     return module
 

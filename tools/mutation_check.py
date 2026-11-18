@@ -4,9 +4,16 @@
 Each entry of the corpus is a textual change to one source file and a pytest
 selector naming the tests expected to notice it.  The harness applies the
 change, runs the selector, restores the file and reports a verdict.  The
-entries are kept in ``tools/mutations/``, one module per source area, each
+entries are kept in a corpus directory, one module per source area, each
 with a list ``ENTRIES`` of ``(label, path, old, new, tests, why)``; ``path``
-is relative to ``src/sft_wick``.  :func:`load_corpus` reads and checks them.
+is relative to the directory of the package under test.  :func:`load_corpus`
+reads and checks them.
+
+A :class:`Layout` names the project root, the package, the directory put
+on the import path and the corpus.  :data:`DEFAULT_LAYOUT` is that of the
+repository that holds this file.  ``--project-root``, ``--package``,
+``--source-root``, ``--corpus`` and ``--extra-path`` replace its parts;
+``--root`` is the destination of a copy, not the project.
 
 Before a mutation is applied, ``old`` must occur once in the target file
 (otherwise ``STALE`` or ``AMBIGUOUS``) and the selector must exit 0 with at
@@ -28,15 +35,16 @@ none     ``TIMEOUT``     the run exceeded its time limit and was killed
 Exit status: 0 if every selected mutation is ``KILLED`` (``BASELINE OK``
 under ``--baseline-only``) and every target file has the bytes it had at the
 start, or if the requested shard is empty; 1 otherwise; 2 if no label
-matches, which includes an empty corpus; 3 if the corpus, the ``--json``
-target or the tree cannot be used.
+matches, which includes an empty corpus; 3 if the layout options, the
+corpus, the ``--json`` target or the tree cannot be used.
 
 ``docs/verification/mutation.rst`` describes the options, which tree a run
 imports and how the source is restored.  ``tools/mutation_tree.py`` holds
 the code that starts processes on a tree, copies it and keeps the journal;
-its names are re-exported here.  :func:`mutated_copy`,
-:func:`run_in_tree` and :func:`run_mutant_in_copy` serve other tools that
-need a tree with one mutant applied.
+its names are re-exported here.  A function that needs the layout takes
+it as the keyword ``layout``, :data:`DEFAULT_LAYOUT` by default.
+:func:`mutated_copy`, :func:`run_in_tree` and :func:`run_mutant_in_copy`
+serve other tools that need a tree with one mutant applied.
 """
 
 from __future__ import annotations
@@ -75,6 +83,10 @@ def _load_sibling(name: str) -> types.ModuleType:
 tree = _load_sibling("mutation_tree")
 HarnessError = tree.HarnessError
 PytestRun = tree.PytestRun
+Layout, DEFAULT_LAYOUT = tree.Layout, tree.DEFAULT_LAYOUT
+add_layout_arguments, requested_layout = (tree.add_layout_arguments,
+                                          tree.requested_layout)
+check_layout, default_runner = tree.check_layout, tree.default_runner
 PACKAGE, SRC_REL, JOURNAL_NAME = tree.PACKAGE, tree.SRC_REL, tree.JOURNAL_NAME
 TAIL_LINES = tree.TAIL_LINES
 tree_env, run_in_tree, run_group = tree.tree_env, tree.run_in_tree, tree.run_group
@@ -84,10 +96,10 @@ run_pytest_matrix = tree.run_pytest_matrix
 _count_passed, _failed_files = tree._count_passed, tree._failed_files
 copy_tree, write_journal, recover = tree.copy_tree, tree.write_journal, tree.recover
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+#: The project root, package directory and corpus of :data:`DEFAULT_LAYOUT`.
+ROOT = DEFAULT_LAYOUT.root
 SRC = ROOT / SRC_REL
-#: The directory of the modules that hold the entries.
-MUTATION_DIR = pathlib.Path(__file__).resolve().parent / "mutations"
+MUTATION_DIR = DEFAULT_LAYOUT.corpus
 #: The fields of a corpus entry, in order.
 ENTRY_FIELDS = ("label", "path", "old", "new", "tests", "why")
 
@@ -113,12 +125,13 @@ class Mutation:
 
     @property
     def path(self) -> pathlib.Path:
-        """The file this mutation edits in the tree of this tool."""
-        return SRC / self.relpath
+        """The file this mutation edits in the project of the default layout."""
+        return self.target(DEFAULT_LAYOUT.root)
 
-    def target(self, root: pathlib.Path) -> pathlib.Path:
+    def target(self, root: pathlib.Path, *,
+               layout: Layout = DEFAULT_LAYOUT) -> pathlib.Path:
         """The file this mutation edits in the project at ``root``."""
-        return root / SRC_REL / self.relpath
+        return root / layout.package_rel / self.relpath
 
 
 # ---- The corpus ----
@@ -136,8 +149,8 @@ def mutation_modules(directory: pathlib.Path | None = None) -> tuple[str, ...]:
 def load_entries(name: str, directory: pathlib.Path | None = None) -> list:
     """``ENTRIES`` of the module ``name`` in ``directory``.
 
-    The file is run by its path: ``tools/`` is not a package, and this module
-    is loaded by path in the tests.  Raises :class:`HarnessError` if the
+    The file is run by its path, so the corpus directory need not be a
+    package or lie on the import path.  Raises :class:`HarnessError` if the
     module cannot be run or has no ``ENTRIES`` list.
     """
     path = (MUTATION_DIR if directory is None else directory) / f"{name}.py"
@@ -152,7 +165,8 @@ def load_entries(name: str, directory: pathlib.Path | None = None) -> list:
     return list(entries)
 
 
-def entry_problem(fields: object) -> str | None:
+def entry_problem(fields: object, *,
+                  layout: Layout = DEFAULT_LAYOUT) -> str | None:
     """Why ``fields`` is not a valid corpus entry, or None."""
     if not isinstance(fields, (tuple, list)) or len(fields) != len(ENTRY_FIELDS):
         return f"is not a tuple of the {len(ENTRY_FIELDS)} fields {ENTRY_FIELDS}"
@@ -161,7 +175,8 @@ def entry_problem(fields: object) -> str | None:
     label, relpath, old, new, tests, _ = fields
     rel = pathlib.Path(relpath)
     if not relpath or rel.is_absolute() or ".." in rel.parts:
-        return f"has the path {relpath!r}, which is not relative to {SRC_REL}"
+        return (f"has the path {relpath!r}, which is not relative to "
+                f"{layout.package_rel}")
     if not label.strip() or not tests.strip():
         return "has an empty label or selector"
     if not old:
@@ -171,19 +186,21 @@ def entry_problem(fields: object) -> str | None:
     return None
 
 
-def load_corpus(directory: pathlib.Path | None = None) -> list[Mutation]:
+def load_corpus(directory: pathlib.Path | None = None, *,
+                layout: Layout = DEFAULT_LAYOUT) -> list[Mutation]:
     """Every entry of every module in ``directory``, checked.
 
-    Raises :class:`HarnessError`, naming the module and the position, for an
-    entry that :func:`entry_problem` rejects or whose label is taken.
+    ``directory`` defaults to the corpus of ``layout``.  Raises
+    :class:`HarnessError`, naming the module and the position, for an entry
+    that :func:`entry_problem` rejects or whose label is taken.
     """
-    directory = MUTATION_DIR if directory is None else directory
+    directory = layout.corpus if directory is None else directory
     corpus: list[Mutation] = []
     where_label: dict[str, str] = {}
     for name in mutation_modules(directory):
         for position, fields in enumerate(load_entries(name, directory)):
             where = f"{directory / name}.py, entry {position},"
-            problem = entry_problem(fields)
+            problem = entry_problem(fields, layout=layout)
             if problem is not None:
                 raise HarnessError(f"{where} {problem}")
             mut = Mutation(*fields)
@@ -239,7 +256,6 @@ def install_restore_handlers() -> None:
                   f"{JOURNAL_NAME}", file=sys.stderr)
 
 
-
 # ---- Verdicts and runs ----
 
 KILLED = "KILLED"
@@ -263,11 +279,8 @@ EXIT_CODE_MEANING = {
     5: "no tests collected",
 }
 NO_TESTS_COLLECTED = 5
-#: Appended to the reason when a selector runs no test.
-DESELECTED_HINT = ("the project's addopts deselects tests marked slow or "
-                   "heavy; a selector for one of them needs its own -m")
-
-
+#: Appended to the reason when a selector runs no test on the default layout.
+DESELECTED_HINT = tree.deselected_hint(DEFAULT_LAYOUT)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -306,10 +319,9 @@ def _describe(code: int) -> str:
     return f"exit code {code} ({EXIT_CODE_MEANING.get(code, fallback)})"
 
 
-
 # ---- Checks on unmutated source ----
 
-def _judge_baseline(run: PytestRun) -> Baseline:
+def _judge_baseline(run: PytestRun, hint: str = DESELECTED_HINT) -> Baseline:
     if run.timed_out:
         return Baseline(False, "on unmutated source pytest exceeded the "
                         "--timeout limit", run.tail, run.seconds)
@@ -318,7 +330,7 @@ def _judge_baseline(run: PytestRun) -> Baseline:
                   f"{_describe(run.returncode)}, so there is no passing test "
                   "for the mutation to break; exit code 0 is required")
         if run.returncode == NO_TESTS_COLLECTED:
-            reason += f". {DESELECTED_HINT}"
+            reason += f". {hint}"
         return Baseline(False, reason, run.tail, run.seconds)
     if not run.passed:
         return Baseline(False, "on unmutated source pytest gave exit code 0 "
@@ -333,13 +345,16 @@ class Baselines:
     ``timeout`` limits every run, the baselines and the mutated runs.
     Without it a baseline has no limit and a mutated run gets
     :data:`TIMEOUT_FACTOR` times its baseline's duration plus
-    :data:`TIMEOUT_PAD` seconds.
+    :data:`TIMEOUT_PAD` seconds.  ``runner`` defaults to
+    :func:`default_runner` of ``layout``.
     """
 
-    def __init__(self, root: pathlib.Path, runner: Runner = run_pytest,
-                 timeout: float | None = None) -> None:
+    def __init__(self, root: pathlib.Path, runner: Runner | None = None,
+                 timeout: float | None = None, *,
+                 layout: Layout = DEFAULT_LAYOUT) -> None:
         self._root = root
-        self._runner = runner
+        self._runner = default_runner(layout) if runner is None else runner
+        self._hint = tree.deselected_hint(layout)
         self._timeout = timeout
         self._cache: dict[tuple[str, ...], Baseline] = {}
 
@@ -350,7 +365,7 @@ class Baselines:
             return Baseline(False, f"the selector cannot be parsed ({exc})")
         if args not in self._cache:
             run = self._runner(self._root, args, timeout=self._timeout)
-            self._cache[args] = _judge_baseline(run)
+            self._cache[args] = _judge_baseline(run, self._hint)
         return self._cache[args]
 
     def mutant_timeout(self, tests: str) -> float:
@@ -369,14 +384,19 @@ def _occurrences(text: str, old: str) -> int:
     return count
 
 
-def _match_problem(mut: Mutation, root: pathlib.Path) -> tuple[str, str] | None:
+def _match_problem(mut: Mutation, root: pathlib.Path,
+                   layout: Layout) -> tuple[str, str] | None:
     """``(verdict, reason)`` unless ``old`` occurs once in the target file."""
-    path = mut.target(root)
-    where = SRC_REL / mut.relpath
+    path = mut.target(root, layout=layout)
+    package_rel = layout.package_rel
+    where = package_rel / mut.relpath
     if not path.is_file():
         return STALE, f"{where} is not a file"
-    if (root / SRC_REL).resolve() not in path.resolve().parents:
-        return STALE, f"{where} resolves to {path.resolve()}, outside {SRC_REL}"
+    resolved = path.resolve()
+    if (root / package_rel).resolve() not in resolved.parents:
+        return STALE, f"{where} resolves to {resolved}, outside {package_rel}"
+    if root.resolve() not in resolved.parents:
+        return STALE, f"{where} resolves to {resolved}, outside the tree {root}"
     try:
         text = path.read_bytes().decode("utf-8")
     except UnicodeDecodeError as exc:
@@ -392,10 +412,10 @@ def _match_problem(mut: Mutation, root: pathlib.Path) -> tuple[str, str] | None:
     return None
 
 
-def preflight(mut: Mutation, root: pathlib.Path,
-              baselines: Baselines) -> Result | None:
+def preflight(mut: Mutation, root: pathlib.Path, baselines: Baselines, *,
+              layout: Layout = DEFAULT_LAYOUT) -> Result | None:
     """The reason ``mut`` cannot be run, or None.  Writes nothing."""
-    match = _match_problem(mut, root)
+    match = _match_problem(mut, root, layout)
     baseline = baselines.check(mut.tests)
     if match is None and baseline.ok:
         return None
@@ -408,10 +428,10 @@ def preflight(mut: Mutation, root: pathlib.Path,
                   baseline.tail)
 
 
-def check_mutation(mut: Mutation, root: pathlib.Path,
-                   baselines: Baselines) -> Result:
+def check_mutation(mut: Mutation, root: pathlib.Path, baselines: Baselines, *,
+                   layout: Layout = DEFAULT_LAYOUT) -> Result:
     """Verdict of the checks on unmutated source.  Writes nothing."""
-    refused = preflight(mut, root, baselines)
+    refused = preflight(mut, root, baselines, layout=layout)
     if refused is not None:
         return refused
     return Result(BASELINE_OK, baselines.check(mut.tests).reason)
@@ -424,8 +444,8 @@ def _mutated_bytes(mut: Mutation, original: bytes) -> bytes:
 
 
 def _run_mutated(mut: Mutation, root: pathlib.Path, runner: Runner,
-                 timeout: float) -> PytestRun:
-    path = mut.target(root)
+                 timeout: float, layout: Layout) -> PytestRun:
+    path = mut.target(root, layout=layout)
     original = path.read_bytes()
     mutated = _mutated_bytes(mut, original)
     _IN_FLIGHT[path] = original
@@ -441,15 +461,20 @@ def _run_mutated(mut: Mutation, root: pathlib.Path, runner: Runner,
 
 def run_mutation(mut: Mutation, root: pathlib.Path,
                  baselines: Baselines | None = None,
-                 runner: Runner = run_pytest) -> Result:
-    """Apply ``mut`` in the project at ``root``, run its tests, restore."""
+                 runner: Runner | None = None, *,
+                 layout: Layout = DEFAULT_LAYOUT) -> Result:
+    """Apply ``mut`` in the project at ``root``, run its tests, restore.
+
+    ``runner`` defaults to :func:`default_runner` of ``layout``.
+    """
+    runner = default_runner(layout) if runner is None else runner
     if baselines is None:
-        baselines = Baselines(root, runner)
-    refused = preflight(mut, root, baselines)
+        baselines = Baselines(root, runner, layout=layout)
+    refused = preflight(mut, root, baselines, layout=layout)
     if refused is not None:
         return refused
     limit = baselines.mutant_timeout(mut.tests)
-    run = _run_mutated(mut, root, runner, limit)
+    run = _run_mutated(mut, root, runner, limit, layout)
     code = run.returncode
     if run.timed_out:
         return Result(TIMEOUT, f"the mutated run exceeded its limit of "
@@ -465,33 +490,36 @@ def run_mutation(mut: Mutation, root: pathlib.Path,
                   f"{_describe(code)}; no test verdict", run.tail, code)
 
 
-
-def _require_match(mut: Mutation, root: pathlib.Path) -> None:
-    problem = _match_problem(mut, root)
+def _require_match(mut: Mutation, root: pathlib.Path, layout: Layout) -> None:
+    problem = _match_problem(mut, root, layout)
     if problem is not None:
         raise HarnessError(f"{mut.label}: {problem[0]}: {problem[1]}")
 
 
 def mutated_copy(mut: Mutation, dest: pathlib.Path, *,
-                 source: pathlib.Path = ROOT) -> pathlib.Path:
+                 source: pathlib.Path | None = None,
+                 layout: Layout = DEFAULT_LAYOUT) -> pathlib.Path:
     """Copy the tree at ``source`` to ``dest`` with ``mut`` applied there.
 
-    The mutant stays applied: the copy is meant to be discarded.  Raises
+    ``source`` defaults to the root of ``layout``.  The mutant stays
+    applied: the copy is meant to be discarded.  Raises
     :class:`HarnessError` unless ``old`` occurs once in the target file of
     ``source``, which is checked before anything is copied, and of the copy,
     whose target must not lead out of the copy through a symbolic link.
     """
-    _require_match(mut, source)
+    source = layout.root if source is None else source
+    _require_match(mut, source, layout)
     copy_tree(source, dest)
-    _require_match(mut, dest)
-    path = mut.target(dest)
+    _require_match(mut, dest, layout)
+    path = mut.target(dest, layout=layout)
     path.write_bytes(_mutated_bytes(mut, path.read_bytes()))
     return dest
 
 
 def run_mutant_in_copy(mut: Mutation, dest: pathlib.Path,
                        command: Sequence[str], *,
-                       source: pathlib.Path = ROOT,
+                       source: pathlib.Path | None = None,
+                       layout: Layout = DEFAULT_LAYOUT,
                        ) -> subprocess.CompletedProcess[str]:
     """Run ``command`` on a copy of ``source`` at ``dest`` with ``mut`` applied.
 
@@ -499,19 +527,19 @@ def run_mutant_in_copy(mut: Mutation, dest: pathlib.Path,
     :func:`run_in_tree`, so the command and its children import the mutated
     package.  Raises :class:`HarnessError` if they would not.
     """
-    mutated_copy(mut, dest, source=source)
-    problem = origin_problem(dest)
+    mutated_copy(mut, dest, source=source, layout=layout)
+    problem = origin_problem(dest, layout=layout)
     if problem is not None:
         raise HarnessError(problem)
-    return run_in_tree(dest, command)
+    return run_in_tree(dest, command, layout=layout)
 
 
 # ---- The sweep ----
 
-def snapshot(mutations: Sequence[Mutation],
-             root: pathlib.Path) -> dict[pathlib.Path, bytes]:
+def snapshot(mutations: Sequence[Mutation], root: pathlib.Path, *,
+             layout: Layout = DEFAULT_LAYOUT) -> dict[pathlib.Path, bytes]:
     """The bytes of every existing file the mutations target."""
-    paths = sorted({mut.target(root) for mut in mutations})
+    paths = sorted({mut.target(root, layout=layout) for mut in mutations})
     return {path: path.read_bytes() for path in paths if path.is_file()}
 
 
@@ -578,21 +606,25 @@ def _summary_lines(report: Report, baseline_only: bool) -> Iterator[str]:
 
 
 def sweep(mutations: Sequence[Mutation], root: pathlib.Path, *,
-          baseline_only: bool = False, runner: Runner = run_pytest,
-          matrix: bool = False, timeout: float | None = None) -> Report:
+          baseline_only: bool = False, runner: Runner | None = None,
+          matrix: bool = False, timeout: float | None = None,
+          layout: Layout = DEFAULT_LAYOUT) -> Report:
     """Run every mutation in turn, print the verdicts and a summary.
 
-    ``matrix`` says that ``runner`` runs every selected test, so the files
-    it reports as failed are the whole list.  ``timeout`` is described in
+    ``runner`` defaults to :func:`default_runner` of ``layout``.  ``matrix``
+    says that ``runner`` runs every selected test, so the files it reports
+    as failed are the whole list.  ``timeout`` is described in
     :class:`Baselines`.
     """
-    before = snapshot(mutations, root)
-    baselines = Baselines(root, runner, timeout)
+    runner = default_runner(layout) if runner is None else runner
+    before = snapshot(mutations, root, layout=layout)
+    baselines = Baselines(root, runner, timeout, layout=layout)
     print(f"{len(mutations)} mutation(s) on {root}\n" + "=" * 72, flush=True)
     results = []
     for mut in mutations:
-        result = (check_mutation(mut, root, baselines) if baseline_only
-                  else run_mutation(mut, root, baselines, runner))
+        result = (check_mutation(mut, root, baselines, layout=layout)
+                  if baseline_only
+                  else run_mutation(mut, root, baselines, runner, layout=layout))
         print("\n".join(_result_lines(mut, result, matrix)), flush=True)
         results.append((mut, result))
     report = Report(tuple(results), changed_files(before), matrix)
@@ -666,8 +698,10 @@ def _parser() -> argparse.ArgumentParser:
              f"plus {TIMEOUT_PAD:g} s for a mutated run.")
     ap.add_argument(
         "--root", default=None, metavar="DIR", type=pathlib.Path,
-        help="copy the tree to DIR (absent or empty, outside the tree) and "
-             "run there; the original tree is not written.")
+        help="copy the project to DIR (absent or empty, outside the project) "
+             "and run there; the project is not written.  DIR is the "
+             "destination of the copy; the project is --project-root.")
+    add_layout_arguments(ap)
     ap.add_argument(
         "--json", default=None, metavar="FILE", type=pathlib.Path,
         help="write the verdicts, and the failed test files of each mutant, "
@@ -675,9 +709,9 @@ def _parser() -> argparse.ArgumentParser:
     return ap
 
 
-def _nothing_selected(total: int, k: str) -> str:
+def _nothing_selected(total: int, k: str, corpus: pathlib.Path) -> str:
     if total == 0:
-        return (f"no mutation to run: the corpus in {MUTATION_DIR} has no "
+        return (f"no mutation to run: the corpus in {corpus} has no "
                 "entry")
     return (f"no mutation selected: no label of the {total} "
             f"{'entry' if total == 1 else 'entries'} contains {k!r}")
@@ -691,41 +725,40 @@ def _check_json_target(path: pathlib.Path | None) -> None:
         raise HarnessError(f"--json: {parent} is not a writable directory")
 
 
-def _prepare_tree(root: pathlib.Path, copy_to: pathlib.Path | None,
-                  ) -> pathlib.Path:
-    """The tree to sweep: ``root``, or a new copy of it at ``copy_to``.
+def _start(args: argparse.Namespace, layout: Layout,
+           mutations: Sequence[Mutation] | None) -> list[Mutation]:
+    """The corpus, after the checks that precede any selection.
 
-    Raises :class:`HarnessError` if the copy cannot be made or if the tree
-    does not import its own package.
+    Prints the notice of a journal recovery.  Raises :class:`HarnessError`.
     """
-    if copy_to is not None:
-        try:
-            root = copy_tree(root, copy_to)
-        except HarnessError as exc:
-            raise HarnessError(f"--root: {exc}") from None
-    problem = origin_problem(root)
+    problem = tree.corpus_problem(args) if mutations is None else None
     if problem is not None:
         raise HarnessError(problem)
-    return root
+    check_layout(layout, corpus=mutations is None)
+    corpus = (load_corpus(layout=layout) if mutations is None
+              else list(mutations))
+    _check_json_target(args.json)
+    notice = recover(layout.root, layout=layout)
+    if notice is not None:
+        print(notice)
+    return corpus
 
 
 def main(argv: Sequence[str] | None = None, *, root: pathlib.Path = ROOT,
          mutations: Sequence[Mutation] | None = None,
          runner: Runner | None = None) -> int:
+    """Run the command line; ``root`` is the project without --project-root."""
     install_restore_handlers()
     args = _parser().parse_args(argv)
+    layout = requested_layout(args, root=root, corpus=MUTATION_DIR)
     try:
-        corpus = load_corpus() if mutations is None else list(mutations)
-        _check_json_target(args.json)
-        notice = recover(root)
+        corpus = _start(args, layout, mutations)
     except HarnessError as exc:
         print(f"cannot start: {exc}")
         return EXIT_SETUP
-    if notice is not None:
-        print(notice)
     matching = select(corpus, args.k)
     if not matching:
-        print(_nothing_selected(len(corpus), args.k))
+        print(_nothing_selected(len(corpus), args.k, layout.corpus))
         return EXIT_NOTHING_SELECTED
     selected = select(matching, "", args.shard)
     if not selected:
@@ -736,14 +769,15 @@ def main(argv: Sequence[str] | None = None, *, root: pathlib.Path = ROOT,
         selected = [dataclasses.replace(mut, tests=args.tests)
                     for mut in selected]
     try:
-        root = _prepare_tree(root, args.root)
+        tree_root = tree.prepare_tree(layout, args.root)
     except HarnessError as exc:
         print(f"cannot start: {exc}")
         return EXIT_SETUP
     if runner is None:
-        runner = run_pytest_matrix if args.matrix else run_pytest
-    report = sweep(selected, root, baseline_only=args.baseline_only,
-                   runner=runner, matrix=args.matrix, timeout=args.timeout)
+        runner = default_runner(layout, matrix=args.matrix)
+    report = sweep(selected, tree_root, baseline_only=args.baseline_only,
+                   runner=runner, matrix=args.matrix, timeout=args.timeout,
+                   layout=layout)
     if args.json is not None:
         args.json.write_text(json.dumps(report.as_json(), indent=2) + "\n",
                              encoding="utf-8")
