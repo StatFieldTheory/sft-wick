@@ -218,6 +218,7 @@ def test_tree_env_puts_the_source_of_the_tree_first(harness, tmp_path,
     assert env["PYTHONPATH"].split(os.pathsep) == [
         str(tmp_path / "src"), "/one", "/two"]
     assert env["PYTHONDONTWRITEBYTECODE"] == "1"
+    assert env[harness.HARNESS_ENV] == "1"
     monkeypatch.delenv("PYTHONPATH")
     assert harness.tree_env(tmp_path)["PYTHONPATH"] == str(tmp_path / "src")
     assert "PYTHONPATH" not in os.environ

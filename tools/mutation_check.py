@@ -5,8 +5,9 @@ Each entry of the corpus is a textual change to one source file and a pytest
 selector naming the tests expected to notice it.  The harness applies the
 change, runs the selector, restores the file and reports a verdict.  The
 entries are kept in a corpus directory, one module per source area, each
-with a list ``ENTRIES`` of ``(label, path, old, new, tests, why)``; ``path``
-is relative to the directory of the package under test.  :func:`load_corpus`
+with a list ``ENTRIES`` of ``(label, path, old, new, tests, why)``, optionally
+followed by a seventh field ``kind``, one of :data:`KINDS`; ``path`` is
+relative to the directory of the package under test.  :func:`load_corpus`
 reads and checks them.
 
 A :class:`Layout` names the project root, the package, the directory put
@@ -88,6 +89,7 @@ add_layout_arguments, requested_layout = (tree.add_layout_arguments,
                                           tree.requested_layout)
 check_layout, default_runner = tree.check_layout, tree.default_runner
 PACKAGE, SRC_REL, JOURNAL_NAME = tree.PACKAGE, tree.SRC_REL, tree.JOURNAL_NAME
+HARNESS_ENV = tree.HARNESS_ENV
 TAIL_LINES = tree.TAIL_LINES
 tree_env, run_in_tree, run_group = tree.tree_env, tree.run_in_tree, tree.run_group
 import_origin, origin_problem = tree.import_origin, tree.origin_problem
@@ -102,6 +104,9 @@ SRC = ROOT / SRC_REL
 MUTATION_DIR = DEFAULT_LAYOUT.corpus
 #: The fields of a corpus entry, in order.
 ENTRY_FIELDS = ("label", "path", "old", "new", "tests", "why")
+#: The values of the optional seventh field of an entry: a ``historical``
+#: entry reintroduces a fixed defect, an ``operator`` entry is a small edit.
+KINDS = ("historical", "operator")
 
 EXIT_NOTHING_SELECTED = 2
 EXIT_SETUP = 3
@@ -122,6 +127,7 @@ class Mutation:
     new: str
     tests: str
     why: str
+    kind: str | None = None             # one of KINDS, or None if not given
 
     @property
     def path(self) -> pathlib.Path:
@@ -168,11 +174,15 @@ def load_entries(name: str, directory: pathlib.Path | None = None) -> list:
 def entry_problem(fields: object, *,
                   layout: Layout = DEFAULT_LAYOUT) -> str | None:
     """Why ``fields`` is not a valid corpus entry, or None."""
-    if not isinstance(fields, (tuple, list)) or len(fields) != len(ENTRY_FIELDS):
-        return f"is not a tuple of the {len(ENTRY_FIELDS)} fields {ENTRY_FIELDS}"
+    sizes = (len(ENTRY_FIELDS), len(ENTRY_FIELDS) + 1)
+    if not isinstance(fields, (tuple, list)) or len(fields) not in sizes:
+        return (f"is not a tuple of the {len(ENTRY_FIELDS)} fields "
+                f"{ENTRY_FIELDS}, optionally followed by a kind")
     if not all(isinstance(field, str) for field in fields):
         return "has a field that is not a string"
-    label, relpath, old, new, tests, _ = fields
+    label, relpath, old, new, tests = fields[:5]
+    if len(fields) == sizes[1] and fields[-1] not in KINDS:
+        return f"has the kind {fields[-1]!r}; the kinds are {KINDS}"
     rel = pathlib.Path(relpath)
     if not relpath or rel.is_absolute() or ".." in rel.parts:
         return (f"has the path {relpath!r}, which is not relative to "
@@ -572,7 +582,8 @@ class Report:
             "matrix": self.matrix,
             "changed": [str(path) for path in self.changed],
             "mutants": [
-                {"label": mut.label, "path": mut.relpath, "tests": mut.tests,
+                {"label": mut.label, "kind": mut.kind, "path": mut.relpath,
+                 "tests": mut.tests,
                  "verdict": result.verdict, "returncode": result.returncode,
                  "failed_files": list(result.failed_files)}
                 for mut, result in self.results],

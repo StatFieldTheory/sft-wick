@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import collections
 import dataclasses
+import os
 import shlex
 
 import pytest
@@ -370,8 +371,9 @@ def test_corpus_modules_are_discovered_from_the_directory(harness):
     assert list(harness.mutation_modules()) == on_disk
     entries = [tuple(fields) for name in on_disk
                for fields in harness.load_entries(name)]
-    assert [(m.label, m.relpath, m.old, m.new, m.tests, m.why)
-            for m in harness.load_corpus()] == entries
+    fields = [(m.label, m.relpath, m.old, m.new, m.tests, m.why, m.kind)
+              for m in harness.load_corpus()]
+    assert [row if row[-1] is not None else row[:-1] for row in fields] == entries
 
 
 def test_discovery_reads_any_directory_in_name_order(harness, tmp_path):
@@ -435,6 +437,9 @@ def test_a_mutant_whose_old_overlaps_itself_is_ambiguous(harness, toy):
 
 
 def test_every_listed_mutation_applies_to_the_current_source(harness):
+    # Under a sweep the source holds a mutant, and its entry no longer matches.
+    if os.environ.get(harness.HARNESS_ENV):
+        pytest.skip("run by the mutation harness")
     # One row per entry, so two entries with one label are both checked.
     corpus = harness.load_corpus()
     matches = [(m.label, harness._occurrences(m.path.read_text(encoding="utf-8"),

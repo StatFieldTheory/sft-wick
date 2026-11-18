@@ -396,13 +396,25 @@ def test_main_rejects_a_bad_shard(harness, toy, recorded_handlers, shard, capsys
     assert "--shard" in capsys.readouterr().err
 
 
-def test_script_entry_point_exits_two_when_nothing_is_selected():
-    # No label matches, so no test is run and no source is written.
+def test_script_entry_point_exits_two_when_nothing_is_selected(toy, tmp_path):
+    # No label matches, so no test is run and no source is written.  The
+    # script is pointed at the toy project: started on this repository, it
+    # would restore a mutant that an enclosing sweep has applied here, since
+    # every run first recovers the journal of its project root.
+    root, module = toy
+    original = module.read_bytes()
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "area.py").write_text(
+        "ENTRIES = [('a', 'harness_toy.py', 'return a + b', 'return a - b', "
+        "'tests/test_toy.py', 'why')]\n")
     proc = subprocess.run(
-        [sys.executable, str(SCRIPT), "-k", "no mutation has this label"],
+        [sys.executable, str(SCRIPT), "--project-root", str(root),
+         "--corpus", str(corpus), "-k", "no mutation has this label"],
         capture_output=True, text=True)
     assert proc.returncode == 2, proc.stdout + proc.stderr
     assert "no mutation" in proc.stdout
+    assert module.read_bytes() == original
 
 
 DRIVER = '''\

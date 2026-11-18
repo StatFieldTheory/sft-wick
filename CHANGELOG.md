@@ -36,8 +36,33 @@ that is absolute or contains `..`, and a package directory that a symbolic link
 leads outside the project stop the harness with status 3 before any test runs.  In
 Python the layout is the frozen dataclass `Layout`, passed as the keyword `layout`
 and defaulting to `DEFAULT_LAYOUT`; `tree_env` takes it too, so a stand-in for it
-must accept that keyword.  The corpus is empty; with no entry the tool exits with
-status 2.  `docs/verification/mutation.rst` describes it.
+must accept that keyword.  With no entry the tool exits with status 2.
+
+An entry may carry a seventh field, `kind`, `historical` or `operator`; any other
+value stops the tool with status 3.  The corpus has 30 entries.  The 15 historical
+ones reintroduce, by hand against the current source, defects fixed in f6c4e5d (the
+iso_C trace, `t_min`, a diagonal flag on a non-diagonal system), 8771c52 and 10ddce1 (a shared
+external label), c9daf92 (leg order), ae0dbf9 (an R-group position), 043720d (an R
+cache mismatch), 46134e3 (a kink against a pinned external time), ecb19fb,
+774ff9d, 3ef85c3, 0ab76ab, b35e247 (the leg structure of vertex copies), 964c2c9 (a
+declared coupling kink) and f62230c with 6b391f1 (the C kink of Gauss-Legendre);
+each makes its fix's own test file fail.  The 15 operator ones edit `_isotropic_C`, `_kept_r_propagators`,
+`_split_callable_occurrences`, `apply_diagonal`, the MSR factors and Θ(0).  A mutant
+counts as killed when the local default suite fails on it, a refusal test that no
+longer sees its refusal included.  `tools/kill_matrix.py` writes
+`docs/verification/kill_matrix.json` from a `--matrix` sweep: the verdict and
+failing test files of each mutant, a classification (`coverage gap` or
+`equivalent`) and a reason for each survivor, a digest of each entry and of the
+corpus, and the number and a digest of the collected fast suite; it refuses a kill
+that only a test file known to be flaky gives, joins several reports, and with
+`--reuse` keeps the rows of entries whose digest is unchanged.  `tests/test_mutation_corpus.py`
+requires that file to match the corpus, to name only test files the fast suite
+still runs, and to record at least 29 kills.  When the file exists the
+validation catalogue gains a column of killed mutants per test file and a table of
+survivors.  The harness sets `MUTATION_HARNESS=1` for every process it starts, and
+the tests that compare the corpus with the source skip under it.  The workflow
+`.github/workflows/mutation.yml` runs the sweep in six shards on `workflow_dispatch`
+and then checks that `src/` is unchanged.  `docs/verification/mutation.rst` describes it.
 
 ### Added: an oracle that shares no code with the package
 

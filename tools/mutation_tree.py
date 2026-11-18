@@ -224,6 +224,11 @@ COPY_IGNORED = (".git", ".claude", ".agent-state", "__pycache__",
                 ".pytest_cache", ".hypothesis", ".ruff_cache", ".mypy_cache",
                 "_build", "*.egg-info", JOURNAL_NAME)
 
+#: Set to ``1`` in the environment of every process the harness starts, so
+#: a test that compares the corpus with the source can skip while a sweep
+#: has the source under test.
+HARNESS_ENV = "MUTATION_HARNESS"
+
 #: Seconds to wait for the output of a process group after killing it.
 KILL_GRACE = 10.0
 
@@ -317,13 +322,13 @@ def tree_env(root: pathlib.Path, *,
     set so that no run leaves a ``.pyc`` behind.  A ``.pyc`` is validated by
     the source's size and its modification time in whole seconds, so one
     written less than a second before a same-length mutation would be loaded
-    in place of the mutated source.
+    in place of the mutated source.  :data:`HARNESS_ENV` is set to ``1``.
     """
     inherited = os.environ.get("PYTHONPATH")
     entries = ([str(entry) for entry in layout.path_entries(root)]
                + ([inherited] if inherited else []))
     return {**os.environ, "PYTHONPATH": os.pathsep.join(entries),
-            "PYTHONDONTWRITEBYTECODE": "1"}
+            "PYTHONDONTWRITEBYTECODE": "1", HARNESS_ENV: "1"}
 
 
 def run_in_tree(root: pathlib.Path, command: Sequence[str], *,
