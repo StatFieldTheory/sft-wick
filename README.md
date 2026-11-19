@@ -31,7 +31,7 @@ cd sft-wick
 pip install -e ".[dev]"
 ```
 
-Dependencies: `numpy`, `scipy`, `networkx`, `matplotlib`, `pandas`, `pyyaml`, `tabulate`, `joblib`. Optional: `pip install "sft-wick[progress]"` adds `tqdm` progress bars (plain stderr lines are printed without it). The `parallel` extra is kept for compatibility with older install commands. For development: `pytest`, `pytest-cov`, `pytest-xdist`.
+Dependencies: `numpy`, `scipy`, `networkx`, `matplotlib`, `pandas`, `pyyaml`, `tabulate`, `joblib`. Optional: `pip install "sft-wick[progress]"` adds `tqdm` progress bars (plain stderr lines are printed without it). `pip install "sft-wick[nauty]"` adds `pynauty`, which `compute_moment_numerical` then uses to canonicalise topologies; without it a built-in canonicaliser gives the same classes and the same terms. pynauty is licensed GPLv3+ and has a wheel only for CPython 3.12 on Linux x86_64, so on other platforms pip builds it from source, which needs a C compiler. The `parallel` extra is kept for compatibility with older install commands. For development: `pytest`, `pytest-cov`, `pytest-xdist`.
 
 The install also registers a CLI entry point:
 
@@ -448,7 +448,7 @@ result = compute_moment(obs, action, order=1)
 | Function | Description |
 |---|---|
 | `compute_moment(observable, action, order, *, response_phase=True, collect_topology=True)` | Perturbative expansion of ⟨O⟩\_S up to given order |
-| `compute_moment_numerical(observable, action, order, ..., n_jobs=1)` | Fast numerical path using nauty canonical labeling for diagram grouping. Enables order-6 calculations. Requires `pynauty`. Parallelization uses `joblib` (`n_jobs=-1`). |
+| `compute_moment_numerical(observable, action, order, ..., n_jobs=1, canonical="auto")` | Fast numerical path that groups topologies by a typed canonical key. Enables order-6 calculations. `canonical` picks the canonicaliser: `"auto"` (pynauty when it is installed, the built-in one otherwise), `"builtin"` or `"pynauty"`. Parallelization uses `joblib` (`n_jobs=-1`). |
 | `wick_contract(operators)` | Apply Wick's theorem to a product of field operators |
 | `contract_pair(op1, op2)` | Contract two field operators into a propagator |
 | `apply_response_phase(expr)` | Multiply each term by (−i)^n for n response propagators |
@@ -568,14 +568,41 @@ The default `compute_moment` builds full symbolic expressions and groups diagram
 | 4     | 14        | 1,416      | 64       | ~1.5s |
 | 6     | 20        | 738,900    | 1,088    | infeasible (hours/OOM) |
 
-### `compute_moment_numerical` (nauty path)
+### `compute_moment_numerical` (typed canonical keys)
 
-Replaces the O(k!) canonical form search with the nauty graph isomorphism algorithm (via `pynauty`), reducing diagram grouping from hours to seconds at order 6:
+Replaces the O(k!) canonical form search with a canonical labelling of the graph of each topology. The topologies of one vertex sequence are grouped into classes. Two topologies share a class when a relabelling of the integrated points that keeps the vertex type of every point maps one onto the other: the points of one local vertex type permute among themselves, and the instances of one non-local vertex type permute as whole leg tuples, leg by leg. A vertex type is a `Vertex` value, so two vertices with one name and different fields or flags are two types. For two local vertices F and G of the form ψφ² and the observable ⟨φ(x)φ(y)⟩, the sequence (F, G) at order 2 has 12 classes and (F, F, G, G) at order 4 has 364; a key that ignores the vertex type gives 6 and 64. Terms are emitted class by class.
 
-| Order | Topologies | Nauty grouping | Component routing | Total  |
-|-------|------------|----------------|-------------------|--------|
-| 4     | 1,416      | 0.02s          | 0.25s             | ~0.3s  |
-| 6     | 738,900    | ~12s           | ~8 min            | ~10 min |
+`compute_moment` groups by the untyped canonical form described under "Diagram-based term collection". Its classes can merge vertex types of one shape, and its coupling sums carry the relabelling, so its integrated values agree with those of `compute_moment_numerical`.
+
+The keyword `canonical` picks the canonicaliser:
+
+| `canonical=` | Canonicaliser |
+|---|---|
+| `"auto"` (default) | pynauty when it is installed, the built-in one otherwise. An installed pynauty that fails to import, or one older than 2.8.8, gives a `RuntimeWarning` and the built-in one. |
+| `"builtin"` | the built-in one (standard library only); pynauty is never imported |
+| `"pynauty"` | pynauty; an `ImportError` when it is not installed, fails to import or is older than 2.8.8 |
+
+Both give the same classes, so the same terms in the same order. The method is resolved once per call, before any enumeration. Each key starts with a tag naming its method and encoding version (for pynauty also its version, word size and byte order) and a digest of the layout of its vertex sequence (the vertex values and their counts). A key of another method, or of a sequence with other vertex values or counts, raises a `ValueError` where keys are grouped.
+
+The built-in search is colour refinement with individualisation and pruning by the automorphisms it finds. Unlike nauty, it does not prune by node invariants, so on graphs where refinement cannot split the orbits of a cell the number of leaves it visits can grow exponentially. Measured on hand-built graphs of one vertex type, which the engine does not produce: four directed hexagons beside eight directed triangles (48 points) take 149 ms against 0.37 ms for pynauty, and a Cai-Fürer-Immerman graph over a random cubic graph on 24 vertices (240 points) takes 7.2 s against 70 ms. The search recurses once per individualised point, so a cell of about 1,000 points that refinement never splits raises `RecursionError`.
+
+Time to compute the key of one labelled topology, in µs (mean / 99th percentile). Measured on one machine (Apple M3 Ultra, CPython 3.14) shared with other jobs at a load average of about 2, in one process. Each key is the best of 3 calls, and the method timed first alternates from one topology to the next. The table gives the means of two runs, which agreed within 0.4 µs:
+
+| Topologies | Classes | Built-in | pynauty |
+|---|---|---|---|
+| cubic vertex, order 6, 2,000 drawn uniformly | 898 | 16.8 / 30 | 8.8 / 10.2 |
+| (F, F, G, G), all 1,416 | 364 | 10.5 / 18 | 6.6 / 7.6 |
+| four F and two instances of a non-local ψ³ vertex, 1,000 drawn at random | 615 | 30.7 / 67 | 11.5 / 12.8 |
+| cubic vertex, order 10, 500 drawn at random | 500 | 28.1 / 42 | 13.2 / 14.1 |
+
+The built-in key takes 1.6 to 2.7 times as long as the pynauty key on these sets. Totals for the cubic vertex:
+
+| Order | Topologies | Classes | Keys | Component routing | Total  |
+|-------|------------|---------|------|-------------------|--------|
+| 4     | 1,416      | 64      | ~0.02s | 0.25s           | ~0.3s  |
+| 6     | 738,900    | 1,088   | ~12s built-in, ~6.5s pynauty | ~8 min | ~10 min |
+
+The key column is the number of topologies times a mean time per key above: the cubic row at order 6, and at order 4 the (F, F, G, G) row, which has the same 1,416 topologies. Without pynauty the key used to come from a permutation search at about 1.6 ms per topology, about 20 minutes at order 6.
 
 Pass `n_jobs=-1` to parallelize across CPU cores (`joblib` is installed by default).
 
@@ -583,7 +610,7 @@ Pass `n_jobs=-1` to parallelize across CPU cores (`joblib` is installed by defau
 
 At order 6, the dominant cost is **component routing** (`_enumerate_component_routings`), called once per spatial topology (738K calls). Potential improvements:
 
-- **Cache routing for isomorphic topologies**: topologies in the same nauty canonical group are graph-isomorphic. If the nauty permutation can be applied at the operator level, routing need only run once per canonical group (~1K calls instead of ~738K). This requires mapping operator UIDs across isomorphic graphs.
+- **Cache routing for isomorphic topologies**: topologies in one canonical class are isomorphic as typed graphs. If the relabelling between them can be applied at the operator level, routing need only run once per class (~1K calls instead of ~738K). This requires mapping operator UIDs across isomorphic graphs.
 - **Einsum-based coupling evaluation**: for constant coupling tensors, the coupling sum can be computed via `np.einsum` tensor contraction rather than symbolic expression evaluation, eliminating the combinatorial component-index enumeration entirely.
 - **Vectorized QMC integration** ✅: `DiagramIntegrand.integrate_moment_qmc_vectorized()` replaces the Python for-loop over Sobol samples with batch propagator evaluation via `PropagatorCache.C_diagonal_batch()` and `R_time_batch()`. Achieves 18–22× speedup over the scalar `integrate_moment_qmc()` with identical results.
 - **GPU acceleration**: the simulation (Euler–Maruyama) and QMC integration are embarrassingly parallel across realizations/samples and would benefit from JAX `vmap` or similar frameworks.
@@ -610,7 +637,7 @@ The core is organised into eight deductive phases:
 1. Phase 1: Symbolic expansion (`test_deductive_expansion.py`)
 2. Phase 2: Propagator numerics (`test_deductive_numerics.py::TestClosedFormC` etc.)
 3. Phase 3: Full diagram evaluation
-4. Phase 4: Alternative-path consistency (vectorised, parallel, nauty)
+4. Phase 4: Alternative-path consistency (vectorised, parallel, `compute_moment_numerical`)
 5. Phase 5: Spatial homogeneity modes (translation / rotation / general)
 6. Phase 6: White-noise component
 7. Phase 7: Dynamic non-local coupling + L1/L2 workflow round-trip

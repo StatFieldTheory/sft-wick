@@ -457,13 +457,17 @@ class TestResponsePhase:
 
 
 # =====================================================================
-# T8 — canonical-form agreement (nauty vs brute)
+# T8: canonical-form agreement (typed canonical key vs brute)
 # =====================================================================
 
 
 class TestCanonicalForm:
-    """T8: the brute canonicaliser and ``_canonical_key_nauty`` (if
-    available) induce the same equivalence relation."""
+    """T8: on Case A, the brute canonicaliser and the typed canonical key
+    of :mod:`sft_wick._canonical`, with either method, induce the same
+    equivalence relation.  Case B is not compared: the typed key keeps each
+    leg of the non-local vertex at its position, the brute search permutes
+    the leg points freely, so on (F, K) at order 2 the key gives 6 classes
+    and the brute search 2."""
 
     def test_c_edge_symmetry(self):
         """``simplify._canonical_diagram_form`` treats C(a,b) == C(b,a)."""
@@ -522,15 +526,20 @@ class TestCanonicalForm:
         k2, _ = _canonical_diagram_form(props_B, integration)
         assert k1 == k2, "relabelling should not change canonical form"
 
-    def test_nauty_agrees_with_simple_form(self):
-        """If pynauty is installed, its key partitions identically to the
-        simple canonicaliser on Case A labelled pairings."""
-        pynauty = pytest.importorskip("pynauty")
-        from sft_wick.expressions import Propagator as PE
-        from sft_wick.simplify import _canonical_diagram_form, _canonical_key_nauty
+    def test_canonical_key_agrees_with_simple_form(self, canonical_method_name):
+        """The typed key of each method partitions the Case A labelled
+        pairings as the simple canonicaliser does.  Both vertices of Case A
+        are one local vertex, so the typed classes are the untyped ones."""
+        from sft_wick._canonical import (
+            SequenceLayout,
+            make_keyer,
+            resolve_canonical_method,
+        )
+        from sft_wick.simplify import _canonical_diagram_form
 
         phi = Field("phi", "physical")
         psi = Field("psi", "response")
+        vertex = Vertex(fields=[psi, phi, phi], coupling="F", local=True)
         ops_sft = _sftwick_case_A_ops(phi, psi)
         _, pairings = wick_contract(ops_sft)
 
@@ -544,26 +553,32 @@ class TestCanonicalForm:
                 props.append(pr)
             pair_props_list.append(props)
 
+        layout = SequenceLayout.from_plain(
+            externals=("x", "y"),
+            local_points=(("z0", vertex), ("z1", vertex)),
+            nonlocal_instances=(),
+            n_r=2,
+            n_c=2,
+        )
+        keyer = make_keyer(layout, resolve_canonical_method(canonical_method_name))
+
         # Partition using both canonicalisers
         simple_key = [
             _canonical_diagram_form(plist, integration)[0]
             for plist in pair_props_list
         ]
-        nauty_key = [
-            _canonical_key_nauty(plist, integration)
-            for plist in pair_props_list
-        ]
+        typed_key = [keyer.key(plist) for plist in pair_props_list]
 
-        # Partition refines each other iff the two keyings agree up to
-        # bijection.  Easier check: "i, j have same simple key" iff
-        # "i, j have same nauty key".
+        # The two keyings agree up to bijection: "i, j have the same simple
+        # key" iff "i, j have the same typed key".
+        assert len(pair_props_list) > 1
         for i in range(len(pair_props_list)):
             for j in range(i + 1, len(pair_props_list)):
                 same_simple = simple_key[i] == simple_key[j]
-                same_nauty = nauty_key[i] == nauty_key[j]
-                assert same_simple == same_nauty, (
+                same_typed = typed_key[i] == typed_key[j]
+                assert same_simple == same_typed, (
                     f"mismatch on pair {i}, {j}: simple={same_simple} "
-                    f"nauty={same_nauty}"
+                    f"typed={same_typed}"
                 )
 
 

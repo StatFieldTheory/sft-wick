@@ -20,10 +20,16 @@ Eight phases.  The first two are the core, run in sequence:
    The two representative actions are a scalar single-vertex cubic
    theory (Case A) and the same action augmented with a non-local ψψψ
    vertex (Case B).  For each: enumerate Wick pairings by hand, classify
-   each by vanishing rule, verify multiplicities and coefficients, and
-   cross-check canonicalisation against `pynauty` (when installed) and a
-   brute-force permutation search.  Every comparison is an *exact*
-   equality, with no numerical tolerance.
+   each by vanishing rule and verify multiplicities and coefficients.  On
+   Case A, also cross-check canonicalisation: the typed canonical key of
+   `compute_moment_numerical`, with the built-in canonicaliser and with
+   `pynauty` (when installed), against a brute-force permutation search.
+   Case B is not compared: the typed key keeps each leg of the non-local
+   vertex at its position, while that search permutes the leg points
+   freely, so on (F, K) at order 2 the key gives 6 classes and the search 2.
+   Every comparison is an *exact* equality, with no numerical tolerance.
+   `tests/test_typed_canonical_key.py` checks the typed key on more vertex
+   types against its own relabelling reference, `tests/brute_relabel.py`.
 
 2. **Phase 2: numerical evaluation** (`tests/test_deductive_numerics.py`).
    With Phase 1 as a proven symbolic baseline, check the propagator
@@ -52,7 +58,7 @@ and `collections`.  Every `sft_wick` output is tested against it.
 | T5  | engine agreement (op vs spatial)   | hybrid engine, `_enumerate_component_routings`                 |
 | T6  | Taylor / multinomial prefactor     | `perturbation.compute_moment` prefactor assembly               |
 | T7  | response phase $(-i)^{n_R}$        | `expressions.apply_response_phase`, `DiagramTerm`              |
-| T8  | canonical-form agreement           | `simplify._canonical_diagram_form`, `_canonical_key_nauty`     |
+| T8  | canonical-form agreement           | `simplify._canonical_diagram_form`, `_canonical.make_keyer` (built-in and pynauty) |
 | T9  | diagram-collection soundness       | `simplify.collect_by_diagram`, `_match_propagators_after_spatial` |
 | T10 | individual simplification passes   | `simplify._flatten`, `_absorb_rationals`, `_eliminate_zeros`   |
 | T11 | non-local vertex instantiation     | `Vertex(local=False)`, `VertexInstance.instantiate`            |
@@ -237,10 +243,11 @@ sft-wick exposes several *alternative* entry points (faster or
 parallelised versions of the defaults).  Before Phase 4 these were
 untested:
 
-- ``compute_moment_numerical``: nauty-based alternative to the
-  hybrid ``compute_moment``.  Enables order-6 calculations and an
-  optional ``n_jobs`` parallelisation for the canonicalisation +
-  component-routing steps.
+- ``compute_moment_numerical``: alternative to the hybrid
+  ``compute_moment`` that groups topologies by a typed canonical key
+  (built-in canonicaliser, or pynauty when it is installed).  Enables
+  order-6 calculations and an optional ``n_jobs`` parallelisation for
+  the canonicalisation + component-routing steps.
 - ``integrate_moment_qmc_vectorized``: batch-vectorised QMC (no
   Python loop over samples), much faster for large n_samples.
 - ``integrate_two_point_qmc``: specialised QMC for fixed-time
@@ -255,18 +262,21 @@ baseline, and the two must agree.
 **C1: two symbolic engines, integrated-total equality.**
 ``compute_moment`` groups Wick pairings into canonical Feynman
 topologies (6 DTs at Case A order 2), while
-``compute_moment_numerical`` uses nauty + exhaustive component-
-routing enumeration (30 DTs).  The *per-DT* count differs by design,
-but the integrated sum over all diagrams must agree: observed ~5e-7
+``compute_moment_numerical`` uses a typed canonical key + exhaustive
+component-routing enumeration (30 DTs).  The *per-DT* count differs by
+design, but the integrated sum over all diagrams must agree: observed ~5e-7
 relative difference (within QMC precision).  The check is that both
 symbolic engines produce the same physical observable.
 
 **C2 & C5: parallel-vs-serial bit-identity.**  joblib's default
 backend preserves result ordering on these deterministic workloads,
-so ``n_jobs=-1`` must yield bit-identical diagram-term lists and
-integrated totals to ``n_jobs=1``.  Any discrepancy would indicate
-either an ordering bug or a non-deterministic RNG path leaking into
-the parallel branch.
+so a parallel run must yield the diagram-term list (C2) and the
+integrated totals (C5) of ``n_jobs=1``.  C2 runs the cubic vertex at
+order 4, whose 1,416 topologies are above the 100 at which
+``compute_moment_numerical`` hands them to joblib workers, with each
+canonicaliser, and checks that joblib ran.  Any discrepancy would
+indicate either an ordering bug or a non-deterministic RNG path leaking
+into the parallel branch.
 
 **C3: scalar vs vectorised QMC.** ``integrate_moment_qmc`` runs a
 Python loop over Sobol samples; ``integrate_moment_qmc_vectorized``
@@ -451,9 +461,12 @@ With coverage instrumentation:
 pytest --cov=src/sft_wick tests/ --cov-report=term-missing
 ```
 
-The previously-unexercised `_enumerate_component_routings`,
-`_canonical_key_nauty`, and non-local-vertex-instantiation branches are
-now covered.
+The previously-unexercised `_enumerate_component_routings` and
+non-local-vertex-instantiation branches are now covered, and so is the
+built-in method of the typed canonical key (`sft_wick._canonical`,
+`sft_wick._canonical_search`).  The pynauty method
+(`sft_wick._canonical_nauty`) is covered when pynauty is installed; the
+`dev` extra does not install it.
 
 ---
 
@@ -467,8 +480,8 @@ diagnoses a specific module:
   or component-routing logic in `_enumerate_component_routings`, which
   gives the operator-level count of each topology.
 - **T8 fails** → `_canonical_diagram_form` (brute permutation search)
-  or `_canonical_key_nauty` (nauty-based) disagree on a pair of
-  topologies; one of them has a bug.
+  and the typed canonical key (`sft_wick._canonical`, built-in or
+  pynauty) disagree on a pair of topologies; one of them has a bug.
 - **T9 fails** → `collect_by_diagram` is creating spurious partitions
   (either merging non-isomorphic topologies or splitting one).
 - **T13 fails** → `DiagramTerm.evaluate_coupling` mishandles the

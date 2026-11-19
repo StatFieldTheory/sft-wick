@@ -960,8 +960,8 @@ class TestAlternativePathConsistency:
     # ---------- C1: compute_moment vs compute_moment_numerical (serial) ----------
 
     def test_C1_compute_moment_vs_numerical_total(self, _shared):
-        """Two symbolic engines (Wick-collection hybrid vs nauty + full
-        component-routing enumeration) produce DT sets of different
+        """Two symbolic engines (Wick-collection hybrid vs typed canonical
+        key + full component-routing enumeration) produce DT sets of different
         cardinality (6 vs 30 at N=2, order 2), but the integrated
         totals must agree within QMC precision.
 
@@ -1006,46 +1006,37 @@ class TestAlternativePathConsistency:
 
     # ---------- C2: compute_moment_numerical serial vs parallel ----------
 
-    def test_C2_numerical_parallel_matches_serial(self, _shared):
-        """``compute_moment_numerical(n_jobs=1)`` and ``(n_jobs=-1)``
-        must produce bit-identical DiagramTerms (joblib preserves
-        ordering on this workload).
+    def test_C2_numerical_parallel_matches_serial(self, canonical_method_name, monkeypatch):
+        """``compute_moment_numerical(n_jobs=2)`` gives the DiagramTerms of
+        ``n_jobs=1`` in the same order.  The cubic vertex at order 4 has
+        1,416 topologies, above the 100 at which they go to joblib workers,
+        which get the keyer of the method; the test checks that joblib ran.
         """
-        pytest.importorskip("joblib")
+        joblib = pytest.importorskip("joblib")
         from sft_wick.perturbation import compute_moment_numerical
 
-        reset_uid_counter()
-        dts_s = compute_moment_numerical(
-            _shared["obs"], _shared["action"], order=2,
-            diag_R=True, diag_C=True, iso_R=True, iso_C=True,
-            n_jobs=1,
-        )[2]
-        reset_uid_counter()
-        dts_p = compute_moment_numerical(
-            _shared["obs"], _shared["action"], order=2,
-            diag_R=True, diag_C=True, iso_R=True, iso_C=True,
-            n_jobs=-1,
-        )[2]
+        calls = []
 
-        # Compare integrated totals bit-identical (same seed, same algorithm).
-        from sft_wick.evaluate import integrate_diagrams
-        v_s, _ = integrate_diagrams(
-            dts_s, {"F": _shared["F_MSR"]},
-            _shared["lambda_f"], _shared["cache"],
-            method="qmc", n_samples=2**12, seed=42,
-            fixed_indices=_shared["fixed"],
-            n_jobs=-1,
-        )
-        v_p, _ = integrate_diagrams(
-            dts_p, {"F": _shared["F_MSR"]},
-            _shared["lambda_f"], _shared["cache"],
-            method="qmc", n_samples=2**12, seed=42,
-            fixed_indices=_shared["fixed"],
-            n_jobs=-1,
-        )
-        assert abs(v_s - v_p) < 1e-12, (
-            f"serial {v_s} vs parallel {v_p}: diff {abs(v_s - v_p):.2e}"
-        )
+        class RecordingParallel(joblib.Parallel):
+            def __init__(self, *args, **kwargs):
+                calls.append(kwargs.get("n_jobs"))
+                super().__init__(*args, **kwargs)
+
+        monkeypatch.setattr(joblib, "Parallel", RecordingParallel)
+        phi = Field("phi", "physical")
+        psi = Field("psi", "response")
+        action = Action(vertices=[Vertex([psi, phi, phi], coupling="F")])
+        runs = []
+        for n_jobs in (1, 2):
+            reset_uid_counter()
+            out = compute_moment_numerical(
+                [phi("x"), phi("y")], action, order=4,
+                n_jobs=n_jobs, canonical=canonical_method_name,
+            )
+            runs.append([term for n in sorted(out) for term in out[n]])
+        assert calls == [2]
+        assert len(runs[0]) > 1000
+        assert runs[1] == runs[0]
 
     # ---------- C3: scalar loop vs vectorized QMC ----------
 

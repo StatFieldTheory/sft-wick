@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Changed: `compute_moment_numerical` separates vertex types in its classes
+
+`compute_moment_numerical` groups topologies by a canonical key that separates vertex
+types and, for a non-local vertex, its instance and the position of each leg.  For two
+local vertices F and G of the form ψφ², with the observable ⟨φ(x)φ(y)⟩, the sequence
+(F, G) at order 2 has 12 classes where the previous key gave 6, and (F, F, G, G) at
+order 4 has 364 where it gave 64.  The terms are unchanged.  Their order can change for
+sequences with two or more vertex types or a non-local vertex, because terms are
+emitted class by class; it is unchanged for a sequence of one local vertex type.
+
+New keyword `canonical`: `'auto'` (default) uses pynauty when it is installed
+(`pip install "sft-wick[nauty]"`; pynauty is GPLv3+ and has a wheel only for CPython
+3.12 on Linux x86_64, so other platforms build it from source) and a built-in
+canonicaliser otherwise; `'builtin'` and `'pynauty'` select one.  Both give the same
+classes, so the same terms in the same order.  Without pynauty the key used to fall
+back, with no message, to a permutation search that returned bytes of another format
+at about 1.6 ms per topology.  At order 6 the built-in key takes about 17 µs per
+topology and the pynauty key about 9 µs.  An installed pynauty that fails to import,
+or is older than 2.8.8, gives a `RuntimeWarning` and the built-in.
+`simplify._canonical_key_nauty` is removed.
+
+`compute_moment_numerical` now raises `TypeError` for a vertex whose coupling name or
+a field name is not a `str`; `compute_moment` and the previous
+`compute_moment_numerical` accepted them.
+
 ### Added: an oracle that shares no code with the package
 
 `validation/` ships in the sdist, not in the wheel.  `validation/modelspec.py`

@@ -415,6 +415,38 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "algorithms of the counter against each other above that",
         "exact",
     ),
+    "tests/test_typed_canonical_key.py": (
+        "Multiplicities and canonical forms",
+        "typed canonical keys of compute_moment_numerical, built-in and pynauty: "
+        "class counts with two vertex types, and with one coupling name and "
+        "other fields or flags; point automorphism orders without swaps of "
+        "parallel propagators and their orbit sum; partition and automorphism "
+        "order on engine sequences (several instances of one non-local vertex "
+        "included), on regular graphs that colour refinement cannot split and on "
+        "an R cycle against its reverse; a join of two strongly regular graphs "
+        "under 20 relabellings; all 738,900 cubic topologies at order 6 (heavy); "
+        "equal coupling values within a class; a time cap, in a child process, "
+        "on a symmetric star and on R self-loops beside R 2-cycles; one block "
+        "per class in the engine output; the term order of one local vertex "
+        "type; degenerate vertices accepted",
+        "every relabelling tried by tests/brute_relabel.py (itertools only, no "
+        "sft-wick imports); pynauty's group order of the dummy-node graph; the "
+        "two methods against each other; the term order of the previous key",
+        "exact; coupling values within a class to 1e-12; 0.2 s per key, 30 s "
+        "per child process",
+    ),
+    "tests/test_canonical_method.py": (
+        "Multiplicities and canonical forms",
+        "method selection of the typed canonical keys (pynauty present, missing, "
+        "broken or too old; the warning names the caller); key tags, layout "
+        "digests and the refusal of mixed keys; invalid topologies and "
+        "sequences with no complete pairing refused; keys of another pynauty "
+        "build refused; keys and term order under three hash seeds; pinned key "
+        "digests of engine and hand-built graphs; import rules",
+        "fake pynauty packages on the path; subprocesses with their own hash "
+        "seeds; pinned digests",
+        "exact",
+    ),
     "tests/test_certify_imports.py": (
         "Multiplicities and canonical forms",
         "sft_wick/_certify.py imports only the standard library and no sft_wick "

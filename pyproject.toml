@@ -46,6 +46,15 @@ parallel = [
 progress = [
     "tqdm>=4.60",
 ]
+# Optional canonicaliser for compute_moment_numerical(canonical="pynauty"),
+# also taken by canonical="auto" when it imports.  pynauty is licensed
+# GPLv3+ and is imported in sft_wick/_canonical_nauty.py only.  The built-in
+# canonicaliser gives the same classes without it.  pynauty 2.8.8.1 has one
+# wheel, CPython 3.12 on Linux x86_64; elsewhere pip builds it from source.
+# It is not in dev, so a dev install does not depend on that build.
+nauty = [
+    "pynauty>=2.8.8",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov",

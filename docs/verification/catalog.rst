@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8533 tests** in 145 files (parametrised
+The suite has **8630 tests** in 147 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -132,7 +132,7 @@ Symbolic engine
 Multiplicities and canonical forms
 ----------------------------------
 
-*304 tests in 4 files.*
+*400 tests in 6 files.*
 
 .. list-table::
    :header-rows: 1
@@ -143,6 +143,11 @@ Multiplicities and canonical forms
      - Reference
      - Tolerance
      - Tests
+   * - ``test_canonical_method.py``
+     - method selection of the typed canonical keys (pynauty present, missing, broken or too old; the warning names the caller); key tags, layout digests and the refusal of mixed keys; invalid topologies and sequences with no complete pairing refused; keys of another pynauty build refused; keys and term order under three hash seeds; pinned key digests of engine and hand-built graphs; import rules
+     - fake pynauty packages on the path; subprocesses with their own hash seeds; pinned digests
+     - exact
+     - 18
    * - ``test_certify_imports.py``
      - sft_wick/_certify.py imports only the standard library and no sft_wick module (an AST walk over import statements, relative imports and import calls, which must name a literal module); loading the file by path and counting loads no sft_wick module and no third-party module
      - the import statements; sys.modules of a fresh interpreter
@@ -152,7 +157,7 @@ Multiplicities and canonical forms
      - every pairing at order ≤ 2 classified by vanishing reason; routing counts of spatial topologies; canonical-form deduplication
      - brute-force Wick reference (tests/brute_wick.py, no sft-wick imports)
      - exact
-     - 78
+     - 79
    * - ``test_diagrams.py``
      - FeynmanDiagram canonical form and isomorphism deduplication
      - isomorphic relabellings hash-compare equal
@@ -163,11 +168,16 @@ Multiplicities and canonical forms
      - every pairing enumerated and classified by tests/brute_wick.py up to 14 operators, with a union-find on owners for the connected target; a pruned search with the same rules at 18 and 20 operators; the two algorithms of the counter against each other above that
      - exact
      - 211
+   * - ``test_typed_canonical_key.py``
+     - typed canonical keys of compute_moment_numerical, built-in and pynauty: class counts with two vertex types, and with one coupling name and other fields or flags; point automorphism orders without swaps of parallel propagators and their orbit sum; partition and automorphism order on engine sequences (several instances of one non-local vertex included), on regular graphs that colour refinement cannot split and on an R cycle against its reverse; a join of two strongly regular graphs under 20 relabellings; all 738,900 cubic topologies at order 6 (heavy); equal coupling values within a class; a time cap, in a child process, on a symmetric star and on R self-loops beside R 2-cycles; one block per class in the engine output; the term order of one local vertex type; degenerate vertices accepted
+     - every relabelling tried by tests/brute_relabel.py (itertools only, no sft-wick imports); pynauty's group order of the dummy-node graph; the two methods against each other; the term order of the previous key
+     - exact; coupling values within a class to 1e-12; 0.2 s per key, 30 s per child process
+     - 77
 
 Propagator numerics
 -------------------
 
-*1607 tests in 19 files.*
+*1608 tests in 19 files.*
 
 .. list-table::
    :header-rows: 1
@@ -197,7 +207,7 @@ Propagator numerics
      - C from ∫∫RκR: closed form vs dblquad, spline tables, spatial homogeneity modes, white noise, QMC vs nquad, parallel vs serial
      - closed-form OU C; domain-split dblquad at 1e-12; alternative backends
      - 1e-8 (quadrature) / 1e-2 (spline, QMC)
-     - 46
+     - 47
    * - ``test_demo3_shot_noise.py``
      - demo 3 filtered-Poisson cumulants, the R-contracted kernel K_R, and the t_tilde branch dispatch
      - Campbell's theorem vs Monte Carlo of the event process; m-dimensional quadrature of the raw leg integral; the package's own ClosedFormC; 60-digit mpmath at the branch boundary

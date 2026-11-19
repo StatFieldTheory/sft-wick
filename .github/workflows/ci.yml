@@ -18,6 +18,9 @@ jobs:
   test:
     name: Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    # A test that hangs, such as a canonical-key search that blows up in
+    # process, would otherwise hold the job until GitHub's 6 h limit.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -32,10 +35,12 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
-      - name: Install package with dev extras
+      # pynauty has a wheel for CPython 3.12 on Linux x86_64 only, so on 3.10
+      # and 3.11 pip builds it from source with the runner's compiler.
+      - name: Install package with dev and nauty extras
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[dev,nauty]"
 
       # The same tests have taken up to three times as long on one runner as
       # on another, so the log records which CPU ran them.
@@ -45,7 +50,61 @@ jobs:
       - name: Run test suite
         # -m 'not slow' adds the heavy tests that the local default leaves
         # out; worksteal keeps the long tests from piling up on one worker.
+        # A test that needs pynauty fails here instead of being skipped when
+        # pynauty does not import.
+        env:
+          SFT_WICK_REQUIRE_PYNAUTY: "1"
         run: pytest tests/ -v -m "not slow" -n auto --dist worksteal --durations=25
+
+  # compute_moment_numerical without the nauty extra: canonical="auto" takes
+  # the built-in canonicaliser.  The canonical-key tests, the canonical-form
+  # tests of the symbolic engine and the engine tests run here without
+  # pynauty, and their pynauty cases are skipped.
+  canon-builtin:
+    name: Tests without pynauty (built-in canonicaliser)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package with dev extras only
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: pynauty must not be importable
+        run: |
+          python - <<'EOF'
+          import importlib.util
+
+          from sft_wick._canonical import resolve_canonical_method
+
+          assert importlib.util.find_spec("pynauty") is None, "pynauty is installed"
+          method = resolve_canonical_method()
+          assert method.name == "builtin", method
+          print("canonical='auto' resolves to", method.label)
+          EOF
+
+      - name: Run canonical-key and engine tests
+        run: >-
+          pytest -v -rs -m "not slow and not heavy" -n auto --dist worksteal
+          tests/test_typed_canonical_key.py
+          tests/test_canonical_method.py
+          tests/test_deductive_expansion.py
+          tests/test_coincident_external_labels.py
+          tests/test_connected_target.py
+          tests/test_deductive_numerics.py
+          tests/test_equal_time_nonlocal.py
+          tests/test_literal_component_labels.py
+          tests/test_observable_label_collision.py
+          tests/test_perturbation.py
 
   # Wall-clock gate for the shipped examples: the CPC referee could not get
   # output from the quick start within an hour.  The quickstart must finish
@@ -111,6 +170,27 @@ jobs:
           /tmp/smoke/bin/pip install dist/*.whl
           /tmp/smoke/bin/python -c "from sft_wick import compute_moment; print('import OK')"
           /tmp/smoke/bin/sft-wick --help
+
+      # The wheel installs no pynauty, so canonical="auto" must take the
+      # built-in canonicaliser.  Case A at order 2 has 30 surviving pairings,
+      # one term each.
+      - name: Smoke-test compute_moment_numerical without pynauty
+        run: |
+          cd "$(mktemp -d)"
+          /tmp/smoke/bin/python - <<'EOF'
+          from sft_wick import Action, Field, Vertex, compute_moment_numerical
+          from sft_wick._canonical import resolve_canonical_method
+
+          method = resolve_canonical_method()
+          assert method.name == "builtin", method
+          phi = Field("phi", "physical")
+          psi = Field("psi", "response")
+          action = Action(vertices=[Vertex(fields=[psi, phi, phi], coupling="F", local=True)])
+          terms = compute_moment_numerical([phi("x"), phi("y")], action, 2)
+          counts = {n: len(t) for n, t in sorted(terms.items())}
+          assert counts == {0: 1, 2: 30}, counts
+          print("compute_moment_numerical OK with", method.label, counts)
+          EOF
 
       - name: Upload distribution artifacts
         uses: actions/upload-artifact@v4

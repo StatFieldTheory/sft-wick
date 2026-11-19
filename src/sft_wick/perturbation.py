@@ -2784,7 +2784,7 @@ def _coeff_latex(pref: Rational, n_response: int) -> str:
 
 
 # =====================================================================
-# Fast numerical path: nauty + einsum
+# Fast numerical path: canonical keys + einsum
 # =====================================================================
 
 
@@ -2799,17 +2799,22 @@ def compute_moment_numerical(
     iso_C: bool = False,
     n_jobs: int = 1,
     target: str = "moment",
+    canonical: str = "auto",
 ) -> dict[int, list[DiagramTerm]]:
-    r"""Compute diagram terms using nauty graph isomorphism.
+    r"""Compute diagram terms, grouping topologies by a canonical key.
 
-    A faster alternative to :func:`compute_moment` that replaces the
-    :math:`k!` brute-force canonical form search with the nauty graph
-    isomorphism algorithm (via ``pynauty``), enabling order-6
-    calculations that were previously infeasible.
+    A faster alternative to :func:`compute_moment` that groups the labelled
+    topologies of each vertex sequence by a graph canonical key
+    (:mod:`sft_wick._canonical`) in place of the :math:`k!` search over
+    relabellings, which makes order 6 feasible.  Two topologies share a
+    key when a relabelling of the integrated points maps one onto the
+    other while it keeps every vertex: points of one local vertex permute
+    among themselves, and instances of one non-local vertex permute as
+    whole leg tuples, leg by leg.  The terms are emitted class by class,
+    one per component routing.
 
-    Optionally parallelizes the nauty canonicalization and component
-    routing steps using ``joblib`` (install with ``pip install
-    sft-wick[parallel]``).
+    Optionally parallelizes the canonical keys and component routing steps
+    with ``joblib``, which is installed with the package.
 
     Args:
         observable: Field operators defining the observable.  A numeric
@@ -2821,8 +2826,8 @@ def compute_moment_numerical(
         diag_C: Enforce diagonal C propagators.
         iso_R: Isotropic R (implies ``diag_R``).
         iso_C: Isotropic C (implies ``diag_C``).
-        n_jobs: Number of parallel workers for nauty canonicalization
-            and component routing.  ``1`` = sequential (default),
+        n_jobs: Number of parallel workers for the canonical keys and
+            component routing.  ``1`` = sequential (default),
             ``-1`` = use all CPU cores.  Requires ``joblib``.
         target: ``'moment'`` (default) or ``'connected'``; the latter selects
             occurrence/vertex incidence before expensive canonicalization
@@ -2830,6 +2835,15 @@ def compute_moment_numerical(
             different owners use exact per-routing filtering. The normalized
             formal source-correlator interpretation and its assumptions are
             described in :func:`compute_moment`.
+        canonical: The method of the canonical keys.  ``'auto'`` (default)
+            uses pynauty when it is installed (``pip install
+            "sft-wick[nauty]"``) and the built-in method otherwise;
+            ``'builtin'`` and ``'pynauty'`` select one.  Both give the same
+            classes, so the same terms in the same order.  An installed
+            pynauty that fails to import or is older than 2.8.8 gives a
+            ``RuntimeWarning`` under ``'auto'`` and the built-in method.
+            The method is chosen once per call; workers under ``n_jobs``
+            use it as well.
 
     Returns:
         ``{order_n: [DiagramTerm, ...]}`` for each order with
@@ -2844,17 +2858,27 @@ def compute_moment_numerical(
             must refuse the same spelling; see
             :func:`check_distinct_external_labels`.  Also if a numeric
             literal component label lies outside ``1..n_components``
-            (:func:`check_literal_component_labels`).
+            (:func:`check_literal_component_labels`), and if
+            ``canonical`` is not ``'auto'``, ``'builtin'`` or
+            ``'pynauty'``.
+        ImportError: If ``canonical='pynauty'`` and pynauty cannot be
+            imported or is older than 2.8.8.
     """
     validate_target(target, observable)
     check_distinct_external_labels(observable, order)
     check_literal_component_labels(observable)
+    from ._canonical import (
+        ClassGroups,
+        SequenceLayout,
+        make_keyer,
+        resolve_canonical_method,
+    )
+
+    # stacklevel=3: a warning about a broken pynauty names the caller's line.
+    method = resolve_canonical_method(canonical, stacklevel=3)
     # E_psi: response legs carried by the observable itself.  Fixes the
     # phase needed to rotate a diagram value onto the real axis.
     n_external = sum(1 for op in observable if op.field.is_response)
-    from collections import defaultdict
-
-    from .simplify import _canonical_key_nauty
 
     diag_R = diag_R or iso_R
     diag_C = diag_C or iso_C
@@ -2875,16 +2899,14 @@ def compute_moment_numerical(
                 continue
 
             topo_list = list(spatial_results.values())
+            keyer = make_keyer(SequenceLayout.from_sequence(seq, observable), method)
 
             def _process_topology(ref_props, rep_pairing):
-                """Nauty key + pruned routing for one topology."""
-                # Preserve the legacy moment pipeline, including its
-                # canonicalization-before-routing order.
-                key = (
-                    _canonical_key_nauty(ref_props, seq.points)
-                    if seq.incidence is None
-                    else None
-                )
+                """Canonical key and pruned routing for one topology."""
+                # The moment target keys before routing, as the legacy
+                # pipeline did.  keyer.key is pure, so the order changes
+                # only the work done, not the output.
+                key = keyer.key(ref_props) if seq.incidence is None else None
                 routing_records = _enumerate_component_routings(
                     ref_props,
                     rep_pairing,
@@ -2896,27 +2918,32 @@ def compute_moment_numerical(
                 if not routing_records:
                     return None, []
                 if key is None:
-                    key = _canonical_key_nauty(ref_props, seq.points)
+                    key = keyer.key(ref_props)
                 return key, [props for props, _pairing in routing_records]
 
-            # Run pipeline (parallel if beneficial)
-            if n_jobs != 1 and len(topo_list) > 100:
+            # Run pipeline (parallel if beneficial).  Workers get the bound
+            # keyer and never choose a method; only a missing joblib falls
+            # back to the serial loop, so an import error inside a worker
+            # is raised.
+            run_parallel = n_jobs != 1 and len(topo_list) > 100
+            if run_parallel:
                 try:
                     from joblib import Parallel, delayed
-
-                    topo_results = Parallel(n_jobs=n_jobs)(
-                        delayed(_process_topology)(rp, p) for rp, p in topo_list
-                    )
                 except ImportError:
-                    topo_results = [_process_topology(rp, p) for rp, p in topo_list]
+                    run_parallel = False
+            if run_parallel:
+                topo_results = Parallel(n_jobs=n_jobs)(
+                    delayed(_process_topology)(rp, p) for rp, p in topo_list
+                )
             else:
                 topo_results = [_process_topology(rp, p) for rp, p in topo_list]
 
-            # Group by canonical key
-            canon_groups: dict[bytes, list] = defaultdict(list)
+            # Group by canonical key; a key of another method or another
+            # sequence is refused.
+            canon_groups = ClassGroups(keyer.prefix)
             for key, routings in topo_results:
                 if routings:
-                    canon_groups[key].extend(routings)
+                    canon_groups.add(key, routings)
 
             # One DiagramTerm per routing.  Each routing has its own
             # propagator component indices and the coupling uses the
@@ -2924,7 +2951,7 @@ def compute_moment_numerical(
             # property; the routing only changes which propagator carries
             # which component index).
             coupling = _pure_coupling(seq.instances)
-            for all_routing_props in canon_groups.values():
+            for all_routing_props in canon_groups.groups():
                 for props in all_routing_props:
                     integrands.extend(
                         _diagram_terms(seq, tuple(props), coupling, n_external)
