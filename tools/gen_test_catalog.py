@@ -10,7 +10,11 @@ When ``docs/verification/kill_matrix.json`` exists (written by
 ``tools/kill_matrix.py`` from a sweep of the mutation corpus), every table
 gains a column with the number of corpus mutants under which a test of the
 file failed, and the page ends with the mutants no test killed.  Without the
-file the page has neither.
+file the page has neither.  When ``docs/verification/blind_spots.json``
+exists (written by ``tools/degeneracy_witness.py``), the page ends with a
+table of the historical mutants each demo configuration sees and is blind to,
+and when ``docs/verification/generated_kills.json`` exists (written by
+``tools/generated_kills.py``), with the drawn case that kills each of them.
 
 The descriptive columns come from :data:`FILE_META` below, a curated
 table, because "what reference does this test use" is not something a
@@ -37,6 +41,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "verification" / "catalog.rst"
 KILL_MATRIX = ROOT / "docs" / "verification" / "kill_matrix.json"
+BLIND_SPOTS = ROOT / "docs" / "verification" / "blind_spots.json"
+GENERATED_KILLS = ROOT / "docs" / "verification" / "generated_kills.json"
 #: The default of :func:`render`: read :data:`KILL_MATRIX` if it exists.
 FROM_FILE = object()
 
@@ -1546,6 +1552,61 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "two-entry corpus and a hand-written sweep report",
         "exact",
     ),
+    "tests/test_mutant_fuzz.py": (
+        "Workflow and YAML",
+        "the kill rule of tools/mutant_fuzz.py: records joined by seed, mode, "
+        "route and integrator; a mutant fail over an unmutated pass kills, "
+        "over an unmutated fail does not; an unmutated refusal with the fix's "
+        "text and a rejected mutant value kills, another refusal (a guard of "
+        "Expansion.evaluate the entry does not change among them), an error, "
+        "an accepted value or a fail of non-finite values only does not; the "
+        "forced draw modes change only what they name, refuse a case outside "
+        "their precondition, and leave the default draw unchanged; each forced "
+        "case has an admissible control; a case shared by entries runs once "
+        "under the unmutated tree; the oracle cache lies outside the tree and "
+        "reuses a lost row only under limits no larger; the joined row keeps "
+        "both trees' values at the mutant's worst tag; a saved case file is "
+        "read back as the cases ran; the driver files import no sft_wick",
+        "hand-written fuzz records; drawn cases of validation/draw.py",
+        "exact",
+    ),
+    "tests/test_degeneracy_witness.py": (
+        "Workflow and YAML",
+        "tools/degeneracy_witness.py: on a toy package whose mutant reads a "
+        "kernel at the other leg order, a symmetric config is exercised and "
+        "blind, an asymmetric one sees it, and configs that never run the "
+        "changed line or run it with the condition false are not exercised; "
+        "an if-test probe, a probe that raises, a mutant that raises, "
+        "per-row attribution, the R-cache decision at the cache's kind, a "
+        "changed result with the condition false is an error, and a package "
+        "loaded from outside the tree is refused; the tolerance rule at its "
+        "relative "
+        "term, its floor and its boundary, a value moved with the condition "
+        "off or missing on one side is an error, outcomes of arrays and "
+        "messages compare, changed lines are numbered in the mutant file; "
+        "docs/verification/blind_spots.json names the eight entries and every "
+        "config with its tolerance, each row and cell state and the summary "
+        "follow from the stored values, demo 1 to 3 cells match the CHANGELOG "
+        "and demo notes, demo 4 has no exercised, blind cell, and the checker "
+        "reports a tampered record",
+        "a toy package and its mutant in tmp_path run in a child process; "
+        "the CHANGELOG and demo READMEs for the expected demo cells",
+        "exact; per-config tolerance stated in the record",
+    ),
+    "tests/test_generated_kills.py": (
+        "Workflow and YAML",
+        "docs/verification/generated_kills.json: each of the eight historical "
+        "entries of the main line has a kill by a drawn case and is named by "
+        "the digest of its path, old and new text; a value kill has the "
+        "unmutated value inside its tolerance and the mutant's outside; a "
+        "refusal kill has the unmutated refusal text of the entry and a "
+        "mutant value outside the tolerance; a forced case's control passed "
+        "under both trees; the two L0 kills carry the note that the entries "
+        "are equivalent on L1 and L2; the checker reports a changed entry and "
+        "a changed oracle",
+        "the oracle values of validation/ recorded by tools/mutant_fuzz.py",
+        "the tolerance of validation/compare.py stated per kill",
+    ),
     "tests/test_generated_docs_in_sync.py": (
         "Workflow and YAML",
         "every committed file that a script writes (demo 2's error budget, "
@@ -1746,11 +1807,138 @@ def _kill_matrix_lines(kill_matrix: dict) -> list[str]:
     return lines + [""]
 
 
-def render(counts: Counter, kill_matrix=FROM_FILE) -> str:
+def load_blind_spots() -> dict | None:
+    """The degeneracy witness record, or None without the file."""
+    import json
+
+    if not BLIND_SPOTS.exists():
+        return None
+    return json.loads(BLIND_SPOTS.read_text(encoding="utf-8"))
+
+
+def _short(label: str) -> str:
+    return label.removeprefix("historical-")
+
+
+def _blind_spot_lines(record: dict) -> list[str]:
+    """The section on which demo configuration sees which historical
+    mutant, from ``tools/degeneracy_witness.py``."""
+    states = {(c["config"], c["mutant"]): c["state"] for c in record["cells"]}
+    labels = [m["label"] for m in record["mutants"]]
+    lines = [
+        "Demo configurations and historical mutants",
+        "------------------------------------------",
+        "",
+        "``tools/degeneracy_witness.py`` evaluated each demo configuration at",
+        f"one point under each of the {len(labels)} historical mutants of "
+        "the main line",
+        "(``docs/verification/blind_spots.json``, described in "
+        ":doc:`mutation`).",
+        "A mutant is *exercised, blind* for a configuration when the condition",
+        "under which it changes its function holds there and the",
+        "configuration's values do not move beyond its tolerance; *not",
+        "exercised* mutants (changed lines never run, or the condition never",
+        "holds) are not listed.",
+        "",
+        ".. list-table::",
+        "   :header-rows: 1",
+        "   :widths: 34 8 29 29",
+        "",
+        "   * - Configuration",
+        "     - Demo",
+        "     - Exercised, blind",
+        "     - Sees",
+    ]
+    for config in record["configs"]:
+        cid = config["id"]
+        blind = [_short(m) for m in labels
+                 if states[(cid, m)] == "exercised, blind"]
+        sees = [_short(m) for m in labels if states[(cid, m)] == "sees"]
+        lines += [
+            f"   * - ``{cid}``",
+            f"     - {config['demo'].removeprefix('demo')}",
+            f"     - {', '.join(blind) or 'none'}",
+            f"     - {', '.join(sees) or 'none'}",
+        ]
+    return lines + [""]
+
+
+def load_generated_kills() -> dict | None:
+    """The record of the drawn cases that kill the historical mutants, or
+    None without the file."""
+    import json
+
+    if not GENERATED_KILLS.exists():
+        return None
+    return json.loads(GENERATED_KILLS.read_text(encoding="utf-8"))
+
+
+def _g(value, digits: int = 3) -> str:
+    return "none" if value is None else f"{value:.{digits}g}"
+
+
+def _generated_kill_lines(record: dict) -> list[str]:
+    """The section on the drawn case that kills each historical mutant,
+    from ``tools/generated_kills.py``."""
+    lines = [
+        "Drawn cases that kill the historical mutants",
+        "--------------------------------------------",
+        "",
+        "``tools/mutant_fuzz.py`` ran cases drawn by ``validation/draw.py``",
+        "under the unmutated source and under each historical mutant and",
+        "judged both against the oracle of ``validation/``",
+        "(``docs/verification/generated_kills.json``, described in",
+        ":doc:`mutation`).  A *value* kill is an unmutated pass and a mutant",
+        "fail; a *refusal* kill is an unmutated refusal with the text the",
+        "entry removes and a mutant value the oracle rejects.  The values are",
+        "those of the mutant's worst row under the first integrator listed;",
+        "the tolerance is the one that row was held to.",
+        "",
+        ".. list-table::",
+        "   :header-rows: 1",
+        "   :widths: 26 8 18 12 9 9 9 9",
+        "",
+        "   * - Mutant",
+        "     - Seed",
+        "     - Mode, route",
+        "     - Integrator",
+        "     - Rule",
+        "     - Oracle",
+        "     - Mutant value",
+        "     - Tolerance",
+    ]
+    for entry in record["entries"]:
+        kill = entry["kill"]
+        if kill is None:
+            lines += [f"   * - {_short(entry['label'])}", "     - none",
+                      "     - not killed", "     -", "     -", "     -",
+                      "     -", "     -"]
+            continue
+        lines += [
+            f"   * - {_short(entry['label'])}",
+            f"     - {kill['seed']}",
+            f"     - {kill['mode']}, {kill['route']}",
+            f"     - {', '.join(entry['methods_killed'])}",
+            f"     - {kill['rule']}",
+            f"     - {_g(kill['oracle'], 6)}",
+            f"     - {_g(kill['mutant'], 6)}",
+            f"     - {_g(kill['allowed'])}",
+        ]
+    return lines + [""]
+
+
+def render(counts: Counter, kill_matrix=FROM_FILE,
+           blind_spots=FROM_FILE, generated_kills=FROM_FILE) -> str:
     """The catalogue page; ``kill_matrix`` is :data:`KILL_MATRIX` read by
-    default, a matrix, or None for none."""
+    default, a matrix, or None for none, and ``blind_spots`` and
+    ``generated_kills`` likewise :data:`BLIND_SPOTS` and
+    :data:`GENERATED_KILLS`."""
     if kill_matrix is FROM_FILE:
         kill_matrix = load_kill_matrix()
+    if blind_spots is FROM_FILE:
+        blind_spots = load_blind_spots()
+    if generated_kills is FROM_FILE:
+        generated_kills = load_generated_kills()
     kills = _kills_per_file(kill_matrix) if kill_matrix else None
     files = test_files()
     missing = [f for f in files if f not in FILE_META]
@@ -1841,6 +2029,10 @@ def render(counts: Counter, kill_matrix=FROM_FILE) -> str:
         lines.append("")
     if kill_matrix:
         lines += _kill_matrix_lines(kill_matrix)
+    if blind_spots:
+        lines += _blind_spot_lines(blind_spots)
+    if generated_kills:
+        lines += _generated_kill_lines(generated_kills)
     return "\n".join(lines) + "\n"
 
 

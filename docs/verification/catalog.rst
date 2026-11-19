@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8577 tests** in 148 files (parametrised
+The suite has **8651 tests** in 151 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -709,7 +709,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*2392 tests in 35 files.*
+*2466 tests in 38 files.*
 
 .. list-table::
    :header-rows: 1
@@ -745,6 +745,12 @@ Workflow and YAML
      - exact
      - 12
      - 0
+   * - ``test_degeneracy_witness.py``
+     - tools/degeneracy_witness.py: on a toy package whose mutant reads a kernel at the other leg order, a symmetric config is exercised and blind, an asymmetric one sees it, and configs that never run the changed line or run it with the condition false are not exercised; an if-test probe, a probe that raises, a mutant that raises, per-row attribution, the R-cache decision at the cache's kind, a changed result with the condition false is an error, and a package loaded from outside the tree is refused; the tolerance rule at its relative term, its floor and its boundary, a value moved with the condition off or missing on one side is an error, outcomes of arrays and messages compare, changed lines are numbered in the mutant file; docs/verification/blind_spots.json names the eight entries and every config with its tolerance, each row and cell state and the summary follow from the stored values, demo 1 to 3 cells match the CHANGELOG and demo notes, demo 4 has no exercised, blind cell, and the checker reports a tampered record
+     - a toy package and its mutant in tmp_path run in a child process; the CHANGELOG and demo READMEs for the expected demo cells
+     - exact; per-config tolerance stated in the record
+     - 33
+     - 0
    * - ``test_demo3_levels.py``
      - demo 3 level A: the free-field m-point function through the package, and the R-contracted vertex against the raw one
      - closed form (level A is a single diagram, hence exact); QMC on the raw-vertex path
@@ -775,6 +781,12 @@ Workflow and YAML
      - exact / displayed precision
      - 5
      - 0
+   * - ``test_generated_kills.py``
+     - docs/verification/generated_kills.json: each of the eight historical entries of the main line has a kill by a drawn case and is named by the digest of its path, old and new text; a value kill has the unmutated value inside its tolerance and the mutant's outside; a refusal kill has the unmutated refusal text of the entry and a mutant value outside the tolerance; a forced case's control passed under both trees; the two L0 kills carry the note that the entries are equivalent on L1 and L2; the checker reports a changed entry and a changed oracle
+     - the oracle values of validation/ recorded by tools/mutant_fuzz.py
+     - the tolerance of validation/compare.py stated per kill
+     - 5
+     - 0
    * - ``test_l1_structure_guards.py``
      - callable-γ scalar/matrix R decided on the whole spline grid; the Γ spline reaches a negative t_min; t_max beyond t_max_cache refused; diag_R / diag_C refused when R or C has off-diagonal entries (dense R, mixing κ² or σ², a mixing κ² that raises at some probe points, a mixing κ² or σ² of vector positions read at the positions of evaluate and sweep), diagonal structures accepted
      - scipy quad of the rate; Lyapunov equation of the Markov embedding; scipy dblquad of R κ² R
@@ -793,6 +805,12 @@ Workflow and YAML
      - 1e-9 (GL) / 2e-3 (qmc_scalar)
      - 32
      - 9
+   * - ``test_mutant_fuzz.py``
+     - the kill rule of tools/mutant_fuzz.py: records joined by seed, mode, route and integrator; a mutant fail over an unmutated pass kills, over an unmutated fail does not; an unmutated refusal with the fix's text and a rejected mutant value kills, another refusal (a guard of Expansion.evaluate the entry does not change among them), an error, an accepted value or a fail of non-finite values only does not; the forced draw modes change only what they name, refuse a case outside their precondition, and leave the default draw unchanged; each forced case has an admissible control; a case shared by entries runs once under the unmutated tree; the oracle cache lies outside the tree and reuses a lost row only under limits no larger; the joined row keeps both trees' values at the mutant's worst tag; a saved case file is read back as the cases ran; the driver files import no sft_wick
+     - hand-written fuzz records; drawn cases of validation/draw.py
+     - exact
+     - 36
+     - 0
    * - ``test_mutation_corpus.py``
      - the corpus of tools/mutations/ has 15 historical and 15 operator entries, each old text occurs once in its file, no two entries write the same file text, a historical entry cites its fix and an existing CHANGELOG heading; docs/verification/kill_matrix.json names the current corpus by digest and only test files the fast suite still runs, records at least 29 kills and a classification and reason for every other mutant; tools/kill_matrix.py on a fixture (a classification dropped when its entry changes, a kill by a flaky test file alone refused) and the catalogue's kill column
      - the current source and CHANGELOG; the node IDs pytest collects; a two-entry corpus and a hand-written sweep report
@@ -1100,4 +1118,159 @@ Surviving mutants
 ~~~~~~~~~~~~~~~~~
 
 Every mutant was killed.
+
+Demo configurations and historical mutants
+------------------------------------------
+
+``tools/degeneracy_witness.py`` evaluated each demo configuration at
+one point under each of the 8 historical mutants of the main line
+(``docs/verification/blind_spots.json``, described in :doc:`mutation`).
+A mutant is *exercised, blind* for a configuration when the condition
+under which it changes its function holds there and the
+configuration's values do not move beyond its tolerance; *not
+exercised* mutants (changed lines never run, or the condition never
+holds) are not listed.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 8 29 29
+
+   * - Configuration
+     - Demo
+     - Exercised, blind
+     - Sees
+   * - ``demo1_config.yaml``
+     - 1
+     - none
+     - none
+   * - ``demo1/L2/config.yaml``
+     - 1
+     - none
+     - none
+   * - ``demo2_config.yaml``
+     - 2
+     - callable-coupling-at-one-leg-order
+     - none
+   * - ``demo2/L2/config_FF.yaml``
+     - 2
+     - none
+     - none
+   * - ``demo2/L2/config_FK.yaml``
+     - 2
+     - callable-coupling-at-one-leg-order
+     - none
+   * - ``demo3/config_FK.yaml``
+     - 3
+     - callable-coupling-at-one-leg-order
+     - none
+   * - ``demo3/config_F3K.yaml``
+     - 3
+     - callable-coupling-at-one-leg-order
+     - none
+   * - ``demo4/config_level_a.yaml``
+     - 4
+     - none
+     - callable-coupling-at-one-leg-order
+   * - ``demo4/config_level_a_4pt.yaml``
+     - 4
+     - none
+     - callable-coupling-at-one-leg-order
+   * - ``validation/demo_package_cases.py:demo4``
+     - 4
+     - none
+     - callable-coupling-at-one-leg-order
+   * - ``validation/demo_package_cases.py:demo4 order 4``
+     - 4
+     - none
+     - callable-coupling-at-one-leg-order
+
+Drawn cases that kill the historical mutants
+--------------------------------------------
+
+``tools/mutant_fuzz.py`` ran cases drawn by ``validation/draw.py``
+under the unmutated source and under each historical mutant and
+judged both against the oracle of ``validation/``
+(``docs/verification/generated_kills.json``, described in
+:doc:`mutation`).  A *value* kill is an unmutated pass and a mutant
+fail; a *refusal* kill is an unmutated refusal with the text the
+entry removes and a mutant value the oracle rejects.  The values are
+those of the mutant's worst row under the first integrator listed;
+the tolerance is the one that row was held to.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 8 18 12 9 9 9 9
+
+   * - Mutant
+     - Seed
+     - Mode, route
+     - Integrator
+     - Rule
+     - Oracle
+     - Mutant value
+     - Tolerance
+   * - shared-external-label-accepted
+     - 2
+     - shared-label, l1
+     - gauss_legendre, qmc_vectorized
+     - refusal
+     - 0.00111711
+     - 0.000558554
+     - 1.98e-13
+   * - callable-coupling-at-one-leg-order
+     - 20
+     - default, l1
+     - gauss_legendre, qmc_vectorized
+     - value
+     - -0.00235842
+     - -0.00239255
+     - 3.47e-13
+   * - iso-c-trace
+     - 4
+     - default, l1
+     - gauss_legendre, qmc_vectorized
+     - value
+     - -0.0014258
+     - -0.0128322
+     - 4.07e-13
+   * - t-min-not-reaching-integrators
+     - 1
+     - default, l1
+     - gauss_legendre, qmc_vectorized
+     - value
+     - 0.0139861
+     - 0.020057
+     - 1.62e-12
+   * - diagonal-flags-on-a-non-diagonal-system
+     - 11
+     - diag-c, l0
+     - gauss_legendre, qmc_vectorized
+     - refusal
+     - 7.40379e-05
+     - 7.41889e-06
+     - 3.08e-13
+   * - r-group-takes-any-position
+     - 9
+     - multiplicative-apart, l0
+     - gauss_legendre, qmc_vectorized
+     - refusal
+     - -0.0096142
+     - -0.0122899
+     - 9.71e-13
+   * - r-cache-mismatch-accepted
+     - 1
+     - iso-r-on, l1
+     - gauss_legendre, qmc_vectorized
+     - refusal
+     - 0.0306851
+     - 2.35331
+     - 3.29e-12
+   * - no-cut-at-a-pinned-external-time
+     - 6
+     - default, l1
+     - gauss_legendre
+     - value
+     - -0.012231
+     - -0.0122266
+     - 1.31e-12
 

@@ -64,6 +64,60 @@ the tests that compare the corpus with the source skip under it.  The workflow
 `.github/workflows/mutation.yml` runs the sweep in six shards on `workflow_dispatch`
 and then checks that `src/` is unchanged.  `docs/verification/mutation.rst` describes it.
 
+### Added: kills by drawn cases, and the demo configurations each mutant is invisible to
+
+`tools/mutant_fuzz.py` runs cases drawn by `validation/draw.py` under the unmutated
+`src/` and under a copy with one historical corpus entry applied, and judges both
+against the oracle of `validation/`.  A case kills an entry when the unmutated tree
+passes and the mutant fails; for the four entries that remove a refusal (the shared
+external label, a diagonal flag on a non-diagonal system, the position of an
+R-connected group, an R-cache mismatch) it kills when the unmutated tree refuses with
+that refusal's text and the mutant returns a value the oracle rejects.  Another
+refusal, an error, an accepted value or a failure made only of non-finite values is
+not a kill.  Draw modes force the shared
+label, `diag_C` on a mixing C, `iso_R` against the other kind of R cache, and legs
+apart under multiplicative noise; the default draw is unchanged, and each forced case
+has an admissible control that both trees must pass.  `tools/mutant_lowering.py` is
+the lowering of `validation/lower.py` with the shared spelling and an L0 route
+through `integrate_diagrams`.  The oracle row of a case is computed once and cached
+outside the project, keyed by the digest of the oracle's code
+(`tools/mutant_oracle.py`); a row lost to a limit is computed again under larger
+limits.  Each run saves the cases of an entry's first kill, which `run --case-file`
+runs again without drawing them.
+
+`tools/generated_kills.py` collects the first kill of each entry into
+`docs/verification/generated_kills.json`: seed, mode, route, integrator, rule, the
+oracle's and the mutant's value and the tolerance at the mutant's worst row, the
+unmutated value or refusal there, the seeds tried, and the digest of the entry.
+All eight entries are killed within the first three seeds tried each, taken in
+increasing order from seeds that pass under both integrators and reach the entry's
+code.  The diagonal-flag and R-group entries are equivalent mutants on L1 and L2:
+through `Expansion.evaluate` both trees refuse the forced cases, by guards the entries
+do not change, so they are killed on the L0 route; with the second guard also
+removed, L1 returns the L0 mutant's value to the last bit.  The validation catalogue
+renders the record, and `tests/test_generated_kills.py` checks that every entry has a
+kill, that its digest matches the corpus and the oracle's code, and that each kill
+meets its rule.
+
+`tools/degeneracy_witness.py` evaluates the demo 1 to 4 YAML configurations at one
+point, and the demo 4 package cases (the order-4 ones with `--heavy`, which the
+committed record includes), under each of the eight entries.  Each entry has a
+condition, read by a probe at the line it changes, for example `t_min != 0` or a label
+shared by two externals.  For each pair the witness
+records whether the changed lines never run or the condition never holds (`not
+exercised`), the condition holds and no value moves beyond the configuration's
+tolerance (`exercised, blind`), or a value moves or the mutant raises (`sees`).  It
+runs the unmutated function with the probe and the mutated one on the same arguments
+in the same process, cross-checks the probe against the two results, and counts line
+events on the changed lines (`tools/witness_sentinel.py`).
+`docs/verification/blind_spots.json` holds the record, the validation catalogue renders
+it, and `tests/test_degeneracy_witness.py` checks it: demos 1 to 3 see none of the
+eight, the leg-order entry is `exercised, blind` on the demo 2 and demo 3
+configurations with a callable coupling, and demo 4 sees the leg-order entry and has
+no `exercised, blind` cell.  `check` recomputes every state and the summary from the
+stored values and compares the digests of the watched functions and of each
+configuration's files with the tree.
+
 ### Added: an oracle that shares no code with the package
 
 `validation/` ships in the sdist, not in the wheel.  `validation/modelspec.py`

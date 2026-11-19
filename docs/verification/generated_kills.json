@@ -1,0 +1,815 @@
+{
+ "rule": "value: the unmutated tree passes against the oracle and the mutant fails; refusal: the unmutated tree refuses with the text of the refusal the entry removes and the mutant returns a value the oracle rejects; a forced case counts only when its admissible control passes under both trees",
+ "oracle_sha256": "e85b53d7afbde63100b8b0131a64c97c95f04c43f6b6cd2050fe2a233b446758",
+ "corpus_sha256": "26e372bab7d8a1b853ba811d0bc758bd9e691c3ddb85d78e0be2dd926983e232",
+ "entries": [
+  {
+   "label": "historical-shared-external-label-accepted",
+   "kind": "historical",
+   "path": "perturbation.py",
+   "sha256": "e38d19dc49ba8964d551bb7ea91d0e28dd55264db50a812966babe774c4a324a",
+   "mutated_sha256": "99c805f10c86e0983aa4609ea5a60117deffc261e9450fe8084aacee8632ba09",
+   "target": {
+    "mode": "shared-label",
+    "route": "l1",
+    "expect": "share the same spatial label",
+    "methods": [
+     "gauss_legendre",
+     "qmc_vectorized"
+    ],
+    "note": null
+   },
+   "killed": true,
+   "kill": {
+    "seed": 2,
+    "mode": "shared-label",
+    "route": "l1",
+    "method": "gauss_legendre",
+    "rule": "refusal",
+    "tag": [
+     2
+    ],
+    "oracle": 0.0011171081816240143,
+    "mutant": 0.0005585540908120071,
+    "mutant_error_estimate": 0.0,
+    "allowed": 1.9797594218124446e-13,
+    "ratio": 2821323059.044508,
+    "head": null,
+    "head_allowed": null,
+    "head_error": "ValueError: 2 external operators share the same spatial label 'y'.  This is not supported: the spatial contraction is keyed by label, so operators sharing one are collapsed without their distinct component-index routings, giving a silently wrong answer.  Give each external operator a DISTINCT label  ...",
+    "control": [
+     "pass",
+     "pass"
+    ],
+    "features": [
+     "kind:general",
+     "N=2",
+     "legs=2",
+     "weight=3",
+     "F",
+     "white",
+     "OU:damped_cosine"
+    ],
+    "t_min": 0.4308849725064854,
+    "t_final": 1.6873155933880415,
+    "tolerance": {
+     "rel": 1e-10,
+     "k_err": 0.0,
+     "floor": 1e-12
+    }
+   },
+   "methods_killed": [
+    "gauss_legendre",
+    "qmc_vectorized"
+   ],
+   "searched": {
+    "seeds": [
+     0,
+     2,
+     3
+    ],
+    "rows": 6,
+    "runs": [
+     {
+      "modes": [
+       "shared-label"
+      ],
+      "routes": [
+       "l1"
+      ],
+      "seeds": [
+       0,
+       2,
+       3
+      ],
+      "rows": 6,
+      "counted": 4,
+      "not_killed": {
+       "mutant pass": 2
+      }
+     }
+    ]
+   }
+  },
+  {
+   "label": "historical-callable-coupling-at-one-leg-order",
+   "kind": "historical",
+   "path": "perturbation.py",
+   "sha256": "3ff7a792951c30d736377ae1ea1aedafc3ed53a8b2d5aae610b3f54194f2c52f",
+   "mutated_sha256": "a0d535ecf4a9b813c435554e8d26cd32a80969f72ff0953083b96141343ca75b",
+   "target": {
+    "mode": "default",
+    "route": "l1",
+    "expect": null,
+    "methods": [
+     "gauss_legendre",
+     "qmc_vectorized"
+    ],
+    "note": null
+   },
+   "killed": true,
+   "kill": {
+    "seed": 20,
+    "mode": "default",
+    "route": "l1",
+    "method": "gauss_legendre",
+    "rule": "value",
+    "tag": [
+     0,
+     1,
+     0,
+     1
+    ],
+    "oracle": -0.002358422457926623,
+    "mutant": -0.00239254921526873,
+    "mutant_error_estimate": 0.0,
+    "allowed": 3.4669820704959265e-13,
+    "ratio": 98433613.58146623,
+    "head": -0.0023584224579266174,
+    "head_allowed": 3.4669820704959265e-13,
+    "head_error": null,
+    "control": null,
+    "features": [
+     "kind:general",
+     "N=2",
+     "legs=2",
+     "weight=2",
+     "source",
+     "F",
+     "G",
+     "two times",
+     "OU:gaussian",
+     "Poisson:white:(3,)"
+    ],
+    "t_min": 0.38572155736484215,
+    "t_final": 1.717230901888601,
+    "tolerance": {
+     "rel": 1e-10,
+     "k_err": 0.0,
+     "floor": 1e-12
+    }
+   },
+   "methods_killed": [
+    "gauss_legendre",
+    "qmc_vectorized"
+   ],
+   "searched": {
+    "seeds": [
+     20,
+     25,
+     26
+    ],
+    "rows": 6,
+    "runs": [
+     {
+      "modes": [
+       "default"
+      ],
+      "routes": [
+       "l1"
+      ],
+      "seeds": [
+       20,
+       25,
+       26
+      ],
+      "rows": 6,
+      "counted": 6,
+      "not_killed": {}
+     }
+    ]
+   }
+  },
+  {
+   "label": "historical-iso-c-trace",
+   "kind": "historical",
+   "path": "evaluate.py",
+   "sha256": "dc32ee62ed7b2a010ebd86f042ac3ed320cf40543ef4f18ab40df2e7efdbd022",
+   "mutated_sha256": "3719adac73d6630b37f12dd1bd01cf5661079901845cbfe1a270216f62682066",
+   "target": {
+    "mode": "default",
+    "route": "l1",
+    "expect": null,
+    "methods": [
+     "gauss_legendre",
+     "qmc_vectorized"
+    ],
+    "note": null
+   },
+   "killed": true,
+   "kill": {
+    "seed": 4,
+    "mode": "default",
+    "route": "l1",
+    "method": "gauss_legendre",
+    "rule": "value",
+    "tag": [
+     0,
+     1,
+     0
+    ],
+    "oracle": -0.0014257976679262075,
+    "mutant": -0.01283217901133588,
+    "mutant_error_estimate": 0.0,
+    "allowed": 4.0687941604752e-13,
+    "ratio": 28033812706.016827,
+    "head": -0.0014257976679262082,
+    "head_allowed": 4.0687941604752e-13,
+    "head_error": null,
+    "control": null,
+    "features": [
+     "kind:isotropic",
+     "N=3",
+     "legs=3",
+     "weight=2",
+     "source",
+     "F",
+     "scalar R",
+     "connected",
+     "OU:constant",
+     "cumulant:S1",
+     "flag:iso_R",
+     "flag:diag_C",
+     "flag:iso_C"
+    ],
+    "t_min": 0.28620293560750354,
+    "t_final": 1.9626367527907786,
+    "tolerance": {
+     "rel": 1e-10,
+     "k_err": 0.0,
+     "floor": 1e-12
+    }
+   },
+   "methods_killed": [
+    "gauss_legendre",
+    "qmc_vectorized"
+   ],
+   "searched": {
+    "seeds": [
+     4,
+     5,
+     9
+    ],
+    "rows": 6,
+    "runs": [
+     {
+      "modes": [
+       "default"
+      ],
+      "routes": [
+       "l1"
+      ],
+      "seeds": [
+       4,
+       5,
+       9
+      ],
+      "rows": 6,
+      "counted": 6,
+      "not_killed": {}
+     }
+    ]
+   }
+  },
+  {
+   "label": "historical-t-min-not-reaching-integrators",
+   "kind": "historical",
+   "path": "evaluate.py",
+   "sha256": "2b7b9716c9256ec3d77727652e1d814531199174aff9fcc43aec5eca88e297eb",
+   "mutated_sha256": "04fe7ed1335f0bd42533502e940b7f763f84dcaa2d019df6a5c45f052f84a239",
+   "target": {
+    "mode": "default",
+    "route": "l1",
+    "expect": null,
+    "methods": [
+     "gauss_legendre",
+     "qmc_vectorized"
+    ],
+    "note": null
+   },
+   "killed": true,
+   "kill": {
+    "seed": 1,
+    "mode": "default",
+    "route": "l1",
+    "method": "gauss_legendre",
+    "rule": "value",
+    "tag": [
+     0,
+     1,
+     0,
+     0,
+     1,
+     0
+    ],
+    "oracle": 0.013986144407101865,
+    "mutant": 0.020057041641494903,
+    "mutant_error_estimate": 0.0,
+    "allowed": 1.6160094845389521e-12,
+    "ratio": 3756721289.3710628,
+    "head": 0.013986144407101853,
+    "head_allowed": 1.6160094845389521e-12,
+    "head_error": null,
+    "control": null,
+    "features": [
+     "kind:general",
+     "N=3",
+     "legs=1",
+     "weight=2",
+     "F",
+     "G",
+     "OU:exponential",
+     "OU:gaussian",
+     "cumulant:S1",
+     "cumulant:S2",
+     "cumulant:S3",
+     "cumulant:W3"
+    ],
+    "t_min": 0.201972157752334,
+    "t_final": 1.5389442373241264,
+    "tolerance": {
+     "rel": 1e-10,
+     "k_err": 0.0,
+     "floor": 1e-12
+    }
+   },
+   "methods_killed": [
+    "gauss_legendre",
+    "qmc_vectorized"
+   ],
+   "searched": {
+    "seeds": [
+     0,
+     1,
+     2
+    ],
+    "rows": 6,
+    "runs": [
+     {
+      "modes": [
+       "default"
+      ],
+      "routes": [
+       "l1"
+      ],
+      "seeds": [
+       0,
+       1,
+       2
+      ],
+      "rows": 6,
+      "counted": 2,
+      "not_killed": {
+       "mutant pass": 3,
+       "mutant refusal": 1
+      }
+     }
+    ]
+   }
+  },
+  {
+   "label": "historical-diagonal-flags-on-a-non-diagonal-system",
+   "kind": "historical",
+   "path": "workflow/system.py",
+   "sha256": "9e58cb39a12f411461d1ed9b09f0c345cdea7fe20fe6b96bb1c13821f4aac031",
+   "mutated_sha256": "8c8573ee0c46da81d4b71982202e85c4a7e314bca44967e6fe53c564d1c48c68",
+   "target": {
+    "mode": "diag-c",
+    "route": "l0",
+    "expect": "of this system has off-diagonal component entries",
+    "methods": [
+     "gauss_legendre",
+     "qmc_vectorized"
+    ],
+    "note": "Equivalent on L1 and L2: Expansion.evaluate refuses the forced cases for the unmutated tree and the mutant alike, by the diagonal-C reading at every position (_guard_diagonal_c), which the entry does not change. Killed on L0 (integrate_diagrams); with that guard also removed, L1 returns the value the mutant returns on L0."
+   },
+   "killed": true,
+   "kill": {
+    "seed": 11,
+    "mode": "diag-c",
+    "route": "l0",
+    "method": "gauss_legendre",
+    "rule": "refusal",
+    "tag": [
+     0,
+     1,
+     0
+    ],
+    "oracle": 7.403793704362487e-05,
+    "mutant": 7.418885772203105e-06,
+    "mutant_error_estimate": 0.0,
+    "allowed": 3.076811733208727e-13,
+    "ratio": 216519751.76897317,
+    "head": null,
+    "head_allowed": null,
+    "head_error": "ValueError: C of this system has off-diagonal component entries (from a dense R, a component-mixing \u03ba\u00b2 such as GeneralKappa2, or a matrix \u03c3\u00b2), and diag_C=True keeps only C_aa, which would give a wrong result without an error.  Pass diag_C=False to System.expand and to System.propagators: the propaga ...",
+    "control": [
+     "pass",
+     "pass"
+    ],
+    "features": [
+     "kind:general",
+     "N=3",
+     "legs=3",
+     "weight=2",
+     "source",
+     "F",
+     "connected",
+     "OU:damped_cosine",
+     "Poisson:exponential:()",
+     "cumulant:S1",
+     "flag:diag_C"
+    ],
+    "t_min": 0.22335051092888739,
+    "t_final": 1.7156296176138113,
+    "tolerance": {
+     "rel": 1e-10,
+     "k_err": 0.0,
+     "floor": 1e-12
+    }
+   },
+   "methods_killed": [
+    "gauss_legendre",
+    "qmc_vectorized"
+   ],
+   "searched": {
+    "seeds": [
+     11,
+     39,
+     53,
+     58,
+     61,
+     88
+    ],
+    "rows": 18,
+    "runs": [
+     {
+      "modes": [
+       "diag-c"
+      ],
+      "routes": [
+       "l0"
+      ],
+      "seeds": [
+       11,
+       39,
+       53
+      ],
+      "rows": 6,
+      "counted": 6,
+      "not_killed": {}
+     },
+     {
+      "modes": [
+       "diag-c"
+      ],
+      "routes": [
+       "l1"
+      ],
+      "seeds": [
+       11,
+       39,
+       53,
+       58,
+       61,
+       88
+      ],
+      "rows": 12,
+      "counted": 0,
+      "not_killed": {
+       "mutant refusal": 12
+      }
+     }
+    ]
+   }
+  },
+  {
+   "label": "historical-r-group-takes-any-position",
+   "kind": "historical",
+   "path": "evaluate.py",
+   "sha256": "a152c8877dcfcd92d6f03771924dffc27c345890d8847902f038acf9733f19b6",
+   "mutated_sha256": "6cdc394b272fd8b64e57a081d8c4865e6ab15c85f06e61fff84787f506f7c73b",
+   "target": {
+    "mode": "multiplicative-apart",
+    "route": "l0",
+    "expect": "the spatial points '[^']+' and '[^']+' are at different\\s+positions",
+    "methods": [
+     "gauss_legendre",
+     "qmc_vectorized"
+    ],
+    "note": "Equivalent on L1 and L2: Expansion.evaluate refuses the forced cases for the unmutated tree and the mutant alike, by the single-site guard under multiplicative noise (_guard_single_site), which the entry does not change. Killed on L0 (integrate_diagrams); with that guard also removed, L1 returns the value the mutant returns on L0."
+   },
+   "killed": true,
+   "kill": {
+    "seed": 9,
+    "mode": "multiplicative-apart",
+    "route": "l0",
+    "method": "gauss_legendre",
+    "rule": "refusal",
+    "tag": [
+     0,
+     2
+    ],
+    "oracle": -0.009614204756939587,
+    "mutant": -0.012289882845870142,
+    "mutant_error_estimate": 0.0,
+    "allowed": 9.710346804508983e-13,
+    "ratio": 2755491789.117262,
+    "head": null,
+    "head_allowed": null,
+    "head_error": "ValueError: integrate_diagrams: the spatial points 'x' and 'y' are at different positions (0.4810050350545221 and -0.7753643771825258), and a chain of response propagators joins them in this diagram.  R carries delta(n - n'), so the points of an R-connected group are one spatial point with one coord ...",
+    "control": [
+     "pass",
+     "pass"
+    ],
+    "features": [
+     "kind:isotropic",
+     "N=3",
+     "legs=2",
+     "weight=3",
+     "F",
+     "scalar R",
+     "two times",
+     "OU:gaussian",
+     "multiplicative:ito",
+     "flag:iso_R",
+     "flag:diag_C",
+     "flag:iso_C"
+    ],
+    "t_min": -0.23811435015442564,
+    "t_final": 1.2549463584956009,
+    "tolerance": {
+     "rel": 1e-10,
+     "k_err": 0.0,
+     "floor": 1e-12
+    }
+   },
+   "methods_killed": [
+    "gauss_legendre",
+    "qmc_vectorized"
+   ],
+   "searched": {
+    "seeds": [
+     9,
+     13,
+     18,
+     19,
+     21,
+     28
+    ],
+    "rows": 18,
+    "runs": [
+     {
+      "modes": [
+       "multiplicative-apart"
+      ],
+      "routes": [
+       "l0"
+      ],
+      "seeds": [
+       9,
+       13,
+       18
+      ],
+      "rows": 6,
+      "counted": 6,
+      "not_killed": {}
+     },
+     {
+      "modes": [
+       "multiplicative-apart"
+      ],
+      "routes": [
+       "l1"
+      ],
+      "seeds": [
+       9,
+       13,
+       18,
+       19,
+       21,
+       28
+      ],
+      "rows": 12,
+      "counted": 0,
+      "not_killed": {
+       "baseline refused otherwise": 12
+      }
+     }
+    ]
+   }
+  },
+  {
+   "label": "historical-r-cache-mismatch-accepted",
+   "kind": "historical",
+   "path": "evaluate.py",
+   "sha256": "c1c3c1aa3f506c327ab31b0fca0bbb16ee74ad871f3ca936dd64d9913ea9fc1d",
+   "mutated_sha256": "ebcced4e1ed945d97a84e596098caa46afb1059aa46930fe7c086c1c42ed7e0e",
+   "target": {
+    "mode": "iso-r-on",
+    "route": "l1",
+    "expect": "propagator cache's R is a (scalar|matrix)",
+    "methods": [
+     "gauss_legendre",
+     "qmc_vectorized"
+    ],
+    "note": null
+   },
+   "killed": true,
+   "kill": {
+    "seed": 1,
+    "mode": "iso-r-on",
+    "route": "l1",
+    "method": "gauss_legendre",
+    "rule": "refusal",
+    "tag": [
+     0,
+     1,
+     0,
+     0,
+     0,
+     1
+    ],
+    "oracle": 0.030685105971173052,
+    "mutant": 2.3533088345471396,
+    "mutant_error_estimate": 0.0,
+    "allowed": 3.2859056409460708e-12,
+    "ratio": 706844317022.8229,
+    "head": null,
+    "head_allowed": null,
+    "head_error": "ValueError: R(x, y_0) with component indices (None, None) has no component index on one or both legs, which is how compute_moment(..., iso_R=True) writes a scalar R, but the propagator cache's R is a matrix (cache.model.iso_R is False), and an index-free R is evaluated as its trace: N times too larg ...",
+    "control": [
+     "pass",
+     "pass"
+    ],
+    "features": [
+     "kind:general",
+     "N=3",
+     "legs=1",
+     "weight=2",
+     "F",
+     "G",
+     "OU:exponential",
+     "OU:gaussian",
+     "cumulant:S1",
+     "cumulant:S2",
+     "cumulant:S3",
+     "cumulant:W3",
+     "flag:iso_R"
+    ],
+    "t_min": 0.201972157752334,
+    "t_final": 1.5389442373241264,
+    "tolerance": {
+     "rel": 1e-10,
+     "k_err": 0.0,
+     "floor": 1e-12
+    }
+   },
+   "methods_killed": [
+    "gauss_legendre",
+    "qmc_vectorized"
+   ],
+   "searched": {
+    "seeds": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     9,
+     10,
+     13
+    ],
+    "rows": 18,
+    "runs": [
+     {
+      "modes": [
+       "iso-r-on"
+      ],
+      "routes": [
+       "l1"
+      ],
+      "seeds": [
+       1,
+       2,
+       3
+      ],
+      "rows": 6,
+      "counted": 6,
+      "not_killed": {}
+     },
+     {
+      "modes": [
+       "iso-r-off"
+      ],
+      "routes": [
+       "l1"
+      ],
+      "seeds": [
+       0,
+       4,
+       5,
+       9,
+       10,
+       13
+      ],
+      "rows": 12,
+      "counted": 10,
+      "not_killed": {
+       "mutant pass": 2
+      }
+     }
+    ]
+   }
+  },
+  {
+   "label": "historical-no-cut-at-a-pinned-external-time",
+   "kind": "historical",
+   "path": "evaluate.py",
+   "sha256": "a0a7ab929239300278250ce0fac7d5a04218b854dfef657cdcf07ebc1848d70c",
+   "mutated_sha256": "37e323437708f7150f0d7e9891f01a9585085eb01a2287ee440b7e5b3498d1c7",
+   "target": {
+    "mode": "default",
+    "route": "l1",
+    "expect": null,
+    "methods": [
+     "gauss_legendre"
+    ],
+    "note": null
+   },
+   "killed": true,
+   "kill": {
+    "seed": 6,
+    "mode": "default",
+    "route": "l1",
+    "method": "gauss_legendre",
+    "rule": "value",
+    "tag": [
+     2,
+     0,
+     0
+    ],
+    "oracle": -0.012231027260832394,
+    "mutant": -0.012226575106955666,
+    "mutant_error_estimate": 0.0,
+    "allowed": 1.3063622165285289e-12,
+    "ratio": 3408054.6883532587,
+    "head": -0.012231027260832378,
+    "head_allowed": 1.3063622165285289e-12,
+    "head_error": null,
+    "control": null,
+    "features": [
+     "kind:general",
+     "N=3",
+     "legs=2",
+     "weight=2",
+     "F",
+     "white",
+     "two times",
+     "OU:gaussian",
+     "cumulant:S2",
+     "cumulant:S3"
+    ],
+    "t_min": 0.3034972507136939,
+    "t_final": 1.6799247928853998,
+    "tolerance": {
+     "rel": 1e-10,
+     "k_err": 0.0,
+     "floor": 1e-12
+    }
+   },
+   "methods_killed": [
+    "gauss_legendre"
+   ],
+   "searched": {
+    "seeds": [
+     0,
+     6,
+     16
+    ],
+    "rows": 3,
+    "runs": [
+     {
+      "modes": [
+       "default"
+      ],
+      "routes": [
+       "l1"
+      ],
+      "seeds": [
+       0,
+       6,
+       16
+      ],
+      "rows": 3,
+      "counted": 2,
+      "not_killed": {
+       "mutant pass": 1
+      }
+     }
+    ]
+   }
+  }
+ ]
+}
