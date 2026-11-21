@@ -1,0 +1,6 @@
+changes:
+- case: brownian-gl
+  where:
+    t_y: 0.65
+  kind: moved
+  reason: Gauss-Legendre splits at the covariance kink against a pinned external time.

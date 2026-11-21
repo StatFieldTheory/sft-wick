@@ -2,6 +2,87 @@
 
 ## Unreleased
 
+### Added: numerical drift reports between versions
+
+``sft-wick compare-versions`` runs a declared corpus against two local package
+versions and compares per-order totals at matching physical coordinates.
+The JSON report records changes, errors, declarations, and input fingerprints.
+Movements beyond round-off require a declaration even within reported QMC
+uncertainty. A missing row or a refused comparison also fails the gate.
+
+### Added: a parent-commit gate
+
+`tools/parent_gate.py judge --head REV [--base REV]` runs the test files a change
+adds, modifies or renames (`tests/**/test_*.py`) on three trees, each a `git archive`
+of its commit and each checked to import the package from its own `src`: the head,
+the parent with the parent's own versions of the files that exist there, and an
+overlay that is the head everywhere except `src/`, which is the parent's.  The runs
+are serial unless `--pytest-workers` is given, with `-m "not slow"`,
+`--continue-on-collection-errors`, `PYTHONHASHSEED=0` and `MUTATION_HARNESS=1`, under a
+time limit (`--time-limit`, 3600 s for the head; three times the head's time, at
+least 300 s and at most that limit, for the others) and a limit of 6 GB on the summed
+memory of each run's processes (`--max-rss-gb`): the physical footprint on macOS,
+anonymous and shared resident memory plus swap on Linux, counted over the run's
+process group, its descendants and any process started in a new session.  A process
+is known by its pid and start time and forgotten once it has exited, so a process
+that reuses its pid is neither counted nor killed.  A run's first process is reaped
+only after its process group has been killed, so a process left in that group after
+the last poll is killed too, also when `ps` cannot be started.  A gate stopped by `SIGTERM`,
+`SIGHUP` or `SIGINT` kills its runs, removes its trees and exits 128 plus the signal.
+Three kinds of run are tool errors, not verdicts: a pytest process killed from outside
+the gate by `SIGKILL`, `SIGTERM`, `SIGINT` or `SIGHUP`, a pytest run that exits 2
+(interrupted), and a run in which a pytest-xdist worker crashed, because the gate
+cannot tell which signal ended the worker.  The parent is the first parent
+of the head, or with `--base` the merge base of the base and the head.  A change
+passes when a test that passes on the head fails on the overlay with an
+`AssertionError` or pytest's `Failed` (in the call or in a fixture, from a frame
+outside `src/`, read from the last exception of a chained traceback), and when it
+changes nothing under `src/`.  It is rejected when no
+touched test passes on the head, when the overlay run writes no report, and when the
+tests that pass on the head fail on the overlay only by raising (`crash_only`), only
+at a time or memory limit, only through names the change adds (an import, a
+`monkeypatch.setattr` or an attribute that fails outside `src/`, or a keyword of a
+function, a class or a dataclass, defined in the head's source and not in the
+parent's), or not at all.  It is undetermined (`environment`) when the head's
+or the parent's own run of the touched files fails, is killed or writes no report.
+The exit code is 0, 1 or 3 for pass, reject and undetermined, and 2 for a tool error;
+`--json` writes every test's outcome on the three trees and `--summary` appends the
+verdict as Markdown.
+
+`tools/parent_gate.py replay --range RANGE [--earlier-range RANGE] --out DIR
+[--record FILE]` judges, two at a time by default (`--jobs`), every non-merge commit
+of a range whose subject starts with `fix` and that adds or modifies a
+`tests/test_*.py`, keeps each judgement as JSON under `DIR` and reuses it while the
+rules, settings and environment are the same.  The record holds each commit's
+verdict, decision, per-file counts and up to five witnesses, the pass rate over the
+commits not classed `environment`, and the rate under the other decisions for
+`crash_only` and for commits with no source change.  It carries a digest of the
+source text of the rules (`rules_digest`, the same under Python 3.10 to 3.14), and is
+refused, with exit 2, when a field holds a local path or a development name by the
+rules of `tests/test_repo_hygiene.py`.  `render` writes its page,
+`docs/verification/parent_gate.rst`.  `tests/test_parent_gate.py` checks the verdicts
+on a toy git repository and the committed record.
+
+`.github/workflows/parent-gate.yml` runs `judge` on every pull request against the
+merge base, with the copy of `tools/` from the base branch when the base has one.  The
+job is advisory (`continue-on-error: true`); an undetermined verdict does not fail it.
+Over the 86 fix commits after v0.4.2 the replay accepts 76 of the 85 not classed
+`environment` (89.4 %); the 9 rejected are 3 crashes, 3 runs that pass a time or
+memory limit on the parent's source and 3 test files that use names the fix adds.
+`tests/test_parent_gate.py` keeps the job advisory while the recorded rate is below
+90 %.
+
+### Changed: the catalogue names each test file's kind of reference
+
+`tools/gen_test_catalog.py` has `REFERENCE_KIND`, which names for every test file the
+strongest kind of reference one of its value checks of repository code is compared
+with: `exact_analytic`, `independent_code`, `simulation`, `self_consistency` or
+`none`.  `docs/verification/catalog.rst` shows it in a *Kind* column, defines the
+kinds and the rules for a file with checks of several kinds, counts the files per kind
+(74, 31, 0, 15 and 32 of 152) and lists the 32 files with no reference.  `render`
+raises `SystemExit` for a test file without a kind and for a kind outside the five,
+so `tests/test_catalog_current.py` fails until a new test file has one.
+
 ### Added: a mutation harness for the test suite
 
 `tools/mutation_check.py` applies one source edit at a time from a corpus in
@@ -63,6 +144,60 @@ survivors.  The harness sets `MUTATION_HARNESS=1` for every process it starts, a
 the tests that compare the corpus with the source skip under it.  The workflow
 `.github/workflows/mutation.yml` runs the sweep in six shards on `workflow_dispatch`
 and then checks that `src/` is unchanged.  `docs/verification/mutation.rst` describes it.
+
+### Added: kills by drawn cases, and the demo configurations each mutant is invisible to
+
+`tools/mutant_fuzz.py` runs cases drawn by `validation/draw.py` under the unmutated
+`src/` and under a copy with one historical corpus entry applied, and judges both
+against the oracle of `validation/`.  A case kills an entry when the unmutated tree
+passes and the mutant fails; for the four entries that remove a refusal (the shared
+external label, a diagonal flag on a non-diagonal system, the position of an
+R-connected group, an R-cache mismatch) it kills when the unmutated tree refuses with
+that refusal's text and the mutant returns a value the oracle rejects.  Another
+refusal, an error, an accepted value or a failure made only of non-finite values is
+not a kill.  Draw modes force the shared
+label, `diag_C` on a mixing C, `iso_R` against the other kind of R cache, and legs
+apart under multiplicative noise; the default draw is unchanged, and each forced case
+has an admissible control that both trees must pass.  `tools/mutant_lowering.py` is
+the lowering of `validation/lower.py` with the shared spelling and an L0 route
+through `integrate_diagrams`.  The oracle row of a case is computed once and cached
+outside the project, keyed by the digest of the oracle's code
+(`tools/mutant_oracle.py`); a row lost to a limit is computed again under larger
+limits.  Each run saves the cases of an entry's first kill, which `run --case-file`
+runs again without drawing them.
+
+`tools/generated_kills.py` collects the first kill of each entry into
+`docs/verification/generated_kills.json`: seed, mode, route, integrator, rule, the
+oracle's and the mutant's value and the tolerance at the mutant's worst row, the
+unmutated value or refusal there, the seeds tried, and the digest of the entry.
+All eight entries are killed within the first three seeds tried each, taken in
+increasing order from seeds that pass under both integrators and reach the entry's
+code.  The diagonal-flag and R-group entries are equivalent mutants on L1 and L2:
+through `Expansion.evaluate` both trees refuse the forced cases, by guards the entries
+do not change, so they are killed on the L0 route; with the second guard also
+removed, L1 returns the L0 mutant's value to the last bit.  The validation catalogue
+renders the record, and `tests/test_generated_kills.py` checks that every entry has a
+kill, that its digest matches the corpus and the oracle's code, and that each kill
+meets its rule.
+
+`tools/degeneracy_witness.py` evaluates the demo 1 to 4 YAML configurations at one
+point, and the demo 4 package cases (the order-4 ones with `--heavy`, which the
+committed record includes), under each of the eight entries.  Each entry has a
+condition, read by a probe at the line it changes, for example `t_min != 0` or a label
+shared by two externals.  For each pair the witness
+records whether the changed lines never run or the condition never holds (`not
+exercised`), the condition holds and no value moves beyond the configuration's
+tolerance (`exercised, blind`), or a value moves or the mutant raises (`sees`).  It
+runs the unmutated function with the probe and the mutated one on the same arguments
+in the same process, cross-checks the probe against the two results, and counts line
+events on the changed lines (`tools/witness_sentinel.py`).
+`docs/verification/blind_spots.json` holds the record, the validation catalogue renders
+it, and `tests/test_degeneracy_witness.py` checks it: demos 1 to 3 see none of the
+eight, the leg-order entry is `exercised, blind` on the demo 2 and demo 3
+configurations with a callable coupling, and demo 4 sees the leg-order entry and has
+no `exercised, blind` cell.  `check` recomputes every state and the summary from the
+stored values and compares the digests of the watched functions and of each
+configuration's files with the tree.
 
 ### Added: an oracle that shares no code with the package
 

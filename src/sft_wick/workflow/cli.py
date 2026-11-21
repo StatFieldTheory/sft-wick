@@ -130,6 +130,20 @@ def main(argv: list[str] | None = None) -> int:
         "--force", action="store_true", help="replace an existing comparison report"
     )
 
+    versions_p = sub.add_parser(
+        "compare-versions",
+        help="Check a corpus for undeclared numerical drift between two local versions.",
+    )
+    versions_p.add_argument("corpus", type=Path)
+    versions_p.add_argument("--baseline", type=Path, required=True)
+    versions_p.add_argument("--candidate", type=Path, required=True)
+    versions_p.add_argument("--declared", type=Path)
+    versions_p.add_argument("--json", dest="report", type=Path, required=True)
+    versions_p.add_argument("--timeout", type=float, default=300.0)
+    versions_p.add_argument(
+        "--force", action="store_true", help="replace an existing comparison report"
+    )
+
     qs_p = sub.add_parser(
         "quickstart",
         help="write quickstart.yaml to the current directory and run it "
@@ -156,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         "schema": _cmd_schema,
         "quickstart": _cmd_quickstart,
         "compare-resources": _cmd_compare_resources,
+        "compare-versions": _cmd_compare_versions,
     }
     if args.cmd in commands:
         return commands[args.cmd](args)
@@ -299,6 +314,30 @@ def _cmd_compare_resources(args) -> int:
             f"{peak / 2**20 if peak is not None else '-'}"
         )
     print(f"[sft-wick] report: {args.report}; complete gates passed: {report['ok']}")
+    for failure in report["failures"]:
+        print(f"[sft-wick] {failure}", file=sys.stderr)
+    return 0 if report["ok"] else 1
+
+
+def _cmd_compare_versions(args) -> int:
+    from .version_compare import compare_versions
+
+    try:
+        report = compare_versions(
+            args.corpus,
+            args.baseline,
+            args.candidate,
+            args.report,
+            declared=args.declared,
+            timeout=args.timeout,
+            force=args.force,
+        )
+    except (ValueError, OSError) as exc:
+        print(f"[sft-wick] version comparison: {exc}", file=sys.stderr)
+        return 1
+    for classification, count in sorted(report["counts"].items()):
+        print(f"{classification}\t{count}")
+    print(f"[sft-wick] report: {args.report}; drift gate passed: {report['ok']}")
     for failure in report["failures"]:
         print(f"[sft-wick] {failure}", file=sys.stderr)
     return 0 if report["ok"] else 1

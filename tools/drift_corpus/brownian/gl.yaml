@@ -1,0 +1,59 @@
+system:
+  t_min: 0.2
+  field:
+    name: phi
+    n_components: 1
+  linear:
+    type: diagonal
+    gamma:
+    - 0.0
+  vertices: []
+  noise:
+    kappa2:
+      type: separable_translation
+      temporal:
+        type: exponential
+        lam: 0.0
+        sigma_t: 1.0
+      spatial:
+        type: gaussian
+        sigma_x: 1.0
+    sigma2:
+      type: constant
+      amplitude: 1.0
+expand:
+  observable:
+  - phi(x)
+  - phi(y)
+  orders:
+  - 0
+propagators:
+  t_max: 1.5
+  c_closed_form: auto
+  c_closed_form_only: true
+  c_closed_form_vectorized: true
+sweep:
+  integrate_over:
+  - x
+  external_times_grid:
+    y:
+    - 0.65
+    - 1.4
+  positions_grid:
+    x:
+    - 0.0
+    y:
+    - 0.0
+  t_final_grid:
+  - 1.4
+  component_pairs:
+  - - 0
+    - 0
+  orders:
+  - 0
+  n_gauss: 12
+  n_jobs: 1
+  method: gauss_legendre
+  n_samples: 4096
+  seed: 42
+output: []

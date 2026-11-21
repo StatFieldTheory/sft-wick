@@ -10,11 +10,19 @@ When ``docs/verification/kill_matrix.json`` exists (written by
 ``tools/kill_matrix.py`` from a sweep of the mutation corpus), every table
 gains a column with the number of corpus mutants under which a test of the
 file failed, and the page ends with the mutants no test killed.  Without the
-file the page has neither.
+file the page has neither.  When ``docs/verification/blind_spots.json``
+exists (written by ``tools/degeneracy_witness.py``), the page ends with a
+table of the historical mutants each demo configuration sees and is blind to,
+and when ``docs/verification/generated_kills.json`` exists (written by
+``tools/generated_kills.py``), with the drawn case that kills each of them.
 
 The descriptive columns come from :data:`FILE_META` below, a curated
 table, because "what reference does this test use" is not something a
-script can read off reliably.  The counts are always measured.
+script can read off reliably.  :data:`REFERENCE_KIND` names the kind of
+that reference for every file, one of :data:`REFERENCE_KINDS`; the page
+defines the kinds, counts them and lists the files with none, and
+:func:`render` refuses a test file without a kind or with an unknown one.
+The counts are always measured.
 The test ``tests/test_catalog_current.py`` regenerates the page and
 fails when it differs from the committed one, or when a test file has
 no entry here, so the catalogue cannot silently go stale.
@@ -37,6 +45,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "docs" / "verification" / "catalog.rst"
 KILL_MATRIX = ROOT / "docs" / "verification" / "kill_matrix.json"
+BLIND_SPOTS = ROOT / "docs" / "verification" / "blind_spots.json"
+GENERATED_KILLS = ROOT / "docs" / "verification" / "generated_kills.json"
 #: The default of :func:`render`: read :data:`KILL_MATRIX` if it exists.
 FROM_FILE = object()
 
@@ -165,6 +175,13 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "fresh serial measurement and failure receipts",
         "adversarial metadata/error/cancellation/nonfinite/overflow probes; true GL/QMC subprocesses and stale-bytecode witness",
         "exact repeat/QMC gates; explicit 1e-12 relative and 1e-14 absolute GL budget",
+    ),
+    "tests/test_version_compare.py": (
+        "Workflow and YAML",
+        "version drift reporting, physical coordinates, isolated installs, "
+        "QMC movement declarations, worker refusal and input protection",
+        "known values from two toy installs and floating-point neighbor probes",
+        "exact decisions; test boundaries at the 4.5e-16 relative budget",
     ),
     "tests/test_qmc_coupling_chunks.py": (
         "Integrators",
@@ -1546,6 +1563,100 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "two-entry corpus and a hand-written sweep report",
         "exact",
     ),
+    "tests/test_parent_gate.py": (
+        "Workflow and YAML",
+        "tools/parent_gate.py on a toy git repository: five changes whose new "
+        "tests also pass on the parent (an assertion on a constant, approx with a "
+        "tolerance above the value, assertions behind a false condition, a test of "
+        "an unchanged function, a skipped test) are rejected as commits and as "
+        "pull requests; a test that fails on the parent with an assertion, a "
+        "refusal the parent lacks, a tightened existing test and an assertion in "
+        "a fixture are accepted, also when raised while the parent's exception "
+        "is handled or beside a crash; a failing own run of the parent or of the "
+        "change is environment; names the change adds (import, monkeypatch, "
+        "keyword, dataclass field) are not witnesses; a crash of the parent, an "
+        "assert or a missing name inside its source and a refused option value "
+        "share their own verdict; a time or memory limit on the parent is not a "
+        "witness, and a process in a new session counts for the memory limit; an "
+        "overlay that writes no report is not a pass; files outside src/ come "
+        "from the change; a change without a source difference passes and one "
+        "without a test is rejected; a run killed from outside, interrupted or "
+        "with a crashed xdist worker gives no verdict, a stopped judge or replay "
+        "kills its runs, and a replay that raises leaves no stop behind; a signal "
+        "handler takes no lock and calls nothing, and a signal just after the "
+        "reap sends nothing to the reaped pid; a process left in the run's group "
+        "after the last poll is killed, and so is a run whose process table "
+        "cannot be read; a process that reuses a pid the run saw is neither "
+        "counted nor killed; the rules digest reads every module-level statement "
+        "of the rule files, and a change to one of each kind changes it; exit "
+        "codes, JSON and the job summary; an edit that keeps "
+        "the base cancels no gate run; the page names the memory measure; the "
+        "replay runs two changes at a time, resumes, refuses local paths and "
+        "development names; the figures of docs/verification/parent_gate_replay.json "
+        "follow from its commits, the workflow stays advisory while its rate is "
+        "below 90 %, it names the fix commits of its range, "
+        "matches the CHANGELOG's counts of tests failing before a fix, classes "
+        "a commit as needing another dependency version only with that version "
+        "named, and was made by the current rules; the replay page is current",
+        "a toy package in tmp_path whose verdicts follow from its construction, "
+        "run by real pytest subprocesses; git log; the CHANGELOG's counts",
+        "exact",
+    ),
+    "tests/test_mutant_fuzz.py": (
+        "Workflow and YAML",
+        "the kill rule of tools/mutant_fuzz.py: records joined by seed, mode, "
+        "route and integrator; a mutant fail over an unmutated pass kills, "
+        "over an unmutated fail does not; an unmutated refusal with the fix's "
+        "text and a rejected mutant value kills, another refusal (a guard of "
+        "Expansion.evaluate the entry does not change among them), an error, "
+        "an accepted value or a fail of non-finite values only does not; the "
+        "forced draw modes change only what they name, refuse a case outside "
+        "their precondition, and leave the default draw unchanged; each forced "
+        "case has an admissible control; a case shared by entries runs once "
+        "under the unmutated tree; the oracle cache lies outside the tree and "
+        "reuses a lost row only under limits no larger; the joined row keeps "
+        "both trees' values at the mutant's worst tag; a saved case file is "
+        "read back as the cases ran; the driver files import no sft_wick",
+        "hand-written fuzz records; drawn cases of validation/draw.py",
+        "exact",
+    ),
+    "tests/test_degeneracy_witness.py": (
+        "Workflow and YAML",
+        "tools/degeneracy_witness.py: on a toy package whose mutant reads a "
+        "kernel at the other leg order, a symmetric config is exercised and "
+        "blind, an asymmetric one sees it, and configs that never run the "
+        "changed line or run it with the condition false are not exercised; "
+        "an if-test probe, a probe that raises, a mutant that raises, "
+        "per-row attribution, the R-cache decision at the cache's kind, a "
+        "changed result with the condition false is an error, and a package "
+        "loaded from outside the tree is refused; the tolerance rule at its "
+        "relative "
+        "term, its floor and its boundary, a value moved with the condition "
+        "off or missing on one side is an error, outcomes of arrays and "
+        "messages compare, changed lines are numbered in the mutant file; "
+        "docs/verification/blind_spots.json names the eight entries and every "
+        "config with its tolerance, each row and cell state and the summary "
+        "follow from the stored values, demo 1 to 3 cells match the CHANGELOG "
+        "and demo notes, demo 4 has no exercised, blind cell, and the checker "
+        "reports a tampered record",
+        "a toy package and its mutant in tmp_path run in a child process; "
+        "the CHANGELOG and demo READMEs for the expected demo cells",
+        "exact; per-config tolerance stated in the record",
+    ),
+    "tests/test_generated_kills.py": (
+        "Workflow and YAML",
+        "docs/verification/generated_kills.json: each of the eight historical "
+        "entries of the main line has a kill by a drawn case and is named by "
+        "the digest of its path, old and new text; a value kill has the "
+        "unmutated value inside its tolerance and the mutant's outside; a "
+        "refusal kill has the unmutated refusal text of the entry and a "
+        "mutant value outside the tolerance; a forced case's control passed "
+        "under both trees; the two L0 kills carry the note that the entries "
+        "are equivalent on L1 and L2; the checker reports a changed entry and "
+        "a changed oracle",
+        "the oracle values of validation/ recorded by tools/mutant_fuzz.py",
+        "the tolerance of validation/compare.py stated per kill",
+    ),
     "tests/test_generated_docs_in_sync.py": (
         "Workflow and YAML",
         "every committed file that a script writes (demo 2's error budget, "
@@ -1557,6 +1668,168 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "from budget.npz",
         "exact / displayed precision",
     ),
+}
+
+#: Kinds of reference, strongest first.
+REFERENCE_KINDS = ("exact_analytic", "independent_code", "simulation",
+                   "self_consistency", "none")
+#: test file -> the strongest kind of reference one of its value checks of
+#: repository code is compared with; see "Reference kinds" in the catalogue.
+#: Keys in alphabetical order.
+REFERENCE_KIND: dict[str, str] = {
+    "tests/test_R_contracted_vertex.py": "exact_analytic",
+    "tests/test_ambiguous_user_names.py": "self_consistency",
+    "tests/test_batch_reduction_reuse.py": "independent_code",
+    "tests/test_c_propagator_gauss_legendre.py": "exact_analytic",
+    "tests/test_callable_vertex_copies.py": "exact_analytic",
+    "tests/test_catalog_current.py": "none",
+    "tests/test_closed_form_dispatch_boundaries.py": "exact_analytic",
+    "tests/test_coincident_external_labels.py": "exact_analytic",
+    "tests/test_config_error_paths.py": "none",
+    "tests/test_config_module_env.py": "none",
+    "tests/test_connected_target.py": "exact_analytic",
+    "tests/test_contraction_admission_rules.py": "independent_code",
+    "tests/test_contraction_error_bound.py": "independent_code",
+    "tests/test_contraction_workspace_budget.py": "independent_code",
+    "tests/test_coupling_execution_plan.py": "exact_analytic",
+    "tests/test_coupling_native_reads.py": "self_consistency",
+    "tests/test_coupling_scale_invariance.py": "exact_analytic",
+    "tests/test_coupling_structure_reuse.py": "exact_analytic",
+    "tests/test_custom_cache_aliasing.py": "independent_code",
+    "tests/test_d_dim_spatial.py": "exact_analytic",
+    "tests/test_deductive_expansion.py": "exact_analytic",
+    "tests/test_deductive_numerics.py": "exact_analytic",
+    "tests/test_degeneracy_witness.py": "none",
+    "tests/test_demo2_budget_cache.py": "none",
+    "tests/test_demo2_kernels.py": "exact_analytic",
+    "tests/test_demo2_moment_reference.py": "exact_analytic",
+    "tests/test_demo3_levels.py": "exact_analytic",
+    "tests/test_demo3_shot_noise.py": "exact_analytic",
+    "tests/test_demo4_asymmetric_noise.py": "exact_analytic",
+    "tests/test_demo4_order4_channel.py": "independent_code",
+    "tests/test_demo5_white_noise.py": "independent_code",
+    "tests/test_demo6_cubic_quartic.py": "independent_code",
+    "tests/test_demo6_high_cumulants.py": "exact_analytic",
+    "tests/test_demo6_static_vertices.py": "exact_analytic",
+    "tests/test_demo7_shot3d.py": "independent_code",
+    "tests/test_demo7_space.py": "independent_code",
+    "tests/test_demo8_kernels.py": "independent_code",
+    "tests/test_demo8_oscillator.py": "independent_code",
+    "tests/test_demo8_reference.py": "independent_code",
+    "tests/test_demo8_time_dependent_rate.py": "independent_code",
+    "tests/test_demo8_white_noise_table.py": "independent_code",
+    "tests/test_dense_contraction_backend.py": "independent_code",
+    "tests/test_diag_C_offdiagonal.py": "exact_analytic",
+    "tests/test_diag_fast_component_labels.py": "exact_analytic",
+    "tests/test_diagonal_A_time_dependent.py": "exact_analytic",
+    "tests/test_diagrams.py": "exact_analytic",
+    "tests/test_drawing_style.py": "none",
+    "tests/test_drawing_tikz.py": "none",
+    "tests/test_dt_discretization.py": "self_consistency",
+    "tests/test_dynamic_coupling.py": "exact_analytic",
+    "tests/test_empty_order_selection.py": "independent_code",
+    "tests/test_equal_time_nonlocal.py": "exact_analytic",
+    "tests/test_eval_symbolic_batched.py": "self_consistency",
+    "tests/test_evaluate_interpolation_accuracy.py": "none",
+    "tests/test_evaluate_pipeline.py": "self_consistency",
+    "tests/test_execution_controls.py": "self_consistency",
+    "tests/test_expressions.py": "exact_analytic",
+    "tests/test_factorized_coupling.py": "independent_code",
+    "tests/test_factorized_public.py": "self_consistency",
+    "tests/test_fields.py": "none",
+    "tests/test_gauss_legendre_integrator.py": "independent_code",
+    "tests/test_gaussian_quadratic.py": "exact_analytic",
+    "tests/test_gaussian_quadratic_reuse.py": "exact_analytic",
+    "tests/test_generated_docs_in_sync.py": "none",
+    "tests/test_generated_kills.py": "none",
+    "tests/test_gl_chunked_integration.py": "exact_analytic",
+    "tests/test_gl_chunking.py": "exact_analytic",
+    "tests/test_gl_external_cuts.py": "exact_analytic",
+    "tests/test_gl_white_noise_kinks.py": "exact_analytic",
+    "tests/test_group_position_conflict.py": "independent_code",
+    "tests/test_higher_cumulants.py": "exact_analytic",
+    "tests/test_hormander_moments_reference.py": "exact_analytic",
+    "tests/test_iso_c_value.py": "self_consistency",
+    "tests/test_ito_moments_reference.py": "exact_analytic",
+    "tests/test_kernel_argument_copies.py": "independent_code",
+    "tests/test_kink_split_external_time.py": "exact_analytic",
+    "tests/test_kink_split_nquad_couplings.py": "exact_analytic",
+    "tests/test_l1_structure_guards.py": "exact_analytic",
+    "tests/test_latex_local_coupling.py": "none",
+    "tests/test_lazy_drawing_import.py": "none",
+    "tests/test_literal_component_labels.py": "exact_analytic",
+    "tests/test_local_callable_coupling.py": "independent_code",
+    "tests/test_matrix_r_batched.py": "exact_analytic",
+    "tests/test_matrix_r_evaluation.py": "exact_analytic",
+    "tests/test_matrix_r_index_and_zero_dim.py": "exact_analytic",
+    "tests/test_min_lag_boundaries.py": "exact_analytic",
+    "tests/test_msr_numerics_regressions.py": "exact_analytic",
+    "tests/test_multiplicative_noise_l1.py": "exact_analytic",
+    "tests/test_mutant_fuzz.py": "none",
+    "tests/test_mutation_corpus.py": "none",
+    "tests/test_mutation_harness.py": "none",
+    "tests/test_mutation_harness_layout.py": "none",
+    "tests/test_mutation_harness_sweep.py": "none",
+    "tests/test_mutation_harness_trees.py": "none",
+    "tests/test_nonlocal_leg_order.py": "exact_analytic",
+    "tests/test_nquad_callable_coupling.py": "exact_analytic",
+    "tests/test_observable_label_collision.py": "independent_code",
+    "tests/test_observable_operator_inputs.py": "independent_code",
+    "tests/test_offdiagonal_c_tables.py": "exact_analytic",
+    "tests/test_ou_uniform_factors.py": "independent_code",
+    "tests/test_ou_white_cumulant.py": "exact_analytic",
+    "tests/test_parent_gate.py": "none",
+    "tests/test_perturbation.py": "exact_analytic",
+    "tests/test_propagator_cache_identity.py": "self_consistency",
+    "tests/test_propagator_dispatch.py": "exact_analytic",
+    "tests/test_propagator_lookup_cache.py": "none",
+    "tests/test_propagators.py": "none",
+    "tests/test_qmc_coupling_chunks.py": "exact_analytic",
+    "tests/test_qmc_sobol_bits.py": "independent_code",
+    "tests/test_quadratic_exact_contraction.py": "exact_analytic",
+    "tests/test_quadratic_mixed_exactness.py": "exact_analytic",
+    "tests/test_quadratic_mixed_rounding.py": "exact_analytic",
+    "tests/test_quadratic_symmetrization.py": "exact_analytic",
+    "tests/test_quadratic_white_reference_parity.py": "exact_analytic",
+    "tests/test_r_cache_mismatch.py": "exact_analytic",
+    "tests/test_rate_spline_limits.py": "exact_analytic",
+    "tests/test_repo_hygiene.py": "none",
+    "tests/test_resource_compare.py": "self_consistency",
+    "tests/test_resource_controls.py": "none",
+    "tests/test_scalar_coupling_reads.py": "self_consistency",
+    "tests/test_selfconsistency.py": "exact_analytic",
+    "tests/test_simplify.py": "exact_analytic",
+    "tests/test_spec_wrapper_aliasing.py": "exact_analytic",
+    "tests/test_spectral.py": "exact_analytic",
+    "tests/test_sweep_component_tuples.py": "exact_analytic",
+    "tests/test_sweep_integrand_reuse.py": "exact_analytic",
+    "tests/test_sweep_selectors.py": "independent_code",
+    "tests/test_system_t_min.py": "independent_code",
+    "tests/test_table_limits.py": "exact_analytic",
+    "tests/test_time_variable_recipe.py": "self_consistency",
+    "tests/test_trusted_cache_delegates.py": "exact_analytic",
+    "tests/test_user_hook_arguments.py": "exact_analytic",
+    "tests/test_validate_run_parity.py": "none",
+    "tests/test_validation_demo_package.py": "independent_code",
+    "tests/test_validation_demos.py": "exact_analytic",
+    "tests/test_validation_draw.py": "none",
+    "tests/test_validation_fuzz.py": "independent_code",
+    "tests/test_validation_hierarchy.py": "exact_analytic",
+    "tests/test_validation_imports.py": "none",
+    "tests/test_validation_lower.py": "exact_analytic",
+    "tests/test_validation_lower_v042.py": "independent_code",
+    "tests/test_validation_worker.py": "self_consistency",
+    "tests/test_vectorized_r_time.py": "self_consistency",
+    "tests/test_version_compare.py": "exact_analytic",
+    "tests/test_wick.py": "exact_analytic",
+    "tests/test_workflow.py": "exact_analytic",
+    "tests/test_workflow_cli.py": "none",
+    "tests/test_workflow_config.py": "self_consistency",
+    "tests/test_workflow_corpora.py": "none",
+    "tests/test_workflow_schema.py": "none",
+    "tests/test_yaml_alias_expansion.py": "none",
+    "tests/test_yaml_merge_limit.py": "none",
+    "tests/test_yaml_spec_coverage.py": "exact_analytic",
 }
 
 
@@ -1746,11 +2019,218 @@ def _kill_matrix_lines(kill_matrix: dict) -> list[str]:
     return lines + [""]
 
 
-def render(counts: Counter, kill_matrix=FROM_FILE) -> str:
+def load_blind_spots() -> dict | None:
+    """The degeneracy witness record, or None without the file."""
+    import json
+
+    if not BLIND_SPOTS.exists():
+        return None
+    return json.loads(BLIND_SPOTS.read_text(encoding="utf-8"))
+
+
+def _short(label: str) -> str:
+    return label.removeprefix("historical-")
+
+
+def _blind_spot_lines(record: dict) -> list[str]:
+    """The section on which demo configuration sees which historical
+    mutant, from ``tools/degeneracy_witness.py``."""
+    states = {(c["config"], c["mutant"]): c["state"] for c in record["cells"]}
+    labels = [m["label"] for m in record["mutants"]]
+    lines = [
+        "Demo configurations and historical mutants",
+        "------------------------------------------",
+        "",
+        "``tools/degeneracy_witness.py`` evaluated each demo configuration at",
+        f"one point under each of the {len(labels)} historical mutants of "
+        "the main line",
+        "(``docs/verification/blind_spots.json``, described in "
+        ":doc:`mutation`).",
+        "A mutant is *exercised, blind* for a configuration when the condition",
+        "under which it changes its function holds there and the",
+        "configuration's values do not move beyond its tolerance; *not",
+        "exercised* mutants (changed lines never run, or the condition never",
+        "holds) are not listed.",
+        "",
+        ".. list-table::",
+        "   :header-rows: 1",
+        "   :widths: 34 8 29 29",
+        "",
+        "   * - Configuration",
+        "     - Demo",
+        "     - Exercised, blind",
+        "     - Sees",
+    ]
+    for config in record["configs"]:
+        cid = config["id"]
+        blind = [_short(m) for m in labels
+                 if states[(cid, m)] == "exercised, blind"]
+        sees = [_short(m) for m in labels if states[(cid, m)] == "sees"]
+        lines += [
+            f"   * - ``{cid}``",
+            f"     - {config['demo'].removeprefix('demo')}",
+            f"     - {', '.join(blind) or 'none'}",
+            f"     - {', '.join(sees) or 'none'}",
+        ]
+    return lines + [""]
+
+
+def load_generated_kills() -> dict | None:
+    """The record of the drawn cases that kill the historical mutants, or
+    None without the file."""
+    import json
+
+    if not GENERATED_KILLS.exists():
+        return None
+    return json.loads(GENERATED_KILLS.read_text(encoding="utf-8"))
+
+
+def _g(value, digits: int = 3) -> str:
+    return "none" if value is None else f"{value:.{digits}g}"
+
+
+def _generated_kill_lines(record: dict) -> list[str]:
+    """The section on the drawn case that kills each historical mutant,
+    from ``tools/generated_kills.py``."""
+    lines = [
+        "Drawn cases that kill the historical mutants",
+        "--------------------------------------------",
+        "",
+        "``tools/mutant_fuzz.py`` ran cases drawn by ``validation/draw.py``",
+        "under the unmutated source and under each historical mutant and",
+        "judged both against the oracle of ``validation/``",
+        "(``docs/verification/generated_kills.json``, described in",
+        ":doc:`mutation`).  A *value* kill is an unmutated pass and a mutant",
+        "fail; a *refusal* kill is an unmutated refusal with the text the",
+        "entry removes and a mutant value the oracle rejects.  The values are",
+        "those of the mutant's worst row under the first integrator listed;",
+        "the tolerance is the one that row was held to.",
+        "",
+        ".. list-table::",
+        "   :header-rows: 1",
+        "   :widths: 26 8 18 12 9 9 9 9",
+        "",
+        "   * - Mutant",
+        "     - Seed",
+        "     - Mode, route",
+        "     - Integrator",
+        "     - Rule",
+        "     - Oracle",
+        "     - Mutant value",
+        "     - Tolerance",
+    ]
+    for entry in record["entries"]:
+        kill = entry["kill"]
+        if kill is None:
+            lines += [f"   * - {_short(entry['label'])}", "     - none",
+                      "     - not killed", "     -", "     -", "     -",
+                      "     -", "     -"]
+            continue
+        lines += [
+            f"   * - {_short(entry['label'])}",
+            f"     - {kill['seed']}",
+            f"     - {kill['mode']}, {kill['route']}",
+            f"     - {', '.join(entry['methods_killed'])}",
+            f"     - {kill['rule']}",
+            f"     - {_g(kill['oracle'], 6)}",
+            f"     - {_g(kill['mutant'], 6)}",
+            f"     - {_g(kill['allowed'])}",
+        ]
+    return lines + [""]
+
+
+def _check_reference_kinds(files: list[str]) -> None:
+    """Raise SystemExit when a test file has no kind or a kind is unknown."""
+    missing = [f for f in files if f not in REFERENCE_KIND]
+    if missing:
+        raise SystemExit("tools/gen_test_catalog.py: add REFERENCE_KIND entries for "
+                         + ", ".join(missing))
+    unknown = sorted(f"{f} ({k!r})" for f, k in REFERENCE_KIND.items()
+                     if k not in REFERENCE_KINDS)
+    if unknown:
+        raise SystemExit("tools/gen_test_catalog.py: unknown REFERENCE_KIND values for "
+                         + ", ".join(unknown) + "; use one of " + ", ".join(REFERENCE_KINDS))
+
+
+def _kind(name: str) -> str:
+    return name.replace("_", " ")
+
+
+REFERENCE_KIND_PROSE = [
+    "Reference kinds",
+    "---------------",
+    "",
+    "The *Kind* column names the strongest kind of reference that one of the",
+    "file's value checks of repository code (the package, ``examples/``,",
+    "``validation/``, ``tools/``) is compared with:",
+    "",
+    "- **exact analytic**: a closed form; a hand count of pairings, diagrams",
+    "  or orderings; a hand-derived exact value; exact rational arithmetic of",
+    "  a hand-derived formula; a closed form in extended precision (mpmath);",
+    "  the solution of a Lyapunov equation of a linear system.",
+    "- **independent code**: a value computed by code that shares no code",
+    "  with the package: the moment hierarchies of ``examples/reference/``",
+    "  and ``validation/``, scipy quadrature of a defining or hand-reduced",
+    "  integral, Gauss-Hermite oracles, brute-force enumeration",
+    "  (``tests/brute_wick.py``, or an exact enumeration of the package's own",
+    "  coefficient arrays).",
+    "- **simulation**: Monte Carlo of the stochastic process.",
+    "- **self consistency**: the package against itself: another route,",
+    "  integrator or backend, a cache round trip, an invariance, a pinned",
+    "  earlier output.",
+    "- **none**: no value computed by repository code is compared with a",
+    "  reference: refusals and their text, types, identities, call counts,",
+    "  file contents, tooling.",
+    "",
+    "Where a file holds checks of several kinds:",
+    "",
+    "- A zero sets the kind only when the same file checks a nonzero value of",
+    "  the same quantity on the same code path, or when an earlier version of",
+    "  the code got that zero wrong.",
+    "- A check that validates the reference, or a fact about a dependency the",
+    "  file then relies on, does not set the kind; the comparison of",
+    "  repository code with that reference does.",
+    "- An exact enumeration whose inputs are the package's own intermediate",
+    "  objects is independent code, not exact analytic.",
+    "- A check that runs no repository code, only a dependency such as scipy,",
+    "  does not set the kind.  ``test_evaluate_interpolation_accuracy.py``",
+    "  compares scipy's interpolation with a closed form, the fact behind the",
+    "  package's choice of ``method='linear'``, so its kind is none although",
+    "  its reference column names a closed form.",
+    "- At a remaining tie between two readings, the weaker kind.",
+    "",
+]
+
+
+def _reference_kind_lines(files: list[str]) -> list[str]:
+    """The section on reference kinds: definitions, counts, the ``none`` files."""
+    counts = Counter(REFERENCE_KIND[f] for f in files)
+    lines = [*REFERENCE_KIND_PROSE,
+             ".. list-table::", "   :header-rows: 1", "   :widths: 40 20", "",
+             "   * - Kind", "     - Files"]
+    for kind in REFERENCE_KINDS:
+        lines += [f"   * - {_kind(kind)}", f"     - {counts.get(kind, 0)}"]
+    lines += ["", "Files with no reference", "~~~~~~~~~~~~~~~~~~~~~~~", "",
+              ".. list-table::", "   :header-rows: 1", "   :widths: 30 70", "",
+              "   * - File", "     - What is checked"]
+    for f in files:
+        if REFERENCE_KIND[f] == "none":
+            lines += [f"   * - ``{f.removeprefix('tests/')}``", f"     - {FILE_META[f][1]}"]
+    return lines + [""]
+
+
+def render(counts: Counter, kill_matrix=FROM_FILE,
+           blind_spots=FROM_FILE, generated_kills=FROM_FILE) -> str:
     """The catalogue page; ``kill_matrix`` is :data:`KILL_MATRIX` read by
-    default, a matrix, or None for none."""
+    default, a matrix, or None for none, and ``blind_spots`` and
+    ``generated_kills`` likewise :data:`BLIND_SPOTS` and
+    :data:`GENERATED_KILLS`."""
     if kill_matrix is FROM_FILE:
         kill_matrix = load_kill_matrix()
+    if blind_spots is FROM_FILE:
+        blind_spots = load_blind_spots()
+    if generated_kills is FROM_FILE:
+        generated_kills = load_generated_kills()
     kills = _kills_per_file(kill_matrix) if kill_matrix else None
     files = test_files()
     missing = [f for f in files if f not in FILE_META]
@@ -1758,6 +2238,7 @@ def render(counts: Counter, kill_matrix=FROM_FILE) -> str:
         raise SystemExit(
             "tools/gen_test_catalog.py: add FILE_META entries for " + ", ".join(missing)
         )
+    _check_reference_kinds(files)
     by_subject: "OrderedDict[str, list]" = OrderedDict((s, []) for s in SUBJECTS)
     for f in files:
         subject, what, ref, tol = FILE_META[f]
@@ -1817,12 +2298,13 @@ def render(counts: Counter, kill_matrix=FROM_FILE) -> str:
             "",
             ".. list-table::",
             "   :header-rows: 1",
-            "   :widths: " + ("22 34 26 10 8" if kills is None
-                             else "20 32 24 10 7 7"),
+            "   :widths: " + ("20 32 22 9 9 8" if kills is None
+                             else "19 29 20 9 9 7 7"),
             "",
             "   * - File",
             "     - What is checked",
             "     - Reference",
+            "     - Kind",
             "     - Tolerance",
             "     - Tests",
         ]
@@ -1833,14 +2315,20 @@ def render(counts: Counter, kill_matrix=FROM_FILE) -> str:
                 f"   * - ``{f.removeprefix('tests/')}``",
                 f"     - {what}",
                 f"     - {ref}",
+                f"     - {_kind(REFERENCE_KIND[f])}",
                 f"     - {tol}",
                 f"     - {n}",
             ]
             if kills is not None:
                 lines.append(f"     - {kills.get(f, 0)}")
         lines.append("")
+    lines += _reference_kind_lines(files)
     if kill_matrix:
         lines += _kill_matrix_lines(kill_matrix)
+    if blind_spots:
+        lines += _blind_spot_lines(blind_spots)
+    if generated_kills:
+        lines += _generated_kill_lines(generated_kills)
     return "\n".join(lines) + "\n"
 
 

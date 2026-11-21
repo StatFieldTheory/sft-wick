@@ -490,6 +490,15 @@ tests named for it and reports whether they fail.  :doc:`mutation`
 describes the verdicts, the kill matrix and how the tool makes sure the
 mutated tree is the one imported.
 
+Tests that fail before their fix
+--------------------------------
+
+``tools/parent_gate.py`` runs the tests a change adds or modifies on its
+parent's source: ``src/`` from the parent, everything else from the change.
+A fix's test should fail there with an assertion.  :doc:`parent_gate`
+describes the verdicts, what the gate cannot judge, the pull-request
+workflow and a replay over the fix commits of the history.
+
 Running the tests
 -----------------
 

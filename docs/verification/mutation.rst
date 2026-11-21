@@ -192,6 +192,207 @@ Choices made while the corpus was written:
   limitation into a correct value, and the entry restores the value given
   for the code before it.
 
+Kills by drawn cases
+--------------------
+
+``tools/mutant_fuzz.py`` kills eight historical entries with cases drawn by
+``validation/draw.py`` and judged by the oracle of ``validation/``, which
+shares no code with the package: the shared label of two externals, the
+leg order of a callable coupling, the ``iso_C`` trace, ``t_min`` at the
+integrators, a diagonal flag on a non-diagonal system, the position of an
+R-connected group, an R-cache mismatch and the kink at a pinned external
+time.  For each entry it copies the project with the entry applied (the
+copy mode of ``tools/mutation_check.py``), runs every case under the
+unmutated ``src/`` and under the copy through ``python -m
+validation.worker``, and joins the two records of each seed, mode, route
+and integrator.  A case that several entries share runs once under the
+unmutated tree.  The oracle row of a case is computed once and cached
+outside the project, keyed by the model, the observable, the weight and a
+digest of the oracle's code: ``validation/hierarchy.py``,
+``validation/modelspec.py``, ``examples/reference/`` and the source of
+``validation.fuzz.oracle_of`` (``tools/mutant_oracle.py``).  A row lost to
+the deadline, the memory limit or an oracle error is cached with those
+limits and computed again under larger ones; a row lost with its process
+is not cached.  This process imports no sft_wick code
+(``tests/test_mutant_fuzz.py`` checks the imports of the driver files), and
+the oracle and the workers each run in at most three processes, one phase
+after the other.
+
+A case kills an entry when the unmutated tree passes against the oracle
+and the mutant fails, a value outside the tolerance of
+``validation/compare.py``.  Four entries remove a refusal: the shared label,
+the diagonal flag, the R-group position and the R-cache mismatch.  For
+them a case kills when the unmutated tree refuses it with the text of that
+refusal and the mutant returns a value the oracle rejects.  The mutant's
+failure must include a finite value outside its tolerance; a failure made
+only of NaN or infinite values is not counted.  A mutant that refuses for
+another reason, raises, times out or returns a value the oracle accepts is
+not killed, and an entry with no kill makes the tool exit with status 1.
+
+The default draw never reaches a refusal: its labels are distinct, its
+flags are the admissible ones, and the legs of a multiplicative-noise case
+share one point.  The modes ``shared-label`` (every leg at one point and
+time, spelled with one label by ``tools/mutant_lowering.py``), ``diag-c``,
+``iso-r-on``, ``iso-r-off`` and ``multiplicative-apart`` force the
+inadmissible spelling, flag or position on a drawn case and leave the rest
+of the draw unchanged.  Each forced case is also run as a control, with the
+admissible flags, distinct labels and shared positions, and a kill counts
+only when the control passes under both trees.
+
+The diagonal-flag and R-group entries are equivalent mutants on L1 and L2.
+``Expansion.evaluate`` has two further guards that the entries do not
+change, the diagonal-C reading at every position and the single-site guard
+under multiplicative noise, and they refuse the forced cases for the
+unmutated tree and the mutant alike: 12 of 12 rows each in the committed
+record.  Both entries are therefore run through the L0 entry point,
+``sft_wick.evaluate.integrate_diagrams``, on the diagrams and propagator
+cache of the L1 objects, and are killed there.  With the second guard also
+removed, the forced case on L1 returns the value the mutant returns on L0,
+to the last bit (diagonal flag 7.418885772e-06 against the oracle's
+7.403793704e-05; R-group -1.228988285e-02 against -9.614204757e-03).  The
+oracle's value at two positions for the R-group case comes from a model
+whose multiplicative Wiener processes are shared by every position, which
+the package has no spelling for, so that kill shows a number returned where
+the package must refuse.  ``generated_kills.json`` states the equivalence
+in the two entries' ``target.note``.
+
+.. code-block:: bash
+
+   python tools/mutant_fuzz.py run OUT --oracle-cache ../oracle-cache --jobs 3
+   python tools/mutant_fuzz.py run OUT --oracle-cache ../oracle-cache \
+       --labels historical-iso-c-trace --seeds 7534 4 5
+   python tools/mutant_fuzz.py summary OUT
+
+Without ``--seeds`` each entry takes the first ``--per-label`` seeds of
+``--search START STOP`` whose draw reaches its code.  ``OUT/kills.json``
+holds, per entry, the mode, route, kills and the reasons of every row that
+did not kill, with the oracle's and both trees' values at the mutant's
+worst row.  ``OUT/kill_cases/<label>.json`` holds the case of the entry's
+first kill and its control as they ran, and ``run --case-file`` runs those
+cases again, under a fresh copy, without drawing them.
+
+``tools/generated_kills.py write OUT ...`` collects the first kill of each
+entry from one or more runs into ``docs/verification/generated_kills.json``:
+the seed, mode, route and integrator, the rule that counted it, the
+oracle's value, the mutant's value and the tolerance at the mutant's worst
+row, the unmutated value there or the unmutated refusal, the features of
+the case, the seeds tried, and the digest of the entry's path, ``old`` and
+``new``.  :doc:`catalog` renders it, and ``tests/test_generated_kills.py``
+checks that each of the eight entries has a kill, that each digest matches
+the corpus, and that each kill meets the rule it is recorded under.  The
+seeds of the committed record were taken three at a time, in increasing
+order, from those that passed under both integrators in an earlier run of
+``validation/fuzz.py``, whose draw reaches the entry's code and meets its
+mode's precondition, until the first kill.
+
+.. code-block:: bash
+
+   python tools/mutant_fuzz.py run REPLAY --oracle-cache ../oracle-cache \
+       --case-file OUT/kill_cases/historical-iso-c-trace.json
+   python tools/generated_kills.py write OUT_1 OUT_2 ...
+   python tools/generated_kills.py check
+
+Demo configurations the entries are invisible to
+------------------------------------------------
+
+``tools/degeneracy_witness.py`` records, for each demo configuration and
+each of the eight entries, one of three states.  Each entry has a
+condition, the state in which it changes what its function does, read by a
+probe at the line it changes:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
+
+   * - Entry
+     - Condition at the changed line
+   * - shared label
+     - two or more external operators share a spatial label
+   * - leg order
+     - a callable coupling occurs at a leg order other than the first one
+       seen for it
+   * - ``iso_C`` trace
+     - an index-free C propagator of two or more components
+   * - ``t_min``
+     - an explicit ``t_min`` other than 0
+   * - diagonal flag
+     - the probed callable returns a matrix with an off-diagonal entry
+   * - R-group position
+     - two points of one R-connected direction group are at different
+       positions
+   * - R-cache mismatch
+     - the R indices of a diagram do not fit the kind of R of the cache it
+       is evaluated against
+   * - kink at a pinned external
+     - a kink against an external pinned at a fixed time lies strictly
+       inside an integration variable's range
+
+The states:
+
+* ``not exercised``: the lines the entry changes never run for the
+  configuration, or they run and the condition never holds there;
+* ``exercised, blind``: the condition holds on some call and every value
+  of the configuration moves by at most its tolerance;
+* ``sees``: the condition holds and some value moves by more, or the
+  mutant raises where the unmutated tree returns.
+
+A cell that fits none of them is ``error``, and ``check`` rejects a record
+with one: the unmutated tree raises, a value moves although the condition
+never holds for it, a value is missing on one side, or the function's
+result changes on a call where the probe found the condition false.  For
+the four entries that remove a refusal, the condition is the one under
+which the unmutated tree refuses, so on a configuration the unmutated tree
+accepts they are ``not exercised`` by construction.
+
+Each configuration is evaluated at one point in a fresh ``python -I``
+process, under the unmutated ``src/`` and under a copy with the entry
+applied, and the process checks that every module of the package it loaded
+comes from that ``src``.  Under the copy, a wrapper replaces the mutated
+function in every module of the package that holds it.  On each call it
+runs the unmutated function, compiled from the unmutated file with the
+probe put in (``tools/witness_sentinel.py``), and then the mutated one on
+the same arguments, and records whether the condition held and whether the
+two results differ; the second is a cross-check of the probe.
+``sys.monitoring`` counts the line events on the changed lines.  The
+R-cache entry is watched at the kind of R cache the evaluation reads: in
+``DiagramIntegrand._require_r_indices_match``, which computes the
+mismatch for both kinds, and in the check of ``integrate_diagrams``.  For
+the leg-order entry each call is attributed to the vertex multiset of its
+diagram and to its package-case group, so a row of the demo 4 package
+cases is judged by its own diagrams.
+
+The tolerance of a value ``v`` is ``rel * |v| + floor * scale``, with
+``rel`` and ``floor`` from the configuration's notes, which the record
+cites, and ``scale`` the largest value of the same perturbative order
+(demos 1 to 3, whose notes give an accuracy per channel) or of the
+configuration (demo 4, as ``validation/compare.py`` does).  The record's
+``summary.margins`` gives the largest relative move of a blind value and
+the smallest largest-relative-move of a cell that sees by value, so the
+range of tolerances over which no verdict changes can be read off.
+
+The configurations are the YAML files of demos 1 to 4, at one point, and
+the demo 4 white-pulse package cases of ``validation/demo_package_cases.py``
+(the order-4 cases only with ``--heavy``; the committed record has them).
+With three jobs, a run with ``--heavy`` and no cached unmutated rows took
+16 minutes.  The record measures the demo files of this tree.  Demo 2's R-contracted
+kernel, for instance, was a quadrature with a point asymmetry of about
+1e-5 at 0.5.0 and is analytic since 0.6.1.  Demo 4's exponential pulses
+and its unequal-time level-A cases in ``examples/demo4/level_a.py`` are not
+configurations of the witness.  The record is
+``docs/verification/blind_spots.json``; :doc:`catalog` renders it as a
+table, and ``tests/test_degeneracy_witness.py`` checks it against the
+CHANGELOG and the demo notes.  ``check`` also recomputes every row's
+state, every cell's state and the summary from the stored values, and
+compares the configurations, their tolerances, the digest of the files
+each one reads and the digest of the watched functions with the current
+tree, so an edit to any of them makes the record stale.
+
+.. code-block:: bash
+
+   python tools/degeneracy_witness.py run --scratch ../witness --heavy --jobs 3
+   python tools/degeneracy_witness.py check
+   python tools/gen_test_catalog.py
+
 Verdicts
 --------
 
