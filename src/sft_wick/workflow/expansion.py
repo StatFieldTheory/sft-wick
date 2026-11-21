@@ -537,6 +537,16 @@ class Expansion:
     # Likewise for expansions pickled before the flag was recorded.
     diag_C: bool | None = None
 
+    @property
+    def certificate(self) -> Any:
+        """The :class:`~sft_wick.CountCertificate` of
+        ``System.expand(certify=True)``, read from :attr:`raw_result`, or
+        ``None``.  An expansion read from a cache entry carries the
+        certificate of the run that wrote the entry.  After
+        :func:`dataclasses.replace` of ``dts_by_order`` it still describes
+        ``raw_result``."""
+        return getattr(self.raw_result, "certificate", None)
+
     # --------------------------------------------------------------- #
     # Inspection
     # --------------------------------------------------------------- #

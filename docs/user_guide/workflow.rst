@@ -1700,7 +1700,19 @@ Both rows returned the same total for every bound.  The script is
 The bound removes the out-of-memory failure that used to stop a grid sized
 far beyond the machine, so such a grid now runs until it finishes.
 ``sft-wick run --dry-run`` times one diagram evaluation per order at one
-grid point and prints the projected cost before anything runs.
+grid point and prints the projected cost before the sweep runs.
+
+Before expanding, the dry run prints the exact counts for ``expand.orders``
+and its expansion target. ``pairings`` sums the valid Wick pairings over
+vertex sequences. ``weighted pairings`` includes each sequence's multinomial
+coefficient. ``typed classes`` counts distinct spatial topology classes per
+sequence and sums them at each order. Class counts are shown as ``n/a`` at
+order zero, which the expansion contracts directly. The separate cost
+estimate counts grouped terms after the sweep's order and vertex-type filters.
+The preflight holds the spatial topologies of one vertex sequence at a
+time and does not enumerate their component routings. It runs even when
+an expansion cache is available. At high orders the extra topology
+enumeration can still take time and memory.
 
 The tensor grid is generated directly in blocks, so node coordinates, mapped
 times, propagator arrays and dynamic coupling batches have at most

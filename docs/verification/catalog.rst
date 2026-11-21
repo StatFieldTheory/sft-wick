@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8763 tests** in 153 files (parametrised
+The suite has **9233 tests** in 161 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -158,7 +158,7 @@ Symbolic engine
 Multiplicities and canonical forms
 ----------------------------------
 
-*90 tests in 2 files.*
+*556 tests in 9 files.*
 
 .. list-table::
    :header-rows: 1
@@ -171,12 +171,40 @@ Multiplicities and canonical forms
      - Tolerance
      - Tests
      - Killed mutants
+   * - ``test_canonical_method.py``
+     - method selection of the typed canonical keys (pynauty present, missing, broken or too old; the warning names the caller); key tags, layout digests and the refusal of mixed keys; invalid topologies and sequences with no complete pairing refused; keys of another pynauty build refused; keys and term order under three hash seeds; pinned key digests of engine and hand-built graphs; import rules
+     - fake pynauty packages on the path; subprocesses with their own hash seeds; pinned digests
+     - self consistency
+     - exact
+     - 18
+     - 0
+   * - ``test_certificate_hash_seed.py``
+     - serialized count and value certificates under five Python hash seeds for both targets and both L0 expansion paths
+     - fresh Python processes with the built-in canonical key
+     - self consistency
+     - identical JSON bytes
+     - 1
+     - 0
+   * - ``test_certify_imports.py``
+     - sft_wick/_certify.py imports only the standard library and no sft_wick module (an AST walk over import statements, relative imports and import calls, which must name a literal module); loading the file by path and counting loads no sft_wick module and no third-party module
+     - the import statements; sys.modules of a fresh interpreter
+     - independent code
+     - exact
+     - 3
+     - 0
+   * - ``test_count_certificate.py``
+     - count certificates of compute_moment, compute_moment_numerical, System.expand and the routing count with certify=True: the pairing count of every vertex sequence against the standalone counter, R classes, labelled topologies, typed classes and orbit sums, both targets, the diagonal flags, the operator path, workers, both canonical methods, the expansion cache, the refusal of an empty observable; mutants of the R assignment rule, the shared-label guard and the routing of psi raise, and so does each check on the certificate's own data
+     - every pairing enumerated by tests/brute_wick.py up to 14 operators, with a union-find on owners, and every relabelling by tests/brute_relabel.py; the pruned search of the counter tests at 18 operators
+     - independent code
+     - exact
+     - 144
+     - 0
    * - ``test_deductive_expansion.py``
      - every pairing at order ≤ 2 classified by vanishing reason; routing counts of spatial topologies; canonical-form deduplication
      - brute-force Wick reference (tests/brute_wick.py, no sft-wick imports)
      - exact analytic
      - exact
-     - 78
+     - 79
      - 2
    * - ``test_diagrams.py``
      - FeynmanDiagram canonical form and isomorphism deduplication
@@ -185,11 +213,32 @@ Multiplicities and canonical forms
      - exact
      - 12
      - 1
+   * - ``test_pairing_counter.py``
+     - counts of valid operator pairings from the standard-library counter (no psi-psi pair, no response propagator on one point, no directed response cycle): cubic, quartic and double-psi vertices by order, mixed sequences, unequal externals, external psi, three-psi and phi-free vertices, one leg per point with an owner map, labels shared by owners, moment and connected targets, direct enumeration against the subset recursion at 13 psi, input refusals
+     - every pairing enumerated and classified by tests/brute_wick.py up to 14 operators, with a union-find on owners for the connected target; a pruned search with the same rules at 18 and 20 operators; the two algorithms of the counter against each other above that
+     - independent code
+     - exact
+     - 212
+     - 0
+   * - ``test_typed_canonical_key.py``
+     - typed canonical keys of compute_moment_numerical, built-in and pynauty: class counts with two vertex types, and with one coupling name and other fields or flags; point automorphism orders without swaps of parallel propagators and their orbit sum; partition and automorphism order on engine sequences (several instances of one non-local vertex included), on regular graphs that colour refinement cannot split and on an R cycle against its reverse; a join of two strongly regular graphs under 20 relabellings; all 738,900 cubic topologies at order 6 (heavy); equal coupling values within a class; a time cap, in a child process, on a symmetric star and on R self-loops beside R 2-cycles; one block per class in the engine output; the term order of one local vertex type; degenerate vertices accepted
+     - every relabelling tried by tests/brute_relabel.py (itertools only, no sft-wick imports); pynauty's group order of the dummy-node graph; the two methods against each other; the term order of the previous key
+     - independent code
+     - exact; coupling values within a class to 1e-12; 0.2 s per key, 30 s per child process
+     - 77
+     - 0
+   * - ``test_value_certificate.py``
+     - synthetic values of emitted diagram terms, complex response phase, literal components, moment and connected targets, routing collapse with the count preserved, absorbed R on mixed vertex roles, and explicit reasons for count-only rows
+     - independent labelled Wick pair enumeration with MSR weights and an analytic single-response contraction
+     - exact analytic
+     - 1e-12 relative, exact count and budget status
+     - 10
+     - 0
 
 Propagator numerics
 -------------------
 
-*1607 tests in 19 files.*
+*1608 tests in 19 files.*
 
 .. list-table::
    :header-rows: 1
@@ -228,7 +277,7 @@ Propagator numerics
      - closed-form OU C; domain-split dblquad at 1e-12; alternative backends
      - exact analytic
      - 1e-8 (quadrature) / 1e-2 (spline, QMC)
-     - 46
+     - 47
      - 3
    * - ``test_demo3_shot_noise.py``
      - demo 3 filtered-Poisson cumulants, the R-contracted kernel K_R, and the t_tilde branch dispatch
@@ -811,7 +860,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*2578 tests in 40 files.*
+*2581 tests in 41 files.*
 
 .. list-table::
    :header-rows: 1
@@ -866,6 +915,13 @@ Workflow and YAML
      - exact / 2e-4
      - 18
      - 6
+   * - ``test_dry_run_counts.py``
+     - exact unfiltered expansion counts printed before the only expansion, no component routing during preflight, filtered sweep estimate, order-zero class convention and multinomial weighting
+     - cubic moment and connected Wick pairing counts and typed classes, plus the three sequences of a two-vertex action
+     - independent code
+     - exact integers and output ordering
+     - 3
+     - 0
    * - ``test_empty_order_selection.py``
      - an order at which the expansion holds no diagram (order 1 of a cubic F) as zero rows of a moment-target sweep, alone, beside other orders, with a channel selection, with reused integrands, in evaluate's by_order, and through --override sweep.orders=N
      - closed-form covariance of test_observable_operator_inputs
@@ -1327,13 +1383,13 @@ Where a file holds checks of several kinds:
    * - Kind
      - Files
    * - exact analytic
-     - 75
+     - 76
    * - independent code
-     - 31
+     - 36
    * - simulation
      - 0
    * - self consistency
-     - 15
+     - 17
    * - none
      - 32
 

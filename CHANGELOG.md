@@ -2,6 +2,74 @@
 
 ## Unreleased
 
+### Added: exact expansion counts in `run --dry-run`
+
+The dry run prints valid Wick pairings, multinomial-weighted pairings and
+typed spatial topology classes by order before expanding. These counts
+cover the expansion target and orders before sweep filters. The cost
+estimate continues to use the filtered sweep terms.
+
+### Added: numeric validation of certified expansions
+
+Each eligible ``certify=True`` sequence row now compares the value of its
+emitted terms with an independent sum over labelled operator pairings on
+deterministic synthetic matrices. ``value_checks`` records the values and
+relative errors, checked at 1e-12. ``value_skip`` explains rows that only
+check counts, including sequences beyond the 14-operator limit.
+
+### Added: count certificates, `certify=True`
+
+`certify=True` on `compute_moment`, `compute_moment_numerical` and `System.expand`
+compares, for every vertex sequence of every order, the number of operator pairings
+the output stands for with a counter that imports nothing from the package
+(`sft_wick._certify`), checks that each R class of the contraction is enumerated once
+and that each class of labelled topologies has the size its automorphism order gives,
+and raises `CertificateError` on any difference.  The record, a `CountCertificate`
+with one entry per order and per sequence (pairing counts, R classes, labelled
+topologies, typed classes, the sum of |G|/|Aut_V|), is `PerturbativeResult.certificate`,
+the `certificate` attribute of the dict that `compute_moment_numerical` returns, and
+`Expansion.certificate`.  It holds counts and labels (the engine, the target, the
+observable, the vertex names, notes) and no canonical-key bytes; its field `canonical`,
+which equality ignores, names the key method and, for pynauty, its build.  With
+`certify=True`, `System.expand` recomputes even when `cache_path` holds the expansion,
+and the L0 functions refuse an empty observable.  The default is `False`; there is no
+YAML key.  Measured on the development machine at orders 4 and 5, the check added about
+3 to 15 % to the run time.
+
+The connected count of `sft_wick._certify.count_valid_pairings` is 0, without the
+refusal of labels shared by several owners, when the number of operators is odd or the
+operators form fewer pairs than the owners less one; the refusal now raises
+`UnsupportedLayout`, a `ValueError`.
+
+`sft_wick.workflow.cache.load_or_compute` has a keyword `refresh` (default `False`):
+with `True` it skips the read, calls `compute_fn` and writes its result over any entry
+with the same key.
+
+### Changed: `compute_moment_numerical` separates vertex types in its classes
+
+`compute_moment_numerical` groups topologies by a canonical key that separates vertex
+types and, for a non-local vertex, its instance and the position of each leg.  For two
+local vertices F and G of the form ψφ², with the observable ⟨φ(x)φ(y)⟩, the sequence
+(F, G) at order 2 has 12 classes where the previous key gave 6, and (F, F, G, G) at
+order 4 has 364 where it gave 64.  The terms are unchanged.  Their order can change for
+sequences with two or more vertex types or a non-local vertex, because terms are
+emitted class by class; it is unchanged for a sequence of one local vertex type.
+
+New keyword `canonical`: `'auto'` (default) uses pynauty when it is installed
+(`pip install "sft-wick[nauty]"`; pynauty is GPLv3+ and has a wheel only for CPython
+3.12 on Linux x86_64, so other platforms build it from source) and a built-in
+canonicaliser otherwise; `'builtin'` and `'pynauty'` select one.  Both give the same
+classes, so the same terms in the same order.  Without pynauty the key used to fall
+back, with no message, to a permutation search that returned bytes of another format
+at about 1.6 ms per topology.  At order 6 the built-in key takes about 17 µs per
+topology and the pynauty key about 9 µs.  An installed pynauty that fails to import,
+or is older than 2.8.8, gives a `RuntimeWarning` and the built-in.
+`simplify._canonical_key_nauty` is removed.
+
+`compute_moment_numerical` now raises `TypeError` for a vertex whose coupling name or
+a field name is not a `str`; `compute_moment` and the previous
+`compute_moment_numerical` accepted them.
+
 ### Added: numerical drift reports between versions
 
 ``sft-wick compare-versions`` runs a declared corpus against two local package
@@ -79,7 +147,7 @@ strongest kind of reference one of its value checks of repository code is compar
 with: `exact_analytic`, `independent_code`, `simulation`, `self_consistency` or
 `none`.  `docs/verification/catalog.rst` shows it in a *Kind* column, defines the
 kinds and the rules for a file with checks of several kinds, counts the files per kind
-(74, 31, 0, 15 and 32 of 152) and lists the 32 files with no reference.  `render`
+and lists the files with no reference.  `render`
 raises `SystemExit` for a test file without a kind and for a kind outside the five,
 so `tests/test_catalog_current.py` fails until a new test file has one.
 

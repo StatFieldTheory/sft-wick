@@ -79,8 +79,14 @@ it against sft-wick's output.  Topics covered:
   counts in T2 and T3 check those two.
 - rational prefactor :math:`(-1)^n / n! \times \mathrm{multinomial}` (T6)
 - response-phase :math:`(-i)^{n_R}` (T7)
-- two canonical-form algorithms (nauty vs brute permutation search)
-  induce the same equivalence relation (T8)
+- three canonical-form algorithms (the typed key of
+  ``compute_moment_numerical`` with the built-in canonicaliser and with
+  pynauty, and the brute permutation search) induce the same equivalence
+  relation on Case A, whose two vertices are one local vertex (T8).  With
+  two vertex types of one shape the typed key separates classes that the
+  brute search merges.  ``tests/test_typed_canonical_key.py`` checks the typed
+  key on several vertex types against a relabelling reference with no
+  sft-wick imports (``tests/brute_relabel.py``).
 - diagram-collection soundness: no false merges, no false splits (T9)
 - individual simplification passes (T10)
 - non-local vertex instantiation and leg-count vanishing (T11, T12)
@@ -134,9 +140,9 @@ Phase 4: Alternative-path consistency
 
 *~7 tests, ~17 s.*
 
-sft-wick exposes multiple paths for the same computation (a nauty-
-based symbolic engine, a vectorised QMC, a parallel batch).  Each
-alternative is compared against a tested baseline.
+sft-wick exposes multiple paths for the same computation (a symbolic
+engine that groups topologies by a canonical key, a vectorised QMC, a
+parallel batch).  Each alternative is compared against a tested baseline.
 
 =====================================  ================================
 Alternative                            Baseline

@@ -72,6 +72,7 @@ def load_or_compute(
     compute_fn: Callable[[], Any],
     *,
     operation_name: str = "operation",
+    refresh: bool = False,
 ) -> Any:
     """Load a cached result matching ``spec_obj``'s hash from
     ``cache_path``; otherwise call ``compute_fn``, save the result to
@@ -88,6 +89,8 @@ def load_or_compute(
         spec_obj: picklable object used to derive the cache key.
         compute_fn: zero-argument callable producing the result.
         operation_name: label used in the reminder and file name.
+        refresh: when True, skip the read: call ``compute_fn`` and write
+            its result over any entry with the same key.
 
     Returns:
         The (possibly cached) result.
@@ -107,7 +110,7 @@ def load_or_compute(
     else:
         file_path = path
 
-    if file_path.exists():
+    if not refresh and file_path.exists():
         try:
             payload = _jload(file_path)
             if isinstance(payload, dict) and payload.get("key") == key:

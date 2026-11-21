@@ -426,6 +426,106 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "brute-force Wick reference (tests/brute_wick.py, no sft-wick imports)",
         "exact",
     ),
+    "tests/test_count_certificate.py": (
+        "Multiplicities and canonical forms",
+        "count certificates of compute_moment, compute_moment_numerical, "
+        "System.expand and the routing count with certify=True: the pairing "
+        "count of every vertex sequence against the standalone counter, R "
+        "classes, labelled topologies, typed classes and orbit sums, both "
+        "targets, the diagonal flags, the operator path, workers, both canonical "
+        "methods, the expansion cache, the refusal of an empty observable; "
+        "mutants of the R assignment rule, the shared-label guard and the "
+        "routing of psi raise, and so does each check on the certificate's own "
+        "data",
+        "every pairing enumerated by tests/brute_wick.py up to 14 operators, "
+        "with a union-find on owners, and every relabelling by "
+        "tests/brute_relabel.py; the pruned search of the counter tests at 18 "
+        "operators",
+        "exact",
+    ),
+    "tests/test_value_certificate.py": (
+        "Multiplicities and canonical forms",
+        "synthetic values of emitted diagram terms, complex response phase, "
+        "literal components, moment and connected targets, routing collapse "
+        "with the count preserved, absorbed R on mixed vertex roles, and "
+        "explicit reasons for count-only rows",
+        "independent labelled Wick pair enumeration with MSR weights and "
+        "an analytic single-response contraction",
+        "1e-12 relative, exact count and budget status",
+    ),
+    "tests/test_dry_run_counts.py": (
+        "Workflow and YAML",
+        "exact unfiltered expansion counts printed before the only expansion, "
+        "no component routing during preflight, filtered sweep estimate, "
+        "order-zero class convention and multinomial weighting",
+        "cubic moment and connected Wick pairing counts and typed classes, "
+        "plus the three sequences of a two-vertex action",
+        "exact integers and output ordering",
+    ),
+    "tests/test_certificate_hash_seed.py": (
+        "Multiplicities and canonical forms",
+        "serialized count and value certificates under five Python hash seeds "
+        "for both targets and both L0 expansion paths",
+        "fresh Python processes with the built-in canonical key",
+        "identical JSON bytes",
+    ),
+    "tests/test_pairing_counter.py": (
+        "Multiplicities and canonical forms",
+        "counts of valid operator pairings from the standard-library counter "
+        "(no psi-psi pair, no response propagator on one point, no directed "
+        "response cycle): cubic, quartic and double-psi vertices by order, mixed "
+        "sequences, unequal externals, external psi, three-psi and phi-free "
+        "vertices, one leg per point with an owner map, labels shared by owners, "
+        "moment and connected targets, direct enumeration against the subset "
+        "recursion at 13 psi, input refusals",
+        "every pairing enumerated and classified by tests/brute_wick.py up to 14 "
+        "operators, with a union-find on owners for the connected target; a "
+        "pruned search with the same rules at 18 and 20 operators; the two "
+        "algorithms of the counter against each other above that",
+        "exact",
+    ),
+    "tests/test_typed_canonical_key.py": (
+        "Multiplicities and canonical forms",
+        "typed canonical keys of compute_moment_numerical, built-in and pynauty: "
+        "class counts with two vertex types, and with one coupling name and "
+        "other fields or flags; point automorphism orders without swaps of "
+        "parallel propagators and their orbit sum; partition and automorphism "
+        "order on engine sequences (several instances of one non-local vertex "
+        "included), on regular graphs that colour refinement cannot split and on "
+        "an R cycle against its reverse; a join of two strongly regular graphs "
+        "under 20 relabellings; all 738,900 cubic topologies at order 6 (heavy); "
+        "equal coupling values within a class; a time cap, in a child process, "
+        "on a symmetric star and on R self-loops beside R 2-cycles; one block "
+        "per class in the engine output; the term order of one local vertex "
+        "type; degenerate vertices accepted",
+        "every relabelling tried by tests/brute_relabel.py (itertools only, no "
+        "sft-wick imports); pynauty's group order of the dummy-node graph; the "
+        "two methods against each other; the term order of the previous key",
+        "exact; coupling values within a class to 1e-12; 0.2 s per key, 30 s "
+        "per child process",
+    ),
+    "tests/test_canonical_method.py": (
+        "Multiplicities and canonical forms",
+        "method selection of the typed canonical keys (pynauty present, missing, "
+        "broken or too old; the warning names the caller); key tags, layout "
+        "digests and the refusal of mixed keys; invalid topologies and "
+        "sequences with no complete pairing refused; keys of another pynauty "
+        "build refused; keys and term order under three hash seeds; pinned key "
+        "digests of engine and hand-built graphs; import rules",
+        "fake pynauty packages on the path; subprocesses with their own hash "
+        "seeds; pinned digests",
+        "exact",
+    ),
+    "tests/test_certify_imports.py": (
+        "Multiplicities and canonical forms",
+        "sft_wick/_certify.py imports only the standard library and no sft_wick "
+        "module (an AST walk over import statements, relative imports and "
+        "import calls, which must name a literal module); loading the file by "
+        "path and counting loads no "
+        "sft_wick module and no third-party module",
+        "the import statements; sys.modules of a fresh interpreter",
+        "exact",
+    ),
     "tests/test_diagrams.py": (
         "Multiplicities and canonical forms",
         "FeynmanDiagram canonical form and isomorphism deduplication",
@@ -1682,7 +1782,10 @@ REFERENCE_KIND: dict[str, str] = {
     "tests/test_batch_reduction_reuse.py": "independent_code",
     "tests/test_c_propagator_gauss_legendre.py": "exact_analytic",
     "tests/test_callable_vertex_copies.py": "exact_analytic",
+    "tests/test_canonical_method.py": "self_consistency",
     "tests/test_catalog_current.py": "none",
+    "tests/test_certificate_hash_seed.py": "self_consistency",
+    "tests/test_certify_imports.py": "independent_code",
     "tests/test_closed_form_dispatch_boundaries.py": "exact_analytic",
     "tests/test_coincident_external_labels.py": "exact_analytic",
     "tests/test_config_error_paths.py": "none",
@@ -1691,6 +1794,7 @@ REFERENCE_KIND: dict[str, str] = {
     "tests/test_contraction_admission_rules.py": "independent_code",
     "tests/test_contraction_error_bound.py": "independent_code",
     "tests/test_contraction_workspace_budget.py": "independent_code",
+    "tests/test_count_certificate.py": "independent_code",
     "tests/test_coupling_execution_plan.py": "exact_analytic",
     "tests/test_coupling_native_reads.py": "self_consistency",
     "tests/test_coupling_scale_invariance.py": "exact_analytic",
@@ -1725,6 +1829,7 @@ REFERENCE_KIND: dict[str, str] = {
     "tests/test_diagrams.py": "exact_analytic",
     "tests/test_drawing_style.py": "none",
     "tests/test_drawing_tikz.py": "none",
+    "tests/test_dry_run_counts.py": "independent_code",
     "tests/test_dt_discretization.py": "self_consistency",
     "tests/test_dynamic_coupling.py": "exact_analytic",
     "tests/test_empty_order_selection.py": "independent_code",
@@ -1778,6 +1883,7 @@ REFERENCE_KIND: dict[str, str] = {
     "tests/test_offdiagonal_c_tables.py": "exact_analytic",
     "tests/test_ou_uniform_factors.py": "independent_code",
     "tests/test_ou_white_cumulant.py": "exact_analytic",
+    "tests/test_pairing_counter.py": "independent_code",
     "tests/test_parent_gate.py": "none",
     "tests/test_perturbation.py": "exact_analytic",
     "tests/test_propagator_cache_identity.py": "self_consistency",
@@ -1808,6 +1914,7 @@ REFERENCE_KIND: dict[str, str] = {
     "tests/test_table_limits.py": "exact_analytic",
     "tests/test_time_variable_recipe.py": "self_consistency",
     "tests/test_trusted_cache_delegates.py": "exact_analytic",
+    "tests/test_typed_canonical_key.py": "independent_code",
     "tests/test_user_hook_arguments.py": "exact_analytic",
     "tests/test_validate_run_parity.py": "none",
     "tests/test_validation_demo_package.py": "independent_code",
@@ -1819,6 +1926,7 @@ REFERENCE_KIND: dict[str, str] = {
     "tests/test_validation_lower.py": "exact_analytic",
     "tests/test_validation_lower_v042.py": "independent_code",
     "tests/test_validation_worker.py": "self_consistency",
+    "tests/test_value_certificate.py": "exact_analytic",
     "tests/test_vectorized_r_time.py": "self_consistency",
     "tests/test_version_compare.py": "exact_analytic",
     "tests/test_wick.py": "exact_analytic",

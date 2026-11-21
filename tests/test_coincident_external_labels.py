@@ -230,7 +230,7 @@ def test_CE4_compute_moment_numerical_refuses_repeated_labels():
 
     v0.4.0 guarded ``compute_moment`` and ``System.expand`` and described
     the coverage as "both L1 and L0", but L0 exports TWO engines and the
-    nauty one was left open.  It drives the identical label-keyed
+    numerical one was left open.  It drives the identical label-keyed
     ``wick_contract_spatial``, so it inherited the identical collapse:
     measured on a demo2-shaped system at t = 3.48 with both externals at
     position 0, the repeated spelling returned exactly HALF the correct

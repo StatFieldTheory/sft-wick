@@ -211,7 +211,7 @@ def run(repeats, baseline_source):
             for target in timings:
                 generate(
                     target
-                )  # warm imports/nauty; timed generation still constructs every result
+                )  # warm imports and the canonicaliser; timed generation still constructs every result
             for k in range(repeats):
                 for target in (
                     ("late_connected_reference", "connected")

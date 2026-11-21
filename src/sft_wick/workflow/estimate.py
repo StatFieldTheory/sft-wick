@@ -17,6 +17,7 @@ runs in the dry run too when the table is a full grid.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import itertools
 import time
 from dataclasses import dataclass, field
@@ -142,12 +143,37 @@ def _distinct_separations(positions_grid: dict) -> int:
     return len(seps)
 
 
-def estimate_cost(cfg, bench_seconds: float = 1.0) -> CostEstimate:
-    """Estimate the cost of ``run_workflow(cfg)`` without running it."""
+def estimate_cost(
+    cfg, bench_seconds: float = 1.0, *, report_preflight: Callable[[str], None] | None = None,
+) -> CostEstimate:
+    """Estimate the cost of ``run_workflow(cfg)`` without running it.
+
+    If given, ``report_preflight`` receives exact expansion counts before
+    the expansion that the estimate uses for the sweep timings.
+    """
     from sft_wick.progress import progress as _progress_scope
 
     with _progress_scope(False):
-        return _estimate(cfg, bench_seconds)
+        return _estimate(cfg, bench_seconds, report_preflight)
+
+
+def _expansion_preflight(system, expand) -> str:
+    from sft_wick._routing_count import _preflight_counts
+
+    from .system import _parse_observable
+
+    observable, _ = _parse_observable(expand.observable, system, max(expand.orders))
+    lines = [f"[sft-wick] expansion preflight ({expand.target}, before sweep filters)"]
+    for block in _preflight_counts(observable, system.build_action(), expand.orders, expand.target):
+        classes = (
+            sum(row.classes for row in block.sequences if row.classes is not None)
+            if block.order else "n/a"
+        )
+        lines.append(
+            f"[sft-wick]   order {block.order}: pairings={block.pairings}, "
+            f"weighted pairings={block.weighted_pairings}, typed classes={classes}"
+        )
+    return "\n".join(lines)
 
 
 def _few_nodes(kwargs: dict) -> dict:
@@ -165,7 +191,7 @@ def _few_nodes(kwargs: dict) -> dict:
     return few
 
 
-def _estimate(cfg, bench_seconds) -> CostEstimate:
+def _estimate(cfg, bench_seconds, report_preflight) -> CostEstimate:
     from ._run_checks import check_after_expansion
     from .config import (
         _load_c_closed_form,
@@ -177,6 +203,8 @@ def _estimate(cfg, bench_seconds) -> CostEstimate:
     from .resources import grid_points
 
     system = build_system(cfg.system)
+    if report_preflight is not None:
+        report_preflight(_expansion_preflight(system, cfg.expand))
     expansion = system.expand(**expand_kwargs(cfg))
     sw = cfg.sweep
     # The selection the sweep will make, refused as the run would refuse it.
