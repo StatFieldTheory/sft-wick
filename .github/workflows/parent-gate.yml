@@ -1,0 +1,90 @@
+# The tests a pull request adds or changes, run on the parent's source:
+# src/ from the merge base, everything else from the head.  Advisory until
+# docs/verification/parent_gate.rst records how often the gate rejects a
+# real fix: the job may fail without failing the workflow, and its verdict
+# is in the job summary and the uploaded JSON.
+name: Parent-commit gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  parent-gate:
+    name: Parent-commit gate (advisory)
+    # An edit of the title or the description does not change what the gate
+    # judges, so the job is skipped; an edit of the base branch changes the
+    # merge base, so the job runs.  The concurrency group is set on the job,
+    # not on the workflow, and for a skipped job it is a group of that run
+    # alone, so an edit that keeps the base cancels no running gate.
+    if: github.event.action != 'edited' || github.event.changes.base
+    concurrency:
+      group: parent-gate-${{ github.ref }}-${{ ((github.event.action != 'edited' || github.event.changes.base) && 'judge' || github.run_id) }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    continue-on-error: true
+    env:
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install package with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # A pull request must not change the gate that judges it: take the
+      # tool from the base branch, or from the head when the base has none.
+      - name: Take the gate tool from the base branch
+        run: |
+          gate="$RUNNER_TEMP/gate"
+          mkdir -p "$gate"
+          if git cat-file -e "$BASE_SHA:tools/parent_gate.py" 2>/dev/null; then
+            git archive "$BASE_SHA" tools | tar -x -C "$gate"
+          else
+            git archive "$HEAD_SHA" tools | tar -x -C "$gate"
+          fi
+          echo "GATE_DIR=$gate" >> "$GITHUB_ENV"
+
+      # Exit 3 means undetermined: the change's own tests or the parent's
+      # own tests fail under the gate, which does not fail this job.  The
+      # verdict file is written outside the checkout, so a file of that name
+      # in the pull request is never taken for it.
+      - name: Run the touched tests on the parent's source
+        run: |
+          rc=0
+          python "$GATE_DIR/tools/parent_gate.py" judge --repo "$GITHUB_WORKSPACE" \
+            --base "$BASE_SHA" --head "$HEAD_SHA" \
+            --pytest-workers 2 --time-limit 2700 \
+            --json "$RUNNER_TEMP/parent-gate.json" --summary "$GITHUB_STEP_SUMMARY" || rc=$?
+          if [ "$rc" -eq 3 ]; then exit 0; fi
+          exit "$rc"
+
+      - name: Note a run that wrote no verdict
+        if: always()
+        run: |
+          if [ ! -f "$RUNNER_TEMP/parent-gate.json" ]; then
+            echo "### Parent-commit gate: no verdict (tool error or time limit)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the verdict
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parent-gate
+          path: ${{ runner.temp }}/parent-gate.json
+          if-no-files-found: warn

@@ -31,6 +31,57 @@ def test_catalog_is_current():
     )
 
 
+#: The kinds of reference, strongest first, as the catalogue defines them.
+KINDS = ("exact_analytic", "independent_code", "simulation", "self_consistency", "none")
+
+
+def test_every_catalogue_entry_has_one_of_the_five_reference_kinds():
+    tool = _load_tool()
+    assert tuple(tool.REFERENCE_KINDS) == KINDS
+    assert set(tool.REFERENCE_KIND) == set(tool.FILE_META)
+    unknown = {f: k for f, k in tool.REFERENCE_KIND.items() if k not in KINDS}
+    assert unknown == {}
+
+
+def _render_without_records(tool):
+    from collections import Counter
+
+    return tool.render(Counter(), kill_matrix=None, blind_spots=None, generated_kills=None)
+
+
+def test_render_refuses_a_file_without_a_known_kind(monkeypatch):
+    import pytest
+
+    tool = _load_tool()
+    name = "tests/test_catalog_current.py"
+    missing = {f: k for f, k in tool.REFERENCE_KIND.items() if f != name}
+    monkeypatch.setattr(tool, "REFERENCE_KIND", missing)
+    with pytest.raises(SystemExit, match="add REFERENCE_KIND entries for .*test_catalog_current"):
+        _render_without_records(tool)
+    unknown = {**missing, name: "exact-analytic"}
+    monkeypatch.setattr(tool, "REFERENCE_KIND", unknown)
+    with pytest.raises(SystemExit, match="unknown REFERENCE_KIND values for .*test_catalog_current"):
+        _render_without_records(tool)
+
+
+def test_the_catalogue_lists_every_file_with_no_reference():
+    tool = _load_tool()
+    page = _render_without_records(tool)
+    heading = "Files with no reference"
+    assert heading in page
+    after = page.split(heading, 1)[1].split(".. list-table::", 1)[1].splitlines()[1:]
+    table = []
+    for line in after:
+        if line and not line.startswith("   "):
+            break
+        table.append(line)
+    rows = [line.strip()[len("* - ``"):-len("``")]
+            for line in table if line.strip().startswith("* - ``")]
+    expected = sorted(f.removeprefix("tests/") for f, k in tool.REFERENCE_KIND.items()
+                      if k == "none" and (ROOT / f).is_file())
+    assert rows == expected
+
+
 def test_catalog_rejects_partial_collection(monkeypatch):
     """Missing example imports must not produce a plausible partial catalogue."""
     import subprocess

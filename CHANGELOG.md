@@ -2,6 +2,79 @@
 
 ## Unreleased
 
+### Added: a parent-commit gate
+
+`tools/parent_gate.py judge --head REV [--base REV]` runs the test files a change
+adds, modifies or renames (`tests/**/test_*.py`) on three trees, each a `git archive`
+of its commit and each checked to import the package from its own `src`: the head,
+the parent with the parent's own versions of the files that exist there, and an
+overlay that is the head everywhere except `src/`, which is the parent's.  The runs
+are serial unless `--pytest-workers` is given, with `-m "not slow"`,
+`--continue-on-collection-errors`, `PYTHONHASHSEED=0` and `MUTATION_HARNESS=1`, under a
+time limit (`--time-limit`, 3600 s for the head; three times the head's time, at
+least 300 s and at most that limit, for the others) and a limit of 6 GB on the summed
+memory of each run's processes (`--max-rss-gb`): the physical footprint on macOS,
+anonymous and shared resident memory plus swap on Linux, counted over the run's
+process group, its descendants and any process started in a new session.  A process
+is known by its pid and start time and forgotten once it has exited, so a process
+that reuses its pid is neither counted nor killed.  A run's first process is reaped
+only after its process group has been killed, so a process left in that group after
+the last poll is killed too, also when `ps` cannot be started.  A gate stopped by `SIGTERM`,
+`SIGHUP` or `SIGINT` kills its runs, removes its trees and exits 128 plus the signal.
+Three kinds of run are tool errors, not verdicts: a pytest process killed from outside
+the gate by `SIGKILL`, `SIGTERM`, `SIGINT` or `SIGHUP`, a pytest run that exits 2
+(interrupted), and a run in which a pytest-xdist worker crashed, because the gate
+cannot tell which signal ended the worker.  The parent is the first parent
+of the head, or with `--base` the merge base of the base and the head.  A change
+passes when a test that passes on the head fails on the overlay with an
+`AssertionError` or pytest's `Failed` (in the call or in a fixture, from a frame
+outside `src/`, read from the last exception of a chained traceback), and when it
+changes nothing under `src/`.  It is rejected when no
+touched test passes on the head, when the overlay run writes no report, and when the
+tests that pass on the head fail on the overlay only by raising (`crash_only`), only
+at a time or memory limit, only through names the change adds (an import, a
+`monkeypatch.setattr` or an attribute that fails outside `src/`, or a keyword of a
+function, a class or a dataclass, defined in the head's source and not in the
+parent's), or not at all.  It is undetermined (`environment`) when the head's
+or the parent's own run of the touched files fails, is killed or writes no report.
+The exit code is 0, 1 or 3 for pass, reject and undetermined, and 2 for a tool error;
+`--json` writes every test's outcome on the three trees and `--summary` appends the
+verdict as Markdown.
+
+`tools/parent_gate.py replay --range RANGE [--earlier-range RANGE] --out DIR
+[--record FILE]` judges, two at a time by default (`--jobs`), every non-merge commit
+of a range whose subject starts with `fix` and that adds or modifies a
+`tests/test_*.py`, keeps each judgement as JSON under `DIR` and reuses it while the
+rules, settings and environment are the same.  The record holds each commit's
+verdict, decision, per-file counts and up to five witnesses, the pass rate over the
+commits not classed `environment`, and the rate under the other decisions for
+`crash_only` and for commits with no source change.  It carries a digest of the
+source text of the rules (`rules_digest`, the same under Python 3.10 to 3.14), and is
+refused, with exit 2, when a field holds a local path or a development name by the
+rules of `tests/test_repo_hygiene.py`.  `render` writes its page,
+`docs/verification/parent_gate.rst`.  `tests/test_parent_gate.py` checks the verdicts
+on a toy git repository and the committed record.
+
+`.github/workflows/parent-gate.yml` runs `judge` on every pull request against the
+merge base, with the copy of `tools/` from the base branch when the base has one.  The
+job is advisory (`continue-on-error: true`); an undetermined verdict does not fail it.
+Over the 86 fix commits after v0.4.2 the replay accepts 76 of the 85 not classed
+`environment` (89.4 %); the 9 rejected are 3 crashes, 3 runs that pass a time or
+memory limit on the parent's source and 3 test files that use names the fix adds.
+`tests/test_parent_gate.py` keeps the job advisory while the recorded rate is below
+90 %.
+
+### Changed: the catalogue names each test file's kind of reference
+
+`tools/gen_test_catalog.py` has `REFERENCE_KIND`, which names for every test file the
+strongest kind of reference one of its value checks of repository code is compared
+with: `exact_analytic`, `independent_code`, `simulation`, `self_consistency` or
+`none`.  `docs/verification/catalog.rst` shows it in a *Kind* column, defines the
+kinds and the rules for a file with checks of several kinds, counts the files per kind
+(74, 31, 0, 15 and 32 of 152) and lists the 32 files with no reference.  `render`
+raises `SystemExit` for a test file without a kind and for a kind outside the five,
+so `tests/test_catalog_current.py` fails until a new test file has one.
+
 ### Added: a mutation harness for the test suite
 
 `tools/mutation_check.py` applies one source edit at a time from a corpus in
