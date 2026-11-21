@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added: numeric validation of certified expansions
+
+Each eligible ``certify=True`` sequence row now compares the value of its
+emitted terms with an independent sum over labelled operator pairings on
+deterministic synthetic matrices. ``value_checks`` records the values and
+relative errors, checked at 1e-12. ``value_skip`` explains rows that only
+check counts, including sequences beyond the 14-operator limit.
+
 ### Added: count certificates, `certify=True`
 
 `certify=True` on `compute_moment`, `compute_moment_numerical` and `System.expand`

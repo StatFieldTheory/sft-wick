@@ -795,6 +795,8 @@ class System:
                 for with a counter that shares no code with the engine,
                 and raises :class:`~sft_wick.CertificateError` on a
                 difference (:func:`~sft_wick.perturbation.compute_moment`).
+                Sequences of at most 14 operators with numeric terms also
+                compare values on synthetic coupling and propagator arrays.
                 The record is :attr:`Expansion.certificate`.  A certified
                 call does not read ``cache_path``; it computes and writes
                 its result under the same key.  A later uncertified call

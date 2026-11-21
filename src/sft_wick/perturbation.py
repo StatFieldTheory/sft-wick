@@ -1695,14 +1695,15 @@ def compute_moment(
             of DiagramInfo records only and have no class fields.  The
             record is :attr:`PerturbativeResult.certificate`, a
             :class:`~sft_wick.CountCertificate` with one row per sequence.
+            With emitted terms and at most 14 operators per sequence,
+            ``value_checks`` also compares synthetic contractions against an
+            independent pairing sum. ``value_skip`` explains count-only rows.
             Its ``classes`` are the typed classes of the labelled
             topologies, which ``compute_moment_numerical`` emits;
             ``compute_moment`` groups its terms by another form, so its
-            number of terms differs.  Measured on the development machine
-            at orders 4 and 5, the check added about 3 to 15 % to the run
-            time.  The counter's part of that time grows with the number
-            of psi; on a vertex with two psi at order 5 it was most of it.
-            The default ``False`` changes nothing.
+            number of terms differs. The extra work depends on the number of
+            eligible sequences and labelled pairings.
+            The default is ``False``.
 
     Returns:
         A :class:`PerturbativeResult` containing order-by-order
@@ -1723,7 +1724,9 @@ def compute_moment(
     certify = require_bool(certify, "certify", "compute_moment")
     run = None
     if certify:
-        run = _moment_certificate_run(observable, action, target, collect_topology)
+        run = _moment_certificate_run(
+            observable, action, target, collect_topology, (diag_R, diag_C, iso_R, iso_C)
+        )
     # E_psi: response legs carried by the observable itself.  Fixes the
     # phase needed to rotate a diagram value onto the real axis.
     n_external = sum(1 for op in observable if op.field.is_response)
@@ -1739,7 +1742,7 @@ def compute_moment(
         order_diagrams: list[DiagramInfo] = []
         order_dterms: list[DiagramTerm] = []
         tally = None if run is None else run.begin_order(n)
-        # (index, term start, term end, info start, info end, prefactor)
+        # (index, term start, term end, info start, info end, prefactor, instances)
         spans: list[tuple] = []
 
         if n == 0:
@@ -1754,7 +1757,7 @@ def compute_moment(
             if tally is not None:
                 _tally_order_zero(tally, observable, target)
                 spans.append((0, 0, len(order_dterms), 0, len(order_diagrams),
-                              Rational(1)))
+                              Rational(1), ()))
 
         for seq in _vertex_sequences(
             observable, action, n, target,
@@ -1858,7 +1861,8 @@ def compute_moment(
             )
             if tally is not None:
                 spans.append((seq.index, span_start[0], len(order_dterms),
-                              span_start[1], len(order_diagrams), seq.prefactor))
+                              span_start[1], len(order_diagrams), seq.prefactor,
+                              seq.instances))
 
         if order_exprs:
             raw = order_exprs[0] if len(order_exprs) == 1 else Sum(tuple(order_exprs))
@@ -1891,11 +1895,13 @@ def compute_moment(
 
         if tally is not None:
             # apply_diagonal keeps the order and the number of the terms.
-            for index, a, b, c, d, prefactor in spans:
+            for index, a, b, c, d, prefactor, _instances in spans:
                 tally.add_terms(index, map(order_dterms.__getitem__, range(a, b)),
                                 prefactor)
                 tally.add_diagram_infos(index, d - c)
-            run.end_order(tally)
+            run.end_order(tally, order_dterms, (
+                (i, a, b, instances) for i, a, b, _, _, _, instances in spans
+            ))
 
         diagrams_by_order[n] = order_diagrams
         # No entry for an order whose diagrams were not built: an empty list
@@ -1936,7 +1942,7 @@ def compute_moment(
     )
 
 
-def _moment_certificate_run(observable, action, target, collect_topology):
+def _moment_certificate_run(observable, action, target, collect_topology, value_flags):
     """The certificate run of ``compute_moment(certify=True)``."""
     from ._canonical import BUILTIN_METHOD
     from ._certificate import CertificateRun
@@ -1944,8 +1950,9 @@ def _moment_certificate_run(observable, action, target, collect_topology):
     _refuse_empty_observable(observable)
     if collect_topology:
         return CertificateRun("compute_moment", observable, action, target,
-                              canonical=BUILTIN_METHOD.label)
-    return CertificateRun("compute_moment/operator", observable, action, target)
+                              canonical=BUILTIN_METHOD.label, value_flags=value_flags)
+    return CertificateRun("compute_moment/operator", observable, action, target,
+                          value_flags=value_flags)
 
 
 def _tally_order_zero(tally, observable, target) -> None:
@@ -3002,10 +3009,12 @@ def compute_moment_numerical(
             ``RuntimeWarning`` under ``'auto'`` and the built-in method.
             The method is chosen once per call; workers under ``n_jobs``
             use it as well.
-        certify: If ``True``, check the counts of the output as
+        certify: If ``True``, check the counts and values of the output as
             :func:`compute_moment` does: the summed term weight of every
             vertex sequence against the standalone counter, the R classes,
-            and the size of every class of the canonical grouping.  The
+            and the size of every class of the canonical grouping. Value
+            checks use synthetic matrices keyed by both role and individual
+            point, for sequences of at most 14 operators. The
             certificates of the two key methods compare equal; their
             uncompared field ``canonical`` names the method and, for
             pynauty, its build.
@@ -3057,7 +3066,8 @@ def compute_moment_numerical(
         from ._certificate import CertificateRun
 
         run = CertificateRun("compute_moment_numerical", observable, action,
-                             target, canonical=method.label)
+                             target, canonical=method.label,
+                             value_flags=(diag_R, diag_C, iso_R, iso_C))
     # E_psi: response legs carried by the observable itself.  Fixes the
     # phase needed to rotate a diagram value onto the real axis.
     n_external = sum(1 for op in observable if op.field.is_response)
@@ -3072,11 +3082,11 @@ def compute_moment_numerical(
             _order_zero(observable, target, n_external)[2] if n == 0 else []
         )
         tally = None if run is None else run.begin_order(n)
-        # (index, term start, term end, prefactor)
+        # (index, term start, term end, prefactor, instances)
         spans: list[tuple] = []
         if tally is not None and n == 0:
             _tally_order_zero(tally, observable, target)
-            spans.append((0, 0, len(integrands), Rational(1)))
+            spans.append((0, 0, len(integrands), Rational(1), ()))
 
         for seq in _vertex_sequences(
             observable, action, n, target,
@@ -3157,7 +3167,8 @@ def compute_moment_numerical(
                         _diagram_terms(seq, tuple(props), coupling, n_external)
                     )
             if tally is not None:
-                spans.append((seq.index, term_start, len(integrands), seq.prefactor))
+                spans.append((seq.index, term_start, len(integrands), seq.prefactor,
+                              seq.instances))
 
         # Apply diagonal constraints
         if (diag_R or diag_C) and integrands:
@@ -3173,10 +3184,12 @@ def compute_moment_numerical(
 
         if tally is not None:
             # apply_diagonal keeps the order and the number of the terms.
-            for index, a, b, prefactor in spans:
+            for index, a, b, prefactor, _instances in spans:
                 tally.add_terms(index, map(integrands.__getitem__, range(a, b)),
                                 prefactor)
-            run.end_order(tally)
+            run.end_order(tally, integrands, (
+                (i, a, b, instances) for i, a, b, _, instances in spans
+            ))
 
         if integrands:
             result[n] = integrands

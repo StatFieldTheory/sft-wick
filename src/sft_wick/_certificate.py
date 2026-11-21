@@ -1,4 +1,4 @@
-"""Count certificates: the engines' counts against the pairing counter.
+"""Certificates for the engines' pairing counts and small numeric sums.
 
 With ``certify=True``, :func:`~sft_wick.perturbation.compute_moment`,
 :func:`~sft_wick.perturbation.compute_moment_numerical`,
@@ -19,6 +19,10 @@ vertex sequence of every order (:class:`SequenceCount`) and check it:
 * the multinomial coefficients of the sequences of order ``n`` add up to
   ``v**n`` for ``v`` vertex templates.
 
+When the engine emits numeric terms, the certificate also compares their
+values on synthetic arrays with an independently enumerated pairing sum.
+The numeric records belong to the same sequence rows as the counts.
+
 Failures are collected over all orders and raised once, as
 :class:`CertificateError`, after the last order.  The counter's inputs come
 from the vertex templates and the observable (:func:`counter_inputs`), not
@@ -30,16 +34,19 @@ from the instantiated sequence.  This module imports no engine module;
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from fractions import Fraction
 from math import factorial, prod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ._certify import UnsupportedLayout, count_valid_pairings
 from .expressions import KroneckerDelta, Product, Rational, Sum, Symbol
 
+if TYPE_CHECKING:
+    from ._value_certificate import ValueComparison
+
 #: Version of the record layout of :class:`CountCertificate`.
-CERTIFICATE_SCHEMA = 1
+CERTIFICATE_SCHEMA = 2
 
 #: Failures printed in the message of a :class:`CertificateError`.
 _SHOWN_FAILURES = 10
@@ -77,6 +84,10 @@ class SequenceCount:
     the labelled topologies; ``group_order`` is ``|G|``, the product of
     ``n_t!`` over the groups of equal vertex templates, and ``orbit_sum``
     the sum over classes of ``|G| / |Aut_V|``.
+
+    ``value_checks`` contains the numeric comparisons that ran. ``value_skip``
+    explains a skipped comparison in a certified expansion. These diagnostics
+    do not participate in count-certificate equality.
     """
 
     index: int
@@ -92,6 +103,9 @@ class SequenceCount:
     group_order: int | None = None
     orbit_sum: int | None = None
     note: str = ""
+    # Record the numeric probes without changing count-certificate equality.
+    value_checks: tuple[ValueComparison, ...] = field(default=(), compare=False)
+    value_skip: str = field(default="", compare=False)
 
 
 @dataclass(frozen=True)
@@ -119,7 +133,7 @@ class CountCertificate:
     """The count certificate of one call: one
     :class:`~sft_wick._certificate.OrderCount` per order.
 
-    It holds ints, strs, None and tuples of these, so
+    It holds plain data, so
     :func:`dataclasses.asdict` gives plain data.  ``encoding`` is the
     version of the canonical-key colouring when the path computes classes.
     ``canonical`` names the key method; it is not compared, so the
@@ -143,7 +157,7 @@ class CountCertificate:
 
 
 class CertificateError(RuntimeError):
-    """A count certificate found a difference.
+    """A count or value check found a difference.
 
     ``certificate`` holds the rows of every order, ``failures`` one message
     per failed check.
@@ -413,6 +427,7 @@ class CertificateRun:
         target: str,
         *,
         canonical: str = "",
+        value_flags: tuple[bool, bool, bool, bool] | None = None,
     ) -> None:
         if engine not in _COMPARED:
             raise ValueError(f"unknown certificate path {engine!r}")
@@ -421,6 +436,7 @@ class CertificateRun:
         self.action = action
         self.target = target
         self.canonical = canonical
+        self._value_flags = value_flags
         self._orders: list[OrderCount] = []
         self._failures: list[str] = []
 
@@ -441,9 +457,10 @@ class CertificateRun:
                 refusals.append(str(exc))
         return OrderTally(n, combinations, tuple(counters), tuple(refusals))
 
-    def end_order(self, tally: OrderTally) -> None:
+    def end_order(self, tally: OrderTally, terms=(), value_spans=()) -> None:
         """Check the rows of ``tally`` and keep its record."""
         n = tally.order
+        n_failures = len(self._failures)
         total = sum(multinomial for _seq, multinomial in tally.combinations)
         n_vertices = len(self.action.vertices)
         if total != n_vertices ** n:
@@ -453,7 +470,53 @@ class CertificateRun:
                 f"{n_vertices ** n}"
             )
         rows = tuple(self._row(tally, index) for index in range(len(tally.combinations)))
+        if self._value_flags is not None:
+            if len(self._failures) != n_failures:
+                rows = tuple(replace(row, value_skip="count check failed") for row in rows)
+            else:
+                rows = self._value_rows(tally, rows, terms, value_spans)
         self._orders.append(OrderCount(n, n_vertices, rows))
+
+    def _value_rows(self, tally, rows, terms, spans):
+        from ._value_certificate import (
+            MAX_OPERATORS,
+            ValueLayoutError,
+            compare_values,
+            sequence_prefactors,
+        )
+
+        spans = {i: (a, b, instances) for i, a, b, instances in spans}
+        records = []
+        prefactors = sequence_prefactors(len(self.action.vertices), tally.order)
+        for row, (vertices, _), prefactor in zip(rows, tally.combinations, prefactors, strict=True):
+            if self.engine == "compute_moment/operator" and tally.order > 0:
+                records.append(replace(row, value_skip="the operator path emits no numeric terms"))
+                continue
+            if len(self.observable) + sum(len(vertex.fields) for vertex in vertices) > MAX_OPERATORS:
+                records.append(replace(row, value_skip=f"more than {MAX_OPERATORS} operators"))
+                continue
+            a, b, instances = spans.get(row.index, (0, 0, ()))
+            where = _row_label(tally.order, row.index, row.vertices)
+            try:
+                checks = tuple(compare_values(self.observable, vertices, self.target,
+                                              prefactor, terms[a:b], instances,
+                                              self._value_flags, self.engine))
+            except ValueLayoutError as exc:
+                records.append(replace(row, value_skip=str(exc)))
+                continue
+            except (TypeError, ValueError, KeyError, OverflowError) as exc:
+                self._failures.append(f"{where}: value certificate could not evaluate: {exc}")
+                records.append(replace(row, value_skip="numeric comparison failed"))
+                continue
+            for check in checks:
+                if not check.passed:
+                    self._failures.append(
+                        f"{where}: value certificate ({check.probe}) relative error "
+                        f"{check.relative_error:.3g}; reference {check.reference}, "
+                        f"emitted {check.emitted}"
+                    )
+            records.append(replace(row, value_checks=checks))
+        return tuple(records)
 
     def finish(self) -> CountCertificate:
         """The certificate; raises :class:`CertificateError` after a failure."""
@@ -490,7 +553,7 @@ class CertificateRun:
     # --- checks -------------------------------------------------------
 
     def _message(self) -> str:
-        lines = [f"count certificate of {self.engine} (target {self.target!r}) failed:"]
+        lines = [f"certificate of {self.engine} (target {self.target!r}) failed:"]
         lines += [f"  {failure}" for failure in self._failures[:_SHOWN_FAILURES]]
         if len(self._failures) > _SHOWN_FAILURES:
             lines.append(f"  and {len(self._failures) - _SHOWN_FAILURES} more")

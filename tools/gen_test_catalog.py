@@ -417,6 +417,16 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "operators",
         "exact",
     ),
+    "tests/test_value_certificate.py": (
+        "Multiplicities and canonical forms",
+        "synthetic values of emitted diagram terms, complex response phase, "
+        "literal components, moment and connected targets, routing collapse "
+        "with the count preserved, absorbed R on mixed vertex roles, and "
+        "explicit reasons for count-only rows",
+        "independent labelled Wick pair enumeration with MSR weights and "
+        "an analytic single-response contraction",
+        "1e-12 relative, exact count and budget status",
+    ),
     "tests/test_pairing_counter.py": (
         "Multiplicities and canonical forms",
         "counts of valid operator pairings from the standard-library counter "

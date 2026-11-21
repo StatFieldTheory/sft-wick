@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8775 tests** in 148 files (parametrised
+The suite has **8785 tests** in 149 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -132,7 +132,7 @@ Symbolic engine
 Multiplicities and canonical forms
 ----------------------------------
 
-*545 tests in 7 files.*
+*555 tests in 8 files.*
 
 .. list-table::
    :header-rows: 1
@@ -178,6 +178,11 @@ Multiplicities and canonical forms
      - every relabelling tried by tests/brute_relabel.py (itertools only, no sft-wick imports); pynauty's group order of the dummy-node graph; the two methods against each other; the term order of the previous key
      - exact; coupling values within a class to 1e-12; 0.2 s per key, 30 s per child process
      - 77
+   * - ``test_value_certificate.py``
+     - synthetic values of emitted diagram terms, complex response phase, literal components, moment and connected targets, routing collapse with the count preserved, absorbed R on mixed vertex roles, and explicit reasons for count-only rows
+     - independent labelled Wick pair enumeration with MSR weights and an analytic single-response contraction
+     - 1e-12 relative, exact count and budget status
+     - 10
 
 Propagator numerics
 -------------------
