@@ -309,7 +309,7 @@ def test_CL4_run_prints_the_resolved_config(tmp_path, capsys, monkeypatch):
         def summary(self):
             return "[sft-wick] estimate: skipped"
 
-    monkeypatch.setattr(estimate, "estimate_cost", lambda cfg: _Estimate())
+    monkeypatch.setattr(estimate, "estimate_cost", lambda cfg, **kwargs: _Estimate())
     status = main(["run", str(QUICKSTART), "--dry-run", "-q",
                    "--print-resolved"])
     out = capsys.readouterr().out
@@ -344,7 +344,7 @@ def test_CL4_run_prints_only_the_path_an_override_names(tmp_path, capsys,
         def summary(self):
             return "[sft-wick] estimate: skipped"
 
-    monkeypatch.setattr(estimate, "estimate_cost", lambda cfg: _Estimate())
+    monkeypatch.setattr(estimate, "estimate_cost", lambda cfg, **kwargs: _Estimate())
 
     def printed(text: str, *extra: str) -> dict:
         path = tmp_path / "c.yaml"

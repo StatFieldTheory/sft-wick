@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8785 tests** in 149 files (parametrised
+The suite has **8789 tests** in 151 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -132,7 +132,7 @@ Symbolic engine
 Multiplicities and canonical forms
 ----------------------------------
 
-*555 tests in 8 files.*
+*556 tests in 9 files.*
 
 .. list-table::
    :header-rows: 1
@@ -148,6 +148,11 @@ Multiplicities and canonical forms
      - fake pynauty packages on the path; subprocesses with their own hash seeds; pinned digests
      - exact
      - 18
+   * - ``test_certificate_hash_seed.py``
+     - serialized count and value certificates under five Python hash seeds for both targets and both L0 expansion paths
+     - fresh Python processes with the built-in canonical key
+     - identical JSON bytes
+     - 1
    * - ``test_certify_imports.py``
      - sft_wick/_certify.py imports only the standard library and no sft_wick module (an AST walk over import statements, relative imports and import calls, which must name a literal module); loading the file by path and counting loads no sft_wick module and no third-party module
      - the import statements; sys.modules of a fresh interpreter
@@ -637,7 +642,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*2134 tests in 30 files.*
+*2137 tests in 31 files.*
 
 .. list-table::
    :header-rows: 1
@@ -673,6 +678,11 @@ Workflow and YAML
      - closed form (level A is a single diagram, hence exact); QMC on the raw-vertex path
      - exact / 2e-4
      - 18
+   * - ``test_dry_run_counts.py``
+     - exact unfiltered expansion counts printed before the only expansion, no component routing during preflight, filtered sweep estimate, order-zero class convention and multinomial weighting
+     - cubic moment and connected Wick pairing counts and typed classes, plus the three sequences of a two-vertex action
+     - exact integers and output ordering
+     - 3
    * - ``test_empty_order_selection.py``
      - an order at which the expansion holds no diagram (order 1 of a cubic F) as zero rows of a moment-target sweep, alone, beside other orders, with a channel selection, with reused integrands, in evaluate's by_order, and through --override sweep.orders=N
      - closed-form covariance of test_observable_operator_inputs

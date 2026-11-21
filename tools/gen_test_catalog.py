@@ -427,6 +427,22 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "an analytic single-response contraction",
         "1e-12 relative, exact count and budget status",
     ),
+    "tests/test_dry_run_counts.py": (
+        "Workflow and YAML",
+        "exact unfiltered expansion counts printed before the only expansion, "
+        "no component routing during preflight, filtered sweep estimate, "
+        "order-zero class convention and multinomial weighting",
+        "cubic moment and connected Wick pairing counts and typed classes, "
+        "plus the three sequences of a two-vertex action",
+        "exact integers and output ordering",
+    ),
+    "tests/test_certificate_hash_seed.py": (
+        "Multiplicities and canonical forms",
+        "serialized count and value certificates under five Python hash seeds "
+        "for both targets and both L0 expansion paths",
+        "fresh Python processes with the built-in canonical key",
+        "identical JSON bytes",
+    ),
     "tests/test_pairing_counter.py": (
         "Multiplicities and canonical forms",
         "counts of valid operator pairings from the standard-library counter "

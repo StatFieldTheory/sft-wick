@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added: exact expansion counts in `run --dry-run`
+
+The dry run prints valid Wick pairings, multinomial-weighted pairings and
+typed spatial topology classes by order before expanding. These counts
+cover the expansion target and orders before sweep filters. The cost
+estimate continues to use the filtered sweep terms.
+
 ### Added: numeric validation of certified expansions
 
 Each eligible ``certify=True`` sequence row now compares the value of its

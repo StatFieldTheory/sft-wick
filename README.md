@@ -124,8 +124,14 @@ noise, whose κ⁽³⁾ vertex is R-contracted exactly).
 
 ### How long will this take?
 
-`sft-wick run CONFIG --dry-run` prints an estimate before you commit to a
-run.  Measured wall-clock, serial, `pip install sft-wick` with no extras:
+`sft-wick run CONFIG --dry-run` prints exact pairing and typed topology-class
+counts before the expansion, then estimates the cost of the requested sweep.
+The counts cover `expand.orders` before sweep filters. Order-zero class
+counts are shown as `n/a` because the expansion treats this order directly.
+Enumerating spatial topologies for the preflight can take time and memory at
+high perturbative orders.
+
+Measured wall-clock, serial, `pip install sft-wick` with no extras:
 
 | Config | Apple M3 Ultra (one core) | Laptop proxy¹ | GitHub `ubuntu-latest` runner² | What it computes |
 |---|---|---|---|---|

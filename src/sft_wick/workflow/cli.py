@@ -353,7 +353,7 @@ def _cmd_run(args) -> int:
             from .estimate import estimate_cost
 
             t0 = time.perf_counter()
-            est = estimate_cost(cfg)
+            est = estimate_cost(cfg, report_preflight=lambda summary: print(summary, flush=True))
             print(est.summary())
             print(
                 f"[sft-wick] dry run — exiting before execution "
