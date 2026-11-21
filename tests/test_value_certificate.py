@@ -156,3 +156,40 @@ def test_VC8_missing_absorbed_component_pins_change_the_value(monkeypatch):
     row, = caught.value.certificate.order(1).sequences
     assert row.counter == row.term_weight == 2
     assert any(not check.passed for check in row.value_checks)
+
+
+def test_weighted_routes_need_leg_averaging(monkeypatch):
+    obs, action = _cubic(2)
+    result = compute_moment_numerical(
+        obs, action, 2, routing="multiplicity", certify=True, canonical="builtin",
+    )
+    row, = result.certificate.order(2).sequences
+    assert len(result[2]) == row.classes == 6
+    assert row.term_weight == row.counter == 30
+    assert row.orbit_sum == 12
+    assert row.value_checks and all(check.passed for check in row.value_checks)
+
+    # The same rational weights still sum to 30 without the leg averages.
+    monkeypatch.setattr(perturbation, "_symmetrized_symbol", lambda vi: vi.coupling_symbol)
+    with pytest.raises(CertificateError, match="value certificate") as failure:
+        compute_moment_numerical(
+            obs, action, 2, routing="multiplicity", certify=True, canonical="builtin",
+        )
+    wrong, = failure.value.certificate.order(2).sequences
+    assert wrong.term_weight == wrong.counter == 30
+
+
+def test_weighted_routes_keep_vertex_types_and_both_response_slots():
+    phi, psi = Field("phi", "physical"), Field("psi", "response")
+    action = Action([
+        Vertex([psi, phi, phi], "F"),
+        Vertex([psi, phi, phi], "G"),
+        Vertex([psi, psi, phi, phi], "M"),
+    ])
+    result = compute_moment([phi("x"), phi("y")], action, 3,
+                            routing="multiplicity", certify=True)
+    fg, = (row for row in result.certificate.order(2).sequences if row.vertices == ("F", "G"))
+    ffm, = (row for row in result.certificate.order(3).sequences
+            if row.vertices == ("F", "F", "M"))
+    assert fg.classes == fg.orbit_sum == 12
+    assert ffm.term_weight == ffm.counter == 564

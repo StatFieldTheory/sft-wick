@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **9233 tests** in 161 files (parametrised
+The suite has **9236 tests** in 161 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -158,7 +158,7 @@ Symbolic engine
 Multiplicities and canonical forms
 ----------------------------------
 
-*556 tests in 9 files.*
+*558 tests in 9 files.*
 
 .. list-table::
    :header-rows: 1
@@ -232,7 +232,7 @@ Multiplicities and canonical forms
      - independent labelled Wick pair enumeration with MSR weights and an analytic single-response contraction
      - exact analytic
      - 1e-12 relative, exact count and budget status
-     - 10
+     - 12
      - 0
 
 Propagator numerics
@@ -860,7 +860,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*2581 tests in 41 files.*
+*2582 tests in 41 files.*
 
 .. list-table::
    :header-rows: 1
@@ -920,7 +920,7 @@ Workflow and YAML
      - cubic moment and connected Wick pairing counts and typed classes, plus the three sequences of a two-vertex action
      - independent code
      - exact integers and output ordering
-     - 3
+     - 4
      - 0
    * - ``test_empty_order_selection.py``
      - an order at which the expansion holds no diagram (order 1 of a cubic F) as zero rows of a moment-target sweep, alone, beside other orders, with a channel selection, with reused integrands, in evaluate's by_order, and through --override sweep.orders=N

@@ -235,13 +235,15 @@ def _type_identity(vertex: Any) -> tuple:
             )
         where = f"vertex {vertex!r}: n_components of field {field.name!r}"
         fields.append((field.name, kind, _count(field.n_components, where)))
-    return (
+    identity = (
         coupling,
         bool(vertex.local),
         bool(vertex.equal_time),
         bool(vertex.already_R_contracted),
         tuple(fields),
     )
+    symmetry = getattr(vertex, "leg_symmetry", "none")
+    return identity if symmetry == "none" else (*identity, symmetry)
 
 
 def _count(value: object, name: str) -> int:

@@ -38,6 +38,8 @@ from typing import Any
 
 from sft_wick._connected import TARGETS
 from sft_wick._contraction_admission import CONTRACTION_BACKENDS
+from sft_wick.perturbation import ROUTING_MODES
+from sft_wick.vertices import LEG_SYMMETRIES
 
 from . import config as cf
 from . import specs as sp
@@ -350,6 +352,7 @@ def _vertex(cls) -> _Block:
         "coupling": _TENSOR,
         "rank": _null(_STRICT_INTEGER),
         "order": _ORDER,
+        "leg_symmetry": _enum(LEG_SYMMETRIES),
     }
     keys = _dataclass_keys(cls, nodes, optional=("coupling",))
     keys["coupling"] = dataclasses.replace(
@@ -407,6 +410,7 @@ def _expand() -> _Block:
         "iso_R": _null(_BOOLEAN),
         "cache_path": _null(_STRING),
         "target": _enum(TARGETS),
+        "routing": _enum(ROUTING_MODES),
     }
     return _Block(_dataclass_keys(cf.ExpandConfig, nodes))
 

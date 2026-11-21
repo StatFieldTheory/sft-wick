@@ -98,6 +98,7 @@ class ExpandConfig:
     cache_path: Any = None
     n_jobs: int = 1
     target: str = "moment"
+    routing: str = "enumerate"
 
 
 @dataclass(frozen=True)
@@ -1092,6 +1093,7 @@ _EXPAND_KEYS = frozenset(
         "cache_path",
         "n_jobs",
         "target",
+        "routing",
     }
 )
 _PROPAGATORS_KEYS = frozenset(
@@ -1692,6 +1694,11 @@ def _parse_vertex(
     for flag in _VERTEX_FLAGS:
         if flag in out:
             out[flag] = _as_bool(out[flag], f"{where}.{flag}")
+    if "leg_symmetry" in out:
+        from sft_wick.vertices import validate_leg_symmetry
+
+        with _refused_at(f"{where}.leg_symmetry"):
+            validate_leg_symmetry(out["leg_symmetry"])
 
     if sources[0] == "coupling_path":
         npy = _named_file(
@@ -2327,9 +2334,13 @@ def _parse_expand(d: dict) -> ExpandConfig:
     if orders is None:
         raise ConfigError("invalid_value", "expand.orders", "is required")
     from sft_wick._connected import validate_target
+    from sft_wick.perturbation import validate_routing
 
     with _refused_at("expand.target"):
         validate_target(d.get("target", ExpandConfig.target), obs)
+    routing = d.get("routing", ExpandConfig.routing)
+    with _refused_at("expand.routing"):
+        validate_routing(routing)
     return ExpandConfig(
         observable=tuple(obs),
         orders=orders,
@@ -2342,6 +2353,7 @@ def _parse_expand(d: dict) -> ExpandConfig:
         cache_path=_cache_path(d.get("cache_path"), "expand.cache_path"),
         n_jobs=_jobs(d.get("n_jobs", ExpandConfig.n_jobs), "expand.n_jobs"),
         target=d.get("target", ExpandConfig.target),
+        routing=routing,
     )
 
 
@@ -3299,7 +3311,7 @@ def run_workflow(cfg: WorkflowConfig, progress: Any = None):
 def expand_kwargs(cfg: WorkflowConfig) -> dict:
     """The arguments of :meth:`System.expand`, for the run and the estimate."""
     e = cfg.expand
-    return dict(
+    kwargs = dict(
         observable=e.observable,
         orders=e.orders,
         response_phase=e.response_phase,
@@ -3311,6 +3323,9 @@ def expand_kwargs(cfg: WorkflowConfig) -> dict:
         cache_path=e.cache_path,
         target=e.target,
     )
+    if e.routing != "enumerate":
+        kwargs["routing"] = e.routing
+    return kwargs
 
 
 def propagators_kwargs(cfg: WorkflowConfig, c_closed_form: Any) -> dict:

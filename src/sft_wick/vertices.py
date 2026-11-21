@@ -15,6 +15,16 @@ from .fields import Field, FieldOperator
 from .indices import IndexContext
 
 
+LEG_SYMMETRIES = ("none", "declared", "symmetrize")
+
+
+def validate_leg_symmetry(value: str) -> None:
+    if not isinstance(value, str) or value not in LEG_SYMMETRIES:
+        raise ValueError(
+            "leg_symmetry must be 'none', 'declared', or 'symmetrize'"
+        )
+
+
 def equal_time_aliases(legs: Sequence[str]) -> tuple[tuple[str, str], ...]:
     """``(leg, first leg)`` for every leg after the first of an equal-time
     group: the first leg created stands for the group's one time."""
@@ -46,6 +56,7 @@ class Vertex:
     # ``False`` for local vertices (a local vertex's legs sit at one
     # shared spacetime point, so there is nothing to absorb across).
     already_R_contracted: bool = False
+    leg_symmetry: str = "none"
 
     def __init__(
         self,
@@ -54,7 +65,11 @@ class Vertex:
         local: bool = True,
         equal_time: bool = False,
         already_R_contracted: bool = False,
+        leg_symmetry: str = "none",
     ):
+        validate_leg_symmetry(leg_symmetry)
+        if local and leg_symmetry != "none":
+            raise ValueError("leg_symmetry is only set explicitly on non-local vertices")
         equal_time = require_bool(equal_time, "equal_time", "Vertex")
         already_R_contracted = require_bool(
             already_R_contracted, "already_R_contracted", "Vertex")
@@ -91,6 +106,7 @@ class Vertex:
         object.__setattr__(self, "local", local)
         object.__setattr__(self, "equal_time", bool(equal_time))
         object.__setattr__(self, "already_R_contracted", bool(already_R_contracted))
+        object.__setattr__(self, "leg_symmetry", leg_symmetry)
 
     @property
     def n_fields(self) -> int:

@@ -164,7 +164,9 @@ def _expansion_preflight(system, expand) -> str:
 
     observable, _ = _parse_observable(expand.observable, system, max(expand.orders))
     lines = [f"[sft-wick] expansion preflight ({expand.target}, before sweep filters)"]
-    for block in _preflight_counts(observable, system.build_action(), expand.orders, expand.target):
+    for block in _preflight_counts(
+        observable, system.build_action(), expand.orders, expand.target, routing=expand.routing,
+    ):
         classes = (
             sum(row.classes for row in block.sequences if row.classes is not None)
             if block.order else "n/a"

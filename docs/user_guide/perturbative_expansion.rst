@@ -67,6 +67,34 @@ Accessing Individual Orders
    print(result.to_latex())
 
 
+Multiplicity routing
+--------------------
+
+Pass ``routing="multiplicity"`` to ``System.expand``,
+``compute_moment`` or ``compute_moment_numerical``, or set
+``expand.routing: multiplicity`` in the workflow YAML. At positive orders
+this uses one representative per typed spatial topology class. Each
+representative is weighted by its number of labelled topologies and the
+number of operator pairings of each labelled topology.
+
+The coupling at a local vertex is averaged over separate permutations of
+its physical and response legs, including for a time-dependent coupling.
+A non-local vertex keeps its leg order by default. Its ``leg_symmetry``
+may declare an already symmetric coupling (``declared``) or request an
+explicit average over joint permutations of each leg's indices and
+coordinates (``symmetrize``). The typed layout keeps the positions of
+ordered non-local legs distinct. The explicit average accepts up to
+5,040 permutations per vertex and requires equal component dimensions
+within each permuted role.
+
+The default ``routing="enumerate"`` remains available as a reference.
+The two routes describe the same integrals, but finite sampled estimates
+can differ under relabelling of integration variables. Certified
+multiplicity expansions check weighted pairings and point orbit sizes
+against the independent counts. Small value checks use synthetic inputs
+invariant under relabelling points of the same vertex type.
+
+
 What Happens Internally
 -----------------------
 

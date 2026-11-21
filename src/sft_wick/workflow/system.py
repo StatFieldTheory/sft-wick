@@ -697,6 +697,7 @@ class System:
                     local=False,
                     equal_time=nv.equal_time,
                     already_R_contracted=nv.already_R_contracted,
+                    leg_symmetry=nv.leg_symmetry,
                 )
             )
 
@@ -757,6 +758,7 @@ class System:
         progress: Any = None,
         target: str = "moment",
         certify: bool = False,
+        routing: str = "enumerate",
     ) -> "Expansion":
         """Run the perturbative expansion and return an
         :class:`Expansion` object.
@@ -790,6 +792,10 @@ class System:
                 formal joint cumulants for the normalized causal Itô MSR
                 system; see :func:`~sft_wick.perturbation.compute_moment` for
                 normalization and source-correlator boundaries.
+            routing: ``'enumerate'`` (default) or ``'multiplicity'``.
+                The latter averages interchangeable local legs, takes one
+                weighted term per typed topology class, and uses a separate
+                expansion cache key.
             certify: ``True`` compares, for every vertex sequence of every
                 order, the number of operator pairings the diagrams stand
                 for with a counter that shares no code with the engine,
@@ -828,7 +834,7 @@ class System:
             CertificateError: with ``certify=True``, when a check failed;
                 no cache entry is written.
         """
-        from sft_wick.perturbation import compute_moment
+        from sft_wick.perturbation import compute_moment, validate_routing
         from sft_wick.progress import progress as _progress_scope
 
         from .cache import load_or_compute
@@ -842,6 +848,7 @@ class System:
         iso_C = _flag(iso_C, "iso_C", flag)
         iso_R = None if iso_R is None else _flag(iso_R, "iso_R", flag)
         certify = _flag(certify, "certify", flag)
+        validate_routing(routing)
 
         # The rules of Expansion.evaluate: one integer is one order, and a
         # string, a float or a boolean raises ("02" used to give (0, 2)).
@@ -893,6 +900,9 @@ class System:
         # A moment adds no field: the default target stays out of the key.
         if target != "moment":
             spec_key["target"] = target
+        if routing != "enumerate":
+            spec_key["routing"] = routing
+            spec_key["leg_symmetries"] = tuple(v.leg_symmetry for v in self.nonlocal_vertices)
         # An observable label spelled like a generated name (``y_0``,
         # ``i_1``) used to merge with a vertex point or index, so a cache
         # entry written before the generators skipped such labels holds a
@@ -902,6 +912,7 @@ class System:
 
         # An uncertified call passes no certify keyword, as before it existed.
         certify_kwargs = {"certify": True} if certify else {}
+        routing_kwargs = {"routing": routing} if routing != "enumerate" else {}
 
         def _compute():
             action = self.build_action()
@@ -917,6 +928,7 @@ class System:
                 iso_C=iso_C,
                 target=target,
                 **certify_kwargs,
+                **routing_kwargs,
             )
             return {
                 "dts_by_order": {o: result.diagram_terms(o) for o in orders_list},
