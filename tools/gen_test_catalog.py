@@ -176,6 +176,13 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "adversarial metadata/error/cancellation/nonfinite/overflow probes; true GL/QMC subprocesses and stale-bytecode witness",
         "exact repeat/QMC gates; explicit 1e-12 relative and 1e-14 absolute GL budget",
     ),
+    "tests/test_version_compare.py": (
+        "Workflow and YAML",
+        "version drift reporting, physical coordinates, isolated installs, "
+        "QMC movement declarations, worker refusal and input protection",
+        "known values from two toy installs and floating-point neighbor probes",
+        "exact decisions; test boundaries at the 4.5e-16 relative budget",
+    ),
     "tests/test_qmc_coupling_chunks.py": (
         "Integrators",
         "explicit coupling-only QMC partitions, sample order and whole-batch "
@@ -1813,6 +1820,7 @@ REFERENCE_KIND: dict[str, str] = {
     "tests/test_validation_lower_v042.py": "independent_code",
     "tests/test_validation_worker.py": "self_consistency",
     "tests/test_vectorized_r_time.py": "self_consistency",
+    "tests/test_version_compare.py": "exact_analytic",
     "tests/test_wick.py": "exact_analytic",
     "tests/test_workflow.py": "exact_analytic",
     "tests/test_workflow_cli.py": "none",

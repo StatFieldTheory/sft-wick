@@ -77,6 +77,9 @@ YAML + CLI (L2)
 .. automodule:: sft_wick.workflow.resource_compare
    :members:
 
+.. automodule:: sft_wick.workflow.version_compare
+   :members:
+
 .. automodule:: sft_wick.workflow.config
    :members:
    :undoc-members:

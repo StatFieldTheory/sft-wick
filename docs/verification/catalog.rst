@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8753 tests** in 152 files (parametrised
+The suite has **8763 tests** in 153 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -811,7 +811,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*2568 tests in 39 files.*
+*2578 tests in 40 files.*
 
 .. list-table::
    :header-rows: 1
@@ -1041,6 +1041,13 @@ Workflow and YAML
      - exact
      - 135
      - 4
+   * - ``test_version_compare.py``
+     - version drift reporting, physical coordinates, isolated installs, QMC movement declarations, worker refusal and input protection
+     - known values from two toy installs and floating-point neighbor probes
+     - exact analytic
+     - exact decisions; test boundaries at the 4.5e-16 relative budget
+     - 10
+     - 0
    * - ``test_workflow.py``
      - System / Expansion / Propagators / SweepResult surface; end-to-end vs the raw API; two-time sweeps
      - raw L0 pipeline (validate_phase5); closed forms
@@ -1320,7 +1327,7 @@ Where a file holds checks of several kinds:
    * - Kind
      - Files
    * - exact analytic
-     - 74
+     - 75
    * - independent code
      - 31
    * - simulation

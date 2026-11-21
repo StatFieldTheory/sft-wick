@@ -1,0 +1,7 @@
+cases:
+- id: brownian-gl
+  config: brownian/gl.yaml
+- id: brownian-qmc
+  config: brownian/qmc.yaml
+- id: brownian-nquad
+  config: brownian/nquad.yaml

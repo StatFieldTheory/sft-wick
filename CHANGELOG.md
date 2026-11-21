@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added: numerical drift reports between versions
+
+``sft-wick compare-versions`` runs a declared corpus against two local package
+versions and compares per-order totals at matching physical coordinates.
+The JSON report records changes, errors, declarations, and input fingerprints.
+Movements beyond round-off require a declaration even within reported QMC
+uncertainty. A missing row or a refused comparison also fails the gate.
+
 ### Added: a parent-commit gate
 
 `tools/parent_gate.py judge --head REV [--base REV]` runs the test files a change

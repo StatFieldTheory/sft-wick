@@ -12,6 +12,7 @@ Detailed coverage of every feature in **sft-wick**, organised by topic.
    time_variable
    parallelism
    resources
+   version_comparison
 
 .. toctree::
    :maxdepth: 2
