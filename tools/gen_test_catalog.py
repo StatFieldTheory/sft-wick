@@ -400,6 +400,23 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "brute-force Wick reference (tests/brute_wick.py, no sft-wick imports)",
         "exact",
     ),
+    "tests/test_count_certificate.py": (
+        "Multiplicities and canonical forms",
+        "count certificates of compute_moment, compute_moment_numerical, "
+        "System.expand and the routing count with certify=True: the pairing "
+        "count of every vertex sequence against the standalone counter, R "
+        "classes, labelled topologies, typed classes and orbit sums, both "
+        "targets, the diagonal flags, the operator path, workers, both canonical "
+        "methods, the expansion cache, the refusal of an empty observable; "
+        "mutants of the R assignment rule, the shared-label guard and the "
+        "routing of psi raise, and so does each check on the certificate's own "
+        "data",
+        "every pairing enumerated by tests/brute_wick.py up to 14 operators, "
+        "with a union-find on owners, and every relabelling by "
+        "tests/brute_relabel.py; the pruned search of the counter tests at 18 "
+        "operators",
+        "exact",
+    ),
     "tests/test_pairing_counter.py": (
         "Multiplicities and canonical forms",
         "counts of valid operator pairings from the standard-library counter "

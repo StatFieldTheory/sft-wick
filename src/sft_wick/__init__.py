@@ -89,6 +89,7 @@ from .quadratic import (
     GaussianSpectralTail,
 )
 from .white_cumulant import OUWhiteCumulant
+from ._certificate import CertificateError, CountCertificate
 from .perturbation import (
     DiagramTerm,
     PerturbativeResult,
@@ -155,7 +156,9 @@ __all__ = [
     "spectral_cache",
     "build_R_contracted_callable",
     "Action",
+    "CertificateError",
     "ConstantImpulse",
+    "CountCertificate",
     "LABEL_COMPACT",
     "LABEL_FULL",
     "LABEL_TIME_F",

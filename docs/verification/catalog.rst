@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **8630 tests** in 147 files (parametrised
+The suite has **8775 tests** in 148 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -132,7 +132,7 @@ Symbolic engine
 Multiplicities and canonical forms
 ----------------------------------
 
-*400 tests in 6 files.*
+*545 tests in 7 files.*
 
 .. list-table::
    :header-rows: 1
@@ -153,6 +153,11 @@ Multiplicities and canonical forms
      - the import statements; sys.modules of a fresh interpreter
      - exact
      - 3
+   * - ``test_count_certificate.py``
+     - count certificates of compute_moment, compute_moment_numerical, System.expand and the routing count with certify=True: the pairing count of every vertex sequence against the standalone counter, R classes, labelled topologies, typed classes and orbit sums, both targets, the diagonal flags, the operator path, workers, both canonical methods, the expansion cache, the refusal of an empty observable; mutants of the R assignment rule, the shared-label guard and the routing of psi raise, and so does each check on the certificate's own data
+     - every pairing enumerated by tests/brute_wick.py up to 14 operators, with a union-find on owners, and every relabelling by tests/brute_relabel.py; the pruned search of the counter tests at 18 operators
+     - exact
+     - 144
    * - ``test_deductive_expansion.py``
      - every pairing at order ≤ 2 classified by vanishing reason; routing counts of spatial topologies; canonical-form deduplication
      - brute-force Wick reference (tests/brute_wick.py, no sft-wick imports)
@@ -167,7 +172,7 @@ Multiplicities and canonical forms
      - counts of valid operator pairings from the standard-library counter (no psi-psi pair, no response propagator on one point, no directed response cycle): cubic, quartic and double-psi vertices by order, mixed sequences, unequal externals, external psi, three-psi and phi-free vertices, one leg per point with an owner map, labels shared by owners, moment and connected targets, direct enumeration against the subset recursion at 13 psi, input refusals
      - every pairing enumerated and classified by tests/brute_wick.py up to 14 operators, with a union-find on owners for the connected target; a pruned search with the same rules at 18 and 20 operators; the two algorithms of the counter against each other above that
      - exact
-     - 211
+     - 212
    * - ``test_typed_canonical_key.py``
      - typed canonical keys of compute_moment_numerical, built-in and pynauty: class counts with two vertex types, and with one coupling name and other fields or flags; point automorphism orders without swaps of parallel propagators and their orbit sum; partition and automorphism order on engine sequences (several instances of one non-local vertex included), on regular graphs that colour refinement cannot split and on an R cycle against its reverse; a join of two strongly regular graphs under 20 relabellings; all 738,900 cubic topologies at order 6 (heavy); equal coupling values within a class; a time cap, in a child process, on a symmetric star and on R self-loops beside R 2-cycles; one block per class in the engine output; the term order of one local vertex type; degenerate vertices accepted
      - every relabelling tried by tests/brute_relabel.py (itertools only, no sft-wick imports); pynauty's group order of the dummy-node graph; the two methods against each other; the term order of the previous key

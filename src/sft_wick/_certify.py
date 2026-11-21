@@ -67,6 +67,14 @@ METHODS = ("auto", "direct", "dp")
 #: takes 7 s and the recursion 25 s.
 DIRECT_MAX_PSI = 12
 
+
+class UnsupportedLayout(ValueError):
+    """A layout whose connected count the owner-subset inclusion-exclusion
+    cannot take, under every ``method``: two or more labels with both phi
+    and psi are each shared by several owners, so a response cycle could
+    cross two components."""
+
+
 #: Operators of one owner on one point: (point, owner, n_phi, n_psi), with
 #: points and owners as indices.
 _Group = tuple[int, int, int, int]
@@ -96,9 +104,13 @@ def count_valid_pairings(
     those that join all owners.  With no owner the connected count is 0.
     ``method``: ``'direct'``, ``'dp'`` (the subset recursion) or ``'auto'``.
 
-    Raises ``ValueError`` on malformed input, and for
+    Raises ``ValueError`` on malformed input, and
+    :class:`UnsupportedLayout`, a ``ValueError``, for
     ``target='connected'`` when two or more labels that carry both phi and
-    psi are each shared by several owners.
+    psi are each shared by several owners.  The connected count is 0
+    without that check when the operators are odd in number or form fewer
+    pairs than the owners less one, since a connected graph on ``k`` nodes
+    has at least ``k - 1`` edges.
     """
     if target not in TARGETS:
         raise ValueError(f"target must be one of {TARGETS}, got {target!r}")
@@ -375,7 +387,7 @@ def _require_cycles_within_components(groups: Sequence[_Group]) -> None:
     crossing = [label for label, named in owners.items()
                 if len(named) > 1 and phi[label] and psi[label]]
     if len(crossing) > 1:
-        raise ValueError(
+        raise UnsupportedLayout(
             "target='connected' is not supported when two or more labels "
             "that carry both phi and psi are each shared by several "
             f"owners ({len(crossing)} such labels): a response cycle "
@@ -384,8 +396,13 @@ def _require_cycles_within_components(groups: Sequence[_Group]) -> None:
 
 
 def _count_connected(groups: Sequence[_Group], method: str) -> int:
-    _require_cycles_within_components(groups)
     n_owners = len({owner for _, owner, _, _ in groups})
+    n_operators = sum(n_phi + n_psi for _, _, n_phi, n_psi in groups)
+    # A pairing has one edge per pair, and a connected graph on n_owners
+    # nodes has at least n_owners - 1 edges.
+    if n_operators % 2 or n_operators // 2 < n_owners - 1:
+        return 0
+    _require_cycles_within_components(groups)
     if n_owners == 0:
         return 0
     totals: dict[int, int] = {}

@@ -756,6 +756,7 @@ class System:
         cache_path: Any = None,
         progress: Any = None,
         target: str = "moment",
+        certify: bool = False,
     ) -> "Expansion":
         """Run the perturbative expansion and return an
         :class:`Expansion` object.
@@ -789,6 +790,17 @@ class System:
                 formal joint cumulants for the normalized causal Itô MSR
                 system; see :func:`~sft_wick.perturbation.compute_moment` for
                 normalization and source-correlator boundaries.
+            certify: ``True`` compares, for every vertex sequence of every
+                order, the number of operator pairings the diagrams stand
+                for with a counter that shares no code with the engine,
+                and raises :class:`~sft_wick.CertificateError` on a
+                difference (:func:`~sft_wick.perturbation.compute_moment`).
+                The record is :attr:`Expansion.certificate`.  A certified
+                call does not read ``cache_path``; it computes and writes
+                its result under the same key.  A later uncertified call
+                that reads that entry returns its certificate, which
+                describes the run that wrote the entry, possibly of an
+                older version of the package.
 
         Raises:
             ValueError: with ``diag_R=True`` and a non-scalar R
@@ -809,7 +821,10 @@ class System:
                 numeric literal component label, and for
                 ``collect_topology=False`` at an order above 0.
             TypeError: when ``orders`` is missing, or is or holds
-                something other than an integer.
+                something other than an integer, and when a flag such as
+                ``certify`` is not a bool, 0 or 1.
+            CertificateError: with ``certify=True``, when a check failed;
+                no cache entry is written.
         """
         from sft_wick.perturbation import compute_moment
         from sft_wick.progress import progress as _progress_scope
@@ -824,6 +839,7 @@ class System:
         diag_C = _flag(diag_C, "diag_C", flag)
         iso_C = _flag(iso_C, "iso_C", flag)
         iso_R = None if iso_R is None else _flag(iso_R, "iso_R", flag)
+        certify = _flag(certify, "certify", flag)
 
         # The rules of Expansion.evaluate: one integer is one order, and a
         # string, a float or a boolean raises ("02" used to give (0, 2)).
@@ -882,6 +898,9 @@ class System:
         if any(is_generated_name(lab) for lab in observable_labels(obs_ops)):
             spec_key["labels_reserved"] = True
 
+        # An uncertified call passes no certify keyword, as before it existed.
+        certify_kwargs = {"certify": True} if certify else {}
+
         def _compute():
             action = self.build_action()
             result = compute_moment(
@@ -895,6 +914,7 @@ class System:
                 iso_R=iso_R_val,
                 iso_C=iso_C,
                 target=target,
+                **certify_kwargs,
             )
             return {
                 "dts_by_order": {o: result.diagram_terms(o) for o in orders_list},
@@ -907,6 +927,7 @@ class System:
                 spec_key,
                 _compute,
                 operation_name="expansion",
+                refresh=certify,
             )
 
         return Expansion(

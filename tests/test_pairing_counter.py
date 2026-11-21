@@ -518,6 +518,24 @@ def test_PC20_connected_refuses_cycles_through_shared_labels(monkeypatch):
     assert count(sites, "connected") == -1
 
 
+def test_PC22_connected_count_is_zero_with_too_few_pairs():
+    """Four owners joined by two pairs cannot form one component.  The
+    layout has two labels shared by two owners with phi and psi, so the
+    connected count is 0 by the number of pairs, before the refusal of
+    PC20 is reached; PC20's layout, two owners and two pairs, still
+    refuses."""
+    sites = [Site("x", "e0", 1, 0), Site("x", "e1", 0, 1),
+             Site("y", "e2", 1, 0), Site("y", "e3", 0, 1)]
+    assert brute_count(sites, "connected") == 0
+    assert count(sites, "connected") == 0
+    assert count(sites) == brute_count(sites) == 0
+    refused = [Site("a", "o0", 0, 1), Site("b", "o0", 1, 0),
+               Site("a", "o1", 1, 0), Site("b", "o1", 0, 1)]
+    with pytest.raises(ValueError, match="shared by several owners") as excinfo:
+        count(refused, "connected")
+    assert isinstance(excinfo.value, _certify.UnsupportedLayout)
+
+
 @pytest.mark.parametrize("kwargs, message", [
     ({"points": "xy"}, "points must be a sequence"),
     ({"points": [["x"], "y"]}, "hashable"),

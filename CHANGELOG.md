@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+### Added: count certificates, `certify=True`
+
+`certify=True` on `compute_moment`, `compute_moment_numerical` and `System.expand`
+compares, for every vertex sequence of every order, the number of operator pairings
+the output stands for with a counter that imports nothing from the package
+(`sft_wick._certify`), checks that each R class of the contraction is enumerated once
+and that each class of labelled topologies has the size its automorphism order gives,
+and raises `CertificateError` on any difference.  The record, a `CountCertificate`
+with one entry per order and per sequence (pairing counts, R classes, labelled
+topologies, typed classes, the sum of |G|/|Aut_V|), is `PerturbativeResult.certificate`,
+the `certificate` attribute of the dict that `compute_moment_numerical` returns, and
+`Expansion.certificate`.  It holds counts and labels (the engine, the target, the
+observable, the vertex names, notes) and no canonical-key bytes; its field `canonical`,
+which equality ignores, names the key method and, for pynauty, its build.  With
+`certify=True`, `System.expand` recomputes even when `cache_path` holds the expansion,
+and the L0 functions refuse an empty observable.  The default is `False`; there is no
+YAML key.  Measured on the development machine at orders 4 and 5, the check added about
+3 to 15 % to the run time.
+
+The connected count of `sft_wick._certify.count_valid_pairings` is 0, without the
+refusal of labels shared by several owners, when the number of operators is odd or the
+operators form fewer pairs than the owners less one; the refusal now raises
+`UnsupportedLayout`, a `ValueError`.
+
+`sft_wick.workflow.cache.load_or_compute` has a keyword `refresh` (default `False`):
+with `True` it skips the read, calls `compute_fn` and writes its result over any entry
+with the same key.
+
 ### Changed: `compute_moment_numerical` separates vertex types in its classes
 
 `compute_moment_numerical` groups topologies by a canonical key that separates vertex

@@ -38,6 +38,7 @@ The remaining helpers are imported from their own module:
    white_cumulant
    selfconsistency
    perturbation
+   certificate
    simplify
    evaluate
    diagrams

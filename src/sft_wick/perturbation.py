@@ -17,7 +17,9 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import numpy as np
 
+from . import wick as _wick
 from .action import Action
+from ._util import require_bool
 from ._connected import (
     ConnectedIncidence,
     connected_sequence_possible,
@@ -101,10 +103,14 @@ class PerturbativeResult:
         diagram_terms_by_order: Mapping from perturbative order *n* to its
             :class:`DiagramTerm` list, with no key for an order whose
             diagrams ``collect_topology=False`` did not build.
+        certificate: The :class:`~sft_wick.CountCertificate` of a
+            ``certify=True`` call, else ``None``.
     """
 
     # Class default also supplies metadata for old pickled moment results.
     target = "moment"
+    # Likewise for results without a certificate, pickled ones included.
+    certificate = None
 
     def __init__(
         self,
@@ -113,6 +119,7 @@ class PerturbativeResult:
         diagrams_by_order: dict[int, list[DiagramInfo]],
         diagram_terms_by_order: dict[int, list[DiagramTerm]] | None = None,
         target: str = "moment",
+        certificate=None,
     ) -> None:
         self.order_terms = order_terms
         self.target = target
@@ -121,6 +128,8 @@ class PerturbativeResult:
         self.diagram_terms_by_order: dict[int, list[DiagramTerm]] = (
             diagram_terms_by_order or {}
         )
+        if certificate is not None:
+            self.certificate = certificate
 
     def order(self, n: int) -> Expr:
         """Get the contribution at a specific perturbative order.
@@ -1600,6 +1609,7 @@ def compute_moment(
     iso_R: bool = False,
     iso_C: bool = False,
     target: str = "moment",
+    certify: bool = False,
 ) -> PerturbativeResult:
     r"""Compute the perturbative expansion of an observable.
 
@@ -1671,14 +1681,49 @@ def compute_moment(
             insertions it is the joint cumulant. Generic raw actions need not
             have partition function one. This does not group composite
             observables or prove convergence/realizability of a probability law.
+        certify: If ``True``, compare for every vertex sequence of every
+            order the number of operator pairings the output stands for
+            (the summed weight of its :class:`DiagramTerm` records and the
+            number of its :class:`DiagramInfo` records) with
+            :func:`sft_wick._certify.count_valid_pairings`, which imports
+            nothing from the package; check that
+            :func:`~sft_wick.wick.r_classes` yields each R class once, that
+            each class of labelled topologies has ``|G| / |Aut_V|``
+            members, and that the multinomial coefficients of order ``n``
+            add up to ``len(action.vertices) ** n``.  With
+            ``collect_topology=False``, orders above 0 compare the number
+            of DiagramInfo records only and have no class fields.  The
+            record is :attr:`PerturbativeResult.certificate`, a
+            :class:`~sft_wick.CountCertificate` with one row per sequence.
+            Its ``classes`` are the typed classes of the labelled
+            topologies, which ``compute_moment_numerical`` emits;
+            ``compute_moment`` groups its terms by another form, so its
+            number of terms differs.  Measured on the development machine
+            at orders 4 and 5, the check added about 3 to 15 % to the run
+            time.  The counter's part of that time grows with the number
+            of psi; on a vertex with two psi at order 5 it was most of it.
+            The default ``False`` changes nothing.
 
     Returns:
         A :class:`PerturbativeResult` containing order-by-order
         expressions, a combined total, and Feynman diagram information.
+
+    Raises:
+        CertificateError: With ``certify=True``, after the last order, when
+            a check failed; its ``certificate`` holds every row and its
+            ``failures`` one message per failed check.
+        ValueError: With ``certify=True`` and an empty observable: the
+            engines give the contraction of no operator the value 0, where
+            the number of pairings is 1.
+        TypeError: If ``certify`` is not a bool.
     """
     validate_target(target, observable)
     check_distinct_external_labels(observable, order)
     check_literal_component_labels(observable)
+    certify = require_bool(certify, "certify", "compute_moment")
+    run = None
+    if certify:
+        run = _moment_certificate_run(observable, action, target, collect_topology)
     # E_psi: response legs carried by the observable itself.  Fixes the
     # phase needed to rotate a diagram value onto the real axis.
     n_external = sum(1 for op in observable if op.field.is_response)
@@ -1693,6 +1738,9 @@ def compute_moment(
         order_exprs: list[Expr] = []
         order_diagrams: list[DiagramInfo] = []
         order_dterms: list[DiagramTerm] = []
+        tally = None if run is None else run.begin_order(n)
+        # (index, term start, term end, info start, info end, prefactor)
+        spans: list[tuple] = []
 
         if n == 0:
             # Zeroth order: just <O>_{S_0}
@@ -1703,8 +1751,23 @@ def compute_moment(
             order_diagrams.extend(
                 DiagramInfo(observable, [], p, Rational(1), 0) for p in pairings
             )
+            if tally is not None:
+                _tally_order_zero(tally, observable, target)
+                spans.append((0, 0, len(order_dterms), 0, len(order_diagrams),
+                              Rational(1)))
 
-        for seq in _vertex_sequences(observable, action, n, target):
+        for seq in _vertex_sequences(
+            observable, action, n, target,
+            combinations=None if tally is None else tally.combinations,
+        ):
+            classes = None
+            if tally is not None:
+                tally.add_r_classes(seq.index, *_r_class_census(seq.operators))
+                span_start = (len(order_dterms), len(order_diagrams))
+                if collect_topology:
+                    from ._certificate import SequenceClassTap
+
+                    classes = SequenceClassTap(tally, seq, observable)
             if collect_topology:
                 # --- Hybrid: spatial topology + component routing ---
                 spatial_results = wick_contract_spatial(seq.operators)
@@ -1729,6 +1792,8 @@ def compute_moment(
                         routings = seq.incidence.select_routings(routings)
                     if not routings:
                         continue
+                    if classes is not None:
+                        classes.add(ref_props)
                     groups[sig] = routings
                     pairings.extend(p for _, p in routings)
 
@@ -1791,6 +1856,9 @@ def compute_moment(
                 DiagramInfo(observable, seq.instances, p, seq.prefactor, n)
                 for p in pairings
             )
+            if tally is not None:
+                spans.append((seq.index, span_start[0], len(order_dterms),
+                              span_start[1], len(order_diagrams), seq.prefactor))
 
         if order_exprs:
             raw = order_exprs[0] if len(order_exprs) == 1 else Sum(tuple(order_exprs))
@@ -1821,11 +1889,31 @@ def compute_moment(
                 for dt in order_dterms
             ]
 
+        if tally is not None:
+            # apply_diagonal keeps the order and the number of the terms.
+            for index, a, b, c, d, prefactor in spans:
+                tally.add_terms(index, map(order_dterms.__getitem__, range(a, b)),
+                                prefactor)
+                tally.add_diagram_infos(index, d - c)
+            run.end_order(tally)
+
         diagrams_by_order[n] = order_diagrams
         # No entry for an order whose diagrams were not built: an empty list
         # would read as an order that vanishes.
         if collect_topology or n == 0 or _is_zero(order_terms[n]):
             dt_by_order[n] = order_dterms
+
+    certificate = None
+    if run is not None:
+        certificate, error = run.outcome()
+        if error is not None:
+            # The traceback keeps this frame: drop the output first.
+            order_terms = diagrams_by_order = dt_by_order = None
+            order_exprs = order_diagrams = order_dterms = spans = tally = None
+            pairings = spatial_results = groups = routings = classes = None
+            sig = ref_props = rep_pairing = dt_props = dt_coupling = None
+            wick_result = raw = simplified = term = inner = None
+            raise error
 
     # Total: the order terms already carry the response phase.
     all_terms = [
@@ -1844,7 +1932,26 @@ def compute_moment(
         diagrams_by_order,
         dt_by_order,
         target=target,
+        certificate=certificate,
     )
+
+
+def _moment_certificate_run(observable, action, target, collect_topology):
+    """The certificate run of ``compute_moment(certify=True)``."""
+    from ._canonical import BUILTIN_METHOD
+    from ._certificate import CertificateRun
+
+    _refuse_empty_observable(observable)
+    if collect_topology:
+        return CertificateRun("compute_moment", observable, action, target,
+                              canonical=BUILTIN_METHOD.label)
+    return CertificateRun("compute_moment/operator", observable, action, target)
+
+
+def _tally_order_zero(tally, observable, target) -> None:
+    """The R classes of the observable, when order 0 contracts it."""
+    if _order_zero_contracts(observable, target):
+        tally.add_r_classes(0, *_r_class_census(observable))
 
 
 class _VertexSequence(NamedTuple):
@@ -1863,6 +1970,8 @@ class _VertexSequence(NamedTuple):
     summation_indices: tuple[tuple[str, int], ...]
     #: Whether a vertex is ``equal_time`` or ``already_R_contracted``.
     has_leg_structure: bool
+    #: Position in the ``(vertex_seq, multinomial)`` list of the order.
+    index: int
 
 
 def _vertex_sequences(
@@ -1870,15 +1979,21 @@ def _vertex_sequences(
     action: Action,
     n: int,
     target: str,
+    combinations=None,
 ) -> Iterator[_VertexSequence]:
     """The vertex sequences of order ``n >= 1`` that ``target`` can keep.
 
     Nothing at order 0: its observable has no vertices (:func:`_order_zero`).
+    ``combinations`` is the ``(vertex_seq, multinomial)`` list of the order,
+    by default ``action.all_vertex_combinations(n)``; ``index`` counts its
+    entries, the skipped ones included.
     """
     if n == 0:
         return
     reserved_labels = observable_labels(observable)
-    for vertex_seq, multinomial in action.all_vertex_combinations(n):
+    if combinations is None:
+        combinations = action.all_vertex_combinations(n)
+    for index, (vertex_seq, multinomial) in enumerate(combinations):
         if target == "connected" and not connected_sequence_possible(
             len(observable), vertex_seq
         ):
@@ -1912,7 +2027,49 @@ def _vertex_sequences(
             has_leg_structure=any(
                 v.equal_time or v.already_R_contracted for v in vertex_seq
             ),
+            index=index,
         )
+
+
+def _r_class_census(operators) -> tuple[int, int]:
+    """The R classes :func:`sft_wick.wick.r_classes` yields for
+    ``operators``, and how many of them are distinct multisets of edges.
+
+    The function is looked up on the module, as the engines do, so the
+    count sees what the engines enumerate.
+    """
+    phi_labels = [op.spatial_arg for op in operators if op.is_physical]
+    psi_labels = [op.spatial_arg for op in operators if op.is_response]
+    # Sort by ranks so mixed label types need only be hashable.
+    label_rank = {label: i for i, label in enumerate(phi_labels + psi_labels)}
+
+    def edge_rank(edge: _wick.REdge) -> tuple[int, int]:
+        phi_label, psi_label = edge
+        return label_rank[phi_label], label_rank[psi_label]
+
+    yielded = 0
+    distinct = set()
+    for edges in _wick.r_classes(phi_labels, psi_labels):
+        yielded += 1
+        distinct.add(tuple(sorted(edges, key=edge_rank)))
+    return yielded, len(distinct)
+
+
+def _order_zero_contracts(observable, target: str) -> bool:
+    """Whether :func:`_order_zero` contracts the observable."""
+    return target != "connected" or connected_sequence_possible(len(observable), ())
+
+
+_EMPTY_OBSERVABLE_REFUSAL = (
+    "certify=True needs at least one observable operator: the engines give "
+    "the contraction of no operator the value 0, where the number of "
+    "pairings is 1, so the order-0 count cannot agree."
+)
+
+
+def _refuse_empty_observable(observable) -> None:
+    if not observable:
+        raise ValueError(_EMPTY_OBSERVABLE_REFUSAL)
 
 
 def _pure_coupling(instances: list[VertexInstance]) -> Expr:
@@ -2800,6 +2957,7 @@ def compute_moment_numerical(
     n_jobs: int = 1,
     target: str = "moment",
     canonical: str = "auto",
+    certify: bool = False,
 ) -> dict[int, list[DiagramTerm]]:
     r"""Compute diagram terms, grouping topologies by a canonical key.
 
@@ -2844,11 +3002,20 @@ def compute_moment_numerical(
             ``RuntimeWarning`` under ``'auto'`` and the built-in method.
             The method is chosen once per call; workers under ``n_jobs``
             use it as well.
+        certify: If ``True``, check the counts of the output as
+            :func:`compute_moment` does: the summed term weight of every
+            vertex sequence against the standalone counter, the R classes,
+            and the size of every class of the canonical grouping.  The
+            certificates of the two key methods compare equal; their
+            uncompared field ``canonical`` names the method and, for
+            pynauty, its build.
 
     Returns:
         ``{order_n: [DiagramTerm, ...]}`` for each order with
         non-zero contributions.  Use :meth:`DiagramTerm.build_integrand`
-        for numerical evaluation.
+        for numerical evaluation.  With ``certify=True`` the dict is a
+        ``dict`` subclass whose attribute ``certificate`` is the
+        :class:`~sft_wick.CountCertificate`; ``dict(result)`` drops it.
 
     Raises:
         ValueError: If two external operators share a spatial label at
@@ -2860,13 +3027,22 @@ def compute_moment_numerical(
             literal component label lies outside ``1..n_components``
             (:func:`check_literal_component_labels`), and if
             ``canonical`` is not ``'auto'``, ``'builtin'`` or
-            ``'pynauty'``.
+            ``'pynauty'``.  Also with ``certify=True`` and an empty
+            observable: the engines give the contraction of no operator
+            the value 0, where the number of pairings is 1.
         ImportError: If ``canonical='pynauty'`` and pynauty cannot be
             imported or is older than 2.8.8.
+        CertificateError: With ``certify=True``, after the last order, when
+            a check failed; its ``certificate`` holds every row and its
+            ``failures`` one message per failed check.
+        TypeError: If ``certify`` is not a bool.
     """
     validate_target(target, observable)
     check_distinct_external_labels(observable, order)
     check_literal_component_labels(observable)
+    certify = require_bool(certify, "certify", "compute_moment_numerical")
+    if certify:
+        _refuse_empty_observable(observable)
     from ._canonical import (
         ClassGroups,
         SequenceLayout,
@@ -2876,6 +3052,12 @@ def compute_moment_numerical(
 
     # stacklevel=3: a warning about a broken pynauty names the caller's line.
     method = resolve_canonical_method(canonical, stacklevel=3)
+    run = None
+    if certify:
+        from ._certificate import CertificateRun
+
+        run = CertificateRun("compute_moment_numerical", observable, action,
+                             target, canonical=method.label)
     # E_psi: response legs carried by the observable itself.  Fixes the
     # phase needed to rotate a diagram value onto the real axis.
     n_external = sum(1 for op in observable if op.field.is_response)
@@ -2889,8 +3071,20 @@ def compute_moment_numerical(
         integrands: list[DiagramTerm] = (
             _order_zero(observable, target, n_external)[2] if n == 0 else []
         )
+        tally = None if run is None else run.begin_order(n)
+        # (index, term start, term end, prefactor)
+        spans: list[tuple] = []
+        if tally is not None and n == 0:
+            _tally_order_zero(tally, observable, target)
+            spans.append((0, 0, len(integrands), Rational(1)))
 
-        for seq in _vertex_sequences(observable, action, n, target):
+        for seq in _vertex_sequences(
+            observable, action, n, target,
+            combinations=None if tally is None else tally.combinations,
+        ):
+            if tally is not None:
+                tally.add_r_classes(seq.index, *_r_class_census(seq.operators))
+                term_start = len(integrands)
             # Spatial topology enumeration
             spatial_results = wick_contract_spatial(seq.operators)
             if seq.incidence is not None:
@@ -2944,6 +3138,12 @@ def compute_moment_numerical(
             for key, routings in topo_results:
                 if routings:
                     canon_groups.add(key, routings)
+            if tally is not None:
+                for (ref_props, _pairing), (key, routings) in zip(
+                    topo_list, topo_results
+                ):
+                    if routings:
+                        tally.add_topology(seq.index, keyer.layout, key, ref_props)
 
             # One DiagramTerm per routing.  Each routing has its own
             # propagator component indices and the coupling uses the
@@ -2956,6 +3156,8 @@ def compute_moment_numerical(
                     integrands.extend(
                         _diagram_terms(seq, tuple(props), coupling, n_external)
                     )
+            if tally is not None:
+                spans.append((seq.index, term_start, len(integrands), seq.prefactor))
 
         # Apply diagonal constraints
         if (diag_R or diag_C) and integrands:
@@ -2969,10 +3171,28 @@ def compute_moment_numerical(
                 for dt in integrands
             ]
 
+        if tally is not None:
+            # apply_diagonal keeps the order and the number of the terms.
+            for index, a, b, prefactor in spans:
+                tally.add_terms(index, map(integrands.__getitem__, range(a, b)),
+                                prefactor)
+            run.end_order(tally)
+
         if integrands:
             result[n] = integrands
 
-    return result
+    if run is None:
+        return result
+    certificate, error = run.outcome()
+    if error is not None:
+        # The traceback keeps this frame: drop the output first.
+        result = integrands = spans = tally = None
+        spatial_results = topo_list = topo_results = canon_groups = None
+        all_routing_props = props = routings = ref_props = _pairing = None
+        raise error
+    from ._certificate import CertifiedTerms
+
+    return CertifiedTerms(result, certificate=certificate)
 
 
 # Method identity witnesses for conservative dynamic sample-zero admission.
