@@ -244,16 +244,7 @@ class Lowered:
                 tag[c] += k * w
         return tuple(tag)
 
-    def rows(self, method: str, orders=None, **settings) -> list:
-        """``(tag, value, error)`` of every diagram of ``orders`` (default
-        every order up to ``max_weight``) whose tag has weight ``≤
-        max_weight``.
-
-        A tag of weight ``k`` is complete in the diagrams of order ``k`` when
-        every vertex carries weight 1.  A multiplicative vertex carries the
-        power of ``g1`` (``E`` and ``L`` carry 2), so one tag collects
-        diagrams of several orders, and ``orders`` must then be every order.
-        """
+    def _integrate_result(self, method, orders, **settings):
         obs = self.obs
         over = set(obs.integrate_over) or None
         every = list(range(self.max_weight + 1))
@@ -262,7 +253,7 @@ class Lowered:
             raise ValueError("a subset of orders gives incomplete tags of the "
                              "g channel; evaluate every order")
         with _stage("evaluate"):
-            res = self.expansion.evaluate(
+            return self.expansion.evaluate(
                 self.props,
                 positions={lab: package_position(p)
                            for lab, p in obs.positions},
@@ -271,18 +262,39 @@ class Lowered:
                 orders=orders,
                 external_times=dict(obs.times) or None, integrate_over=over,
                 method=method, **settings)
-        out = []
-        for row in res.per_diagram:
+
+    def _tagged_diagrams(self, rows):
+        for row in rows:
             tag = self.tag_of(row["order"], row["diagram_idx"])
             if sum(tag) <= self.max_weight:
-                out.append((tag, float(np.real(row["value"])),
-                            float(row.get("error") or 0.0)))
-        return out
+                yield tag, row
+
+    def rows(self, method: str, orders=None, **settings) -> list:
+        """``(tag, value, error)`` of each diagram through ``max_weight``.
+
+        Multiplicative vertices can carry weight 2. Their tags combine
+        diagrams across raw orders, so the complete order range is required.
+        """
+        result = self._integrate_result(method, orders, **settings)
+        return [
+            (tag, float(np.real(row["value"])), float(row.get("error") or 0.0))
+            for tag, row in self._tagged_diagrams(result.per_diagram)
+        ]
 
     def evaluate(self, method: str, orders=None, **settings) -> dict:
-        """``{tag: (value, error)}``: :meth:`rows` summed by tag, the errors
-        in quadrature."""
+        """``{tag: (value, error)}``, grouping replicas or GL pairs when requested."""
         value: dict = defaultdict(float)
+        if settings.get("qmc_replicas") is not None or settings.get("gl_error", False):
+            result = self._integrate_result(method, orders, **settings)
+            details = {id(row): values for row, values in result._error_rows}
+            by_tag: dict = defaultdict(list)
+            for tag, row in self._tagged_diagrams(result.per_diagram):
+                value[tag] += row["value"]
+                by_tag[tag].append((row, details[id(row)]))
+            return {
+                tag: (total, result._group_error(by_tag[tag])[0])
+                for tag, total in value.items()
+            }
         var: dict = defaultdict(float)
         for tag, v, e in self.rows(method, orders, **settings):
             value[tag] += v

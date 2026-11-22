@@ -210,6 +210,23 @@ def test_extreme_tolerance_does_not_accept_overflow():
     assert rc.compare_results(base, changed, rtol=3.0)["within_tolerance"]
 
 
+@pytest.mark.parametrize("coordinate", [False, True])
+def test_resource_gl_delta_diagnostic_is_numeric_and_coordinate_is_exact(coordinate):
+    base = _payload()
+    if coordinate:
+        base["position_keys"].append("gl_delta")
+    base["totals_columns"].append("gl_delta")
+    for name in ("rows", "totals_records"):
+        for row in base[name]:
+            row["gl_delta"] = 0.01
+    changed = copy.deepcopy(base)
+    changed["rows"][0]["gl_delta"] += 1e-15
+    diagnosis = rc.compare_results(base, changed, atol=1e-12)
+    assert diagnosis["within_tolerance"] is not coordinate
+    assert diagnosis["metadata_equal"] is not coordinate
+    assert not diagnosis["exact"]
+
+
 def test_encoder_native_and_wide_longdouble_boundary():
     import numpy as np
     from sft_wick.workflow.result import SweepResult

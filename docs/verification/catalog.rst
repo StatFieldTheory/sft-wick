@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **9236 tests** in 161 files (parametrised
+The suite has **9272 tests** in 163 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -388,7 +388,7 @@ Propagator numerics
 Integrators
 -----------
 
-*2847 tests in 65 files.*
+*2881 tests in 67 files.*
 
 .. list-table::
    :header-rows: 1
@@ -639,6 +639,13 @@ Integrators
      - 2e-12 exponential / 3e-13 polynomial; explicit absolute near-zero bound
      - 42
      - 9
+   * - ``test_gl_refinement_errors.py``
+     - Gauss-Legendre refinement differences on the same domain, signed sums, enhanced arithmetic budgets, YAML propagation and NPZ output
+     - explicit coarse, middle and refined integrations; algebraic cancellation
+     - exact analytic
+     - exact decisions and native sums
+     - 9
+     - 0
    * - ``test_gl_white_noise_kinks.py``
      - Gauss-Legendre splits the domain at kinks: unordered ends of a white-noise C, unordered parents of a multi-psi vertex; the orientations are the consistent total orders; a closed-form C is split on its own declaration or a numerical probe, never on the model it replaces
      - linear extensions of the causal order; the exact Itô moment hierarchy
@@ -758,6 +765,13 @@ Integrators
      - exact paired finite cases; explicit analytic and extreme-range budgets
      - 166
      - 7
+   * - ``test_qmc_replicas.py``
+     - independent Sobol scrambles under a fixed total budget, grouped error, seed replay, weight diagnostics and refusal in Python and YAML
+     - explicit legacy draws, algebraic spread and weight-moment references
+     - exact analytic
+     - 1e-14 relative; exact parallel replay
+     - 22
+     - 0
    * - ``test_qmc_sobol_bits.py``
      - the Sobol samplers pass bits=64: scipy's default 30-bit points bias every QMC mean by -(f(1) - f(0))/2^31, the same for every seed and sample count, and an AST guard keeps a new call site from inheriting the default
      - the closed-form bias of exp(2u) on [0, 1] (scipy only); demo 7's two-time channel against its exact moment hierarchy
@@ -833,7 +847,7 @@ Integrators
      - mpmath; scipy quad and dblquad; the oracle (validation/hierarchy.py)
      - exact analytic
      - 1e-13 (integrals), 1e-14 (moments); 1e-12 (closed-form C against the oracle), 1e-9 (against quadrature); the declared tolerances
-     - 81
+     - 84
      - 17
    * - ``test_validation_lower_v042.py``
      - the lowering onto sft-wick 0.4.2 (validation/lower_v042.py) run on the current release, which has none of the 0.4.2 bugs: the pinned fuzz seeds that 0.4.2 can express, and three more, agree with the oracle channel by channel and together cover every feature 0.4.2 can express in the first 300 draws; multiplicative noise and the connected target are refused; the module imports nothing of the current lowering or the worker
@@ -860,7 +874,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*2582 tests in 41 files.*
+*2584 tests in 41 files.*
 
 .. list-table::
    :header-rows: 1
@@ -1046,7 +1060,7 @@ Workflow and YAML
      - adversarial metadata/error/cancellation/nonfinite/overflow probes; true GL/QMC subprocesses and stale-bytecode witness
      - self consistency
      - exact repeat/QMC gates; explicit 1e-12 relative and 1e-14 absolute GL budget
-     - 223
+     - 225
      - 0
    * - ``test_resource_controls.py``
      - pure configuration resource scopes and conditional/bypass statuses; connected dry-run target
@@ -1383,7 +1397,7 @@ Where a file holds checks of several kinds:
    * - Kind
      - Files
    * - exact analytic
-     - 76
+     - 78
    * - independent code
      - 36
    * - simulation

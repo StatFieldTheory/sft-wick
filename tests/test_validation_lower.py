@@ -464,6 +464,61 @@ def test_VL13_errors_of_one_tag_add_in_quadrature():
     assert shared, "no tag where a sum, a maximum and quadrature differ"
 
 
+def test_VL13_rqmc_tag_error_sums_correlated_diagrams_before_spread():
+    model, weight, pos = FEATURES["multiplicative Stratonovich and white"]
+    low = lw.Lowered(model, _observable(model, pos), weight)
+    children = [
+        int(child.generate_state(1, dtype=np.uint64)[0])
+        for child in np.random.SeedSequence(1).spawn(4)
+    ]
+    legacy = [
+        low.evaluate("qmc_vectorized", n_samples=16, seed=child)
+        for child in children
+    ]
+    got = low.evaluate("qmc_vectorized", n_samples=64, qmc_replicas=4, seed=1)
+    assert any(sum(tag) and error > 0 for tag, (_, error) in got.items())
+    for tag, (value, error) in got.items():
+        values = [run[tag][0] for run in legacy]
+        assert value == pytest.approx(np.mean(values), rel=1e-14, abs=1e-25)
+        expected = np.std(np.subtract(values, values[0]), ddof=1) / 2
+        assert error == pytest.approx(expected, rel=1e-13, abs=1e-25)
+
+
+def test_VL13_heavy_tail_tag_is_nullable_and_cannot_pass_oracle_comparison():
+    import json
+
+    from validation.modelspec import model_to_dict, observable_to_dict
+    from validation.worker import run_job
+
+    model, weight, pos = FEATURES["multiplicative Stratonovich and white"]
+    obs = _observable(model, pos)
+    job = dict(
+        model=model_to_dict(model), observable=observable_to_dict(obs),
+        max_weight=weight, method="qmc_vectorized",
+        settings=dict(n_samples=4, qmc_replicas=4, qmc_heavy_tail=True, seed=1),
+    )
+    result = run_job(job, {}, lw)
+    assert result["status"] == "ok", result
+    json.dumps(result, allow_nan=False)
+    package = {tuple(tag): (value, error) for tag, value, error in result["values"]}
+    reference = moments(model, obs, tags_up_to(model, weight))
+    rows = compare_values(reference, package, tolerance("qmc_vectorized", "oracle"))
+    refused = [row for row in rows if row.error is None]
+    assert refused and all(not row.ok for row in refused)
+
+
+def test_VL13_gl_delta_uses_signed_tag_sums_at_both_resolutions():
+    model, weight, pos = FEATURES["multiplicative Stratonovich and white"]
+    low = lw.Lowered(model, _observable(model, pos), weight)
+    coarse = low.evaluate("gauss_legendre", n_gauss=3)
+    fine = low.evaluate("gauss_legendre", n_gauss=7)
+    paired = low.evaluate("gauss_legendre", n_gauss=3, gl_error=True)
+    assert any(error > 0.0 for _, error in paired.values())
+    assert paired == {
+        tag: (v, abs(v - fine[tag][0])) for tag, (v, _) in coarse.items()
+    }
+
+
 # ---------------------------------------------------------------------------
 # Comparison rules, declared tolerances, negative controls
 # ---------------------------------------------------------------------------

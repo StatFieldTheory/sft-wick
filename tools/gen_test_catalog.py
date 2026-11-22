@@ -191,6 +191,13 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "independent sample statistics; malformed and excluded callback witnesses",
         "exact paired finite cases; explicit analytic and extreme-range budgets",
     ),
+    "tests/test_qmc_replicas.py": (
+        "Integrators",
+        "independent Sobol scrambles under a fixed total budget, grouped error, "
+        "seed replay, weight diagnostics and refusal in Python and YAML",
+        "explicit legacy draws, algebraic spread and weight-moment references",
+        "1e-14 relative; exact parallel replay",
+    ),
     "tests/test_ou_uniform_factors.py": (
         "Propagator numerics",
         "equal-rate OU factor compression, full real/complex tensors, support, "
@@ -347,6 +354,13 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "piecewise Brownian covariance integrals, Gaussian Wick formula, "
         "exponential cumulant integral and response expansion",
         "2e-12 exponential / 3e-13 polynomial; explicit absolute near-zero bound",
+    ),
+    "tests/test_gl_refinement_errors.py": (
+        "Integrators",
+        "Gauss-Legendre refinement differences on the same domain, "
+        "signed sums, enhanced arithmetic budgets, YAML propagation and NPZ output",
+        "explicit coarse, middle and refined integrations; algebraic cancellation",
+        "exact decisions and native sums",
     ),
     "tests/test_gl_chunking.py": (
         "Integrators",
@@ -1849,6 +1863,7 @@ REFERENCE_KIND: dict[str, str] = {
     "tests/test_generated_kills.py": "none",
     "tests/test_gl_chunked_integration.py": "exact_analytic",
     "tests/test_gl_chunking.py": "exact_analytic",
+    "tests/test_gl_refinement_errors.py": "exact_analytic",
     "tests/test_gl_external_cuts.py": "exact_analytic",
     "tests/test_gl_white_noise_kinks.py": "exact_analytic",
     "tests/test_group_position_conflict.py": "independent_code",
@@ -1891,6 +1906,7 @@ REFERENCE_KIND: dict[str, str] = {
     "tests/test_propagator_lookup_cache.py": "none",
     "tests/test_propagators.py": "none",
     "tests/test_qmc_coupling_chunks.py": "exact_analytic",
+    "tests/test_qmc_replicas.py": "exact_analytic",
     "tests/test_qmc_sobol_bits.py": "independent_code",
     "tests/test_quadratic_exact_contraction.py": "exact_analytic",
     "tests/test_quadratic_mixed_exactness.py": "exact_analytic",

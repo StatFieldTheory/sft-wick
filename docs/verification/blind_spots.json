@@ -207,7 +207,8 @@
    "demo": "demo4",
    "heavy": false,
    "source": "validation/compare.py: Gauss-Legendre with an exact C, rel 1e-10 and floor 1e-12 of the largest value; tests/test_demo4_asymmetric_noise.py asserts 1e-12",
-   "inputs_sha256": "194ea4f9513a65b404625449d550370c80e09eacaa41ceb8230c3a937c0c3b0f"
+   "inputs_sha256": "769b613a6eba510c256c2419f3e4cc245219c7f99393994836789b457dc9cd1f",
+   "replayed_head_src_sha256": "0138c4b47f7bd2eb775dd9ffe4dee9ddb7abeba4c8ddb9a4e68b0a84cbdd9785"
   },
   {
    "id": "validation/demo_package_cases.py:demo4 order 4",
@@ -220,7 +221,8 @@
    "demo": "demo4",
    "heavy": true,
    "source": "validation/compare.py: Gauss-Legendre with an exact C, rel 1e-10 and floor 1e-12 of the largest value; tests/test_demo4_asymmetric_noise.py asserts 1e-12",
-   "inputs_sha256": "194ea4f9513a65b404625449d550370c80e09eacaa41ceb8230c3a937c0c3b0f"
+   "inputs_sha256": "769b613a6eba510c256c2419f3e4cc245219c7f99393994836789b457dc9cd1f",
+   "replayed_head_src_sha256": "0138c4b47f7bd2eb775dd9ffe4dee9ddb7abeba4c8ddb9a4e68b0a84cbdd9785"
   }
  ],
  "mutants": [

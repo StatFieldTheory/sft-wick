@@ -447,6 +447,8 @@ def _sweep_columns(cfg: WorkflowConfig) -> tuple:
         *(f"t_{p}" for p in sweep.external_times_grid or ()),
         *component_columns(len(cfg.expand.observable)),
         *_DIAGRAM_COLUMNS,
+        *(("error_kind",) if sweep.qmc_replicas is not None or sweep.gl_error else ()),
+        *(("gl_delta",) if sweep.gl_error == "enhanced" else ()),
     )
 
 

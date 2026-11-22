@@ -37,11 +37,12 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from dataclasses import fields as _dc_fields
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
 from sft_wick._dense_contraction import DEFAULT_CONTRACTION_MAX_BYTES
+from sft_wick._qmc_diagnostics import _validate_qmc_heavy_tail
 from sft_wick.evaluate import (
     C_METHODS,
     DEFAULT_C_N_GAUSS,
@@ -49,6 +50,8 @@ from sft_wick.evaluate import (
     DEFAULT_N_GRID_T,
     HOMOGENEITIES,
     INTEGRATION_METHODS,
+    _validate_gl_error,
+    _validate_qmc_replicas,
 )
 from sft_wick.progress import _FALSY, _TRUTHY, env_flag
 
@@ -172,6 +175,9 @@ class SweepConfig:
     propagator_cache_contract: str | None = None
     contraction_backend: str = "ordered"
     contraction_max_bytes: int = DEFAULT_CONTRACTION_MAX_BYTES
+    qmc_replicas: int | None = None
+    qmc_heavy_tail: bool = False
+    gl_error: bool | Literal["enhanced"] = False
 
     @property
     def component_tuples(self) -> list:
@@ -862,7 +868,10 @@ def _override_path(dotted_key: str) -> list:
 _SWEEP_KEYS = frozenset(
     {
         "gl_chunk_size",
+        "gl_error",
         "qmc_coupling_chunk_size",
+        "qmc_replicas",
+        "qmc_heavy_tail",
         "reuse_integrands",
         "propagator_cache_bytes",
         "propagator_cache_contract",
@@ -2610,6 +2619,26 @@ def _parse_sweep(d: dict) -> SweepConfig:
             _nearest(method, INTEGRATION_METHODS),
         )
     qmc = method.startswith("qmc")
+    n_gauss = (_size if method == "gauss_legendre" else _integer)(
+        d.get("n_gauss", SweepConfig.n_gauss), "sweep.n_gauss"
+    )
+    with _refused_at("sweep.gl_error"):
+        gl_mode = d.get("gl_error", SweepConfig.gl_error)
+        if gl_mode != "enhanced":
+            gl_mode = _flag(d, "gl_error", SweepConfig.gl_error, "sweep")
+        gl_error = _validate_gl_error(
+            gl_mode, method, n_gauss,
+        )
+    n_samples = (_size if qmc else _integer)(
+        d.get("n_samples", SweepConfig.n_samples), "sweep.n_samples"
+    )
+    with _refused_at("sweep.qmc_replicas"):
+        qmc_replicas = _validate_qmc_replicas(d.get("qmc_replicas"), n_samples, method)
+    with _refused_at("sweep.qmc_heavy_tail"):
+        qmc_heavy_tail = _validate_qmc_heavy_tail(
+            _flag(d, "qmc_heavy_tail", SweepConfig.qmc_heavy_tail, "sweep"),
+            qmc_replicas,
+        )
     with _refused_at("sweep.gl_chunk_size"):
         gl_chunk_size = _validate_gl_chunk_size(
             d.get("gl_chunk_size", SweepConfig.gl_chunk_size)
@@ -2635,19 +2664,18 @@ def _parse_sweep(d: dict) -> SweepConfig:
         vertex_types=None if vertex_types is None else sorted(vertex_types),
         integrate_over=_integrate_over_selection(d.get("integrate_over")),
         method=method,
-        n_samples=(_size if qmc else _integer)(
-            d.get("n_samples", SweepConfig.n_samples), "sweep.n_samples"
-        ),
+        n_samples=n_samples,
         seed=None if seed is None else _seed(seed, qmc),
         n_jobs=_jobs(d.get("n_jobs", SweepConfig.n_jobs), "sweep.n_jobs"),
-        n_gauss=(_size if method == "gauss_legendre" else _integer)(
-            d.get("n_gauss", SweepConfig.n_gauss), "sweep.n_gauss"
-        ),
+        n_gauss=n_gauss,
         reuse_integrands=_flag(
             d, "reuse_integrands", SweepConfig.reuse_integrands, "sweep"
         ),
         gl_chunk_size=gl_chunk_size,
         qmc_coupling_chunk_size=qmc_coupling_chunk_size,
+        qmc_replicas=qmc_replicas,
+        qmc_heavy_tail=qmc_heavy_tail,
+        gl_error=gl_error,
     )
 
 
@@ -3196,6 +3224,14 @@ def check_before_run(cfg: WorkflowConfig, system=None):
     )
     from .system import _parse_observable
 
+    with _refused_at("sweep.qmc_replicas"):
+        _validate_qmc_replicas(
+            cfg.sweep.qmc_replicas, cfg.sweep.n_samples, cfg.sweep.method,
+        )
+    with _refused_at("sweep.qmc_heavy_tail"):
+        _validate_qmc_heavy_tail(cfg.sweep.qmc_heavy_tail, cfg.sweep.qmc_replicas)
+    with _refused_at("sweep.gl_error"):
+        _validate_gl_error(cfg.sweep.gl_error, cfg.sweep.method, cfg.sweep.n_gauss)
     with _refused_at("system"):
         system = build_system(cfg.system) if system is None else system
     with _refused_at("expand.observable"):
@@ -3212,10 +3248,15 @@ def check_before_run(cfg: WorkflowConfig, system=None):
             "sweep.component_tuples",
         )
     with _refused_at("sweep.positions_grid"):
-        _check_sweep_columns(cfg.sweep.positions_grid, (), columns)
+        _check_sweep_columns(
+            cfg.sweep.positions_grid, (), columns,
+            qmc_replicas=cfg.sweep.qmc_replicas, gl_error=cfg.sweep.gl_error,
+        )
     with _refused_at("sweep.external_times_grid"):
         _check_sweep_columns(
-            cfg.sweep.positions_grid, cfg.sweep.external_times_grid or (), columns
+            cfg.sweep.positions_grid, cfg.sweep.external_times_grid or (), columns,
+            qmc_replicas=cfg.sweep.qmc_replicas,
+            gl_error=cfg.sweep.gl_error,
         )
     if cfg.sweep.orders is not None:
         with _refused_at("sweep.orders"):
@@ -3371,6 +3412,9 @@ def evaluate_kwargs(cfg: WorkflowConfig) -> dict:
         seed=sw.seed,
         n_gauss=sw.n_gauss,
         gl_chunk_size=sw.gl_chunk_size,
+        **({} if sw.qmc_replicas is None else {"qmc_replicas": sw.qmc_replicas}),
+        **({"qmc_heavy_tail": True} if sw.qmc_heavy_tail else {}),
+        **({"gl_error": sw.gl_error} if sw.gl_error else {}),
         **(
             {}
             if sw.qmc_coupling_chunk_size is None
@@ -3489,10 +3533,10 @@ def _emit_output(out: OutputConfig, sweep, totals) -> None:
         if out.path is None:
             raise ValueError("output type 'npz' requires a 'path'.")
         Path(out.path).parent.mkdir(parents=True, exist_ok=True)
-        np.savez(
-            out.path,
-            **{col: totals[col].to_numpy() for col in totals.columns},
-        )
+        arrays = {col: totals[col].to_numpy() for col in totals.columns}
+        if getattr(sweep, "qmc_replicas", None) is not None or getattr(sweep, "gl_error", False):
+            arrays["error_kind"] = np.asarray(arrays["error_kind"], dtype=str)
+        np.savez(out.path, **arrays)
     elif out.type == "plot":
         if out.path is None:
             raise ValueError("output type 'plot' requires a 'path'.")

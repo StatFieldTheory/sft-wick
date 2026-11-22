@@ -455,7 +455,10 @@ def _sweep() -> _Block:
         "propagator_cache_contract": _null(_enum(("fixed_model",))),
         "contraction_backend": _enum(CONTRACTION_BACKENDS),
         "gl_chunk_size": _null(_STRICT_INTEGER),
+        "gl_error": {"anyOf": [_BOOLEAN, {"const": "enhanced"}]},
         "qmc_coupling_chunk_size": _null(_STRICT_INTEGER),
+        "qmc_replicas": _null({"type": "integer", "minimum": 2}),
+        "qmc_heavy_tail": _BOOLEAN,
         "propagator_cache_bytes": _null(_STRICT_INTEGER),
         "contraction_max_bytes": _STRICT_INTEGER,
     }

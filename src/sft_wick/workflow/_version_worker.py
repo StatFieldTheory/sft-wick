@@ -80,6 +80,24 @@ def _workflow_rows(sweep, totals):
     fractions = totals.to_dict(orient="records")
     if not fractions:
         return []
+    if getattr(sweep, "qmc_replicas", None) is not None or getattr(sweep, "gl_error", False):
+        measurements = {"value", "error", "error_kind"}
+        if getattr(sweep, "gl_error", False) == "enhanced":
+            measurements.add("gl_delta")
+        names = [name for name in fractions[0] if name not in measurements]
+        result = []
+        for row in fractions:
+            error = row["error"]
+            if row["error_kind"] == "heavy_tail":
+                if error is not None and not math.isnan(error):
+                    raise ValueError("heavy_tail requires an unavailable error")
+                error = None
+            result.append(dict(
+                coordinates={name: _coordinate(row[name]) for name in names},
+                value=row["value"],
+                error=error,
+            ))
+        return result
     names = [name for name in fractions[0] if name != "value"]
     errors = {}
     for row in sweep.rows:

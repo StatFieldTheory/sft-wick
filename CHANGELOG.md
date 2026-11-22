@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Added: Gauss-Legendre convergence differences
+
+Set `gl_error` on Gauss-Legendre evaluation, sweeps or workflow YAML to
+report the absolute difference to a second integration with four additional
+nodes per dimension. Reported values retain the requested resolution.
+Grouped differences use the signed sums at each resolution.
+Choose `gl_error: enhanced` to add the fine-rule diagnostic from a
+third integration and a weighted arithmetic budget. The original
+convergence difference is available in `gl_delta`.
+
+### Added: independent Sobol scrambles for QMC
+
+Set `qmc_replicas` on evaluation, sweeps or workflow YAML to divide the
+sample budget among independent scrambles. Total and grouped standard
+errors use sums within each replica. Omitting the setting keeps the
+existing single-scramble calculation and output fields.
+
+Set `qmc_heavy_tail` alongside `qmc_replicas` to check concentration
+of the weighted samples. A flagged estimate is retained with
+`error_kind="heavy_tail"` and an unavailable standard error, including
+in any summed group that contains it.
+
 ### Added: opt-in multiplicity routing
 
 Set `routing="multiplicity"` on the expansion APIs or `expand.routing`
