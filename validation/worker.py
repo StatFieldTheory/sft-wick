@@ -17,7 +17,8 @@ the environment variable ``VALIDATION_EXPECT_PACKAGE`` sets a default).
 
 A result holds ``id``, the package's location, version and the source of
 that version, and ``status``: ``ok``, ``error`` or ``timeout``.  A result
-with status ``ok`` holds ``values`` as ``[tag, value, error]`` rows, the C
+with status ``ok`` holds ``values`` as ``[tag, value, error]`` rows. An
+error withheld by ``qmc_heavy_tail`` is ``null``. The result also has the C
 route the package reports (``c_route``), the method, settings and
 expansion flags it ran, the time to
 build the expansion and propagators (``build_seconds``, absent when
@@ -47,6 +48,7 @@ import argparse
 import collections
 import importlib
 import json
+import math
 import os
 import re
 import sys
@@ -251,14 +253,19 @@ def run_job(job: dict, cache: dict, lowering: ModuleType,
                     while len(cache) > max(1, cache_size):
                         cache.pop(next(iter(cache)))
                 t0 = time.perf_counter()
+                settings = job.get("settings", {})
                 values = low.evaluate(job["method"], orders=job.get("orders"),
-                                      **job.get("settings", {}))
+                                      **settings)
                 out["seconds"] = time.perf_counter() - t0
+            diagnose_tail = settings.get("qmc_heavy_tail", False)
             out.update(ok=True, status="ok", method=job["method"],
-                       settings=job.get("settings", {}),
+                       settings=settings,
                        c_route=str(low.props.c_source),
                        flags={k: bool(v) for k, v in low.flags.items()},
-                       values=[[list(t), v, e] for t, (v, e) in values.items()])
+                       values=[
+                           [list(t), v, None if diagnose_tail and math.isnan(e) else e]
+                           for t, (v, e) in values.items()
+                       ])
         except JobTimeout as exc:
             cache.pop(key, None)
             out.update(ok=False, status="timeout", error=str(exc),

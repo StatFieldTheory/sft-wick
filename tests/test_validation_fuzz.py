@@ -260,6 +260,10 @@ def test_VZ6_every_worker_result_gets_its_verdict(monkeypatch):
         "pass")
     off = dict(ok, values=[[[0], 0.5 + 1e-6, 0.0]])
     assert verdict(off, ref, scale, "gauss_legendre")["verdict"] == "fail"
+    gl_delta = dict(off, values=[[[0], 0.6, 0.08]], settings={"gl_error": True})
+    checked = verdict(gl_delta, ref, scale, "gauss_legendre", c_source="table")
+    assert checked["verdict"] == "fail"
+    assert checked["rows"][0][3] == 0.08
     for changed in (dict(flags={}), dict(settings={}), dict(method="nquad")):
         assert verdict(dict(ok, **changed), ref, scale, "gauss_legendre",
                        job=job)["verdict"] == "harness-error", changed

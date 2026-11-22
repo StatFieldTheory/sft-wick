@@ -332,6 +332,11 @@ def _estimate(cfg, bench_seconds, report_preflight) -> CostEstimate:
         )
     )
     n_bench = min(int(sw.n_samples), 2048)
+    if sw.qmc_replicas is not None:
+        # Keep a complete per-replica net even when the budget cap falls
+        # between two admissible sample counts.
+        per_replica = max(1, n_bench // sw.qmc_replicas)
+        n_bench = sw.qmc_replicas * (1 << (per_replica.bit_length() - 1))
     pos = {k: v[0] for k, v in sw.positions_grid.items()}
     t_f = float(max(sw.t_final_grid))
     et = (
@@ -363,7 +368,7 @@ def _estimate(cfg, bench_seconds, report_preflight) -> CostEstimate:
     # that must not be charged to every diagram.
     warm = next((o for o in orders if diagrams_per_order[o] > 0), None)
     if warm is not None:
-        _evaluate(warm, 64)
+        _evaluate(warm, 64 if sw.qmc_replicas is None else sw.qmc_replicas)
     for o in orders:
         if diagrams_per_order[o] == 0:
             t_diag[o] = 0.0

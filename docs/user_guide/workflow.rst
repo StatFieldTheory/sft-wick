@@ -1043,8 +1043,11 @@ prints the same keys as a JSON Schema; see `Checking a config`_.
      method:           qmc_vectorized  # 'qmc_vectorized' | 'qmc' | 'qmc_scalar'
                                        # | 'gauss_legendre' | 'nquad'
      n_samples:        8192            # Sobol samples (QMC paths only)
+     qmc_replicas:     null            # optional independent scrambles
+     qmc_heavy_tail:   false           # optional weight-concentration check
      seed:             42              # Sobol seed (QMC paths only)
      n_gauss:          8               # GL nodes/dim (gauss_legendre only)
+     gl_error:         false           # optional convergence difference at n_gauss + 4
      gl_chunk_size:    4096            # GL nodes per batch; null = eager grid
      qmc_coupling_chunk_size: null     # opt-in dynamic coupling batches only
      reuse_integrands: false           # opt-in static preparation per component tuple
@@ -1556,6 +1559,10 @@ Section reference: ``sweep``
      - positive ``int`` or ``null``
      - ``4096``
      - Maximum GL nodes per batch. A grid of at most this many nodes is the eager grid; a larger one is generated and evaluated in blocks, including every causal/kink piece. ``null`` keeps the eager grid at any size. Used only with ``method: gauss_legendre``; see :ref:`gl-batch-memory`
+   * - ``gl_error``
+     - ``bool`` or ``"enhanced"``
+     - ``false``
+     - Include the convergence difference with four extra nodes. The enhanced mode also uses an interlaced rule and an arithmetic budget. Requires ``method: gauss_legendre``.
    * - ``reuse_integrands``
      - ``bool``
      - ``false``
@@ -1564,6 +1571,14 @@ Section reference: ``sweep``
      - positive ``int`` or ``null``
      - ``null``
      - Maximum rows per dynamic coupling construction on vectorized QMC paths. Requires sample-separable raw callbacks with stable dtype and trailing shape. R/C and final statistics remain whole; see below
+   * - ``qmc_replicas``
+     - ``int >= 2`` or ``null``
+     - ``null``
+     - Independent Sobol scrambles sharing the total ``n_samples`` budget. The number of points per replica must be a power of two
+   * - ``qmc_heavy_tail``
+     - ``bool``
+     - ``false``
+     - Diagnose sample-weight concentration and withhold the standard error for flagged results. Requires ``qmc_replicas``
 
 Reusing static integrands in a sweep
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1728,9 +1743,8 @@ The same causal mapping, Jacobians, equal-time and absorbed aliases, external
 time limits and component contractions apply within each block. Changing
 reduction order can change the rounded result; block totals use
 ``math.fsum``, while each block retains the existing NumPy reduction. Compare
-cancelling observables with a suitable absolute tolerance. The returned GL
-error remains ``0.0`` as a deterministic placeholder; it does not certify
-quadrature convergence.
+cancelling observables with a suitable absolute tolerance. The default GL
+error of ``0.0`` is a deterministic placeholder.
 
 Batch evaluation is dispatched separately for each block. User-provided
 vectorised R, C and coupling hooks must define each sample independently of
@@ -1756,6 +1770,65 @@ branch changes. This corrects omitted splits in the previous GL and nquad
 paths independently of ``gl_chunk_size``. It can change their values at fixed
 resolution for these cases; the quadrature rule on each resulting piece is
 unchanged.
+
+Checking convergence with Gauss-Legendre refinement
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Set ``sweep.gl_error: true`` in YAML or pass ``gl_error=True`` to
+``Expansion.evaluate`` or ``Expansion.sweep`` with
+``method="gauss_legendre"``. The same domains and kink partitions are
+integrated at the requested node count and again at four more nodes
+per dimension. The returned value uses the requested count. Error
+columns hold the absolute difference with ``error_kind="gl_delta"``.
+For a sum, both rules first form the signed sum of all contributions.
+The difference measures numerical convergence between those two rules.
+A fine rule with a remaining same-side error can make this difference
+smaller than the true quadrature error.
+
+Set ``sweep.gl_error: enhanced`` or pass ``gl_error="enhanced"`` to
+also integrate with ``n_gauss + 2`` nodes. The ``error`` field adds
+the magnitude of the signed middle–fine difference and an arithmetic
+budget to the coarse–fine difference. The budget uses absolute
+weighted sums and the operation counts of the weight products and
+reductions. The finer rule contributes twice to account for its
+evaluation both in the residual diagnostic and at the final scale.
+The result has ``error_kind="gl_estimate"`` and ``gl_delta`` retains the
+coarse–fine difference. The quadrature estimate is empirical. Its
+coverage depends on convergence of the three rules and the accuracy of
+the supplied propagators and integrand values. The arithmetic budget
+covers the package's observed weighted reduction, with a separate
+allowance for final weight products that underflow.
+
+Estimating QMC error with independent scrambles
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Set ``sweep.qmc_replicas: 16`` in YAML or pass ``qmc_replicas=16`` to
+``Expansion.evaluate`` or ``Expansion.sweep``. For example, a total
+budget of 8192 uses 512 points per scramble. Each replica uses a
+distinct child seed. Diagrams at a point share those child seeds, so
+errors for a group of diagrams are calculated from the signed sum within
+each replica. ``Result.error``, ``error_by_order`` and
+``error_by_vertex_type`` give the corresponding standard errors.
+Sweep totals and supported output tables include ``error`` and
+``error_kind`` in this mode. The standard error measures variation
+observed across the scrambles. Choose a fixed seed for a reproducible
+CLI run. For a Python evaluation or sweep started with ``seed=None``,
+the returned result records the generated seed.
+
+Set ``sweep.qmc_heavy_tail: true`` or pass ``qmc_heavy_tail=True`` to
+apply a concentration check to the Jacobian-weighted contributions.
+A diagram is flagged if a single sample carries at least half of the
+total absolute weight, or if the absolute-weight effective sample size
+is at most four. This rule also applies when the total budget itself
+is that small. The check retains the point estimate. It reports
+``error_kind="heavy_tail"`` and an unavailable error for affected
+diagrams and any sum that includes them. The error is NaN in Python
+numeric results and NPZ, blank in CSV, and null in ``Result.to_dict()``.
+On a single-point result, ``qmc_diagnostics`` records the weight share,
+effective sample size and adjusted skewness of the replica means by
+diagram. The skewness is a descriptive statistic. Zero-dimensional
+diagrams and samples with zero total absolute weight provide no weight
+diagnostic.
 
 Bounding dynamic coupling stacks in QMC
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

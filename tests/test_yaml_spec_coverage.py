@@ -837,6 +837,8 @@ _SWEEP_VALUES = {
     "integrate_over": "all",
     "method": "qmc_scalar",
     "n_samples": 96,
+    "qmc_replicas": 3,
+    "qmc_heavy_tail": True,
     "seed": 5,
     "n_jobs": 2,
     "n_gauss": 6,
@@ -887,7 +889,7 @@ def test_YC10_every_sweep_key_is_accepted_and_read(tmp_path):
     assert _SWEEP_KEYS == fields | {"component_tuples"}
     required = {"positions_grid", "t_final_grid", "component_tuples",
                 "component_pairs"}
-    assert set(_SWEEP_VALUES) == _SWEEP_KEYS - required
+    assert set(_SWEEP_VALUES) | {"gl_error"} == _SWEEP_KEYS - required
 
     cfg = _base_config()
     cfg["sweep"].update(_SWEEP_VALUES)
@@ -902,9 +904,12 @@ def test_YC10_every_sweep_key_is_accepted_and_read(tmp_path):
 
     cfg = _base_config()
     cfg["sweep"]["component_pairs"] = cfg["sweep"].pop("component_tuples")
+    cfg["sweep"].update(method="gauss_legendre", n_gauss=6, gl_error=True)
     path.write_text(yaml.safe_dump(cfg))
-    assert load_workflow_config(path).sweep.component_tuples == [
-        (0, 0), (0, 1), (1, 1)]
+    loaded = load_workflow_config(path).sweep
+    assert loaded.component_tuples == [(0, 0), (0, 1), (1, 1)]
+    assert default.gl_error is False
+    assert loaded.gl_error is True
 
 
 # ---------------------------------------------------------------------------

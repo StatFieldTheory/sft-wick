@@ -83,6 +83,8 @@ import time
 import traceback
 from pathlib import Path
 
+from dataclasses import replace
+
 from .compare import compare_values, tolerance
 from .draw import Case, draw
 from .hierarchy import moments_with_scale, tags_up_to
@@ -300,8 +302,12 @@ def verdict(result: dict, ref: dict, scale: float, method: str,
                 return dict(verdict="harness-error",
                             error=f"the worker ran {ran}")
         package = {tuple(t): (v, e) for t, v, e in result["values"]}
-        rows = compare_values(ref, package, tolerance(method, c_source),
-                              scale=scale)
+        tol = tolerance(method, c_source)
+        if method == "gauss_legendre" and result.get("settings", {}).get("gl_error"):
+            # A measured convergence difference can understate the true
+            # error, so it does not enlarge the oracle comparison allowance.
+            tol = replace(tol, k_err=0.0)
+        rows = compare_values(ref, package, tol, scale=scale)
         worst = max(rows, key=lambda r: r.ratio, default=None)
         return dict(verdict="pass" if all(r.ok for r in rows) else "fail",
                     worst_ratio=worst.ratio if worst else 0.0,

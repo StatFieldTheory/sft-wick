@@ -239,8 +239,8 @@ def _input_links(config, variants, known_files, source_root):
 def encode_results(sweep: SweepResult, totals: DataFrame) -> dict:
     """Encode all ordered sweep rows, axis metadata and total columns/records.
 
-    Unsupported values and nonfinite numbers raise rather than being truncated
-    or silently coerced. Encoding happens outside the measured workflow.
+    Explicitly refused heavy-tail errors become null. Other nonfinite numbers
+    and unsupported values raise. Encoding happens outside the measured workflow.
     """
 
     def normal(value):
@@ -279,14 +279,28 @@ def encode_results(sweep: SweepResult, totals: DataFrame) -> dict:
             return {k: normal(v) for k, v in value.items()}
         raise TypeError(f"unsupported result value type {type(value).__name__}")
 
+    def refused_errors_as_null(rows):
+        return [
+            dict(row, error=None)
+            if (
+                row.get("error_kind") == "heavy_tail"
+                and row["error"] is not None and math.isnan(row["error"])
+            )
+            else row
+            for row in rows
+        ]
+
+    rows, records = sweep.rows, totals.to_dict(orient="records")
+    if getattr(sweep, "qmc_replicas", None) is not None:
+        rows, records = refused_errors_as_null(rows), refused_errors_as_null(records)
     payload = normal(
         dict(
-            rows=sweep.rows,
+            rows=rows,
             position_keys=sweep.position_keys,
             external_time_keys=sweep.external_time_keys,
             component_keys=sweep.component_keys,
             totals_columns=list(totals.columns),
-            totals_records=totals.to_dict(orient="records"),
+            totals_records=records,
         )
     )
     _validate_payload(payload)
@@ -305,21 +319,35 @@ def _validate_payload(payload):
         raise ValueError("invalid complete result payload")
     if not payload["rows"] or not payload["totals_records"]:
         raise ValueError("empty result rows cannot establish equivalence")
+    row_numeric, total_numeric = _numeric_result_fields(payload)
     for rows, numeric in (
-        (payload["rows"], ("value", "error")),
-        (payload["totals_records"], ("value",)),
+        (payload["rows"], row_numeric),
+        (payload["totals_records"], total_numeric),
     ):
         for row in rows:
             if not isinstance(row, dict):
                 raise ValueError("result rows must be mappings")
             for key in numeric:
                 value = row.get(key)
+                if key == "error" and row.get("error_kind") == "heavy_tail":
+                    if key not in row or value is not None:
+                        raise ValueError("heavy_tail requires an unavailable error")
+                    continue
                 if (
                     isinstance(value, bool)
                     or not isinstance(value, (int, float))
                     or not math.isfinite(value)
                 ):
                     raise ValueError(f"result {key} must be a finite real number")
+
+
+def _numeric_result_fields(payload) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    axes = ("position_keys", "external_time_keys", "component_keys")
+    fields = ("value", "error")
+    columns = payload["totals_columns"]
+    if "gl_delta" in columns and all("gl_delta" not in payload[axis] for axis in axes):
+        fields += ("gl_delta",)
+    return fields, tuple(field for field in fields if field in columns)
 
 
 def compare_results(
@@ -360,7 +388,8 @@ def compare_results(
             result["reason"] = f"metadata differs: {key}"
             return result
     exact = within = True
-    for key, numeric in (("rows", {"value", "error"}), ("totals_records", {"value"})):
+    row_numeric, total_numeric = _numeric_result_fields(reference)
+    for key, numeric in (("rows", row_numeric), ("totals_records", total_numeric)):
         if len(reference[key]) != len(candidate[key]):
             result["reason"] = f"row count differs: {key}"
             return result
@@ -372,6 +401,8 @@ def compare_results(
                 return result
             for field in numeric:
                 av, bv = a[field], b[field]
+                if field == "error" and av is None and bv is None:
+                    continue
                 equal = av == bv and (
                     av != 0 or math.copysign(1, av) == math.copysign(1, bv)
                 )

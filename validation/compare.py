@@ -64,7 +64,7 @@ class Row:
     tag: tuple
     oracle: float
     package: float
-    error: float
+    error: float | None
     diff: float
     allowed: float
     finite: bool = True
@@ -95,8 +95,10 @@ def compare_values(oracle: Mapping, package: Mapping, tol: Tolerance,
     rows = []
     for tag in sorted(oracle):
         ref = float(oracle[tag])
-        value, error = (float(x) for x in package.get(tag, (0.0, 0.0)))
-        finite = all(map(math.isfinite, (ref, value, error, scale)))
+        raw_value, raw_error = package.get(tag, (0.0, 0.0))
+        value = float(raw_value)
+        error = None if raw_error is None else float(raw_error)
+        finite = error is not None and all(map(math.isfinite, (ref, value, error, scale)))
         allowed = (tol.rel * abs(ref) + tol.k_err * error + tol.floor * scale
                    if finite else 0.0)
         rows.append(Row(tuple(tag), ref, value, error, value - ref, allowed,

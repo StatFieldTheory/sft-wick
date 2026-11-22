@@ -26,6 +26,13 @@ import warnings
 
 import numpy as np
 
+from ._gl_error import _GLRefinement, _GLRoundoff
+from ._qmc_diagnostics import (
+    _TailDiagnostics,
+    _is_heavy_tail,
+    _tail_diagnostics,
+    _weight_moments,
+)
 from .expressions import Propagator
 from .indices import is_literal_component, literal_component, pinned_component
 from .wick import r_vanishes
@@ -3391,6 +3398,21 @@ def _validate_gl_chunk_size(value):
     return int(value)
 
 
+def _validate_gl_error(value, method, n_gauss):
+    """Validate an explicit request for a Gauss-Legendre refinement."""
+    enhanced = type(value) is str and value == "enhanced"
+    if not enhanced and not isinstance(value, (bool, np.bool_)):
+        raise TypeError("gl_error must be a boolean or 'enhanced'.")
+    if value and method != "gauss_legendre":
+        raise ValueError("gl_error requires gauss_legendre.")
+    if value and (
+        isinstance(n_gauss, (bool, np.bool_))
+        or not isinstance(n_gauss, (int, np.integer)) or n_gauss < 1
+    ):
+        raise ValueError("gl_error requires a positive integer n_gauss.")
+    return "enhanced" if enhanced else bool(value)
+
+
 def _validate_qmc_coupling_chunk_size(value):
     """Validate the explicit dynamic-coupling batch bound without coercion."""
     if value is None:
@@ -3399,6 +3421,24 @@ def _validate_qmc_coupling_chunk_size(value):
         raise TypeError("qmc_coupling_chunk_size must be a positive integer or None.")
     if value <= 0:
         raise ValueError("qmc_coupling_chunk_size must be a positive integer or None.")
+    return int(value)
+
+
+def _validate_qmc_replicas(value, n_samples, method):
+    """The budget includes every replica, each a complete Sobol net."""
+    if value is None:
+        return None
+    if method not in ("qmc", "qmc_scalar", "qmc_vectorized"):
+        raise ValueError("qmc_replicas requires a QMC integration method.")
+    if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)):
+        raise TypeError("qmc_replicas must be an integer of at least 2 or None.")
+    if value < 2:
+        raise ValueError("qmc_replicas must be an integer of at least 2 or None.")
+    if isinstance(n_samples, (bool, np.bool_)) or not isinstance(n_samples, (int, np.integer)):
+        raise TypeError("n_samples must be an integer when qmc_replicas is set.")
+    per_replica, remainder = divmod(int(n_samples), int(value))
+    if remainder or per_replica < 1 or per_replica & (per_replica - 1):
+        raise ValueError("n_samples / qmc_replicas must be a positive power of two.")
     return int(value)
 
 
@@ -8098,6 +8138,9 @@ class DiagramIntegrand:
         positions: dict[str, float] | None = None,
         integrate_over: Any = None,
         external_times: dict[str, float] | None = None,
+        *,
+        _estimate_error: bool = True,
+        _observe_weights: Callable | None = None,
     ) -> tuple[float, float]:
         """Integrate over all time variables using Quasi-Monte Carlo.
 
@@ -8171,7 +8214,9 @@ class DiagramIntegrand:
             val = _real_or_raise(result, self._e_psi, where=" (qmc)")
             values[s] = val * jacobian
 
-        return (float(np.mean(values)), _qmc_std_error(values))
+        if _observe_weights is not None:
+            _observe_weights(values)
+        return (float(np.mean(values)), _qmc_std_error(values) if _estimate_error else 0.0)
 
     def integrate_moment_qmc_vectorized(
         self,
@@ -8185,6 +8230,9 @@ class DiagramIntegrand:
         integrate_over: Any = None,
         external_times: dict[str, float] | None = None,
         qmc_coupling_chunk_size: int | None = None,
+        *,
+        _estimate_error: bool = True,
+        _observe_weights: Callable | None = None,
     ) -> tuple[float, float]:
         """Vectorized QMC integration, with no Python loop over samples.
 
@@ -8317,7 +8365,9 @@ class DiagramIntegrand:
             couplings=chunked,
         )
         estimate = _finite_or_raise(float(np.mean(values)), " (qmc_vectorized)")
-        return (estimate, _qmc_std_error(values))
+        if _observe_weights is not None:
+            _observe_weights(values)
+        return (estimate, _qmc_std_error(values) if _estimate_error else 0.0)
 
     def integrate_moment_gauss_legendre(
         self,
@@ -8332,6 +8382,8 @@ class DiagramIntegrand:
         _extra_orderings: tuple = (),
         _extra_bounds: tuple = (),
         gl_chunk_size: int | None = DEFAULT_GL_CHUNK_SIZE,
+        *,
+        _observe_gl_terms: Callable | None = None,
     ) -> tuple[float, float]:
         """Tensor-product Gauss-Legendre quadrature on the causal
         simplex.
@@ -8450,6 +8502,9 @@ class DiagramIntegrand:
                 _extra_orderings=orderings,
                 _extra_bounds=cuts,
                 gl_chunk_size=gl_chunk_size,
+                **({} if _observe_gl_terms is None else {
+                    "_observe_gl_terms": _observe_gl_terms,
+                }),
             ),
             c_kink,
             time_orderings,
@@ -8525,7 +8580,10 @@ class DiagramIntegrand:
             # Each tensor-product node carries weight ``w_i = prod_d w_1d[i_d]``,
             # so the integral on the unit cube is a weighted sum, not the QMC
             # mean.  ``values`` already includes the causal-simplex Jacobian.
-            return float(np.sum(values * node_weights))
+            weighted = values * node_weights
+            if _observe_gl_terms is not None:
+                _observe_gl_terms(weighted, n_total, values)
+            return float(np.sum(weighted))
 
         blocks = _gl_tensor_blocks(u_1d, w_1d, n_total, gl_chunk_size)
         if gl_chunk_size is None:
@@ -9094,6 +9152,10 @@ def integrate_moment(
     propagator_cache_contract: str | None = None,
     contraction_backend: str = "ordered",
     contraction_max_bytes: int = DEFAULT_CONTRACTION_MAX_BYTES,
+    *,
+    _estimate_error: bool = True,
+    _observe_weights: Callable | None = None,
+    _observe_gl_terms: Callable | None = None,
 ) -> tuple[float, float]:
     """Integrate a diagram's contribution over all time variables.
 
@@ -9242,6 +9304,9 @@ def integrate_moment(
             external_times=external_times,
             gl_chunk_size=gl_chunk_size,
             qmc_coupling_chunk_size=qmc_coupling_chunk_size,
+            **({} if _estimate_error else {"_estimate_error": False}),
+            **({} if _observe_weights is None else {"_observe_weights": _observe_weights}),
+            **({} if _observe_gl_terms is None else {"_observe_gl_terms": _observe_gl_terms}),
         )
 
 
@@ -9265,6 +9330,9 @@ def _integrate_moment_dispatch(
     external_times: dict[str, float] | None = None,
     gl_chunk_size: int | None = DEFAULT_GL_CHUNK_SIZE,
     qmc_coupling_chunk_size: int | None = None,
+    _estimate_error: bool = True,
+    _observe_weights: Callable | None = None,
+    _observe_gl_terms: Callable | None = None,
 ) -> tuple[float, float]:
     """Integrate a diagram's contribution over all time variables.
 
@@ -9354,7 +9422,10 @@ def _integrate_moment_dispatch(
     """
     gl_chunk_size = _validate_gl_chunk_size(gl_chunk_size)
     qmc_coupling_chunk_size = _validate_qmc_coupling_chunk_size(qmc_coupling_chunk_size)
-    qmc_options = (
+    qmc_options = {} if _estimate_error else {"_estimate_error": False}
+    if _observe_weights is not None:
+        qmc_options["_observe_weights"] = _observe_weights
+    vector_qmc_options = qmc_options | (
         {}
         if qmc_coupling_chunk_size is None
         else {"qmc_coupling_chunk_size": qmc_coupling_chunk_size}
@@ -9371,7 +9442,7 @@ def _integrate_moment_dispatch(
                 positions=positions,
                 integrate_over=integrate_over,
                 external_times=external_times,
-                **qmc_options,
+                **vector_qmc_options,
             )
         return integrand.integrate_moment_qmc(
             lambda_f,
@@ -9383,6 +9454,7 @@ def _integrate_moment_dispatch(
             positions=positions,
             integrate_over=integrate_over,
             external_times=external_times,
+            **qmc_options,
         )
     elif method == "qmc_vectorized":
         return integrand.integrate_moment_qmc_vectorized(
@@ -9395,7 +9467,7 @@ def _integrate_moment_dispatch(
             positions=positions,
             integrate_over=integrate_over,
             external_times=external_times,
-            **qmc_options,
+            **vector_qmc_options,
         )
     elif method == "qmc_scalar":
         return integrand.integrate_moment_qmc(
@@ -9408,6 +9480,7 @@ def _integrate_moment_dispatch(
             positions=positions,
             integrate_over=integrate_over,
             external_times=external_times,
+            **qmc_options,
         )
     elif method == "nquad":
         return integrand.integrate_moment_nquad(
@@ -9430,11 +9503,20 @@ def _integrate_moment_dispatch(
             integrate_over=integrate_over,
             external_times=external_times,
             gl_chunk_size=gl_chunk_size,
+            **({} if _observe_gl_terms is None else {
+                "_observe_gl_terms": _observe_gl_terms,
+            }),
         )
     else:
         raise ValueError(
             f"Unknown method {method!r}; use one of {list(INTEGRATION_METHODS)}"
         )
+
+
+class _ReplicaIntegration(NamedTuple):
+    values: tuple[float, ...]
+    diagnostics: _TailDiagnostics | None
+    heavy_tail: bool
 
 
 def _eval_single_diagram(
@@ -9457,6 +9539,9 @@ def _eval_single_diagram(
     qmc_coupling_chunk_size=None,
     contraction_backend="ordered",
     contraction_max_bytes=DEFAULT_CONTRACTION_MAX_BYTES,
+    _replica_seeds=None,
+    _diagnose_tail=False,
+    _gl_error=False,
 ):
     """Evaluate one diagram term end-to-end (build integrand + integrate).
 
@@ -9473,10 +9558,7 @@ def _eval_single_diagram(
             contraction_max_bytes,
         )
     )
-    return integrate_moment(
-        ig,
-        lambda_f,
-        cache,
+    integration = dict(
         **_execution_options(
             contraction_backend=contraction_backend,
             contraction_max_bytes=contraction_max_bytes,
@@ -9484,8 +9566,6 @@ def _eval_single_diagram(
         t_min=t_min,
         direction=direction,
         method=method,
-        n_samples=n_samples,
-        seed=seed,
         positions=positions,
         integrate_over=integrate_over,
         n_gauss=n_gauss,
@@ -9496,6 +9576,50 @@ def _eval_single_diagram(
             if qmc_coupling_chunk_size is None
             else {"qmc_coupling_chunk_size": qmc_coupling_chunk_size}
         ),
+    )
+    if _replica_seeds is None:
+        coarse = integrate_moment(
+            ig, lambda_f, cache, n_samples=n_samples, seed=seed, **integration,
+        )
+        if not _gl_error:
+            return coarse
+        integration["n_gauss"] = int(n_gauss) + 4
+        if _gl_error == "enhanced":
+            fine_roundoff = _GLRoundoff()
+            middle_roundoff = _GLRoundoff()
+            fine, _ = integrate_moment(
+                ig, lambda_f, cache, n_samples=n_samples, seed=seed,
+                _observe_gl_terms=fine_roundoff.observe, **integration,
+            )
+            integration["n_gauss"] = int(n_gauss) + 2
+            middle, _ = integrate_moment(
+                ig, lambda_f, cache, n_samples=n_samples, seed=seed,
+                _observe_gl_terms=middle_roundoff.observe, **integration,
+            )
+            return coarse[0], _GLRefinement(
+                fine, middle, fine_roundoff.budget(), middle_roundoff.budget(),
+            )
+        fine = integrate_moment(
+            ig, lambda_f, cache, n_samples=n_samples, seed=seed, **integration,
+        )
+        return coarse[0], fine[0]
+    count = n_samples // len(_replica_seeds)
+    moments = []
+    if _diagnose_tail:
+        def observe(weights):
+            moments.append(_weight_moments(weights))
+
+        integration["_observe_weights"] = observe
+    estimates = tuple(
+        integrate_moment(
+            ig, lambda_f, cache, n_samples=count, seed=child,
+            _estimate_error=False, **integration,
+        )[0]
+        for child in _replica_seeds
+    )
+    diagnostics = _tail_diagnostics(moments, estimates) if _diagnose_tail else None
+    return _ReplicaIntegration(
+        estimates, diagnostics, diagnostics is not None and _is_heavy_tail(diagnostics),
     )
 
 
@@ -9523,7 +9647,11 @@ def integrate_diagrams(
     propagator_cache_contract: str | None = None,
     contraction_backend: str = "ordered",
     contraction_max_bytes: int = DEFAULT_CONTRACTION_MAX_BYTES,
-) -> tuple[float, list[tuple[float, float]]]:
+    *,
+    _replica_seeds: tuple[int, ...] | None = None,
+    _diagnose_tail: bool = False,
+    _gl_error: bool | str = False,
+) -> tuple[float, list[tuple[float, float] | _ReplicaIntegration]]:
     """Integrate a batch of diagram terms, optionally in parallel.
 
     Builds integrands and evaluates all diagrams, returning the total
@@ -9630,6 +9758,9 @@ def integrate_diagrams(
             qmc_coupling_chunk_size=qmc_coupling_chunk_size,
             contraction_backend=contraction_backend,
             contraction_max_bytes=contraction_max_bytes,
+            _replica_seeds=_replica_seeds,
+            _diagnose_tail=_diagnose_tail,
+            _gl_error=_gl_error,
         )
 
 
@@ -9655,7 +9786,10 @@ def _integrate_diagrams_dispatch(
     qmc_coupling_chunk_size: int | None = None,
     contraction_backend="ordered",
     contraction_max_bytes=DEFAULT_CONTRACTION_MAX_BYTES,
-) -> tuple[float, list[tuple[float, float]]]:
+    _replica_seeds=None,
+    _diagnose_tail=False,
+    _gl_error=False,
+) -> tuple[float, list[tuple[float, float] | _ReplicaIntegration]]:
     """Integrate a batch of diagram terms, optionally in parallel.
 
     Builds integrands and evaluates all diagrams, returning the total
@@ -9713,7 +9847,7 @@ def _integrate_diagrams_dispatch(
     """
     gl_chunk_size = _validate_gl_chunk_size(gl_chunk_size)
     qmc_coupling_chunk_size = _validate_qmc_coupling_chunk_size(qmc_coupling_chunk_size)
-    contraction_options = _execution_options(
+    _execution_options(
         contraction_backend=contraction_backend,
         contraction_max_bytes=contraction_max_bytes,
     )
@@ -9759,38 +9893,36 @@ def _integrate_diagrams_dispatch(
             )
 
     tick = progress_tick or (lambda n=1: None)
+    worker_settings = dict(
+        coupling_values=coupling_values,
+        fixed_indices=fixed_indices,
+        lambda_f=lambda_f,
+        cache=cache,
+        t_min=t_min,
+        direction=direction,
+        method=method,
+        n_samples=n_samples,
+        seed=seed,
+        positions=positions,
+        integrate_over=integrate_over,
+        n_gauss=n_gauss,
+        external_times=external_times,
+        gl_chunk_size=gl_chunk_size,
+        qmc_coupling_chunk_size=qmc_coupling_chunk_size,
+        contraction_backend=contraction_backend,
+        contraction_max_bytes=contraction_max_bytes,
+        _replica_seeds=_replica_seeds,
+        _diagnose_tail=_diagnose_tail,
+        _gl_error=_gl_error,
+    )
 
     if n_jobs == 1 or len(diagram_terms) <= 2:
         # Sequential: no overhead
         details = []
         for dt, ig in zip(diagram_terms, prepared):
-            if ig is None:
-                ig = _build_execution_integrand(
-                    dt, coupling_values, fixed_indices,
-                    contraction_backend, contraction_max_bytes,
-                )
-            val, err = integrate_moment(
-                ig,
-                lambda_f,
-                cache,
-                t_min=t_min,
-                direction=direction,
-                method=method,
-                n_samples=n_samples,
-                seed=seed,
-                positions=positions,
-                integrate_over=integrate_over,
-                n_gauss=n_gauss,
-                external_times=external_times,
-                **contraction_options,
-                gl_chunk_size=gl_chunk_size,
-                **(
-                    {}
-                    if qmc_coupling_chunk_size is None
-                    else {"qmc_coupling_chunk_size": qmc_coupling_chunk_size}
-                ),
+            details.append(
+                _eval_single_diagram(dt, _prepared_integrand=ig, **worker_settings)
             )
-            details.append((val, err))
             tick()
     else:
         # Parallel via joblib
@@ -9813,32 +9945,16 @@ def _integrate_diagrams_dispatch(
                 )
 
         results = Parallel(n_jobs=n_jobs, backend="loky")(
-            delayed(_eval_single_diagram)(
-                dt,
-                coupling_values,
-                fixed_indices,
-                lambda_f,
-                cache,
-                t_min,
-                direction,
-                method,
-                n_samples,
-                seed,
-                positions,
-                integrate_over,
-                n_gauss,
-                external_times,
-                ig,
-                gl_chunk_size,
-                qmc_coupling_chunk_size,
-                contraction_backend,
-                contraction_max_bytes,
-            )
+            delayed(_eval_single_diagram)(dt, _prepared_integrand=ig, **worker_settings)
             for dt, ig in zip(diagram_terms, prepared)
         )
         details = list(results)
         tick(len(details))
 
+    if _replica_seeds is not None:
+        from statistics import mean
+
+        return sum(mean(detail.values) for detail in details), details
     total = sum(v for v, _ in details)
     return (total, details)
 

@@ -15,12 +15,14 @@ import string
 import warnings
 from collections import defaultdict, deque
 from dataclasses import dataclass
-from typing import Any, Iterable, Iterator, Mapping
+from statistics import mean
+from typing import Any, Iterable, Iterator, Literal, Mapping
 
 import numpy as np
 
 
 from sft_wick._dense_contraction import DEFAULT_CONTRACTION_MAX_BYTES
+from sft_wick._qmc_diagnostics import _validate_qmc_heavy_tail
 from sft_wick.evaluate import DEFAULT_GL_CHUNK_SIZE
 from sft_wick.evaluate import (
     _cache_has_spatial_table,
@@ -35,7 +37,9 @@ from sft_wick.perturbation import _collect_symbol_names
 from ._messages import shown
 
 
-def _check_sweep_columns(pos_keys, et_keys, comp_cols) -> None:
+def _check_sweep_columns(
+    pos_keys, et_keys, comp_cols, *, qmc_replicas=None, gl_error=False,
+) -> None:
     """Refuse a point whose column coincides with another.
 
     The row dict is flat, so such a column would silently OVERWRITE the
@@ -44,6 +48,10 @@ def _check_sweep_columns(pos_keys, et_keys, comp_cols) -> None:
     sweep, whose third component column is `c`.
     """
     fixed = {"t_final", *comp_cols, *_DIAGRAM_COLUMNS}
+    if qmc_replicas is not None or gl_error:
+        fixed.add("error_kind")
+    if gl_error == "enhanced":
+        fixed.add("gl_delta")
     clash = {f"t_{k}" for k in et_keys} & (set(pos_keys) | fixed)
     if clash:
         raise ValueError(
@@ -655,6 +663,9 @@ class Expansion:
         _prepared: _PreparedSweepPoint | None = None,
         gl_chunk_size: int | None = DEFAULT_GL_CHUNK_SIZE,
         qmc_coupling_chunk_size: int | None = None,
+        qmc_replicas: int | None = None,
+        qmc_heavy_tail: bool = False,
+        gl_error: bool | Literal["enhanced"] = False,
         propagator_cache_bytes: int | None = None,
         propagator_cache_contract: str | None = None,
         contraction_backend: str = "ordered",
@@ -765,11 +776,23 @@ class Expansion:
                 for the full decision matrix and worked examples.
 
             n_samples, seed: forwarded to the integrator (QMC only).
+            qmc_replicas: Use independent scrambled Sobol runs to estimate
+                standard error. The total budget stays ``n_samples``, and
+                each replica must get a power-of-two share. ``None`` uses
+                the existing single scramble and batch-means estimator.
+            qmc_heavy_tail: Diagnose sample concentration with independent
+                scrambles. A flagged diagram keeps its estimate and reports
+                an unavailable standard error.
             n_gauss: nodes per dimension for ``method='gauss_legendre'``
                 (default 8, exact for polynomials up to degree 15).
                 Cost scales as ``n_gauss^d`` per consistent order of
                 kinked time pairs; bump to 12-20 for stiff integrands
                 at large ``t_final``.
+            gl_error: Report the absolute difference to the same integral
+                with four more nodes per dimension. The estimate retains
+                the requested ``n_gauss`` resolution. With ``"enhanced"``,
+                add an interlaced-rule residual estimate and the arithmetic
+                budget. The original difference is reported in ``gl_delta``.
             gl_chunk_size: positive maximum GL nodes per batch (default
                 4096), or ``None`` for the eager grid at any size.  A grid of
                 at most this many nodes is the eager grid; a larger one is
@@ -782,8 +805,32 @@ class Expansion:
                 batch. R/C and final statistics remain whole; see
                 :doc:`/user_guide/workflow` for memory and callback limits.
         """
-        from .result import Result
-        from sft_wick.evaluate import _execution_options, _read_integrate_over_once
+        from .result import Result, _enhanced_gl_error, _gl_difference, _replica_standard_error
+        from sft_wick.evaluate import (
+            _execution_options,
+            _read_integrate_over_once,
+            _validate_gl_error,
+            _validate_qmc_replicas,
+        )
+
+        qmc_replicas = _validate_qmc_replicas(qmc_replicas, n_samples, method)
+        qmc_heavy_tail = _validate_qmc_heavy_tail(qmc_heavy_tail, qmc_replicas)
+        gl_error = _validate_gl_error(gl_error, method, n_gauss)
+        replica_options = {}
+        if qmc_replicas is not None:
+            if seed is not None and (
+                isinstance(seed, (bool, np.bool_))
+                or not isinstance(seed, (int, np.integer)) or seed < 0
+            ):
+                raise ValueError("RQMC seed must be a nonnegative integer or None.")
+            parent = np.random.SeedSequence(seed)
+            seed = int(parent.entropy)
+            replica_options["_replica_seeds"] = tuple(
+                int(child.generate_state(1, dtype=np.uint64)[0])
+                for child in parent.spawn(qmc_replicas)
+            )
+            if qmc_heavy_tail:
+                replica_options["_diagnose_tail"] = True
 
         execution = _execution_options(
             propagator_cache_bytes,
@@ -898,6 +945,8 @@ class Expansion:
             progress_tick=_progress_tick,
             _prepared_integrands=None if _prepared is None else _prepared.integrands,
             gl_chunk_size=gl_chunk_size,
+            **replica_options,
+            **({"_gl_error": gl_error} if gl_error else {}),
             **(
                 {}
                 if qmc_coupling_chunk_size is None
@@ -906,12 +955,13 @@ class Expansion:
         )
 
         per_diagram = []
+        qmc_diagnostics = {}
         per_order: dict[int, float] = defaultdict(float)
         per_vtype: dict[str, float] = defaultdict(float)
         total = 0.0
         # Zero is a computed coefficient at an order no diagram reaches.
         per_order.update({order: 0.0 for order in self._zero_orders(orders_list)})
-        for task_idx, ((order, i, vtype, dt), (val, err)) in enumerate(
+        for task_idx, ((order, i, vtype, dt), integrated) in enumerate(
             zip(tasks, details)
         ):
             n_cross_C = (
@@ -919,7 +969,29 @@ class Expansion:
                 if _prepared is None
                 else _prepared.cross_counts[task_idx]
             )
-            per_diagram.append(_diagram_row(order, i, vtype, n_cross_C, val, err))
+            if qmc_replicas is None:
+                val, detail = integrated
+                if gl_error == "enhanced":
+                    estimate = _enhanced_gl_error((({"value": val}, detail),))
+                    err = estimate.error
+                else:
+                    err = _gl_difference(val, detail) if gl_error else detail
+            else:
+                val = mean(integrated.values)
+                err = math.nan if integrated.heavy_tail else _replica_standard_error(
+                    integrated.values
+                )
+                if integrated.diagnostics is not None:
+                    qmc_diagnostics[(order, i)] = integrated.diagnostics._asdict()
+            row = _diagram_row(order, i, vtype, n_cross_C, val, err)
+            if qmc_replicas is not None:
+                row["error_kind"] = "heavy_tail" if integrated.heavy_tail else "rqmc"
+            elif gl_error == "enhanced":
+                row["error_kind"] = "gl_estimate"
+                row["gl_delta"] = estimate.delta
+            elif gl_error:
+                row["error_kind"] = "gl_delta"
+            per_diagram.append(row)
             per_order[order] += val
             per_vtype[vtype] += val
             total += val
@@ -934,6 +1006,17 @@ class Expansion:
             component_pair=tuple(component_pair),
             n_samples=n_samples,
             seed=seed,
+            qmc_replicas=qmc_replicas,
+            qmc_diagnostics=qmc_diagnostics,
+            gl_error=gl_error,
+            _replica_rows=(
+                tuple((row, detail.values) for row, detail in zip(per_diagram, details))
+                if qmc_replicas is not None else ()
+            ),
+            _refinement_rows=(
+                tuple((row, detail[1]) for row, detail in zip(per_diagram, details))
+                if gl_error else ()
+            ),
         )
 
     def sweep(
@@ -958,6 +1041,9 @@ class Expansion:
         reuse_integrands: bool = False,
         gl_chunk_size: int | None = DEFAULT_GL_CHUNK_SIZE,
         qmc_coupling_chunk_size: int | None = None,
+        qmc_replicas: int | None = None,
+        qmc_heavy_tail: bool = False,
+        gl_error: bool | Literal["enhanced"] = False,
         propagator_cache_bytes: int | None = None,
         propagator_cache_contract: str | None = None,
         contraction_backend: str = "ordered",
@@ -1051,12 +1137,23 @@ class Expansion:
             qmc_coupling_chunk_size: optional dynamic coupling batch bound,
                 with the same contract as in :meth:`evaluate`. Each worker
                 has its own arrays; this does not bound total process memory.
+            qmc_replicas: Independent scrambles under the same contract as in
+                :meth:`evaluate`. The parent seed is shared across grid points
+                and recorded on the result when this mode is selected.
+            qmc_heavy_tail: Refuse standard errors where the sample
+                concentration diagnostic flags a contributing diagram.
+            gl_error: Report the Gauss-Legendre convergence difference
+                with the same meaning as in :meth:`evaluate`.
 
         Returns:
             :class:`SweepResult` with a pandas-friendly tidy table.
         """
-        from sft_wick.evaluate import _execution_options, _read_integrate_over_once
+        from sft_wick.evaluate import (
+            _execution_options, _read_integrate_over_once, _validate_gl_error,
+        )
 
+        qmc_heavy_tail = _validate_qmc_heavy_tail(qmc_heavy_tail, qmc_replicas)
+        gl_error = _validate_gl_error(gl_error, method, n_gauss)
         execution = _execution_options(
             propagator_cache_bytes,
             propagator_cache_contract,
@@ -1087,6 +1184,9 @@ class Expansion:
                 reuse_integrands=reuse_integrands,
                 gl_chunk_size=gl_chunk_size,
                 qmc_coupling_chunk_size=qmc_coupling_chunk_size,
+                **({} if qmc_replicas is None else {"qmc_replicas": qmc_replicas}),
+                **({"qmc_heavy_tail": True} if qmc_heavy_tail else {}),
+                **({"gl_error": gl_error} if gl_error else {}),
             )
 
     def _sweep(
@@ -1110,6 +1210,9 @@ class Expansion:
         reuse_integrands,
         gl_chunk_size,
         qmc_coupling_chunk_size=None,
+        qmc_replicas=None,
+        qmc_heavy_tail=False,
+        gl_error=False,
         propagator_cache_bytes: int | None = None,
         propagator_cache_contract: str | None = None,
         contraction_backend: str = "ordered",
@@ -1147,6 +1250,9 @@ class Expansion:
                 reuse_integrands=reuse_integrands,
                 gl_chunk_size=gl_chunk_size,
                 qmc_coupling_chunk_size=qmc_coupling_chunk_size,
+                **({} if qmc_replicas is None else {"qmc_replicas": qmc_replicas}),
+                **({"qmc_heavy_tail": True} if qmc_heavy_tail else {}),
+                **({"gl_error": gl_error} if gl_error else {}),
             )
 
     def _sweep_dispatch(
@@ -1170,6 +1276,9 @@ class Expansion:
         reuse_integrands,
         gl_chunk_size,
         qmc_coupling_chunk_size=None,
+        qmc_replicas=None,
+        qmc_heavy_tail=False,
+        gl_error=False,
         _lookup_cache=None,
         _execution=None,
     ):
@@ -1177,12 +1286,16 @@ class Expansion:
         from sft_wick.evaluate import (
             _validate_gl_chunk_size,
             _validate_qmc_coupling_chunk_size,
+            _validate_qmc_replicas,
         )
 
         gl_chunk_size = _validate_gl_chunk_size(gl_chunk_size)
         qmc_coupling_chunk_size = _validate_qmc_coupling_chunk_size(
             qmc_coupling_chunk_size
         )
+        qmc_replicas = _validate_qmc_replicas(qmc_replicas, n_samples, method)
+        if qmc_replicas is not None and seed is None:
+            seed = int(np.random.SeedSequence().entropy)
 
         if nested_jobs(evaluate_n_jobs, n_jobs):
             raise ValueError(
@@ -1237,7 +1350,9 @@ class Expansion:
         for k, v in zip(et_keys, et_values):
             _check_axis(f"external_times_grid[{shown(k)}]", v)
 
-        _check_sweep_columns(pos_keys, et_keys, comp_cols)
+        _check_sweep_columns(
+            pos_keys, et_keys, comp_cols, qmc_replicas=qmc_replicas, gl_error=gl_error,
+        )
 
         # Flatten the Cartesian product to a list of grid-point tasks.
         reads_R = _reads_R(self, orders_list)
@@ -1362,6 +1477,9 @@ class Expansion:
                 _guard_response=False,
                 _guard_diagonal=False,
                 gl_chunk_size=gl_chunk_size,
+                **({} if qmc_replicas is None else {"qmc_replicas": qmc_replicas}),
+                **({"qmc_heavy_tail": True} if qmc_heavy_tail else {}),
+                **({"gl_error": gl_error} if gl_error else {}),
                 **(
                     {}
                     if qmc_coupling_chunk_size is None
@@ -1389,6 +1507,14 @@ class Expansion:
                     tick(n_diag)
 
         rows = []
+        replica_values = []
+        fine_values = []
+        if gl_error == "enhanced":
+            from sft_wick._gl_error import _GLRefinement
+
+            empty_refinement = _GLRefinement(0.0, 0.0, 0.0, 0.0)
+        else:
+            empty_refinement = 0.0
         for positions, t_f, ext_times, comp, res in results:
             # Hashable normalisation: d-dim vector positions arrive as
             # ``list`` or ``np.ndarray``; pandas ``groupby`` (used in
@@ -1411,6 +1537,18 @@ class Expansion:
                 for order in zero_orders
                 if order not in present_orders
             )
+            if qmc_replicas is not None:
+                replica_values.extend(values for _, values in res._replica_rows)
+                for row in point_rows[len(res.per_diagram):]:
+                    row["error_kind"] = "exact_zero"
+                    replica_values.append((0.0,) * qmc_replicas)
+            elif gl_error:
+                fine_values.extend(value for _, value in res._refinement_rows)
+                for row in point_rows[len(res.per_diagram):]:
+                    row["error_kind"] = "exact_zero"
+                    if gl_error == "enhanced":
+                        row["gl_delta"] = 0.0
+                    fine_values.append(empty_refinement)
             for pd_row in point_rows:
                 rows.append(
                     {
@@ -1428,6 +1566,11 @@ class Expansion:
             position_keys=tuple(pos_keys),
             external_time_keys=tuple(f"t_{k}" for k in et_keys),
             component_keys=comp_cols,
+            qmc_replicas=qmc_replicas,
+            gl_error=gl_error,
+            seed=seed if qmc_replicas is not None else None,
+            _replica_rows=tuple(zip(rows, replica_values)),
+            _refinement_rows=tuple(zip(rows, fine_values)),
         )
 
     # --------------------------------------------------------------- #
