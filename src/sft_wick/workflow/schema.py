@@ -43,6 +43,7 @@ from sft_wick.vertices import LEG_SYMMETRIES
 
 from . import config as cf
 from . import specs as sp
+from ._kramers_moyal import KramersMoyalVertex
 from ._messages import shown
 
 SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
@@ -333,9 +334,11 @@ def _sigma2() -> _Tagged:
         "attr": _Key(_STRING, default="sigma2"),
         "g0": _Key(_TENSOR, required=True),
         "g1": _Key(_TENSOR, required=True),
+        "g2": _Key(_TENSOR, nullable=True, default=None),
         "interpretation": _Key(
             _enum(("ito", "stratonovich")), default=_default_of(mult, "interpretation")
         ),
+        "alpha": _Key(_NUMBER, nullable=True, default=None),
         "vertex_names": _Key(_STRINGS, default=_default_of(mult, "vertex_names")),
         "drift_names": _Key(_STRINGS, default=_default_of(mult, "drift_names")),
     }
@@ -353,6 +356,7 @@ def _vertex(cls) -> _Block:
         "coupling": _TENSOR,
         "rank": _null(_STRICT_INTEGER),
         "order": _ORDER,
+        "n_psi": _ORDER,
         "leg_symmetry": _enum(LEG_SYMMETRIES),
     }
     keys = _dataclass_keys(cls, nodes, optional=("coupling",))
@@ -371,6 +375,23 @@ def _vertex(cls) -> _Block:
 
 
 def _system() -> _Block:
+    temporal = _kernel("time").variants
+    embedding_kernels = {
+        key: temporal[key] for key in ("exponential", "matern32", "damped_cosine")
+    }
+    embedding_kernels.update(
+        prony=_table_block(
+            ("type", "rates", "weights", "temperature"),
+            {"rates": _Key(_NUMBERS, required=True), "weights": _Key(_NUMBERS, required=True),
+             "temperature": _Key(_NUMBER, default=0)},
+            "prony",
+        ),
+        erlang=_table_block(
+            ("type", "mean_delay", "stages"),
+            {"mean_delay": _Key(_NUMBER, required=True), "stages": _Key(_ORDER, default=3)},
+            "erlang",
+        ),
+    )
     yaml_keys = {
         # A null block or list is read as empty.
         "field": _Key(_Block(_dataclass_keys(sp.FieldSpec, {})), nullable=True),
@@ -389,6 +410,23 @@ def _system() -> _Block:
         "nonlocal_vertices": _Key(
             _ListOf(_vertex(sp.NonLocalVertex)), nullable=True, default=[]
         ),
+        "initial_state": _Key(_Block({
+            "covariance": _Key(_TENSOR, nullable=True),
+            "cumulants": _Key(_ListOf(_TENSOR), default=[]),
+            "mean": _Key(_NUMBERS, nullable=True),
+        }), nullable=True),
+        "km_vertices": _Key(
+            _ListOf(_vertex(KramersMoyalVertex)), nullable=True, default=[]
+        ),
+        "embedding": _Key(_Block({
+            "kernel": _Key(_Tagged(embedding_kernels, default="exponential"), required=True),
+            "target": _Key(_INTEGER, default=0),
+            "coupling": _Key(_NUMBER, default=1),
+            "mode": _Key(_enum(("additive", "random_rate")), default="additive"),
+            "start": _Key(_enum(("zero", "stationary")), default="zero"),
+            "source": _Key(_INTEGER, nullable=True, default=None),
+            "name": _Key(_STRING, default="embedded"),
+        }), nullable=True),
         "t_min": _Key(_NUMBER, default=_default_of(cf.SystemConfig, "t_min")),
     }
     # The keys follow SystemConfig: ``field`` stands for field_name and
@@ -759,6 +797,14 @@ def resolved_config(cfg) -> dict:
             system_keys["nonlocal_vertices"].node, list(s.nonlocal_vertices)
         ),
     }
+    if s.initial_state is not None:
+        system["initial_state"] = _field_values(s.initial_state)
+    if s.km_vertices:
+        system["km_vertices"] = _with_defaults(
+            system_keys["km_vertices"].node, list(s.km_vertices)
+        )
+    if s.embedding is not None:
+        system["embedding"] = _with_defaults(system_keys["embedding"].node, s.embedding)
     sweep = {}
     for name, value in _field_values(cfg.sweep).items():
         sweep["component_tuples" if name == "component_pairs" else name] = value

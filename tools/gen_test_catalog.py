@@ -1330,6 +1330,31 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "the iso_C=False expansion of the same system",
         "1e-10",
     ),
+    "tests/test_initial_state.py": (
+        "Workflow and YAML",
+        "initial covariance and higher cumulants with a dense response and "
+        "unequal times, including the initial time",
+        "explicit contraction of a matrix exponential on every initial leg",
+        "1e-15",
+    ),
+    "tests/test_mean_observables.py": (
+        "Workflow and YAML",
+        "deterministic external factors for raw and connected moments and integrated times",
+        "closed form for deterministic linear response with a tagged source",
+        "1e-15",
+    ),
+    "tests/test_markov_embedding.py": (
+        "Workflow and YAML",
+        "finite colored forcing, Prony memory and Erlang delay at unequal times",
+        "independent polynomial moments, conditional Gaussian integration and matrix ODEs",
+        "1e-10",
+    ),
+    "tests/test_kramers_moyal_vertices.py": (
+        "Workflow and YAML",
+        "third and fourth Itô generator terms with polynomial coefficients",
+        "unequal-time OU response integrated independently, with a factorial witness",
+        "1e-14",
+    ),
     "tests/test_system_t_min.py": (
         "Workflow and YAML",
         "System.t_min reaches the integrators through Expansion.evaluate "
@@ -1941,6 +1966,10 @@ REFERENCE_KIND: dict[str, str] = {
     "tests/test_sweep_component_tuples.py": "exact_analytic",
     "tests/test_sweep_integrand_reuse.py": "exact_analytic",
     "tests/test_sweep_selectors.py": "independent_code",
+    "tests/test_initial_state.py": "exact_analytic",
+    "tests/test_mean_observables.py": "exact_analytic",
+    "tests/test_markov_embedding.py": "independent_code",
+    "tests/test_kramers_moyal_vertices.py": "exact_analytic",
     "tests/test_system_t_min.py": "independent_code",
     "tests/test_table_limits.py": "exact_analytic",
     "tests/test_time_variable_recipe.py": "self_consistency",

@@ -662,10 +662,12 @@ def native_propagator_identity(system: Any) -> tuple | None:
         state = object.__getattribute__(system, "__dict__")
         if type(state) is not dict or any(type(key) is not str for key in state):
             return None
-        extra = set(state) - set(_SYSTEM_FIELDS)
+        extra = set(state) - set(_SYSTEM_FIELDS) - {"initial_state", "km_vertices"}
         if extra not in (set(), {"_effective_linear"}):
             return None
         if any(name not in state for name in _SYSTEM_FIELDS):
+            return None
+        if state.get("initial_state") is not None:
             return None
         linear = state["linear"]
         if state["explicit_R"] is not None or type(linear) is not specs.DiagonalA:

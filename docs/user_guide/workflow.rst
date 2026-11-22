@@ -848,6 +848,57 @@ vectors:
   would inflate the spline to ``(2 + 2d)``-D, with ``n_grid_x **
   (2d)`` build calls.
 
+Initial data
+------------
+
+Use ``System(initial_state=InitialState(...))`` or ``system.initial_state``
+in YAML to specify a spatially constant initial law at ``system.t_min``.
+The initial state is independent of the driving noise. Its covariance
+is part of the free two-point function and propagates as
+:math:`R(t,t_0)\Sigma_0 R(t',t_0)^{\mathsf{T}}`. Supply the driven
+covariance when using a custom closed form with an initial state.
+A tensor in ``cumulants`` gives one boundary vertex named by its rank,
+such as ``I3`` for the third cumulant. Each insertion contributes one
+perturbative order. Use ``diag_C: false`` for a mixing initial covariance.
+
+Set ``mean`` to the initial component vector. The free mean
+:math:`m_0(t)=R(t,t_0)m_0(t_0)` translates each local polynomial coupling.
+Each resulting lower-rank vertex retains the original perturbative
+order and vertex-type label. Raw moments include the deterministic mean
+at each external physical field. Connected moments of two or more fields
+need only the translated fluctuation expansion.
+
+Use an integration method that evaluates time-dependent couplings, such
+as ``gauss_legendre``, for a nonzero mean. Pairing certificates apply to
+ordinary Wick contractions and are unavailable when reconstruction
+adds external deterministic factors. The diagram display uses absorbed
+response attachments for these factors.
+
+Kramers–Moyal vertices and finite embeddings
+--------------------------------------------
+
+Declare each homogeneous polynomial term of a local Itô generator in
+``system.km_vertices`` or with ``KramersMoyalVertex``. The first
+``n_psi`` axes of its bare tensor are response indices. The remaining
+axes multiply physical fields at the same point. The workflow includes
+the factorial and MSR phase in the lowering.
+
+For multiplicative white noise, optional ``g2`` gives the quadratic
+amplitude tensor. A numeric ``alpha`` in [0, 1] sets the stochastic
+convention used in the drift conversion. When omitted, the existing
+interpretation setting supplies 0 for Itô or 0.5 for Stratonovich.
+
+Set ``system.embedding`` or call ``embed_system`` to add a finite temporal
+kernel to a system with constant diagonal rates and constant white
+driving. Use a zero-amplitude smooth noise kernel in the physical system.
+Matérn-3/2 and damped cosine support additive and random-rate forcing.
+Prony and Erlang kernels implement memory acting on a physical component.
+Choose ``start: stationary`` for a stationary hidden noise law or a joint
+stationary memory law. In YAML use ``expand.diag_R: false`` and
+``propagators.diag_C: false``. Observable component indices still refer
+to the physical field. The temporal driving and initial law are shared
+across the positions of the embedded system.
+
 YAML configuration reference (L2)
 ---------------------------------
 
@@ -944,6 +995,18 @@ prints the same keys as a JSON Schema; see `Checking a config`_.
        #   equal_time: false             # one shared time for the m legs
        #   already_R_contracted: false   # the callable returns κ^(m)_R
        #   leg_symmetry: none            # 'none' | 'declared' | 'symmetrize'
+
+     initial_state: null                 # optional initial law at t_min
+       # mean: [0.2, -0.1]
+       # covariance: [[0.4, 0.1], [0.1, 0.3]]
+       # cumulants: []                   # symmetric tensors of distinct ranks >= 3
+     km_vertices: []                     # local Itô generator terms
+       # - {name: D3, n_psi: 3, coupling: [[[0.08]]]}
+     embedding: null                     # finite state-space extension
+       # kernel: {type: matern32, lam: 0.3, sigma_t: 0.8}
+       # target: 0
+       # mode: random_rate
+       # start: stationary
 
      t_min: 0.0                          # lower bound for time integration domain
 

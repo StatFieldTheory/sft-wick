@@ -13,6 +13,7 @@ from __future__ import annotations
 import itertools
 import os
 import stat
+from dataclasses import replace
 from typing import Any, Iterator
 
 import numpy as np
@@ -172,7 +173,7 @@ def _reads_r_and_c(cfg: WorkflowConfig, system) -> tuple[bool, bool]:
         (term.propagators for term in _order_zero_terms(cfg, system)),
         (
             props
-            for seq in _selected_sequences(cfg, operators, system.build_action())
+            for seq in _selected_sequences(cfg, operators, system.build_action(), system)
             for props in _read_propagators(seq)
         ),
     )
@@ -195,6 +196,8 @@ def _isotropy_refusal(cfg: WorkflowConfig, system) -> str | None:
     model = system.build_propagator_model(diag_C=cfg.propagators.diag_C)
     try:
         value = _C_value_direct_gl(model, points[0], t, points[-1], t, n_gauss=4)
+        if model.c_initial is not None:
+            value = value + model.c_initial(t, t)
     except Exception:  # noqa: BLE001 (a user callable)
         return None
     try:
@@ -342,8 +345,10 @@ def _order_zero_terms(cfg: WorkflowConfig, system) -> Iterator:
     ):
         return
     n_response = sum(op.is_response for op in operators)
-    for props, _ in r_class_pairings(operators):
-        yield _order_zero_term(props, n_response)
+    for kept, _ in _observable_subsets(system, operators, expand.target):
+        if kept:
+            for props, _ in r_class_pairings(kept):
+                yield _order_zero_term(props, n_response)
 
 
 def _interacting_terms(cfg: WorkflowConfig, system) -> Iterator:
@@ -375,28 +380,40 @@ def _interacting_terms(cfg: WorkflowConfig, system) -> Iterator:
         v.local and v.n_response >= 2 for v in action.vertices
     ):
         return
-    for seq in _selected_sequences(cfg, operators, action):
+    for seq in _selected_sequences(cfg, operators, action, system):
         for props, _ in r_class_pairings(seq.operators):
-            yield _order_zero_term(props, n_response)
+            yield replace(_order_zero_term(props, n_response), integration_vars=seq.integration_vars)
 
 
-def _selected_sequences(cfg: WorkflowConfig, operators, action) -> Iterator:
+def _observable_subsets(system, operators, target) -> Iterator:
+    if not system._has_initial_mean:
+        yield operators, ()
+        return
+    from ._mean_observables import observable_subsets
+
+    yield from observable_subsets(operators, target)
+
+
+def _selected_sequences(cfg: WorkflowConfig, operators, action, system) -> Iterator:
     """The vertex sequences of the selected orders above 0 and vertex types."""
     from sft_wick.perturbation import _vertex_sequences
 
     from .expansion import vertex_type_label
 
     labels = cfg.sweep.vertex_types
+    aliases = system._mean_vertex_aliases() or {}
     for n in _selected_orders(cfg):
         if n == 0:
             continue
-        for seq in _vertex_sequences(list(operators), action, n, "moment"):
-            if (
-                labels is None
-                or vertex_type_label(vi.vertex.coupling for vi in seq.instances)
-                in labels
-            ):
-                yield seq
+        for kept, _ in _observable_subsets(system, operators, cfg.expand.target):
+            if not kept:
+                continue
+            for seq in _vertex_sequences(list(kept), action, n, "moment"):
+                if labels is None or vertex_type_label(
+                    aliases.get(vi.vertex.coupling, vi.vertex.coupling)
+                    for vi in seq.instances
+                ) in labels:
+                    yield seq
 
 
 def _refuse_joined_points(diagram_terms, sweep) -> None:
@@ -533,7 +550,7 @@ def _check_exact_couplings(cfg: WorkflowConfig, system) -> None:
     if not dynamic:
         return
     operators, _ = _parse_observable(cfg.expand.observable, system, 0)
-    for seq in _selected_sequences(cfg, operators, system.build_action()):
+    for seq in _selected_sequences(cfg, operators, system.build_action(), system):
         if dynamic.intersection(vi.vertex.coupling for vi in seq.instances):
             if next(_read_propagators(seq), None) is not None:
                 raise ValueError("method='exact' requires static couplings")
@@ -565,7 +582,12 @@ def _check_propagators(cfg: WorkflowConfig, system) -> None:
         from sft_wick._exact import require_exact_covariance
 
         with _refused_at("sweep.method"):
-            require_exact_covariance(resolved, only)
+            system._check_initial_mean_method(cfg.sweep.method)
+            initial = system.initial_state
+            require_exact_covariance(
+                resolved, only,
+                initial_covariance=None if initial is None else initial.covariance,
+            )
             _check_exact_couplings(cfg, system)
     if not only:
         _check_table(cfg, system)

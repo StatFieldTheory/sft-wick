@@ -207,6 +207,13 @@ _LOCATIONS = {
     "": ((), None),
     "system": (("system",), None),
     "system.field": (("system", "field"), None),
+    "system.initial_state": (("system", "initial_state"), None),
+    "system.embedding": (("system", "embedding"), None),
+    **{
+        f"system.embedding.kernel<{tag}>":
+            (("system", "embedding", "kernel"), None)
+        for tag in ("exponential", "matern32", "damped_cosine", "prony", "erlang")
+    },
     "system.linear<diagonal>": (("system", "linear"), None),
     "system.linear<explicit>": (("system", "linear"), None),
     "system.noise": (("system", "noise"), None),
@@ -253,6 +260,7 @@ _LOCATIONS = {
         (("system", "noise", "sigma2"), None),
     "system.vertices[]": (("system", "vertices", 0), None),
     "system.nonlocal_vertices[]": (("system", "nonlocal_vertices", 0), None),
+    "system.km_vertices[]": (("system", "km_vertices", 0), None),
     "expand": (("expand",), None),
     "propagators": (("propagators",), None),
     "sweep": (("sweep",), None),
@@ -355,6 +363,9 @@ def test_SC3_schema_keys_are_the_parser_keys(schema, location):
     path, prepare = _LOCATIONS[location]
     doc = _base()
     doc["system"].setdefault("nonlocal_vertices", [])
+    doc["system"].setdefault("km_vertices", [])
+    if location.startswith("system.embedding.kernel<"):
+        doc["system"]["embedding"] = {}
     if prepare is not None:
         doc = prepare(doc)
     block = _full_block(schema, location, _get(doc, path))
@@ -476,6 +487,8 @@ _SIMPLIFICATION = ("System.expand refuses a simplification whose condition "
 #: as a duplicate (YC14).
 _COLLISIONS = {
     ("system.noise.sigma2<multiplicative>", "g0", "g1"): _REQUIRED,
+    ("system.noise.sigma2<multiplicative>", "g0", "g2"): _REQUIRED,
+    ("system.noise.sigma2<multiplicative>", "g1", "g2"): _REQUIRED,
     ("expand", "iso_R", "iso_C"): _SIMPLIFICATION,
     ("expand", "diag_R", "diag_C"): _SIMPLIFICATION,
     ("propagators", "t_max", "r_max"): _REQUIRED,

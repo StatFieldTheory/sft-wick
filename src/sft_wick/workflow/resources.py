@@ -38,8 +38,13 @@ def resource_controls(cfg: WorkflowConfig) -> list[dict]:
     an observed speedup or a process memory ceiling.
     """
     sw = cfg.sweep
-    vertices = cfg.system.vertices + cfg.system.nonlocal_vertices
-    dynamic = any(callable(v["coupling"]) for v in vertices)
+    vertices = (*cfg.system.vertices, *cfg.system.nonlocal_vertices, *cfg.system.km_vertices)
+    initial = cfg.system.initial_state
+    dynamic = bool(initial and (
+        initial.cumulants or (initial.mean is not None and any(initial.mean))
+    )) or any(
+        callable(v["coupling"]) for v in vertices
+    )
     n_points = grid_points(sw)
     out = []
 

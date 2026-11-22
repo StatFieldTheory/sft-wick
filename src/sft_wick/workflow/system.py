@@ -32,6 +32,15 @@ from sft_wick.perturbation import check_distinct_external_labels
 from sft_wick.vertices import Vertex
 
 from ._messages import shown
+from ._initial_state import InitialState, _InitialCovariance, _InitialResponse
+from ._initial_mean import (
+    _ObservableMean,
+    _PropagatedMean,
+    _TranslatedCoupling,
+    translated_vertex_names,
+)
+from ._kramers_moyal import KramersMoyalVertex
+from ._markov_embedding import _EmbeddedR
 from .specs import (
     _flag,
     ConstantImpulse,
@@ -68,7 +77,8 @@ _DIAG_R_REFUSAL = (
 
 _DIAG_C_REFUSAL = (
     "C of this system has off-diagonal component entries (from a dense R, "
-    "a component-mixing κ² such as GeneralKappa2, or a matrix σ²), and "
+    "a component-mixing κ² such as GeneralKappa2, a matrix σ², "
+    "or an initial covariance), and "
     "diag_C=True keeps only C_aa, which would give a wrong result without "
     "an error.  Pass diag_C=False to System.expand and to "
     "System.propagators: the propagator tables then hold every C_ab, by "
@@ -294,6 +304,9 @@ class System:
             structured alternative is the :class:`ExplicitR` LinearOp
             variant; both work, but ``ExplicitR`` is preferred for
             serialisation and YAML configs.
+        initial_state: optional :class:`InitialState` at ``t_min``.
+            Its propagated covariance is added to the driven covariance,
+            including when a closed form supplies the driven part.
     """
 
     field: FieldSpec
@@ -303,6 +316,8 @@ class System:
     nonlocal_vertices: tuple[NonLocalVertex, ...] = field(default_factory=tuple)
     t_min: float = 0.0
     explicit_R: Callable | None = None
+    initial_state: InitialState | None = None
+    km_vertices: tuple[KramersMoyalVertex, ...] = ()
 
     def __post_init__(self):
         # Normalise list → tuple for hashability.
@@ -310,6 +325,14 @@ class System:
             object.__setattr__(self, "vertices", tuple(self.vertices))
         if isinstance(self.nonlocal_vertices, list):
             object.__setattr__(self, "nonlocal_vertices", tuple(self.nonlocal_vertices))
+        if isinstance(self.km_vertices, list):
+            object.__setattr__(self, "km_vertices", tuple(self.km_vertices))
+        if any(not isinstance(vertex, KramersMoyalVertex) for vertex in self.km_vertices):
+            raise TypeError("km_vertices must contain KramersMoyalVertex objects")
+        if self.initial_state is not None:
+            if not isinstance(self.initial_state, InitialState):
+                raise TypeError("initial_state must be an InitialState")
+            self.initial_state._check_components(self.n_components)
         sigma2 = self.noise.sigma2
         if isinstance(sigma2, MultiplicativeImpulse):
             if sigma2.n_components != self.n_components:
@@ -317,9 +340,9 @@ class System:
                     f"MultiplicativeImpulse has N = {sigma2.n_components} "
                     f"components but the field has {self.n_components}."
                 )
-            taken = {v.name for v in self.vertices} | {
-                v.name for v in self.nonlocal_vertices
-            }
+            taken = {v.name for v in (*self.vertices, *self.nonlocal_vertices, *self.km_vertices)}
+            if self.initial_state is not None:
+                taken.update(name for name, _ in self.initial_state._named_cumulants)
             clash = sorted(taken & {v.name for v in sigma2.vertices()})
             if clash:
                 raise ValueError(
@@ -341,7 +364,7 @@ class System:
         equal rates of any number, which lower to one scalar R.
         """
         n = self.n_components
-        for v in (*self.vertices, *self.nonlocal_vertices):
+        for v in (*self.vertices, *self.nonlocal_vertices, *self.km_vertices):
             problem = v.shape_problem(n)
             if problem and not (n == 1 and np.ndim(v.coupling) == 0):
                 raise ValueError(f"vertex {shown(v.name)}: {problem}.")
@@ -386,19 +409,24 @@ class System:
         from .expansion import _ambiguous_vertex_type_label
 
         seen: dict[str, str] = {}
-        for kind, vertices in (
-            ("local", self.vertices),
-            ("non-local", self.nonlocal_vertices),
+        for kind, names in (
+            ("local", (v.name for v in self.vertices)),
+            ("non-local", (v.name for v in self.nonlocal_vertices)),
+            ("Kramers–Moyal", (v.name for v in self.km_vertices)),
+            ("initial", (
+                () if self.initial_state is None
+                else (name for name, _ in self.initial_state._named_cumulants)
+            )),
         ):
-            for v in vertices:
-                if v.name in seen:
+            for name in names:
+                if name in seen:
                     raise ValueError(
-                        f"vertex name {shown(v.name)} is used by two vertices (a "
-                        f"{seen[v.name]} and a {kind} one).  Coupling values "
+                        f"vertex name {shown(name)} is used by two vertices (a "
+                        f"{seen[name]} and a {kind} one).  Coupling values "
                         f"are keyed by name, so one coupling would replace "
                         f"the other for both vertices; rename one."
                     )
-                seen[v.name] = kind
+                seen[name] = kind
         names = list(seen) + [v.name for v in self.multiplicative_vertices]
         pair = _ambiguous_vertex_type_label(names)
         if pair is not None:
@@ -513,9 +541,19 @@ class System:
         )
 
     def _c_offdiagonal(self) -> bool | None:
-        """Whether ``C = ∫R κ² R + ∫R σ² R`` has off-diagonal entries:
-        ``True`` if R, κ² or σ² has one, ``None`` if a probe could not tell
+        """Whether C has off-diagonal entries:
+        ``True`` if R, κ², σ² or the initial covariance has one,
+        ``None`` if a probe could not tell
         and none of the others found one."""
+        if self.initial_state is not None and self.initial_state.covariance is not None:
+            covariance = self.initial_state.covariance
+            if np.any(covariance != np.diag(np.diag(covariance))):
+                return True
+            if np.any(covariance) and not self.iso_R and (
+                self.explicit_R is not None or type(self.linear) is not DiagonalA
+            ):
+                # A matrix callback may mix components outside the probe times.
+                return True
         parts = (
             self._r_offdiagonal(),
             self._kappa2_offdiagonal(),
@@ -637,6 +675,58 @@ class System:
         if diag_C and self._c_offdiagonal():
             raise ValueError(_DIAG_C_REFUSAL)
 
+    def _r_callable(self) -> Callable:
+        return (
+            self.explicit_R
+            if self.explicit_R is not None
+            else self._effective_linear.build_R_callable()
+        )
+
+    @property
+    def _observable_components(self) -> int:
+        if isinstance(self.linear, _EmbeddedR):
+            return self.linear.compiled.physical_components
+        return self.n_components
+
+    def _initial_response(self, r_time: Callable) -> _InitialResponse:
+        return _InitialResponse(r_time, self.t_min, self.iso_R, self.n_components)
+
+    @property
+    def _has_initial_mean(self) -> bool:
+        initial = self.initial_state
+        return (
+            initial is not None and initial.mean is not None and bool(np.any(initial.mean))
+        )
+
+    def _mean_layout(self):
+        shapes = [(v.name, 1, v.n_legs) for v in self.vertices]
+        shapes.extend((v.name, v.n_psi, v.n_legs) for v in self.km_vertices)
+        shapes.extend(
+            (v.name, v.n_psi, np.ndim(v.coupling)) for v in self.multiplicative_vertices
+        )
+        taken = {name for name, _, _ in shapes}
+        taken.update(v.name for v in self.nonlocal_vertices)
+        taken.update(name for name, _ in self.initial_state._named_cumulants)
+        return translated_vertex_names(shapes, taken)
+
+    def _mean_vertex_aliases(self):
+        if not self._has_initial_mean:
+            return None
+        mean, vertices = self._mean_layout()
+        return {mean: None, **{vertex.name: vertex.original for vertex in vertices}}
+
+    def _check_initial_mean_method(self, method) -> None:
+        if method == "exact" and self._has_initial_mean:
+            raise ValueError("method='exact' does not support a nonzero initial mean")
+
+    @property
+    def _all_nonlocal_vertices(self) -> tuple[NonLocalVertex, ...]:
+        initial = self.initial_state
+        if initial is None or not initial.cumulants:
+            return self.nonlocal_vertices
+        response = self._initial_response(self._r_callable())
+        return (*self.nonlocal_vertices, *initial._vertices(response))
+
     def build_propagator_model(self, diag_C: bool = True) -> PropagatorModel:
         """Lower the spec to a :class:`PropagatorModel`.
 
@@ -650,16 +740,18 @@ class System:
                 and lookup built on the model then carries all ``N²``
                 entries.
         """
-        R_time = (
-            self.explicit_R
-            if self.explicit_R is not None
-            else self._effective_linear.build_R_callable()
-        )
+        R_time = self._r_callable()
         kappa2 = self.noise.kappa2.build_callable(self.n_components)
         sigma2 = (
             None
             if self.noise.sigma2 is None
             else self.noise.sigma2.build_callable(self.n_components)
+        )
+        initial = self.initial_state
+        c_initial = (
+            _InitialCovariance(self._initial_response(R_time), initial.covariance)
+            if initial is not None and initial.covariance is not None
+            else None
         )
         return PropagatorModel(
             R_time=R_time,
@@ -669,6 +761,7 @@ class System:
             diag_C=diag_C,
             t_min=self.t_min,
             sigma2=sigma2,
+            c_initial=c_initial,
         )
 
     def build_fields(self) -> tuple[Field, Field]:
@@ -690,7 +783,7 @@ class System:
             fields = [psi] + [phi] * (lv.n_legs - 1)
             raw_vertices.append(Vertex(fields=fields, coupling=lv.name, local=True))
 
-        for nv in self.nonlocal_vertices:
+        for nv in self._all_nonlocal_vertices:
             raw_vertices.append(
                 Vertex(
                     fields=[psi] * nv.order,
@@ -709,6 +802,13 @@ class System:
             fields = [psi] * mv.n_psi + [phi] * (rank - mv.n_psi)
             raw_vertices.append(Vertex(fields=fields, coupling=mv.name, local=True))
 
+        raw_vertices.extend(vertex.build_vertex(phi, psi) for vertex in self.km_vertices)
+        if self._has_initial_mean:
+            _, translated = self._mean_layout()
+            raw_vertices.extend(
+                Vertex(fields=v.fields(phi, psi), coupling=v.name, local=True)
+                for v in translated
+            )
         return Action(vertices=raw_vertices)
 
     def build_coupling_values(self) -> dict[str, Any]:
@@ -734,10 +834,22 @@ class System:
         cv: dict[str, Any] = {}
         for lv in self.vertices:
             cv[lv.name] = lv.msr_coupling
-        for nv in self.nonlocal_vertices:
+        for nv in self._all_nonlocal_vertices:
             cv[nv.name] = nv.msr_coupling
         for mv in self.multiplicative_vertices:
             cv[mv.name] = mv.msr_coupling
+        for v in self.km_vertices:
+            cv[v.name] = v.build_msr_coupling(self.n_components)
+        if self._has_initial_mean:
+            mean, translated = self._mean_layout()
+            propagated = _PropagatedMean(
+                self._initial_response(self._r_callable()), self.initial_state.mean
+            )
+            cv[mean] = _ObservableMean(propagated)
+            cv.update({
+                v.name: _TranslatedCoupling(v, cv[v.original], propagated)
+                for v in translated
+            })
         return cv
 
     # --------------------------------------------------------------- #
@@ -896,6 +1008,15 @@ class System:
                 iso_C,
             ),
         }
+        if self.km_vertices:
+            spec_key["km_vertices"] = tuple(
+                (v.name, v.n_psi, v.n_legs) for v in self.km_vertices
+            )
+        aliases = self._mean_vertex_aliases()
+        mean_symbol = None
+        if aliases is not None:
+            mean_symbol, translated = self._mean_layout()
+            spec_key["initial_mean"] = (mean_symbol, translated)
 
         max_order = max(orders_list)
         # A moment adds no field: the default target stays out of the key.
@@ -903,7 +1024,9 @@ class System:
             spec_key["target"] = target
         if routing != "enumerate":
             spec_key["routing"] = routing
-            spec_key["leg_symmetries"] = tuple(v.leg_symmetry for v in self.nonlocal_vertices)
+            spec_key["leg_symmetries"] = tuple(
+                v.leg_symmetry for v in self._all_nonlocal_vertices
+            )
         # An observable label spelled like a generated name (``y_0``,
         # ``i_1``) used to merge with a vertex point or index, so a cache
         # entry written before the generators skipped such labels holds a
@@ -917,10 +1040,17 @@ class System:
 
         def _compute():
             action = self.build_action()
-            result = compute_moment(
+            expand = compute_moment
+            mean_kwargs = {}
+            if mean_symbol is not None:
+                from ._mean_observables import expand_with_mean
+
+                expand = expand_with_mean
+                mean_kwargs["mean_symbol"] = mean_symbol
+            result = expand(
                 obs_ops,
                 action,
-                order=max_order,
+                max_order,
                 response_phase=response_phase,
                 collect_topology=collect_topology,
                 diag_R=diag_R,
@@ -930,6 +1060,7 @@ class System:
                 target=target,
                 **certify_kwargs,
                 **routing_kwargs,
+                **mean_kwargs,
             )
             return {
                 "dts_by_order": {o: result.diagram_terms(o) for o in orders_list},
@@ -953,6 +1084,7 @@ class System:
             raw_result=payload["raw_result"],
             target=target,
             diag_C=diag_C,
+            _vertex_aliases=aliases,
         )
 
     def propagators(
@@ -1201,6 +1333,11 @@ def _parse_observable(observable, system: System, _max_order: int = 1):
                     f"field {shown(system.field.response_name)}."
                 )
             if comp is None:
+                if system._observable_components == 1 < system.n_components:
+                    comp = "a"
+                    out.append(field(comp, spatial))
+                    repr_list.append((name, comp, spatial))
+                    continue
                 if system.n_components != 1:
                     raise ValueError(
                         f"Observable '{spec}' omits a component index "
@@ -1301,7 +1438,7 @@ def _system_spec_key(system: System) -> Any:
         ),
         "nonlocal_vertices": tuple(
             (v.name, v.order, v.equal_time, v.already_R_contracted)
-            for v in system.nonlocal_vertices
+            for v in system._all_nonlocal_vertices
         ),
         "t_min": system.t_min,
     }

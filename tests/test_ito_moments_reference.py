@@ -11,10 +11,12 @@ system against its Lyapunov equation.
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
+from numpy.polynomial import Polynomial
 from scipy.integrate import solve_ivp
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]
@@ -103,6 +105,68 @@ def test_shot_noise_fourth_moment_splits_by_cumulant_order():
                                                  abs=0.0)
     assert got[((4,), (0,))][0] == pytest.approx(3 * _campbell(2) ** 2,
                                                  rel=1e-13, abs=0.0)
+
+
+@pytest.mark.parametrize(("gamma", "alpha", "multiplicity"), [
+    ((2, 1), (3, 1), 3),
+    ((1, 3), (2, 4), 8),
+])
+def test_polynomial_km_term_has_the_mixed_derivative_normalization(
+        gamma, alpha, multiplicity):
+    rates, start = np.array([0.8, 1.3]), np.array([0.6, -0.4])
+    coefficient, monomial = -0.17, (1, 1)
+    sde = im.PolySDE(D=2, n_tags=1)
+    sde.add_linear_drift(-np.diag(rates))
+    sde.add_kramers_moyal(gamma, coefficient, monomial, (1,))
+    sde = replace(sde)
+    target = (alpha, (1,))
+
+    def initial(exponents, tag):
+        return np.prod(start ** exponents) if tag == (0,) else 0.0
+
+    beta = tuple(a - g + p for a, g, p in zip(alpha, gamma, monomial))
+    decay, forcing_decay = rates @ alpha, rates @ beta
+    exact = (multiplicity * coefficient * initial(beta, (0,))
+             * (np.exp(-forcing_decay * T) - np.exp(-decay * T))
+             / (decay - forcing_decay))
+    got = im.solve(sde, [target], [T], initial=initial)
+    assert got[target][0] == pytest.approx(exact, rel=1e-13, abs=0.0)
+
+
+def test_state_dependent_jump_rate_matches_the_compensated_jump_operator():
+    """Apply the jump shift directly, without expanding in KM derivatives."""
+    start, mark = -0.18, -0.6
+    x = Polynomial([0, 1])
+    rate = NU * (1 + 0.4 * x) ** 2
+    sde = _ou()
+    sde.jump_moment = lambda gamma: mark ** gamma[0]
+    sde.max_jump_order = 4
+    sde.jump_tag = lambda order: (0,)
+    sde.jump_rate = [(c, (p,)) for p, c in enumerate(rate.coef)]
+    targets = [((p,), (0,)) for p in range(5)]
+    got = im.solve(sde, targets, [T], initial=lambda a, tag: start ** a[0])
+
+    generator = np.zeros((5, 5))
+    for p in range(5):
+        drift = -GAMMA * x * (x ** p).deriv()
+        jump = (x + mark) ** p - x ** p - mark * (x ** p).deriv()
+        # Terms above degree p cancel in the compensated shift.
+        coefficients = (drift + rate * jump).coef[:5]
+        generator[p, :len(coefficients)] = coefficients
+    exact = solve_ivp(lambda _t, y: generator @ y, (0, T),
+                      start ** np.arange(5), rtol=1e-12, atol=1e-14).y[:, -1]
+    np.testing.assert_allclose([got[target][0] for target in targets], exact,
+                               rtol=1e-11, atol=1e-13)
+    assert got[((1,), (0,))][0] == pytest.approx(start * np.exp(-GAMMA * T))
+
+
+def test_degree_raising_jump_terms_require_a_nonzero_tag():
+    sde = _shot()
+    sde.jump_rate = [(1., (4,))]
+    with pytest.raises(ValueError, match="degree-raising jump term"):
+        sde.generator((2,))
+    sde.jump_tag = lambda order: (1,)
+    assert ((4,), NU * H ** 2, (1,)) in sde.generator((2,))
 
 
 def test_multiplicative_noise_follows_ito():

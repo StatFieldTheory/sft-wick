@@ -1,9 +1,9 @@
 {
   "selector": "tests/ -n 4",
   "pytest_command": "python -m pytest tests/ -n 4 --no-header -p no:cacheprovider -o junit_family=xunit1",
-  "corpus_sha256": "499edac75a9d41830c70fdb0756c162eb8cf73c5bb37652b6aa4de2c156834af",
-  "fast_suite_tests": 8481,
-  "fast_suite_sha256": "b3e7a1e66cec1e640bb98415cf23e7a1365d48302612b65b828434250f48fc10",
+  "corpus_sha256": "3644fbabc8cab85d932f9a920c4c461bc00b1b1aa36abb8dc29b171232620a57",
+  "fast_suite_tests": 9307,
+  "fast_suite_sha256": "4d9a32c3eb69bc73fbb7f797f169fc1aaa7acbe9bd11b0417a0babf0f55db3d3",
   "killed": 30,
   "totals": {
     "entries": 30,
@@ -883,16 +883,17 @@
       "label": "operator-stratonovich-drift-doubled",
       "kind": "operator",
       "path": "workflow/specs.py",
-      "sha256": "4efc0e261e778367ebfe32f0524142b2f6471490bb9046a10c14c70a2afc53db",
+      "sha256": "c181ace6cbc795d26fd1a10d19c9195291f42004d0c67488e988399c859db356",
       "verdict": "KILLED",
       "returncode": 1,
       "failed_files": [
+        "tests/test_kramers_moyal_vertices.py",
         "tests/test_multiplicative_noise_l1.py",
         "tests/test_validation_demo_package.py",
         "tests/test_validation_fuzz.py",
         "tests/test_validation_lower.py"
       ],
-      "fast_suite_tests": 8478,
+      "fast_suite_tests": 9307,
       "classification": null,
       "reason": ""
     }

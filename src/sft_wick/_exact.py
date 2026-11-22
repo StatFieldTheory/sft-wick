@@ -459,10 +459,12 @@ def _component_pairs(left, right, count):
     return ((left, right),)
 
 
-def require_exact_covariance(covariance, direct):
+def require_exact_covariance(covariance, direct, *, initial_covariance=None):
     """Admission shared by the exact path and workflow validation."""
     from .workflow.closed_forms import ClosedFormC
 
+    if initial_covariance is not None:
+        raise ValueError("method='exact' does not support an initial covariance")
     if (
         type(covariance) is not ClosedFormC
         or covariance.temporal_kind != "exponential"
@@ -490,7 +492,10 @@ def integrate_exact(
     covariance = getattr(cache, "c_value_fn", None)
     r_time = getattr(getattr(cache, "model", None), "R_time", None)
     source = getattr(cache, "_source", cache)
-    require_exact_covariance(covariance, getattr(cache, "_closed_form_only", False))
+    require_exact_covariance(
+        covariance, getattr(cache, "_closed_form_only", False),
+        initial_covariance=getattr(cache.model, "c_initial", None),
+    )
     if (
         type(source) is not PropagatorCache
         or type(r_time) not in (_StaticIsoR, _StaticMatR)

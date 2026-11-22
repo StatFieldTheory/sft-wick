@@ -485,11 +485,19 @@ def _maybe_warn_blas_oversubscription(cfg) -> None:
 
 def _print_summary(cfg) -> None:
     s = cfg.system
+    options = []
+    if s.initial_state is not None:
+        options.append("initial_state")
+    if s.km_vertices:
+        options.append(f"{len(s.km_vertices)} KM vertices")
+    if s.embedding is not None:
+        options.append("Markov embedding")
+    suffix = f", {', '.join(options)}" if options else ""
     print(
         f"[sft-wick] system: field={s.field_name}(N={s.n_components}), "
         f"{len(s.vertices)} local + {len(s.nonlocal_vertices)} non-local "
         f"vertices, linear={s.linear.get('type', 'diagonal')}, "
-        f"kappa2={s.noise['kappa2'].get('type', '?')}"
+        f"kappa2={s.noise['kappa2'].get('type', '?')}{suffix}"
     )
     e = cfg.expand
     print(

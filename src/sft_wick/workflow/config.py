@@ -57,6 +57,9 @@ from sft_wick._c_table_certificate import DEFAULT_TABLE_RTOL, validate_table_rto
 from sft_wick.progress import _FALSY, _TRUTHY, env_flag
 
 from ._messages import MAX_INT_BITS, shown, text_of
+from ._initial_state import InitialState
+from ._kramers_moyal import KramersMoyalVertex
+from ._markov_embedding import EmbeddedProcess, ErlangDelay, PronyMemory, embed_system
 from .propagators import _BUILTIN_C_OPTIONS
 
 # =========================================================================
@@ -88,6 +91,9 @@ class SystemConfig:
     # (and any future module-loaded specs in the system block) can resolve
     # paths relative to the YAML file at build time.
     base_dir: Path | None = None
+    initial_state: InitialState | None = None
+    km_vertices: tuple[dict, ...] = ()
+    embedding: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -1089,7 +1095,11 @@ def _refuse_nesting(data) -> None:
 #: ``expand``, ``propagators`` and ``output`` sets equal the fields of their
 #: config dataclasses; ``tests/test_yaml_spec_coverage.py`` checks that.
 _TOP_LEVEL_KEYS = ("system", "expand", "propagators", "sweep", "output")
-_SYSTEM_KEYS = ("field", "t_min", "linear", "noise", "vertices", "nonlocal_vertices")
+_SYSTEM_KEYS = (
+    "field", "t_min", "linear", "noise", "vertices", "nonlocal_vertices", "initial_state",
+    "km_vertices", "embedding",
+)
+_EMBEDDING_KEYS = ("kernel", "target", "coupling", "mode", "start", "source", "name")
 _FIELD_KEYS = ("name", "n_components")
 _NOISE_KEYS = ("kappa2", "sigma2")
 _EXPAND_KEYS = frozenset(
@@ -1413,7 +1423,7 @@ def _parse_system(
             f"{{name: phi, n_components: 2}}; got {shown(fld)}",
         )
     _reject_unknown_keys(fld, _FIELD_KEYS, "system.field")
-    for key in ("vertices", "nonlocal_vertices"):
+    for key in ("vertices", "nonlocal_vertices", "km_vertices"):
         blocks = d.get(key)
         if blocks is not None and not isinstance(blocks, list):
             raise ConfigError(
@@ -1461,7 +1471,11 @@ def _parse_system(
         _parse_vertex(v, base_dir, kind="nonlocal", index=i, n_components=nc)
         for i, v in enumerate(d.get("nonlocal_vertices", []) or [])
     ]
-    names = [v["name"] for v in vertices + nonlocal_vertices]
+    km_vertices = [
+        _parse_vertex(v, base_dir, kind="km", index=i, n_components=nc)
+        for i, v in enumerate(d.get("km_vertices", []) or [])
+    ]
+    names = [v["name"] for v in vertices + nonlocal_vertices + km_vertices]
     repeated = sorted({n for n in names if names.count(n) > 1})
     if repeated:
         raise ConfigError(
@@ -1469,9 +1483,12 @@ def _parse_system(
             "system.vertices",
             f"vertex name(s) {repeated} used more than once.  The coupling "
             f"values are keyed by vertex name, so names must be unique across "
-            f"vertices and nonlocal_vertices",
+            f"vertices, nonlocal_vertices and km_vertices",
         )
 
+    embedding = d.get("embedding")
+    if embedding is not None:
+        _build_embedding(embedding)
     return SystemConfig(
         field_name=name,
         n_components=nc,
@@ -1481,7 +1498,93 @@ def _parse_system(
         nonlocal_vertices=nonlocal_vertices,
         t_min=t_min,
         base_dir=base_dir,
+        initial_state=_parse_initial_state(d.get("initial_state"), nc),
+        km_vertices=tuple(km_vertices),
+        embedding=embedding,
     )
+
+
+def _parse_initial_state(value, n_components):
+    if value is None:
+        return None
+    where = "system.initial_state"
+    if not isinstance(value, dict):
+        raise ConfigError("invalid_value", where, "must be a mapping")
+    _reject_unknown_keys(value, ("covariance", "cumulants", "mean"), where)
+    covariance = value.get("covariance")
+    mean = value.get("mean")
+    cumulants = value.get("cumulants", [])
+    if not isinstance(cumulants, list):
+        raise ConfigError("invalid_value", f"{where}.cumulants", "must be a list of tensors")
+    entries = [(f"{where}.cumulants[{i}]", tensor) for i, tensor in enumerate(cumulants)]
+    if covariance is not None:
+        entries.append((f"{where}.covariance", covariance))
+    if mean is not None:
+        entries.append((f"{where}.mean", mean))
+    for path, tensor in entries:
+        _refuse_oversized_tensor(tensor, path)
+        _refuse_boolean_entry(tensor, path)
+    with _refused_at(where):
+        initial = InitialState(covariance=covariance, cumulants=cumulants, mean=mean)
+        initial._check_components(n_components)
+    return initial
+
+
+def _build_embedding(value):
+    where = "system.embedding"
+    if not isinstance(value, dict):
+        raise ConfigError("invalid_value", where, "must be a mapping")
+    _reject_unknown_keys(value, _EMBEDDING_KEYS, where)
+    path = f"{where}.kernel"
+    kernel = value.get("kernel")
+    if not isinstance(kernel, dict):
+        raise ConfigError("invalid_value", path, "must be a kernel mapping")
+    kind = _tag(kernel, "exponential")
+    if kind in ("exponential", "matern32", "damped_cosine"):
+        args = _KERNEL_PARAMS["time", kind]
+        _reject_unknown_keys(kernel, ("type", *args), path)
+        values = {key: _number(kernel.get(key), f"{path}.{key}") for key in args}
+        from . import specs as sp
+
+        cls = {
+            "exponential": sp.ExponentialTemporal,
+            "matern32": sp.Matern32Temporal,
+            "damped_cosine": sp.DampedCosineTemporal,
+        }[kind]
+        with _refused_at(path):
+            spec = cls(**values)
+    elif kind == "prony":
+        _reject_unknown_keys(kernel, ("type", "rates", "weights", "temperature"), path)
+        arrays = {}
+        for key in ("rates", "weights"):
+            items = kernel.get(key)
+            if not isinstance(items, list) or not items:
+                raise ConfigError("invalid_value", f"{path}.{key}", "must be a nonempty list")
+            arrays[key] = tuple(_number(x, f"{path}.{key}[{i}]") for i, x in enumerate(items))
+        with _refused_at(path):
+            spec = PronyMemory(**arrays, temperature=_number(
+                kernel.get("temperature", 0), f"{path}.temperature"
+            ))
+    elif kind == "erlang":
+        _reject_unknown_keys(kernel, ("type", "mean_delay", "stages"), path)
+        stages = _size(kernel.get("stages", 3), f"{path}.stages")
+        if stages > _MAX_VERTEX_ORDER:
+            raise ConfigError("invalid_value", f"{path}.stages", "must be at most 64")
+        with _refused_at(path):
+            spec = ErlangDelay(_number(kernel.get("mean_delay"), f"{path}.mean_delay"), stages)
+    else:
+        raise ConfigError("invalid_value", f"{path}.type", f"unsupported kernel {shown(kind)}")
+    with _refused_at(where):
+        return EmbeddedProcess(
+            kernel=spec,
+            target=_integer(value.get("target", 0), f"{where}.target"),
+            source=(None if value.get("source") is None
+                    else _integer(value["source"], f"{where}.source")),
+            coupling=_number(value.get("coupling", 1), f"{where}.coupling"),
+            mode=value.get("mode", "additive"),
+            start=value.get("start", "zero"),
+            name=value.get("name", "embedded"),
+        )
 
 
 def _check_noise_keys(noise: dict) -> None:
@@ -1653,8 +1756,11 @@ def _parse_vertex(
     """
     from . import specs as sp
 
-    block = "vertices" if kind == "local" else "nonlocal_vertices"
-    cls = sp.LocalVertex if kind == "local" else sp.NonLocalVertex
+    block, cls = {
+        "local": ("vertices", sp.LocalVertex),
+        "nonlocal": ("nonlocal_vertices", sp.NonLocalVertex),
+        "km": ("km_vertices", KramersMoyalVertex),
+    }[kind]
     where = f"system.{block}[{index}]"
     if not isinstance(v, dict):
         raise ConfigError(
@@ -1704,6 +1810,13 @@ def _parse_vertex(
                 f"{label}: 'order' must be at most {_MAX_VERTEX_ORDER}; got "
                 f"{shown(given)}",
             )
+    if kind == "km":
+        path = f"{where}.n_psi"
+        out["n_psi"] = _size(out.get("n_psi"), path)
+        if out["n_psi"] > _MAX_VERTEX_ORDER:
+            raise ConfigError(
+                "invalid_value", path, f"must be at most {_MAX_VERTEX_ORDER}"
+            )
     for flag in _VERTEX_FLAGS:
         if flag in out:
             out[flag] = _as_bool(out[flag], f"{where}.{flag}")
@@ -1730,6 +1843,9 @@ def _parse_vertex(
         del out["coupling_module"]
         out.pop("coupling_attr", None)
     if callable(out["coupling"]):
+        if kind == "km":
+            with _refused_at(where):
+                _build_vertex(cls, out)
         return out
 
     if out.get("coupling_vectorized"):
@@ -1751,12 +1867,15 @@ def _parse_vertex(
     if not (np.issubdtype(arr.dtype, np.number) and np.all(np.isfinite(arr))):
         detail = f"the coupling of {label} must be a tensor of finite numbers"
         raise ConfigError("invalid_value", coupling, detail)
-    problem = (
-        cls(name, arr) if kind == "local" else cls(name, out["order"], arr)
-    ).shape_problem(n_components)
+    out["coupling"] = arr
+    if kind == "km":
+        with _refused_at(where):
+            vertex = _build_vertex(cls, out)
+    else:
+        vertex = cls(name, arr) if kind == "local" else cls(name, out["order"], arr)
+    problem = vertex.shape_problem(n_components)
     if problem:
         raise ConfigError("invalid_value", coupling, f"{label}: {problem}")
-    out["coupling"] = arr
     return out
 
 
@@ -2794,14 +2913,20 @@ def build_system(cfg: SystemConfig):
         _build_vertex(sp.NonLocalVertex, v) for v in cfg.nonlocal_vertices
     ]
 
-    return System(
+    system = System(
         field=sp.FieldSpec(cfg.field_name, n_components=cfg.n_components),
         linear=linear,
         noise=noise,
         vertices=tuple(vertices),
         nonlocal_vertices=tuple(nonlocal_vertices),
         t_min=cfg.t_min,
+        initial_state=cfg.initial_state,
+        km_vertices=tuple(_build_vertex(KramersMoyalVertex, v) for v in cfg.km_vertices),
     )
+    if cfg.embedding is None:
+        return system
+    with _refused_at("system.embedding"):
+        return embed_system(system, _build_embedding(cfg.embedding))
 
 
 #: Kernel blocks of each separable κ² type, and the axis each is built on.
@@ -2819,7 +2944,9 @@ _SIGMA2_KEYS = {
         "type",
         "g0",
         "g1",
+        "g2",
         "interpretation",
+        "alpha",
         "vertex_names",
         "drift_names",
     ),
@@ -2960,9 +3087,17 @@ def _build_sigma2(sig_d: Any, base_dir: Path | None, n_components: int | None):
                 f"type 'multiplicative' requires {missing}: g0 as an N x M "
                 f"nested list, g1 as N x M x N",
             )
-        for key in ("g0", "g1"):
+        tensors = {}
+        for key in ("g0", "g1", "g2"):
+            if key == "g2" and sig_d.get(key) is None:
+                continue
             _refuse_oversized_tensor(sig_d[key], f"{where}.{key}")
             _refuse_boolean_entry(sig_d[key], f"{where}.{key}")
+            with _refused_at(f"{where}.{key}"):
+                tensors[key] = np.asarray(sig_d[key], dtype=float)
+        alpha = sig_d.get("alpha")
+        if alpha is not None:
+            alpha = _number(alpha, f"{where}.alpha")
         with _refused_at(where):
             names = {
                 k: tuple(sig_d[k])
@@ -2970,9 +3105,9 @@ def _build_sigma2(sig_d: Any, base_dir: Path | None, n_components: int | None):
                 if k in sig_d
             }
             return sp.MultiplicativeImpulse(
-                g0=np.asarray(sig_d["g0"], dtype=float),
-                g1=np.asarray(sig_d["g1"], dtype=float),
+                **tensors,
                 interpretation=text_of(sig_d.get("interpretation", "ito")),
+                alpha=alpha,
                 **names,
             )
     raise ConfigError(
@@ -3258,7 +3393,7 @@ def check_before_run(cfg: WorkflowConfig, system=None):
             None,
             cfg.sweep.component_tuples,
             tuple(cfg.expand.observable),
-            system.n_components,
+            system._observable_components,
             "sweep.component_tuples",
         )
     with _refused_at("sweep.positions_grid"):

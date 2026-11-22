@@ -16,10 +16,11 @@ obeys
 * the Gaussian part has a covariance rate ``S(X)`` that is itself a
   polynomial in ``X`` (constant for additive noise, ``(g_0 + g_1 X)^2`` for
   multiplicative noise under the Itô convention);
-* ``J`` is a compensated compound-Poisson process: events at rate ``ν``
-  carry a random jump vector, and the caller supplies its rate-weighted
-  moments ``M_γ = ν E[J^γ]`` for multi-indices ``|γ| ≥ 2``.  Compensation
-  removes the ``|γ| = 1`` terms, so the jumps have zero mean.
+* ``J`` is a compensated jump process with polynomial event rate ``ν(X)``.
+  Events carry a random jump vector, and the caller supplies the
+  rate-weighted mark moments ``M_γ(X) = ν(X) E[J^γ]`` for multi-indices
+  ``|γ| ≥ 2``. Compensation removes ``|γ| = 1``, so the jump increment has
+  zero conditional mean.
 
 For a monomial ``X^α`` the generator is
 
@@ -27,7 +28,7 @@ For a monomial ``X^α`` the generator is
 
     L X^α = Σ_i α_i f_i(X) X^{α−e_i}
           + ½ Σ_{ij} S_{ij}(X) ∂_i ∂_j X^α
-          + Σ_{γ ≤ α,\,|γ| ≥ 2} \binom{α}{γ} M_γ X^{α−γ},
+          + Σ_{γ ≤ α,\,|γ| ≥ 2} \binom{α}{γ} M_γ(X) X^{α−γ},
 
 so the moments ``m_α(t) = E[X^α]`` obey linear ODEs, ``ṁ_α = Σ_β
 L_{αβ} m_β``.  They do not close: a quadratic drift raises the degree.  Each
@@ -46,12 +47,17 @@ needs (every term either keeps the tag and does not raise the degree, or
 lowers the tag).  :func:`solve` collects that system by breadth-first search
 from the targets and integrates it exactly with
 ``scipy.sparse.linalg.expm_multiply``.
+
+For checks of a formal Kramers–Moyal generator, individual polynomial
+coefficients can also be added directly. Here the coefficient ``D_γ(X)``
+multiplies ``∂^γ / ∏_i γ_i!``. Arbitrary finite collections of such terms
+need not describe a positive process.
 """
 from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass, field
-from math import comb
+from math import comb, isfinite, prod
 from typing import Callable, Iterable, Mapping, Sequence
 
 import numpy as np
@@ -90,6 +96,15 @@ def _tag_sub(a: Tag, b: Tag) -> Tag | None:
     return out if min(out, default=0) >= 0 else None
 
 
+def _exponents(values: Sequence[int], size: int, label: str) -> tuple[int, ...]:
+    if len(values) != size or any(
+        not isinstance(v, (int, np.integer)) or isinstance(v, (bool, np.bool_))
+        or v < 0 for v in values
+    ):
+        raise ValueError(f"{label} must have {size} non-negative integer entries")
+    return tuple(int(v) for v in values)
+
+
 @dataclass
 class PolySDE:
     """A polynomial Itô SDE with jumps, in terms of its generator.
@@ -100,9 +115,15 @@ class PolySDE:
         drift: terms ``(i, c, p, tag)``: ``f_i(X) ⊃ c X^p``.
         diffusion: terms ``(i, j, c, p, tag)``: ``S_ij(X) ⊃ c X^p``.  Give
             both ``(i, j)`` and ``(j, i)`` for an off-diagonal entry.
-        jump_moment: ``γ ↦ M_γ = ν E[J^γ]`` for ``|γ| ≥ 2``, or ``None``.
+        jump_moment: ``γ ↦ ν E[J^γ]`` for ``|γ| ≥ 2``, or ``None``. With
+            ``jump_rate`` given, pass ``E[J^γ]`` to use the supplied rate.
         max_jump_order: largest ``|γ|`` kept.
         jump_tag: ``|γ| ↦ tag`` of that jump term.
+        jump_rate: optional polynomial multiplier for every jump moment,
+            as ``(coefficient, monomial)`` terms. The default leaves the
+            jump moments independent of the state.
+            The caller is responsible for a non-negative rate and for
+            retaining every jump order reached by the target moments.
     """
 
     D: int
@@ -112,9 +133,16 @@ class PolySDE:
     jump_moment: Callable[[Monomial], float] | None = None
     max_jump_order: int = 0
     jump_tag: Callable[[int], Tag] | None = None
+    jump_rate: Sequence[tuple[float, Monomial]] | None = None
+    _km_terms: list[tuple[Monomial, float, Monomial, Tag]] = field(
+        default_factory=list, repr=False, kw_only=True,
+    )
 
     def __post_init__(self) -> None:
         self._jump_cache: dict[Monomial, float] = {}
+        terms, self._km_terms = self._km_terms, []
+        for term in terms:
+            self.add_kramers_moyal(*term)
 
     def zero_tag(self) -> Tag:
         return (0,) * self.n_tags
@@ -147,6 +175,29 @@ class PolySDE:
             self.diffusion.append((int(i), int(j), float(S[i, j]),
                                    (0,) * self.D, tag))
 
+    def add_kramers_moyal(self, gamma: Monomial, coefficient: float,
+                        monomial: Monomial, tag: Tag) -> None:
+        """Add ``coefficient * X^monomial`` to the raw KM coefficient ``D_γ``.
+
+        The generator applies ``D_γ(X) ∂^γ / ∏_i γ_i!`` once for each
+        multi-index ``γ``. For a symmetric tensor of order ``n``, enter its
+        coefficient at one component tuple per multi-index, since the
+        ``n! / ∏_i γ_i!`` equivalent ordered tuples are already counted.
+        """
+        gamma = _exponents(gamma, self.D, "KM derivative")
+        monomial = _exponents(monomial, self.D, "KM monomial")
+        tag = _exponents(tag, self.n_tags, "KM tag")
+        coefficient = float(coefficient)
+        if not sum(gamma):
+            raise ValueError("a KM derivative must have positive order")
+        if not isfinite(coefficient):
+            raise ValueError("a KM coefficient must be finite")
+        if coefficient == 0.0:
+            return
+        if sum(monomial) > sum(gamma) and not any(tag):
+            raise ValueError("a degree-raising KM term requires a nonzero tag")
+        self._km_terms.append((gamma, coefficient, monomial, tag))
+
     # -- the generator ----------------------------------------------------
 
     def _jump(self, gamma: Monomial) -> float:
@@ -174,7 +225,16 @@ class PolySDE:
                 continue
             beta = _add(_sub(alpha, unit(D, i, j)), p)
             out.append((beta, 0.5 * c * k, tag))
+        for gamma, c, p, tag in self._km_terms:
+            remaining = _sub(alpha, gamma)
+            if remaining is not None:
+                multiplicity = prod(comb(a, g) for a, g in zip(alpha, gamma))
+                out.append((_add(remaining, p), c * multiplicity, tag))
         if self.jump_moment is not None and self.max_jump_order >= 2:
+            rate = None if self.jump_rate is None else tuple(
+                (float(c), _exponents(p, D, "jump rate monomial"))
+                for c, p in self.jump_rate
+            )
             ranges = [range(a + 1) for a in alpha]
             for gamma in itertools.product(*ranges):
                 order = sum(gamma)
@@ -183,11 +243,23 @@ class PolySDE:
                 coeff = 1.0
                 for a, g in zip(alpha, gamma):
                     coeff *= comb(a, g)
-                m = self._jump(tuple(gamma))
+                m = self._jump(gamma)
                 if m == 0.0:
                     continue
-                out.append((_sub(alpha, tuple(gamma)), coeff * m,
-                            self.jump_tag(order)))
+                beta = tuple(a - g for a, g in zip(alpha, gamma))
+                tag = self.jump_tag(order)
+                if rate is None:
+                    out.append((beta, coeff * m, tag))
+                    continue
+                tag = _exponents(tag, self.n_tags, "jump tag")
+                for c, p in rate:
+                    if not isfinite(c):
+                        raise ValueError("a jump rate coefficient must be finite")
+                    if c == 0.0:
+                        continue
+                    if sum(p) > order and not any(tag):
+                        raise ValueError("a degree-raising jump term requires a nonzero tag")
+                    out.append((_add(beta, p), coeff * m * c, tag))
         return out
 
 
