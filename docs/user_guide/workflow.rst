@@ -943,6 +943,7 @@ prints the same keys as a JSON Schema; see `Checking a config`_.
        #   coupling_vectorized: false    # set true if attr is the batched contract
        #   equal_time: false             # one shared time for the m legs
        #   already_R_contracted: false   # the callable returns κ^(m)_R
+       #   leg_symmetry: none            # 'none' | 'declared' | 'symmetrize'
 
      t_min: 0.0                          # lower bound for time integration domain
 
@@ -953,6 +954,7 @@ prints the same keys as a JSON Schema; see `Checking a config`_.
      observable: ["phi_a(x)", "phi_b(y)"]   # required: a list of operators
      orders:     [0, 2]                     # required: a list, or one integer
      target:            moment   # 'moment' | 'connected' (connected_targets.rst)
+     routing:           enumerate  # 'enumerate' | 'multiplicity'
      response_phase:    true     # show (-i)^n_response in symbolic output (MSR)
      collect_topology:  true     # spatial-level Wick contraction (faster, default)
      diag_R:            true     # diagonal-R simplification; raises if R has off-diagonal entries

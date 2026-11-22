@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added: opt-in multiplicity routing
+
+Set `routing="multiplicity"` on the expansion APIs or `expand.routing`
+in workflow YAML. Local leg averages and integer orbit weights give one
+numeric term per typed topology class. The default `enumerate` route
+remains available for comparison. Explicit non-local leg symmetry is
+controlled by `leg_symmetry`.
+
 ### Added: exact expansion counts in `run --dry-run`
 
 The dry run prints valid Wick pairings, multinomial-weighted pairings and

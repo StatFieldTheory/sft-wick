@@ -16,7 +16,7 @@ from . import perturbation as _perturbation
 from . import wick as _wick
 
 
-def _preflight_counts(observable, action, orders, target):
+def _preflight_counts(observable, action, orders, target, *, routing="enumerate"):
     """Count each requested order for a validated workflow observable.
 
     Each positive-order label belongs to one owner, so connectedness is
@@ -27,6 +27,7 @@ def _preflight_counts(observable, action, orders, target):
     from ._canonical import BUILTIN_METHOD, BuiltinKeyer, SequenceLayout
     from ._certificate import OrderCount, SequenceCount, counter_inputs
     from ._certify import count_valid_pairings
+    from ._multiplicity import weighted_topologies
 
     for n in orders:
         combinations = tuple(action.all_vertex_combinations(n))
@@ -40,16 +41,21 @@ def _preflight_counts(observable, action, orders, target):
             ):
                 if not pairings[seq.index]:
                     continue
-                topologies = _wick.wick_contract_spatial(seq.operators)
                 incidence = seq.incidence
                 assert incidence is None or incidence.disjoint_labels
                 layout = SequenceLayout.from_sequence(seq, observable)
                 keyer = BuiltinKeyer(layout, BUILTIN_METHOD)
-                classes[seq.index] = len({
-                    keyer.key(props) for props, pairing in topologies.values()
-                    if incidence is None or incidence.is_connected(pairing)
-                })
-                del topologies
+                if routing == "multiplicity":
+                    classes[seq.index] = sum(1 for _ in weighted_topologies(
+                        seq.operators, layout, keyer, incidence,
+                    ))
+                else:
+                    topologies = _wick.wick_contract_spatial(seq.operators)
+                    classes[seq.index] = len({
+                        keyer.key(props) for props, pairing in topologies.values()
+                        if incidence is None or incidence.is_connected(pairing)
+                    })
+                    del topologies
         rows = tuple(
             SequenceCount(index=i, vertices=tuple(v.coupling for v in vertices),
                           multinomial=weight, counter=pairings[i],

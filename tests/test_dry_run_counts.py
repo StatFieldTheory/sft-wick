@@ -72,3 +72,20 @@ def test_preflight_distinguishes_pairing_totals_and_sequence_multiplicity():
     ]
     assert mixed.pairings == 90
     assert mixed.weighted_pairings == 120
+
+
+def test_multiplicity_dry_run_uses_weighted_topologies(tmp_path, capsys, monkeypatch):
+    doc = yaml.safe_load(QUICKSTART.read_text())
+    doc["expand"].update(orders=[0, 2], routing="multiplicity")
+    doc["sweep"].update(orders=[0, 2], n_samples=128, t_final_grid=[1.0])
+    config = tmp_path / "cubic.yaml"
+    config.write_text(yaml.safe_dump(doc))
+
+    def refuse_enumeration(*args, **kwargs):
+        pytest.fail("multiplicity routing expanded component permutations")
+
+    monkeypatch.setattr(perturbation, "_enumerate_component_routings", refuse_enumeration)
+    assert main(["run", str(config), "--dry-run", "-q"]) == 0
+    assert "order 2: pairings=30, weighted pairings=30, typed classes=6" in (
+        capsys.readouterr().out
+    )

@@ -58,10 +58,11 @@ _COMPARED = {
     "compute_moment/operator": (("term_weight", "diagram_infos"),
                                 ("diagram_infos",)),
     "compute_moment_numerical": (("term_weight",), ("term_weight",)),
+    "multiplicity": (("term_weight",), ("term_weight",)),
     "routings": (("routings",), ("routings",)),
 }
 #: The paths that fill the class fields above order 0.
-_CLASS_PATHS = ("compute_moment", "compute_moment_numerical", "routings")
+_CLASS_PATHS = ("compute_moment", "compute_moment_numerical", "multiplicity", "routings")
 
 _INDEPENDENCE = (
     "The counter (sft_wick._certify) shares no code with the contraction "
@@ -364,21 +365,23 @@ class OrderTally:
         number of distinct ones."""
         self._r_classes[index] = (yielded, distinct)
 
-    def add_topology(self, index: int, layout: Any, key: Any, props: Any) -> None:
-        """One labelled topology of ``index`` with a kept routing, and its
-        canonical key.  The first member of a class is its representative:
+    def add_topology(
+        self, index: int, layout: Any, key: Any, props: Any, *, count: int = 1,
+    ) -> None:
+        """Record a labelled topology or its weighted orbit, and its
+        canonical key. The first member of a class is its representative:
         its point automorphism order (or the message of the RuntimeError
         that refused it) is kept, and the layout and propagators are not."""
-        self._topologies[index] += 1
+        self._topologies[index] += count
         members = self._classes[index].get(key)
         if members is not None:
-            members[0] += 1
+            members[0] += count
             return
         try:
             aut: int | str = layout.point_automorphism_order(props)
         except RuntimeError as exc:
             aut = str(exc)
-        self._classes[index][key] = [1, aut]
+        self._classes[index][key] = [count, aut]
 
     def skip_classes(self, index: int, reason: str) -> None:
         """Leave the class fields of ``index`` empty, with the reason."""

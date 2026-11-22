@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from functools import cached_property
+from itertools import permutations, product
 from math import factorial, prod
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -1597,6 +1598,15 @@ def check_literal_component_labels(observable) -> None:
         )
 
 
+ROUTING_MODES = ("enumerate", "multiplicity")
+_MAX_SYMBOL_PERMUTATIONS = factorial(7)
+
+
+def validate_routing(routing: str) -> None:
+    if not isinstance(routing, str) or routing not in ROUTING_MODES:
+        raise ValueError("routing must be 'enumerate' or 'multiplicity'")
+
+
 def compute_moment(
     observable: list[FieldOperator],
     action: Action,
@@ -1610,6 +1620,7 @@ def compute_moment(
     iso_C: bool = False,
     target: str = "moment",
     certify: bool = False,
+    routing: str = "enumerate",
 ) -> PerturbativeResult:
     r"""Compute the perturbative expansion of an observable.
 
@@ -1681,10 +1692,16 @@ def compute_moment(
             insertions it is the joint cumulant. Generic raw actions need not
             have partition function one. This does not group composite
             observables or prove convergence/realizability of a probability law.
+        routing: ``'enumerate'`` (default) expands each component routing.
+            ``'multiplicity'`` averages same-role legs at local vertices and
+            uses one weighted representative per typed topology class.
+            At interacting orders, requires ``collect_topology=True``.
+            Diagram records in this mode describe weighted representatives.
         certify: If ``True``, compare for every vertex sequence of every
             order the number of operator pairings the output stands for
-            (the summed weight of its :class:`DiagramTerm` records and the
-            number of its :class:`DiagramInfo` records) with
+            (the summed weight of its :class:`DiagramTerm` records and, on
+            the enumeration path, the number of its :class:`DiagramInfo`
+            records) with
             :func:`sft_wick._certify.count_valid_pairings`, which imports
             nothing from the package; check that
             :func:`~sft_wick.wick.r_classes` yields each R class once, that
@@ -1722,6 +1739,22 @@ def compute_moment(
     check_distinct_external_labels(observable, order)
     check_literal_component_labels(observable)
     certify = require_bool(certify, "certify", "compute_moment")
+    validate_routing(routing)
+    if routing == "multiplicity":
+        if order > 0 and not collect_topology:
+            raise ValueError("routing='multiplicity' requires collect_topology=True")
+        terms, diagrams, certificate = _multiplicity_expansion(
+            observable, action, order, target, "auto", certify,
+            (diag_R, diag_C, iso_R, iso_C), response_phase, keep_diagrams=True,
+        )
+        expressions = {
+            n: _expression_sum(_diagram_expression(dt) for dt in terms[n])
+            for n in terms
+        }
+        return PerturbativeResult(
+            expressions, _expression_sum(expressions.values()), diagrams, terms,
+            target=target, certificate=certificate,
+        )
     run = None
     if certify:
         run = _moment_certificate_run(
@@ -2091,15 +2124,26 @@ def _diagram_terms(
     coupling: Expr,
     n_external_response: int,
     response_phase: bool = True,
+    *,
+    aligned_instances: bool = False,
 ) -> list[DiagramTerm]:
     """The terms of one diagram of ``seq``, one per leg structure of
     ``coupling`` (:func:`_split_by_instance_structure`)."""
     n_response = count_r(props)
-    structures = (
-        _split_by_instance_structure(props, coupling, seq.instances)
-        if seq.has_leg_structure
-        else ((coupling, (), ()),)
-    )
+    if seq.has_leg_structure and aligned_instances:
+        absorbed = {
+            label for vi in seq.instances if vi.vertex.already_R_contracted
+            for label in vi.spatial_variables
+        }
+        pairs, leg_aliases = _collect_r_absorbed_pairs(props, absorbed)
+        aliases = tuple(sorted(set(leg_aliases).union(
+            alias for vi in seq.instances for alias in vi.equal_time_aliases
+        )))
+        structures = ((coupling, aliases, pairs),)
+    elif seq.has_leg_structure:
+        structures = _split_by_instance_structure(props, coupling, seq.instances)
+    else:
+        structures = ((coupling, (), ()),)
     return [
         _pin_absorbed_leg_indices(
             DiagramTerm(
@@ -2117,6 +2161,146 @@ def _diagram_terms(
         )
         for sub_coupling, aliases, absorbed in structures
     ]
+
+
+def _expression_sum(terms: Iterable[Expr]) -> Expr:
+    items = tuple(term for term in terms if not _is_zero(term))
+    if not items:
+        return ZERO
+    return items[0] if len(items) == 1 else Sum(items)
+
+
+def _diagram_expression(term: DiagramTerm) -> Expr:
+    expr = Product((term.rational_prefactor, term.coupling_sum, *term.propagators))
+    if term.response_phase:
+        expr = apply_response_phase(expr)
+    for point in reversed(term.integration_vars):
+        expr = IntegralOver(point, expr)
+    for index, dimension in reversed(term.summation_indices):
+        expr = SumOverIndex(index, dimension, expr)
+    return expr
+
+
+def _symmetrized_symbol(instance: VertexInstance) -> Expr:
+    """Average the bare coupling over independent phi and psi permutations."""
+    vertex = instance.vertex
+    symbol = instance.coupling_symbol
+    if not vertex.local and vertex.leg_symmetry != "symmetrize":
+        return symbol
+    operators = instance.field_operators
+    role_groups = [
+        tuple(i for i, op in enumerate(operators) if op.field.is_physical == physical)
+        for physical in (True, False)
+    ]
+    groups = []
+    for positions in role_groups:
+        if len(positions) < 2:
+            continue
+        if len({operators[i].field.n_components for i in positions}) != 1:
+            raise ValueError("symmetric legs of one field role must have the same dimension")
+        if not vertex.local or not operators[positions[0]].field.is_scalar:
+            groups.append(positions)
+    if not groups:
+        return symbol
+    count = prod(factorial(len(positions)) for positions in groups)
+    if count > _MAX_SYMBOL_PERMUTATIONS:
+        raise ValueError(
+            f"routing='multiplicity' needs {count} permutations of {vertex.coupling!r}; "
+            f"the explicit coupling average supports at most {_MAX_SYMBOL_PERMUTATIONS}. "
+            "Use routing='enumerate'."
+        )
+
+    variants = []
+    for choices in product(*(permutations(positions) for positions in groups)):
+        assignment = list(range(len(operators)))
+        for positions, permutation in zip(groups, choices, strict=True):
+            for old, new in zip(positions, permutation, strict=True):
+                assignment[old] = new
+        routed = [operators[i] for i in assignment]
+        variants.append(Symbol(
+            symbol.name,
+            tuple(op.component_index for op in routed if op.component_index is not None),
+            symbol.spatial_args if vertex.local else tuple(op.spatial_arg for op in routed),
+            local=vertex.local,
+        ))
+    return Product((Rational(1, count), Sum(tuple(variants))))
+
+
+def _multiplicity_expansion(
+    observable, action, order, target, canonical, certify, flags,
+    response_phase=True, *, keep_diagrams=False,
+):
+    """Construct one weighted term per typed orbit without component routing."""
+    from ._canonical import SequenceLayout, make_keyer, resolve_canonical_method
+    from ._multiplicity import weighted_topologies
+
+    method = resolve_canonical_method(canonical, stacklevel=4)
+    run = None
+    if certify:
+        _refuse_empty_observable(observable)
+        from ._certificate import CertificateRun
+
+        run = CertificateRun("multiplicity", observable, action, target,
+                             canonical=method.label, value_flags=flags)
+    diag_R, diag_C, iso_R, iso_C = flags
+    n_external = sum(op.field.is_response for op in observable)
+    result = {}
+    diagrams = {}
+    for n in range(order + 1):
+        tally = None if run is None else run.begin_order(n)
+        terms = []
+        infos = []
+        spans = []
+        if n == 0:
+            _, pairings, terms = _order_zero(observable, target, n_external, response_phase)
+            if keep_diagrams:
+                infos.extend(DiagramInfo(observable, [], p, Rational(1), 0) for p in pairings)
+            if tally is not None:
+                _tally_order_zero(tally, observable, target)
+                spans.append((0, 0, len(terms), Rational(1), ()))
+        for seq in _vertex_sequences(
+            observable, action, n, target,
+            combinations=None if tally is None else tally.combinations,
+        ):
+            start = len(terms)
+            layout = SequenceLayout.from_sequence(seq, observable)
+            keyer = make_keyer(layout, method)
+            coupling = None
+            if tally is not None:
+                tally.add_r_classes(seq.index, *_r_class_census(seq.operators))
+            for props, pairing, routes, copies in weighted_topologies(
+                seq.operators, layout, keyer, seq.incidence,
+            ):
+                if coupling is None:
+                    coupling = Product(tuple(_symmetrized_symbol(vi) for vi in seq.instances))
+                coefficient = Rational(seq.prefactor.numerator * routes * copies,
+                                       seq.prefactor.denominator)
+                dt, = _diagram_terms(seq, tuple(props), coupling, n_external,
+                                     response_phase, aligned_instances=True)
+                terms.append(replace(dt, rational_prefactor=coefficient))
+                if keep_diagrams:
+                    infos.append(DiagramInfo(observable, seq.instances, pairing, coefficient, n))
+                if tally is not None:
+                    tally.add_topology(seq.index, layout, keyer.key(props), props, count=copies)
+            if tally is not None:
+                spans.append((seq.index, start, len(terms), seq.prefactor, seq.instances))
+        if any(flags):
+            terms = [dt.apply_diagonal(diag_R=diag_R, diag_C=diag_C, iso_R=iso_R, iso_C=iso_C)
+                     for dt in terms]
+        if tally is not None:
+            for index, a, b, prefactor, _ in spans:
+                tally.add_terms(index, map(terms.__getitem__, range(a, b)), prefactor)
+            run.end_order(tally, terms, ((i, a, b, vi) for i, a, b, _, vi in spans))
+        result[n] = terms
+        if keep_diagrams:
+            diagrams[n] = infos
+    if run is None:
+        return result, diagrams, None
+    certificate, error = run.outcome()
+    if error is not None:
+        result = diagrams = terms = infos = None
+        raise error
+    return result, diagrams, certificate
 
 
 def _wick_contract_target(operators, incidence):
@@ -2965,6 +3149,7 @@ def compute_moment_numerical(
     target: str = "moment",
     canonical: str = "auto",
     certify: bool = False,
+    routing: str = "enumerate",
 ) -> dict[int, list[DiagramTerm]]:
     r"""Compute diagram terms, grouping topologies by a canonical key.
 
@@ -3009,12 +3194,17 @@ def compute_moment_numerical(
             ``RuntimeWarning`` under ``'auto'`` and the built-in method.
             The method is chosen once per call; workers under ``n_jobs``
             use it as well.
+        routing: ``'enumerate'`` (default) or ``'multiplicity'``.
+            Multiplicity uses the leg averages and weighted representatives
+            of :func:`compute_moment`` and runs serially.
         certify: If ``True``, check the counts and values of the output as
             :func:`compute_moment` does: the summed term weight of every
             vertex sequence against the standalone counter, the R classes,
             and the size of every class of the canonical grouping. Value
-            checks use synthetic matrices keyed by both role and individual
-            point, for sequences of at most 14 operators. The
+            checks use synthetic matrices keyed by role and, on the
+            enumeration path, individual point, for sequences of at most
+            14 operators. The point-dependent fixture is not invariant
+            under the dummy-point relabellings of multiplicity routing. The
             certificates of the two key methods compare equal; their
             uncompared field ``canonical`` names the method and, for
             pynauty, its build.
@@ -3050,6 +3240,18 @@ def compute_moment_numerical(
     check_distinct_external_labels(observable, order)
     check_literal_component_labels(observable)
     certify = require_bool(certify, "certify", "compute_moment_numerical")
+    validate_routing(routing)
+    if routing == "multiplicity":
+        terms, _, certificate = _multiplicity_expansion(
+            observable, action, order, target, canonical, certify,
+            (diag_R, diag_C, iso_R, iso_C),
+        )
+        result = {n: diagrams for n, diagrams in terms.items() if diagrams}
+        if certificate is None:
+            return result
+        from ._certificate import CertifiedTerms
+
+        return CertifiedTerms(result, certificate=certificate)
     if certify:
         _refuse_empty_observable(observable)
     from ._canonical import (

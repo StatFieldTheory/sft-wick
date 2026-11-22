@@ -29,6 +29,7 @@ import numpy as np
 from .._util import require_bool
 from ..evaluate import _departs_relative, _separation, _table_slack
 from ..expressions import i_power
+from ..vertices import validate_leg_symmetry
 
 from ._messages import shown
 
@@ -1365,6 +1366,11 @@ class NonLocalVertex:
             when the user callable can amortise its cost across
             samples (numpy ufuncs, special functions, etc.); for
             cheap callables the per-sample form has lower overhead.
+        leg_symmetry: Under multiplicity routing, ``'none'`` keeps the
+            given leg order, ``'declared'`` asserts symmetry, and
+            ``'symmetrize'`` explicitly averages joint permutations of
+            coordinates and component axes. Enumeration uses the coupling
+            as supplied.
 
     Notes:
         The MSR factor values:
@@ -1420,6 +1426,7 @@ class NonLocalVertex:
     # ``ℓ_max → ∞``). See
     # ``docs/notes/R_contracted_nonlocal_vertex.md`` for the design
     # rationale and validation strategy.
+    leg_symmetry: str = "none"
 
     def shape_problem(self, n_components: int) -> str | None:
         """Why a tensor coupling does not suit ``n_components``, or ``None``:
@@ -1438,6 +1445,7 @@ class NonLocalVertex:
 
     def __post_init__(self) -> None:
         where = f"NonLocalVertex(name={shown(self.name)})"
+        validate_leg_symmetry(self.leg_symmetry)
         if (
             isinstance(self.order, (bool, np.bool_))
             or not isinstance(self.order, (int, np.integer))
