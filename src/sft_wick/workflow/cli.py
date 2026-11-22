@@ -506,11 +506,11 @@ def _print_summary(cfg) -> None:
         f"n_jobs={p.n_jobs}, {c_src}"
     )
     sw = cfg.sweep
-    method_detail = (
-        f"n_gauss={sw.n_gauss}"
-        if sw.method == "gauss_legendre"
-        else f"n_samples={sw.n_samples}, seed={sw.seed}"
-    )
+    method_detail = ""
+    if sw.method.startswith("qmc"):
+        method_detail = f", n_samples={sw.n_samples}, seed={sw.seed}"
+    elif sw.method == "gauss_legendre":
+        method_detail = f", n_gauss={sw.n_gauss}"
     if sw.method == "gauss_legendre":
         gl_bound = "eager" if sw.gl_chunk_size is None else sw.gl_chunk_size
         method_detail += f", gl_chunk_size={gl_bound}"
@@ -526,7 +526,7 @@ def _print_summary(cfg) -> None:
         )
         + f"component_tuples={sw.component_tuples}, "
         f"integrate_over={sw.integrate_over!r}, "
-        f"method={sw.method!r}, {method_detail}"
+        f"method={sw.method!r}{method_detail}"
     )
     for o in cfg.output:
         print(f"[sft-wick] output: type={o.type}, path={o.path}")

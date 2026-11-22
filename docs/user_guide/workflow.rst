@@ -1041,7 +1041,7 @@ prints the same keys as a JSON Schema; see `Checking a config`_.
                                        # use raises when the file is loaded
 
      method:           qmc_vectorized  # 'qmc_vectorized' | 'qmc' | 'qmc_scalar'
-                                       # | 'gauss_legendre' | 'nquad'
+                                       # | 'gauss_legendre' | 'nquad' | 'exact'
      n_samples:        8192            # Sobol samples (QMC paths only)
      qmc_replicas:     null            # optional independent scrambles
      qmc_heavy_tail:   false           # optional weight-concentration check
@@ -1563,7 +1563,7 @@ Section reference: ``sweep``
    * - ``method``
      - ``str``
      - ``"qmc_vectorized"``
-     - ``"qmc_vectorized"`` / ``"qmc"`` / ``"qmc_scalar"`` / ``"gauss_legendre"`` / ``"nquad"``. See :ref:`integrator-choice` below
+     - ``"qmc_vectorized"`` / ``"qmc"`` / ``"qmc_scalar"`` / ``"gauss_legendre"`` / ``"nquad"`` / ``"exact"``. See :ref:`integrator-choice` below
    * - ``n_samples``
      - ``int``
      - ``8192``
@@ -1957,6 +1957,18 @@ Two layers in the pipeline run numerical quadrature:
 For the integrator the choice is a trade-off: ``nquad`` adapts,
 ``gauss_legendre`` is faster on a smooth integrand.  For C ``auto`` checks
 the rule it takes, which ``dblquad`` does not.
+
+Choose ``sweep.method: exact`` for static couplings with constant diagonal
+drift, native exponential-temporal covariance and optional constant white
+noise. Use direct built-in C lookup (``c_closed_form: auto`` or ``ou_cse``,
+with ``c_closed_form_only: true``). This method integrates exponential
+polynomials on the causal time regions. Use ``sweep.reuse_integrands: true``
+to share static coupling preparation across the grid. The reported
+quadrature error is zero because there is no quadrature rule. Arithmetic still rounds. In
+Python, ``t_final=float("inf")`` gives the equal-time stationary limit
+when all drift decay rates are positive and all external times are fixed
+at the final time.
+
 
 .. tip::
 

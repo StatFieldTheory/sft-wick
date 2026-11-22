@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **9317 tests** in 164 files (parametrised
+The suite has **9337 tests** in 165 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -395,7 +395,7 @@ Propagator numerics
 Integrators
 -----------
 
-*2881 tests in 67 files.*
+*2901 tests in 68 files.*
 
 .. list-table::
    :header-rows: 1
@@ -611,6 +611,13 @@ Integrators
      - exact
      - 5
      - 1
+   * - ``test_exact_ou_integrator.py``
+     - ordered exponential integrals, finite-start cancellation in the OU mean, the stationary scalar mean, and covariance eligibility
+     - analytic ordered exponentials and the stationary OU mean; GL with direct covariance
+     - exact analytic
+     - 1e-13 relative; explicit refusal
+     - 20
+     - 0
    * - ``test_factorized_coupling.py``
      - original static monomial snapshots, lazy true ndarray materialization, sign-agreeing and long sums, sums with opposite signs declined, underflow ranges, runtime layouts and refusals, budget failures, pickle boundaries
      - ordered DiagramTerm component evaluation; Fraction sum over monomials
@@ -1404,7 +1411,7 @@ Where a file holds checks of several kinds:
    * - Kind
      - Files
    * - exact analytic
-     - 79
+     - 80
    * - independent code
      - 36
    * - simulation

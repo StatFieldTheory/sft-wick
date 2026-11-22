@@ -9479,8 +9479,9 @@ def integrate_moment(
             scalar), ``'qmc_scalar'`` (force scalar loop),
             ``'qmc_vectorized'`` (force vectorised; raises if cache
             doesn't support batch), ``'gauss_legendre'``
-            (tensor-product Gauss-Legendre, deterministic), or
-            ``'nquad'`` (nested adaptive quadrature).
+            (tensor-product Gauss-Legendre), ``'nquad'`` (nested adaptive
+            quadrature), or ``'exact'`` (analytic integration of static
+            couplings with native OU/white covariance and diagonal response).
         n_samples: Number of Sobol samples (QMC only, should be
             a power of 2).
         seed: Random seed for reproducibility (QMC only).
@@ -9567,7 +9568,7 @@ def integrate_moment(
 
 #: The ``method`` values :func:`_integrate_moment_dispatch` accepts; the
 #: YAML parser and the workflow schema read them from here.
-INTEGRATION_METHODS = ("qmc_vectorized", "qmc", "qmc_scalar", "gauss_legendre", "nquad")
+INTEGRATION_METHODS = ("qmc_vectorized", "qmc", "qmc_scalar", "gauss_legendre", "nquad", "exact")
 
 
 def _integrate_moment_dispatch(
@@ -9656,8 +9657,9 @@ def _integrate_moment_dispatch(
             scalar), ``'qmc_scalar'`` (force scalar loop),
             ``'qmc_vectorized'`` (force vectorised; raises if cache
             doesn't support batch), ``'gauss_legendre'``
-            (tensor-product Gauss-Legendre, deterministic), or
-            ``'nquad'`` (nested adaptive quadrature).
+            (tensor-product Gauss-Legendre), ``'nquad'`` (nested adaptive
+            quadrature), or ``'exact'`` (analytic integration of static
+            couplings with native OU/white covariance and diagonal response).
         n_samples: Number of Sobol samples (QMC only, should be
             a power of 2).
         seed: Random seed for reproducibility (QMC only).
@@ -9736,6 +9738,13 @@ def _integrate_moment_dispatch(
             integrate_over=integrate_over,
             external_times=external_times,
             **qmc_options,
+        )
+    elif method == "exact":
+        from ._exact import integrate_exact
+
+        return integrate_exact(
+            integrand, lambda_f, cache, t_min, direction, positions,
+            integrate_over, external_times,
         )
     elif method == "nquad":
         return integrand.integrate_moment_nquad(

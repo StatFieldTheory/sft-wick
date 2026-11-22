@@ -525,6 +525,20 @@ def _check_output_path(path: Any, where: str, directory: bool = False) -> None:
         raise ConfigError("invalid_value", where, f"{shown(str(path))} is a directory")
 
 
+def _check_exact_couplings(cfg: WorkflowConfig, system) -> None:
+    """Refuse callable couplings in the selected exact channels."""
+    from .system import _parse_observable
+
+    dynamic = {name for name, value in system.build_coupling_values().items() if callable(value)}
+    if not dynamic:
+        return
+    operators, _ = _parse_observable(cfg.expand.observable, system, 0)
+    for seq in _selected_sequences(cfg, operators, system.build_action()):
+        if dynamic.intersection(vi.vertex.coupling for vi in seq.instances):
+            if next(_read_propagators(seq), None) is not None:
+                raise ValueError("method='exact' requires static couplings")
+
+
 def _check_propagators(cfg: WorkflowConfig, system) -> None:
     """What :meth:`System.propagators` refuses before it builds a table,
     with the closed-form C module imported as the run imports it."""
@@ -539,7 +553,7 @@ def _check_propagators(cfg: WorkflowConfig, system) -> None:
     flag = "vectorized" if vectorized and not only else "only"
     with _refused_at(f"propagators.c_closed_form_{flag}"):
         try:
-            _, _, only = _resolve_closed_form_flags(
+            resolved, _, only = _resolve_closed_form_flags(
                 system, c_fn, only, vectorized,
                 full_spatial_grid=_full_table(cfg, system) is not None,
             )
@@ -547,6 +561,12 @@ def _check_propagators(cfg: WorkflowConfig, system) -> None:
             raise ConfigError(
                 "invalid_value", "propagators.c_closed_form", str(exc),
             ) from None
+    if cfg.sweep.method == "exact":
+        from sft_wick._exact import require_exact_covariance
+
+        with _refused_at("sweep.method"):
+            require_exact_covariance(resolved, only)
+            _check_exact_couplings(cfg, system)
     if not only:
         _check_table(cfg, system)
         _check_table_times(cfg, system)

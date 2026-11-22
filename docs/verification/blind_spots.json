@@ -76,8 +76,8 @@
    "demo": "demo2",
    "heavy": false,
    "source": "examples/demo2/INTERPRETATION.md: relative acceptance target 1e-4 of the refined channels, the tightest figure the notes give, applied to these order-0 and order-2 channels; floor on each order's largest value",
-   "inputs_sha256": "c5f1bdfda10371f3f4a0fd7efc829409a7529a789868db71667cb7eeba9761fe",
-   "replayed_head_src_sha256": "23997dec5276efd5236b6bb2251ab36003947b5f5a8d0c2626e873e96226a6af"
+   "inputs_sha256": "6a39b4562f15091cbb9edc5a57e0e642b1eeb7726ddab4b1c88b8b04382678f4",
+   "replayed_head_src_sha256": "a500cdb5586130272cf4716a3b5f4e3962cac44187defdd9bf661d5fe3673ad3"
   },
   {
    "id": "demo2/L2/config_FF.yaml",
@@ -102,8 +102,8 @@
    "demo": "demo2",
    "heavy": false,
    "source": "examples/demo2/INTERPRETATION.md: relative acceptance target 1e-4 of the refined channels, the tightest figure the notes give, applied to these order-0 and order-2 channels; floor on each order's largest value",
-   "inputs_sha256": "0f81d973d30c7dc6b5c76df10d8c12d02e0fb6d5d987b089a73031eacad53591",
-   "replayed_head_src_sha256": "23997dec5276efd5236b6bb2251ab36003947b5f5a8d0c2626e873e96226a6af"
+   "inputs_sha256": "ca8a24cecd15a5dc26814793876faf14d26e668c100ba841b457ab23bcf53594",
+   "replayed_head_src_sha256": "a500cdb5586130272cf4716a3b5f4e3962cac44187defdd9bf661d5fe3673ad3"
   },
   {
    "id": "demo2/L2/config_FK.yaml",
@@ -128,8 +128,8 @@
    "demo": "demo2",
    "heavy": false,
    "source": "examples/demo2/INTERPRETATION.md: relative acceptance target 1e-4 of the refined channels, the tightest figure the notes give, applied to these order-0 and order-2 channels; floor on each order's largest value",
-   "inputs_sha256": "0f81d973d30c7dc6b5c76df10d8c12d02e0fb6d5d987b089a73031eacad53591",
-   "replayed_head_src_sha256": "23997dec5276efd5236b6bb2251ab36003947b5f5a8d0c2626e873e96226a6af"
+   "inputs_sha256": "ca8a24cecd15a5dc26814793876faf14d26e668c100ba841b457ab23bcf53594",
+   "replayed_head_src_sha256": "a500cdb5586130272cf4716a3b5f4e3962cac44187defdd9bf661d5fe3673ad3"
   },
   {
    "id": "demo3/config_FK.yaml",
