@@ -116,12 +116,60 @@ def test_separability_shortcut_is_off_with_white_noise_or_user_c():
 
 def test_builtin_closed_form_cache_uses_the_shortcut_too():
     system = _demo1_like()
-    props = system.propagators(t_max=4.0, n_grid_t=10)
+    props = system.propagators(
+        t_max=4.0, n_grid_t=10, c_closed_form_only=False, table_rtol=None,
+    )
     lazy = props.cache._lazy_translation
     t = np.array([1.0, 2.0, 4.0])
     for r in (0.0, 0.7, 1.9):
         props.cache.C_at_batch(t, t, np.zeros(3), np.full(3, r))
     assert lazy.n_grid_builds == 1
+
+
+def test_ou_cse_opt_in_uses_fixed_rates_and_has_its_own_cache_key(tmp_path):
+    from sft_wick.workflow._propagator_identity import native_closed_form_identity
+
+    system = _demo1_like(sigma_t=0.3, gamma=(0.8, 1.9))
+    cache_path = tmp_path / "c.joblib"
+    default = system.propagators(t_max=2.0, cache_path=cache_path)
+    optimized = system.propagators(
+        t_max=2.0, c_closed_form="ou_cse", cache_path=cache_path,
+    )
+    assert optimized.c_source == default.c_source == "closed_form:builtin"
+    assert optimized.cache.c_value_fn.ou_cse
+    assert not default.cache.c_value_fn.ou_cse
+    optimized_key = native_closed_form_identity(optimized.cache.c_value_fn)
+    default_key = native_closed_form_identity(default.cache.c_value_fn)
+    assert optimized_key is not None and default_key is not None
+    assert optimized_key != default_key
+    first = np.array([0.0, 1e-13, 0.3, 1.0, 1.0])
+    second = np.array([0.4, 0.8, 0.2, 1.0, 2.0])
+    args = (first, second, np.zeros(5), np.full(5, 0.7))
+    result = optimized.cache.C_at_batch(*args)
+    np.testing.assert_allclose(result, default.cache.C_at_batch(*args), atol=0, rtol=1e-13)
+    restored = system.propagators(t_max=2.0, cache_path=cache_path)
+    assert not restored.cache.c_value_fn.ou_cse
+    np.testing.assert_array_equal(restored.cache.C_at_batch(*args), default.cache.C_at_batch(*args))
+
+
+def test_ou_cse_requires_a_supported_ou_exponential_kernel():
+    system = _demo1_like(temporal="gaussian")
+    with pytest.raises(ValueError, match="'ou_cse' requires .*exponential"):
+        system.propagators(t_max=2.0, c_closed_form="ou_cse")
+
+
+def test_ou_cse_retains_representable_values_at_extreme_time_ratios():
+    from sft_wick.workflow.closed_forms import _ou_exponential_phi_cse, ou_exponential_phi
+
+    # The short rate-time product underflows, while its integral and the
+    # area of the full rectangle are both representable.
+    normal_inputs = (1e-120, 1e-120, 1e-220, 1e100)
+    subnormal_time = (1e-8, 1e-8, 1e-315, 1e6)
+    for args in (normal_inputs, subnormal_time):
+        expected = ou_exponential_phi(*args)
+        assert expected > 0.0
+        assert _ou_exponential_phi_cse(*args) == expected
+    assert _ou_exponential_phi_cse(1.0, 1.0, 10.0, 1e307) == 0.0
 
 
 # --------------------------------------------------------------------- #
@@ -141,7 +189,7 @@ def test_select_gl_node_count_escalates_with_the_horizon():
 
 def test_auto_resolves_per_system_family_at_l1():
     gaussian = _demo1_like(temporal="gaussian", sigma_t=0.5)
-    props = gaussian.propagators(t_max=6.0, n_grid_t=10)
+    props = gaussian.propagators(t_max=6.0, n_grid_t=10, c_closed_form=None)
     assert props.c_source.startswith("quadrature:gauss_legendre(n="), props.c_source
     n = props.cache.n_gauss_resolved
     assert n >= 20
@@ -177,7 +225,7 @@ def test_a_table_no_node_count_converges_on_takes_the_graded_rule(sigma_t, gamma
     gave 2.5e-11 against 1.11e-5."""
     t_max = 32.0
     props = _slow_system(sigma_t, gamma).propagators(
-        t_max=t_max, n_grid_t=4, c_closed_form=None)
+        t_max=t_max, n_grid_t=4, c_closed_form=None, table_rtol=None)
     assert props.c_source == "quadrature:graded(levels=12)"
     want = [_equal_time_c(0.05, sigma_t, g, t_max - 2.0) for g in gamma]
     table = np.diag(props.cache.C_value(0.0, t_max, 0.0, t_max))
@@ -216,7 +264,7 @@ def test_auto_checks_a_user_kernel(sigma_t, source):
     """``dblquad``, unchecked, gave 1.71e-4 against 6.25e-3 at ``sigma_t =
     0.01`` and was off by 0.33 at 0.05."""
     props = _callable_system(_NarrowGaussian(0.05, sigma_t)).propagators(
-        t_max=32.0, n_grid_t=4, c_closed_form=None)
+        t_max=32.0, n_grid_t=4, c_closed_form=None, table_rtol=None)
     assert props.c_source == source
     assert float(props.cache.C_value(0.0, 32.0, 0.0, 32.0)[0, 0]) == pytest.approx(
         _equal_time_c(0.05, sigma_t, 0.3, 30.0), rel=1e-8, abs=0.0)
@@ -273,7 +321,7 @@ def _general_system(kernel, gamma=0.3):
 def test_a_lazy_table_finds_its_rule_at_each_position():
     """Off by 0.72 from an unchecked ``dblquad``."""
     props = _general_system(_WidthByPosition()).propagators(
-        t_max=12.0, n_grid_t=4, c_closed_form=None)
+        t_max=12.0, n_grid_t=4, c_closed_form=None, table_rtol=None)
     assert float(props.cache.C_value(1.0, 12.0, 1.0, 12.0)[0, 0]) == pytest.approx(
         _equal_time_c(0.05, 0.01, 0.3, 12.0), rel=1e-8, abs=0.0)
 
@@ -427,7 +475,7 @@ def test_a_lazy_table_decides_nothing_at_an_origin_that_says_nothing(kernel, x):
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
         props = _general_system(kernel).propagators(
-            t_max=12.0, n_grid_t=4, c_closed_form=None)
+            t_max=12.0, n_grid_t=4, c_closed_form=None, table_rtol=None)
         value = float(props.cache.C_value(x, 12.0, x, 12.0)[0, 0])
     assert props.c_source == "quadrature:per_position"
     assert value == pytest.approx(
@@ -445,7 +493,7 @@ def test_a_separable_kernel_that_vanishes_at_the_origin_finds_its_rule_at_the_pa
             temporal=sw.GaussianTemporal(lam=lam, sigma_t=sigma_t),
             spatial=sw.CustomKernel(fn=lambda r: r * r))),
     )
-    props = system.propagators(t_max=t, n_grid_t=4, c_closed_form=None)
+    props = system.propagators(t_max=t, n_grid_t=4, c_closed_form=None, table_rtol=None)
     value = float(props.cache.C_value(0.0, t, 1.0, t)[0, 0])
     assert value == pytest.approx(
         _equal_time_c(lam, sigma_t, gamma, t), rel=1e-8, abs=0.0
@@ -745,7 +793,7 @@ def test_an_entry_that_cancels_a_strong_component_keeps_its_rounding():
         linear=sw.ExplicitR(R_time=response, iso_R=False),
         noise=sw.GaussianNoise(kappa2=sw.GeneralKappa2(fn=kernel)))
     with pytest.warns(UserWarning, match="cannot be checked") as caught:
-        props = system.propagators(t_max=span, n_grid_t=5, diag_C=False)
+        props = system.propagators(t_max=span, n_grid_t=5, diag_C=False, table_rtol=None)
     assert len(caught) == 1 and "(2, 2)" in str(caught[0].message)
     assert props.c_source == "quadrature:gauss_legendre(n=20)"
     modes = [_equal_time_c(k, sigma_t, g, span) for k, g in zip(sizes, rates)]
@@ -846,7 +894,7 @@ def test_auto_table_agrees_with_an_independent_integral(sigma_t, gamma, t_max, t
     It used to be built with ``c_n_gauss`` nodes, off by 2.1e-3 and 5.7e-3
     at the first row's deep corner."""
     props = _slow_system(sigma_t, gamma).propagators(
-        t_max=t_max, n_grid_t=4, c_closed_form=None)
+        t_max=t_max, n_grid_t=4, c_closed_form=None, table_rtol=None)
     got = np.diag(props.cache.C_value(0.0, t_max, 0.0, t_max))
     want = [_equal_time_c(0.05, sigma_t, g, t_max - 2.0) for g in gamma]
     assert props.cache.c_method_resolved == "gauss_legendre"
@@ -894,7 +942,7 @@ def test_every_table_path_uses_the_resolved_count(monkeypatch, homogeneity, tabl
 def test_explicit_gauss_legendre_keeps_its_count_without_a_check():
     system = _slow_system()
     props = system.propagators(t_max=32.0, n_grid_t=4, c_closed_form=None,
-                               c_method="gauss_legendre", c_n_gauss=20)
+                               c_method="gauss_legendre", c_n_gauss=20, table_rtol=None)
     assert props.c_source == "quadrature:gauss_legendre(n=20)"
     got = np.diag(props.cache.C_value(0.0, 32.0, 0.0, 32.0))
     want = np.array([_equal_time_c(0.05, 0.3, g, 30.0) for g in (0.1, 0.3)])
@@ -1026,7 +1074,7 @@ def test_progress_callback_receives_every_stage_and_numbers_are_unchanged():
         events.append((desc, done, total))
 
     exp = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0, 2])
-    props = system.propagators(t_max=3.0, n_grid_t=8, c_closed_form=None)
+    props = system.propagators(t_max=3.0, n_grid_t=8, c_closed_form=None, table_rtol=None)
     quiet = exp.sweep(
         props, positions_grid={"x": [0.0], "y": [0.0, 0.5]},
         t_final_grid=[1.0, 3.0], component_pairs=[(0, 0)],
@@ -1492,7 +1540,12 @@ def _read_in_both_orders(kernel, near, far):
             linear=sw.DiagonalA(gamma=[0.7]),
             noise=sw.GaussianNoise(kappa2=kernel),
         )
-        cache = system.propagators(t_max=2.0, n_grid_t=11, progress=False).cache
+        props = system.propagators(
+            t_max=2.0, n_grid_t=11, c_closed_form_only=False,
+            table_rtol=None, progress=False,
+        )
+        assert props.is_lazy
+        cache = props.cache
         for x, y in pairs:
             cache.C_value(x, 1.5, y, 1.5)
         at_far, at_near = (cache.C_value(x, 1.5, y, 1.5)[0, 0] for x, y in (far, near))

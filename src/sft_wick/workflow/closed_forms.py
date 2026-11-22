@@ -1,21 +1,17 @@
 r"""Built-in closed-form C propagators.
 
-For one common kernel family the ``C = ∫∫ R κ² R`` construction can be
-done analytically, which removes the propagator-table quadrature (the
-dominant cost of a first run) entirely:
+The built-in ``C = ∫∫ R κ² R`` uses the following structure:
 
 * diagonal, constant drift, :class:`~sft_wick.workflow.specs.DiagonalA`
   with a constant ``gamma`` (scalar or per component), so
   ``R_aa(t, s) = Θ(t − s) exp(−γ_a (t − s))``;
-* separable, translation-invariant noise,
-  :class:`~sft_wick.workflow.specs.SeparableTranslation` with an
-  :class:`~sft_wick.workflow.specs.ExponentialTemporal` kernel, so
-  ``κ²_ab(1, 2) = δ_ab · λ exp(−|t₁ − t₂|/σ_t) · K_x(|x₁ − x₂|)`` for
-  *any* spatial envelope ``K_x``;
+* separable, translation-invariant noise with any spatial envelope and an
+  exponential, Gaussian, Matérn-3/2 or damped-cosine temporal kernel;
 * optionally a constant white-noise impulse
   :class:`~sft_wick.workflow.specs.ConstantImpulse`.
 
-Then, with ``a = 1/σ_t`` and times measured from ``t_min``,
+For the exponential kernel, with ``a = 1/σ_t`` and times measured from
+``t_min``,
 
 .. math::
 
@@ -53,15 +49,19 @@ scalar times give an ``(N, N)`` matrix, batched ``(n,)`` times give
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import factorial
+from math import factorial, isfinite
 from typing import Any, Callable
 
 import numpy as np
 
+from ._stationary_c import damped_cosine_phi, gaussian_phi, matern32_phi
 from .specs import (
     ConstantImpulse,
+    DampedCosineTemporal,
     DiagonalA,
     ExponentialTemporal,
+    GaussianTemporal,
+    Matern32Temporal,
     MultiplicativeImpulse,
     SeparableTranslation,
 )
@@ -80,6 +80,14 @@ _PHI_SMALL_RATE = 1.0
 #: less than ``2e−19`` over ``0 ≤ x ≤ 2`` (and over its divided differences),
 #: the range :func:`_phi_at_small_rates` reads.
 _PSI_TAYLOR = tuple((-1.0) ** k / factorial(k + 1) for k in range(25))
+
+
+# The CSE rule uses a divided difference of psi below a rate-time
+# product of 0.5, where sixteen Taylor terms suffice in binary64.
+_OU_CSE_TAYLOR = _PSI_TAYLOR[:16]
+_OU_CSE_SMALL_ARGUMENT = 0.5
+_OU_CSE_MIN_NORMAL = np.finfo(float).tiny
+_OU_CSE_TINY_RATE = np.sqrt(_OU_CSE_MIN_NORMAL)
 
 
 def _psi(x: np.ndarray) -> np.ndarray:
@@ -186,6 +194,103 @@ def ou_exponential_phi(gamma: Any, a: Any, t1: Any, t2: Any) -> np.ndarray:
     return np.where(tl > 0, out, 0.0)
 
 
+def _ou_integrated_exp(rate: float, duration: np.ndarray) -> np.ndarray:
+    """Integral of exp(-rate * u) from zero to duration, at a fixed rate."""
+    if rate == 0.0:
+        return duration
+    return np.expm1((-rate) * duration) * (-1.0 / rate)
+
+
+def _ou_cse_small_square(
+    rate_min: float, rate_max: float, duration: np.ndarray,
+) -> np.ndarray:
+    """Two equal triangles in the square where both times are early."""
+    x = rate_min * duration
+    y = rate_max * duration
+    value = _OU_CSE_TAYLOR[-1]
+    slope = 0.0
+    for coefficient in reversed(_OU_CSE_TAYLOR[:-1]):
+        slope = slope * y + value
+        value = value * x + coefficient
+    return (-2.0 * duration * duration) * slope
+
+
+def _ou_cse_square(
+    rate_min: float, rate_max: float, rate_delta: float, duration: np.ndarray,
+) -> np.ndarray:
+    """Twice the integral of D(rate_min, rate_max; u) along the early square."""
+    threshold = _OU_CSE_SMALL_ARGUMENT / rate_max
+    if np.max(duration, initial=0.0) < threshold:
+        return _ou_cse_small_square(rate_min, rate_max, duration)
+    small = duration < threshold
+    by_delta = _ou_integrated_exp(rate_delta, duration)
+    if rate_min == 0.0:
+        square = duration - by_delta
+    else:
+        exp_m1 = np.expm1((-rate_min) * duration)
+        # Reuse expm1 in the integrated exponential and in the small
+        # exponential correction. If expm1 rounds to -1, the discarded
+        # correction is at most x exp(-x)/(1-exp(-x)) times the integrated
+        # term, where x = rate_min * duration is already above 37.
+        square = exp_m1 * (-1.0 / rate_min) - (1.0 + exp_m1) * by_delta
+    square *= 2.0 / rate_max
+    if np.any(small):
+        square[small] = _ou_cse_small_square(rate_min, rate_max, duration[small])
+    return square
+
+
+def _ou_cse_underflow(duration: np.ndarray, min_duration: float) -> bool:
+    """Check positive times where a multiplication can lose its mantissa."""
+    return (
+        np.min(duration, initial=np.inf) < min_duration
+        and np.any((duration > 0.0) & (duration < min_duration))
+    )
+
+
+def _ou_exponential_phi_cse(
+    gamma: float, a: float, t1: Any, t2: Any,
+) -> np.ndarray:
+    """OU/exponential covariance at fixed rates using a square and a strip.
+
+    Use the dimensionless reference path when tiny rates can underflow
+    before division. Each argument time is measured from the lower bound.
+    """
+    sum_rate = gamma + a
+    twice_gamma = 2.0 * gamma
+    delta_rate = abs(gamma - a)
+    if sum_rate == 0 or not isfinite(max(sum_rate, twice_gamma)):
+        return ou_exponential_phi(gamma, a, t1, t2)
+    min_rate = min(rate for rate in (sum_rate, twice_gamma, delta_rate) if rate > 0)
+    if min_rate < _OU_CSE_TINY_RATE:
+        return ou_exponential_phi(gamma, a, t1, t2)
+
+    t1 = np.asarray(t1, dtype=float)
+    t2 = np.asarray(t2, dtype=float)
+    early = np.asarray(np.minimum(t1, t2))
+    np.maximum(early, 0.0, out=early)
+    delay = np.asarray(np.maximum(t1, t2))
+    delay -= early
+    np.maximum(delay, 0.0, out=delay)
+    min_duration = _OU_CSE_MIN_NORMAL / min_rate
+    if _ou_cse_underflow(early, min_duration) or _ou_cse_underflow(delay, min_duration):
+        return ou_exponential_phi(gamma, a, t1, t2)
+
+    square = _ou_cse_square(
+        min(sum_rate, twice_gamma), max(sum_rate, twice_gamma), delta_rate, early,
+    )
+    exp_gamma = np.exp(-gamma * delay)
+    integrated_early = _ou_integrated_exp(sum_rate, early)
+    if delta_rate == 0.0:
+        # At equal rates this integrated delay is the delay itself.
+        # Apply its damping before forming a potentially very large product.
+        strip = (exp_gamma * delay) * integrated_early
+        return np.asarray(exp_gamma * square + strip)
+    strip = _ou_integrated_exp(delta_rate, delay) * integrated_early
+    if gamma <= a:
+        return np.asarray(exp_gamma * (square + strip))
+    return np.asarray(exp_gamma * square + np.exp(-a * delay) * strip)
+
+
 def ou_white_psi(gamma_a: Any, gamma_b: Any, t1: Any, t2: Any) -> np.ndarray:
     """``Ψ = ∫₀^{min(t₁,t₂)} e^{−γ_a(t₁−τ)} e^{−γ_b(t₂−τ)} dτ`` (broadcasting)."""
     ga = np.asarray(gamma_a, dtype=float)
@@ -221,6 +326,12 @@ def _resolve_positions(x: Any, n: int) -> np.ndarray:
 
 
 def _separation(x1: np.ndarray, x2: np.ndarray) -> np.ndarray:
+    # A one-dimensional position array has one scalar per sample. When
+    # paired with vectors, broadcast that scalar across its own row.
+    if x1.ndim == 1 and x2.ndim == 2:
+        x1 = x1[:, None]
+    if x2.ndim == 1 and x1.ndim == 2:
+        x2 = x2[:, None]
     diff = x1 - x2
     if diff.ndim == 1:
         return np.abs(diff)
@@ -229,7 +340,7 @@ def _separation(x1: np.ndarray, x2: np.ndarray) -> np.ndarray:
 
 @dataclass(frozen=True)
 class ClosedFormC:
-    """Analytical ``C`` for the OU-drift / exponential-temporal family.
+    """Finite-start ``C`` for constant diagonal drift and a stationary kernel.
 
     Instances are produced by :func:`builtin_closed_form_for`; the fields
     are the *lowered* parameters, kept as plain tuples so the object has a
@@ -243,6 +354,9 @@ class ClosedFormC:
         spatial: the spatial envelope ``K_x(r)``; any scalar callable.
         sigma2: white-noise amplitude matrix as nested tuples, or ``None``.
         t_min: lower time bound of the propagator integrals.
+        temporal_kind: built-in temporal kernel name.
+        omega: angular frequency for the damped cosine.
+        ou_cse: use the fixed-rate OU formula for an exponential kernel.
     """
 
     gamma: tuple[float, ...]
@@ -258,11 +372,12 @@ class ClosedFormC:
 
     #: C is kinked on ``t₁ = t₂``, so the Gauss-Legendre and nquad
     #: integrators split the time domain there
-    #: (``evaluate._c_has_diagonal_kink``).  This closed form exists only
-    #: for the exponential temporal kernel, whose ``|Δt|`` cusp leaves a
-    #: jump in C's third derivative; with ``sigma2`` the first derivative
-    #: jumps as well.
+    #: (``evaluate._c_has_diagonal_kink``). The Gaussian part is smooth;
+    #: white noise and the other kernels benefit from a diagonal split.
     has_diagonal_kink: bool = True
+    temporal_kind: str = "exponential"
+    omega: float = 0.0
+    ou_cse: bool = False
 
     @property
     def n_components(self) -> int:
@@ -279,13 +394,29 @@ class ClosedFormC:
         return out if np.ndim(r) else float(out[0])
 
     def temporal(self, t1: Any, t2: Any) -> np.ndarray:
-        """``λ Φ(γ_a, 1/σ_t; t₁ − t_min, t₂ − t_min)`` → shape ``t.shape + (N,)``."""
+        """Temporal part of C, with output shape ``t.shape + (N,)``."""
         t1s = np.asarray(t1, dtype=float) - self.t_min
         t2s = np.asarray(t2, dtype=float) - self.t_min
+        if self.temporal_kind == "exponential" and self.ou_cse:
+            a = 1.0 / self.sigma_t
+            out = np.empty((*np.broadcast_shapes(t1s.shape, t2s.shape), self.n_components))
+            for component, rate in enumerate(self.gamma):
+                out[..., component] = _ou_exponential_phi_cse(rate, a, t1s, t2s)
+            out *= self.lam
+            return out
+        t1s, t2s = t1s[..., None], t2s[..., None]
         g = np.asarray(self.gamma, dtype=float)
-        return self.lam * ou_exponential_phi(
-            g, 1.0 / self.sigma_t, t1s[..., None], t2s[..., None],
-        )
+        if self.temporal_kind == "exponential":
+            phi = ou_exponential_phi(g, 1.0 / self.sigma_t, t1s, t2s)
+        elif self.temporal_kind == "gaussian":
+            phi = gaussian_phi(g, g, self.sigma_t, t1s, t2s)
+        elif self.temporal_kind == "matern32":
+            phi = matern32_phi(g, g, 3.0 ** 0.5 / self.sigma_t, t1s, t2s)
+        elif self.temporal_kind == "damped_cosine":
+            phi = damped_cosine_phi(g, g, 1.0 / self.sigma_t, self.omega, t1s, t2s)
+        else:
+            raise ValueError(f"Unsupported temporal kernel: {self.temporal_kind!r}")
+        return self.lam * phi
 
     def white(self, t1: Any, t2: Any) -> np.ndarray | None:
         """White-noise part ``σ²_ab Ψ(γ_a, γ_b; …)`` → ``t.shape + (N, N)``, or ``None``."""
@@ -327,13 +458,13 @@ class ClosedFormC:
 # --------------------------------------------------------------------- #
 
 
-def builtin_closed_form_for(system: Any) -> ClosedFormC | None:
+def builtin_closed_form_for(system: Any, *, ou_cse: bool = False) -> ClosedFormC | None:
     """Return the built-in closed form for ``system`` if its kernel family
     admits one, else ``None``.
 
     The conditions are exactly those listed in the module docstring; any
     escape hatch (``explicit_R``, :class:`ExplicitR`, a callable ``gamma``,
-    a non-exponential temporal kernel, a :class:`CustomImpulse`) disables
+    a custom temporal kernel, a :class:`CustomImpulse`) disables
     the closed form and the caller falls back to quadrature.
     """
     if getattr(system, "explicit_R", None) is not None:
@@ -344,22 +475,29 @@ def builtin_closed_form_for(system: Any) -> ClosedFormC | None:
     gamma = np.atleast_1d(np.asarray(linear.gamma, dtype=float))
     if gamma.ndim != 1 or not np.all(np.isfinite(gamma)) or np.any(gamma < 0):
         return None
+    N = int(system.n_components)
     # Mirror the model that ``System.build_propagator_model`` builds: when
     # ``DiagonalA`` judges the rates equal it lowers to a scalar R with
     # ``gamma[0]`` for EVERY component.  The closed form must describe that
     # model, not the raw list.
     if linear.is_iso_R:
-        gamma = np.full(gamma.shape[0], float(gamma[0]))
+        gamma = np.full(N, float(gamma[0]))
     kappa2 = system.noise.kappa2
     if not isinstance(kappa2, SeparableTranslation):
         return None
     temporal = kappa2.temporal
-    if not isinstance(temporal, ExponentialTemporal):
+    kinds = (
+        (ExponentialTemporal, "exponential"),
+        (GaussianTemporal, "gaussian"),
+        (Matern32Temporal, "matern32"),
+        (DampedCosineTemporal, "damped_cosine"),
+    )
+    kind = next((name for cls, name in kinds if type(temporal) is cls), None)
+    if kind is None or (ou_cse and kind != "exponential"):
         return None
     if not np.isfinite(temporal.lam):
         return None
 
-    N = int(system.n_components)
     if gamma.shape[0] == 1 and N > 1:
         gamma = np.repeat(gamma, N)
     if gamma.shape[0] != N:
@@ -385,6 +523,10 @@ def builtin_closed_form_for(system: Any) -> ClosedFormC | None:
         spatial=kappa2.spatial,
         sigma2=sigma2_tuple,
         t_min=float(system.t_min),
+        has_diagonal_kink=kind != "gaussian" or sigma2_tuple is not None,
+        temporal_kind=kind,
+        omega=float(temporal.omega) if kind == "damped_cosine" else 0.0,
+        ou_cse=ou_cse,
     )
 
 

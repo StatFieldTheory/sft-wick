@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **9236 tests** in 161 files (parametrised
+The suite has **9281 tests** in 162 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -238,7 +238,7 @@ Multiplicities and canonical forms
 Propagator numerics
 -------------------
 
-*1608 tests in 19 files.*
+*1648 tests in 20 files.*
 
 .. list-table::
    :header-rows: 1
@@ -258,12 +258,19 @@ Propagator numerics
      - 1e-4
      - 35
      - 0
+   * - ``test_c_table_certificate.py``
+     - C-table time, space and node probes with atomic memory and disk publication
+     - analytic covariances; independent refined quadrature; failure injection
+     - exact analytic
+     - declared threshold and rollback invariants
+     - 18
+     - 0
    * - ``test_closed_form_dispatch_boundaries.py``
      - built-in closed form vs Gauss-Legendre vs dblquad at the dispatch boundary cells (ridge, t→t_min, t_max, γ=1/σ_t, r=0, r_max, per-component γ, t_min≠0, white noise); dispatcher choices
      - each method against the others; analytic stationary limit
      - exact analytic
      - 1e-10 (GL) / 1e-8 (dblquad)
-     - 46
+     - 59
      - 0
    * - ``test_d_dim_spatial.py``
      - vector positions through the L1 evaluate path; C hooks that write into their position and time arguments
@@ -354,14 +361,14 @@ Propagator numerics
      - disk reuse/miss witnesses, exact array bytes and hostile custom accessors
      - self consistency
      - exact native identities and explicit callback response values
-     - 85
+     - 91
      - 0
    * - ``test_propagator_dispatch.py``
      - separable-kernel shared temporal table, time-symmetric build, auto node-count selection, progress reporting
      - per-r full build; dblquad
      - exact analytic
      - 1e-12 / 1e-6
-     - 112
+     - 115
      - 2
    * - ``test_propagator_lookup_cache.py``
      - explicit fixed-model batch lookup promise, exact typed keys, bounded LRU, copies/layout/read-only outputs, invalidation, reentrancy and serialization
@@ -860,7 +867,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*2582 tests in 41 files.*
+*2587 tests in 41 files.*
 
 .. list-table::
    :header-rows: 1
@@ -1123,7 +1130,7 @@ Workflow and YAML
      - L1 flow on the same physics; isolated hook unavailable to workers
      - self consistency
      - 1e-6 / 2e-2 (spline vs exact C); exact (hook transport)
-     - 61
+     - 62
      - 3
    * - ``test_workflow_corpora.py``
      - every single-edit misspelling (deletion, transposition, substitution) of every key in every shipped config refused with its dotted path and the key meant (substitutions outside the quick start marked slow); every misspelling that gives another key of the block refused as well; every key a shipped config leaves out, set by override, gives the result of writing it into the file; an override through a YAML alias or a merged mapping changes only the path it names and adds at most one container per step of the path; a file where an alias makes a value hold itself refused with the path of that alias; a node shared without a cycle accepted; at every key, a value that expands through shared nodes gives a short message and is never written out whole
@@ -1137,7 +1144,7 @@ Workflow and YAML
      - config dataclass field sets; the parser's own key check and value checks; the jsonschema reference validator
      - none
      - exact
-     - 81
+     - 85
      - 0
    * - ``test_yaml_alias_expansion.py``
      - alias diamonds at keys nothing reads, shared tensors, depths from the limit to 300, both sides of the value and nesting limits, shipped configs, validate, --print-resolved, run and compare-resources
@@ -1383,7 +1390,7 @@ Where a file holds checks of several kinds:
    * - Kind
      - Files
    * - exact analytic
-     - 76
+     - 77
    * - independent code
      - 36
    * - simulation

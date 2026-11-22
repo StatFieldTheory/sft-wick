@@ -24,6 +24,7 @@ import sft_wick as sw
 from sft_wick.workflow.config import (
     ConfigError,
     build_system,
+    check_before_run,
     load_workflow_config,
     run_workflow,
 )
@@ -72,6 +73,7 @@ _DEMO1_YAML = textwrap.dedent("""
     propagators:
       t_max: 2.0
       n_grid_t: 12
+      table_rtol: null
       c_closed_form_module: ./demo1_c_closed_form.py
       c_closed_form_attr: C_fn
 
@@ -88,6 +90,29 @@ _DEMO1_YAML = textwrap.dedent("""
       n_samples: 256
       seed: 42
 """)
+
+
+def test_ou_cse_can_be_selected_in_yaml_and_run(tmp_path):
+    def load(setting, kernel="exponential"):
+        path = tmp_path / "config.yaml"
+        data = yaml.safe_load(_DEMO1_YAML)
+        data["system"]["noise"]["kappa2"]["temporal"]["type"] = kernel
+        props = data["propagators"]
+        props.pop("c_closed_form_module")
+        props.pop("c_closed_form_attr")
+        props["c_closed_form"] = setting
+        path.write_text(yaml.safe_dump(data), encoding="utf-8")
+        cfg = load_workflow_config(path)
+        assert cfg.propagators.c_closed_form == setting.lower()
+        return cfg
+
+    optimized = run_workflow(load("OU_CSE"), progress=False)[1]["value"]
+    default = run_workflow(load("auto"), progress=False)[1]["value"]
+    np.testing.assert_allclose(optimized, default, atol=0, rtol=1e-13)
+
+    unsupported = load("ou_cse", kernel="gaussian")
+    with pytest.raises(ConfigError, match=r"^propagators\.c_closed_form: "):
+        check_before_run(unsupported)
 
 
 _DEMO2_YAML = textwrap.dedent("""
@@ -273,7 +298,7 @@ def test_CF3_full_run_matches_L1_reference(tmp_path: Path) -> None:
         )),
     )
     exp = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0, 2])
-    props = system.propagators(t_max=2.0, n_grid_t=12, c_closed_form=C_fn)
+    props = system.propagators(t_max=2.0, n_grid_t=12, c_closed_form=C_fn, table_rtol=None)
     sweep_ref = exp.sweep(
         props,
         positions_grid={"x": [0.0], "y": [0.0, 0.5]},
@@ -583,6 +608,7 @@ def test_CF9_lazy_cache_njobs_pinned_to_one(tmp_path: Path) -> None:
         x_max=cfg.propagators.x_max,
         n_grid_x=cfg.propagators.n_grid_x,
         n_jobs=cfg.propagators.n_jobs,
+        c_closed_form_only=False,
     )
     assert props.is_lazy is True
     assert props.cache._lazy_translation is not None
@@ -744,6 +770,7 @@ def test_CF13_propagators_cache_path_round_trip(tmp_path: Path) -> None:
     cfg_yaml["propagators"].pop("c_closed_form_module")
     cfg_yaml["propagators"].pop("c_closed_form_attr")
     cfg_yaml["propagators"]["cache_path"] = str(cache_dir)
+    cfg_yaml["propagators"]["c_closed_form_only"] = False
     (tmp_path / "c.yaml").write_text(yaml.safe_dump(cfg_yaml))
 
     cfg = load_workflow_config(tmp_path / "c.yaml")
@@ -871,6 +898,7 @@ _DEMO2_YAML_TEMPLATE = textwrap.dedent("""
     propagators:
       t_max: 2.0
       n_grid_t: 20
+      table_rtol: null
       c_closed_form_module: ./demo1_c_closed_form.py
       c_closed_form_attr: C_fn
 
@@ -993,17 +1021,17 @@ def test_CF14_c_closed_form_only_matches_spline_path(tmp_path: Path) -> None:
 
 
 def test_CF14_c_closed_form_only_requires_callable(tmp_path: Path) -> None:
-    """``c_closed_form_only=true`` with no closed form at all must raise
-    -- the no-spline path needs a c_fn to use as the lookup function.
-
-    Demo1's kernel family now gets the BUILT-IN closed form, so the
-    failing case needs a kernel the built-in form does not cover (a
-    Gaussian temporal kernel) or ``c_closed_form: null``."""
+    """The direct-lookup path requires a callable for C."""
     cfg_yaml = yaml.safe_load(_DEMO1_YAML)
     cfg_yaml["propagators"].pop("c_closed_form_module", None)
     cfg_yaml["propagators"].pop("c_closed_form_attr", None)
     cfg_yaml["propagators"]["c_closed_form_only"] = True
-    cfg_yaml["system"]["noise"]["kappa2"]["temporal"]["type"] = "gaussian"
+    (tmp_path / "temporal.py").write_text(
+        "import math\ndef temporal(dt):\n    return 0.05 * math.exp(-abs(dt))\n",
+    )
+    cfg_yaml["system"]["noise"]["kappa2"]["temporal"] = {
+        "type": "custom", "module": "./temporal.py",
+    }
     (tmp_path / "bad.yaml").write_text(yaml.safe_dump(cfg_yaml))
     cfg = load_workflow_config(tmp_path / "bad.yaml")
     with pytest.raises(ValueError, match="c_closed_form_only=True"):
@@ -1020,12 +1048,11 @@ def test_CF14_c_closed_form_only_requires_callable(tmp_path: Path) -> None:
         run_workflow(load_workflow_config(tmp_path / "bad2.yaml"))
 
 
-def test_CF14_vectorized_without_only_raises(tmp_path: Path) -> None:
-    """``c_closed_form_vectorized=true`` without
-    ``c_closed_form_only=true`` is a configuration error: the
-    vectorised contract is only consumed by the no-spline path."""
+def test_CF14_vectorized_with_explicit_table_raises(tmp_path: Path) -> None:
+    """The vectorised contract is only consumed by the no-spline path."""
     cfg_yaml = yaml.safe_load(_DEMO1_YAML)
     cfg_yaml["propagators"]["c_closed_form_vectorized"] = True
+    cfg_yaml["propagators"]["c_closed_form_only"] = False
     (tmp_path / "bad.yaml").write_text(yaml.safe_dump(cfg_yaml))
     cfg = load_workflow_config(tmp_path / "bad.yaml")
     with pytest.raises(ValueError, match="c_closed_form_vectorized"):

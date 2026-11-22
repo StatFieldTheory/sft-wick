@@ -52,6 +52,7 @@ _DT_CONVERGENCE_YAML = textwrap.dedent("""
     propagators:
       t_max: 2.0
       dt: 0.1                # n_grid_t = 20
+      table_rtol: null       # Compare the two prescribed interpolation grids.
       homogeneity: translation
       c_closed_form_module: ./demo1_c_closed_form.py
       c_closed_form_attr: C_fn

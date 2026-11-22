@@ -285,6 +285,7 @@ def _linear() -> _Tagged:
 _KERNEL_PARAM_NODES = {
     "lam": _NUMBER,
     "sigma_t": _NUMBER,
+    "omega": _NUMBER,
     "sigma_x": _NUMBER,
     "coeffs": _NUMBERS,
 }
@@ -428,15 +429,17 @@ def _propagators() -> _Block:
                 {"type": ["boolean", "null"]},
                 {
                     "type": "string",
-                    "pattern": f"^({_any_case(['auto'])}|"
+                    "pattern": f"^({_any_case(cf._BUILTIN_C_OPTIONS)}|"
                     + "|".join(cf._CLOSED_FORM_OFF)
                     + ")$",
                 },
             ]
         },
         "c_closed_form_module": _null(_STRING),
+        "c_closed_form_only": _null(_BOOLEAN),
         "cache_path": _null(_STRING),
         "c_method": _enum(cf.C_METHODS),
+        "table_rtol": _null(_NUMBER),
         "interp_method": _enum(cf._INTERP_METHODS),
     }
     return _Block(_dataclass_keys(cf.PropagatorsConfig, nodes))

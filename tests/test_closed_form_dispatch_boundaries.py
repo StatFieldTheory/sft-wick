@@ -168,9 +168,8 @@ def test_closed_form_matches_dblquad_at_corner_cells(name):
             )
 
 
-def test_gl_and_dblquad_agree_where_no_closed_form_exists():
-    """The two quadratures must agree on a kernel the closed form does
-    not cover (Gaussian temporal), at the same extreme cells."""
+def test_gl_and_dblquad_agree_when_closed_form_is_bypassed():
+    """The two quadratures on a Gaussian temporal kernel agree at extreme cells."""
     system = sw.System(
         field=sw.FieldSpec("phi", n_components=1),
         linear=sw.DiagonalA(gamma=[1.0]),
@@ -273,13 +272,13 @@ def test_detection_rejects_every_escape_hatch():
     base = SYSTEMS["iso"]
     assert builtin_closed_form_for(base) is not None
 
-    gaussian = sw.System(
+    custom_temporal = sw.System(
         field=base.field, linear=base.linear, vertices=base.vertices,
         noise=sw.GaussianNoise(kappa2=sw.SeparableTranslation(
-            temporal=sw.GaussianTemporal(lam=0.05, sigma_t=0.3),
+            temporal=sw.CustomKernel(fn=sw.GaussianTemporal(lam=0.05, sigma_t=0.3)),
             spatial=sw.ExponentialSpatial(sigma_x=1.0))),
     )
-    assert builtin_closed_form_for(gaussian) is None
+    assert builtin_closed_form_for(custom_temporal) is None
 
     time_dep = sw.System(
         field=base.field, vertices=base.vertices, noise=base.noise,
@@ -317,26 +316,134 @@ def test_detection_rejects_every_escape_hatch():
     assert builtin_closed_form_for(general) is None
 
 
+@pytest.mark.parametrize("kind", ["Gaussian", "Matern32", "DampedCosine"])
+def test_stationary_forms_are_direct_and_match_defining_integral(kind):
+    from scipy.integrate import quad
+
+    lam, width, omega = 0.06, 0.5, 2.1
+    kernel_type = getattr(sw, kind + "Temporal")
+    params = {"lam": lam, "sigma_t": width}
+    if kind == "DampedCosine":
+        params["omega"] = omega
+    kernel = kernel_type(**params)
+    base = SYSTEMS["per_component_gamma"]
+    rates = np.array([0.8, 1.9])
+    spatial = sw.ExponentialSpatial(sigma_x=0.8)
+    system = sw.System(
+        field=base.field, linear=sw.DiagonalA(gamma=rates), vertices=base.vertices,
+        noise=sw.GaussianNoise(kappa2=sw.SeparableTranslation(
+            temporal=kernel, spatial=spatial)),
+        t_min=0.5,
+    )
+    props = system.propagators(t_max=4.0, n_grid_t=8, diag_C=False)
+    assert props.c_source == "closed_form:builtin"
+    assert props.cache._closed_form_only
+    t1 = np.array([0.5, 0.50004, 0.9, 2.3])
+    t2 = np.array([1.6, 0.5002, 1.6, 0.9])
+    r = 0.7
+    got = props.cache.C_at_batch(t1, t2, np.zeros(4), np.full(4, r))
+    swapped = props.cache.C_at_batch(t2, t1, np.full(4, r), np.zeros(4))
+    np.testing.assert_array_equal(got, swapped)
+
+    def ref(gamma, a, b):
+        def outer(s):
+            points = [s] if 0.5 < s < b else None
+            return quad(
+                lambda u: np.exp(-gamma * ((a - s) + (b - u))) * kernel(s - u),
+                0.5, b, epsabs=1e-27, epsrel=1e-13, points=points,
+            )[0]
+
+        points = [b] if 0.5 < b < a else None
+        return spatial(r) * quad(outer, 0.5, a, epsabs=1e-27, epsrel=1e-13,
+                                 points=points)[0]
+
+    expected = np.array([[ref(g, a, b) for g in rates] for a, b in zip(t1, t2)])
+    np.testing.assert_allclose(np.diagonal(got, axis1=-2, axis2=-1), expected,
+                               rtol=1e-13, atol=0.0)
+    np.testing.assert_array_equal(got[:, 0, 1], np.zeros(4))
+
+
+@pytest.mark.parametrize("gamma", [0.0, 1e-8])
+def test_narrow_gaussian_keeps_finite_physical_lag_decay(gamma):
+    from sft_wick.workflow._stationary_c import gaussian_phi
+    from sft_wick.workflow.closed_forms import ou_white_psi
+
+    width = 1e-305
+    t1, t2 = 3000.0, 10000.0
+    # With both the overlap and the gap much larger than the Gaussian width,
+    # integrating the normalized kernel gives the white impulse times its area.
+    expected = np.sqrt(2.0 * np.pi) * width * ou_white_psi(gamma, gamma, t1, t2)
+    with np.errstate(over="raise", invalid="raise"):
+        got = gaussian_phi(gamma, gamma, width, t1, t2)
+    np.testing.assert_allclose(got, expected, rtol=1e-13, atol=0.0)
+
+
+def test_stationary_kernels_keep_finite_extreme_limits():
+    from sft_wick.workflow._stationary_c import (
+        damped_cosine_phi, gaussian_phi, matern32_phi,
+    )
+    from sft_wick.workflow.closed_forms import ou_white_psi
+
+    with np.errstate(over="raise", invalid="raise"):
+        gaussian = gaussian_phi(1e120, 1e120, 1e200, 1e194, 1e194)
+        broad_gaussian = gaussian_phi(1e120, 1e120, 1e300, 1e200, 1e200)
+        narrow_matern = matern32_phi(1.0, 1.0, 1e170, 2.0, 3.0)
+        matern = matern32_phi(1.0, 1.0, 1.0, 1e200, 1e200)
+        cosine = damped_cosine_phi(1.0, 1.0, 1.0, 10.0, 1e200, 1e200)
+        narrow_cosine = damped_cosine_phi(0.0, 0.0, 1e160, 2.0, 1e151, 1e151)
+    expected = [1e-240, 1e-240, 4e-170 * ou_white_psi(1.0, 1.0, 2.0, 3.0),
+                0.75, 1.0 / 52.0, 2e-9]
+    observed = [gaussian, broad_gaussian, narrow_matern, matern, cosine, narrow_cosine]
+    np.testing.assert_allclose(observed, expected, rtol=1e-13, atol=0.0)
+
+
+@pytest.mark.parametrize("earlier,later", [(0.01, 1e4), (1e-7, 1e6), (1e-7, 1e18)])
+def test_gaussian_strip_resolves_decay_at_large_lag(earlier, later):
+    from scipy.integrate import quad
+
+    from sft_wick.workflow._stationary_c import gaussian_phi
+
+    # Integrate the original rectangle in response-age coordinates.
+    # The second response tail past age 60 is bounded by exp(-60).
+    def inner(x):
+        return quad(
+            lambda age: np.exp(-age - 0.5 * ((later - age - x) / later)**2),
+            0.0, 60.0, epsabs=1e-15, epsrel=1e-13,
+        )[0] * np.exp(-(earlier - x))
+
+    expected = quad(inner, 0.0, earlier, epsabs=1e-21, epsrel=1e-13)[0]
+    np.testing.assert_allclose(gaussian_phi(1.0, 1.0, later, earlier, later), expected,
+                               rtol=1e-13, atol=0.0)
+
+
 # --------------------------------------------------------------------- #
 # The dispatcher itself                                                  #
 # --------------------------------------------------------------------- #
 
 
 def test_dispatcher_defaults_to_the_builtin_closed_form_and_agrees_with_quadrature():
-    """``System.propagators()`` with no closed-form hook must pick the built-in
-    closed form, and the table it builds must agree with the table that
-    ``c_closed_form=None`` (forced quadrature) builds."""
+    """The default and explicit direct paths agree. Tables built from the
+    closed form agree with tables built by forced quadrature."""
     system = SYSTEMS["per_component_gamma"]
     auto = system.propagators(t_max=T_MAX, n_grid_t=30)
     assert auto.c_source.startswith("closed_form:builtin"), auto.c_source
+    assert not auto.is_lazy
+    direct = system.propagators(t_max=T_MAX, n_grid_t=30, c_closed_form_only=True)
+    tabulated = system.propagators(
+        t_max=T_MAX, n_grid_t=30, c_closed_form_only=False, table_rtol=None,
+    )
+    assert tabulated.is_lazy
 
-    quad = system.propagators(t_max=T_MAX, n_grid_t=30, c_closed_form=None)
+    quad = system.propagators(t_max=T_MAX, n_grid_t=30, c_closed_form=None, table_rtol=None)
     assert quad.c_source.startswith("quadrature:gauss_legendre"), quad.c_source
 
     t1 = np.array([0.5, 3.0, T_MAX, 7.0, T_MAX])
     t2 = np.array([0.5, 3.0, T_MAX, 2.0, 0.5])
     for r in RS:
         a = auto.cache.C_at_batch(t1, t2, np.zeros(5), np.full(5, r))
+        d = direct.cache.C_at_batch(t1, t2, np.zeros(5), np.full(5, r))
+        np.testing.assert_array_equal(a, d)
+        a = tabulated.cache.C_at_batch(t1, t2, np.zeros(5), np.full(5, r))
         q = quad.cache.C_at_batch(t1, t2, np.zeros(5), np.full(5, r))
         scale = float(np.max(np.abs(a)))
         assert np.max(np.abs(a - q) / np.maximum(np.abs(a), FLOOR_FRAC * scale)) < 1e-9
@@ -373,8 +480,63 @@ def test_user_closed_form_module_still_wins_over_builtin():
 
     props = system.propagators(t_max=T_MAX, n_grid_t=8, c_closed_form=C_fn)
     assert props.c_source == "closed_form:user"
+    assert props.is_lazy
     props.cache.C_at_batch(np.array([1.0]), np.array([1.0]), np.zeros(1), np.zeros(1))
     assert calls
+
+
+def test_builtin_default_preserves_a_requested_full_grid():
+    system = SYSTEMS["iso"]
+    options = dict(t_max=2.0, n_grid_t=8, r_max=1.0, n_grid_r=3, table_rtol=None)
+    auto = system.propagators(**options)
+    explicit_table = system.propagators(**options, c_closed_form_only=False)
+    t = np.array([0.7, 1.1])
+    np.testing.assert_array_equal(
+        auto.cache.C_at_batch(t, t, 0.0, 0.4),
+        explicit_table.cache.C_at_batch(t, t, 0.0, 0.4),
+    )
+    with pytest.raises(ValueError):
+        auto.cache.C_at_batch(t, t, 0.0, 1.1)
+
+
+@pytest.mark.parametrize("n", [2, 3])
+def test_default_direct_broadcasts_scalar_positions_by_sample(n):
+    system = SYSTEMS["iso"]
+    props = system.propagators(t_max=1.0)
+    times = np.full(n, 0.4)
+    scalars = np.linspace(0.0, 1.0, n)
+    vectors = np.array([[2.0, 3.0], [4.0, 1.0], [1.0, 2.0]])[:n]
+    values = props.cache.C_at_batch(times, times, scalars, vectors)
+    expected = props.cache.C_at_batch(times, times, scalars[:, None], vectors)
+    np.testing.assert_array_equal(values, expected)
+    np.testing.assert_array_equal(
+        props.cache.C_at_batch(times, times, vectors, scalars), expected,
+    )
+
+
+def test_vectorized_user_closed_form_defaults_to_direct():
+    def c_fn(n1, t1, n2, t2):
+        assert n1.shape[0] == n2.shape[0] == len(t1) == len(t2)
+        return np.broadcast_to(np.eye(2), (len(t1), 2, 2))
+
+    system = SYSTEMS["iso"]
+    props = system.propagators(
+        t_max=T_MAX, c_closed_form=c_fn, c_closed_form_vectorized=True,
+    )
+    assert not props.is_lazy
+    values = props.cache.C_at_batch(np.array([1.0]), np.array([1.0]), 0.0, 0.4)
+    np.testing.assert_array_equal(values, np.ones((1, 2)))
+    expansion = system.expand(("phi_a(x)", "phi_a(y)"), orders=[0])
+    for method in ("qmc_vectorized", "qmc_scalar", "gauss_legendre"):
+        result = expansion.evaluate(
+            props, positions={"x": 0.0, "y": 0.4}, t_final=1.0, method=method,
+        )
+        assert result.total == 1.0
+    with pytest.raises(ValueError, match="c_closed_form_vectorized"):
+        system.propagators(
+            t_max=T_MAX, c_closed_form=c_fn, c_closed_form_only=False,
+            c_closed_form_vectorized=True,
+        )
 
 
 def test_built_in_closed_form_takes_the_batched_read_whatever_the_flag_says():

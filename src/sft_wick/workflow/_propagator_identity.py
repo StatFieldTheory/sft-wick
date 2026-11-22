@@ -18,7 +18,7 @@ from typing import Any
 
 import numpy as np
 
-from . import closed_forms, specs
+from . import _stationary_c, closed_forms, specs
 from . import system as system_module
 from ._native_protocol import native_protocol_unchanged
 from .system import System
@@ -70,6 +70,20 @@ _SPEC_ROLES = (
     ),
     (
         specs,
+        "Matern32Temporal",
+        specs.Matern32Temporal,
+        "matern32-temporal",
+        ("lam", "sigma_t", "is_even", "has_diagonal_cusp"),
+    ),
+    (
+        specs,
+        "DampedCosineTemporal",
+        specs.DampedCosineTemporal,
+        "damped-cosine-temporal",
+        ("lam", "sigma_t", "omega", "is_even", "has_diagonal_cusp"),
+    ),
+    (
+        specs,
         "ExponentialSpatial",
         specs.ExponentialSpatial,
         "exponential-spatial",
@@ -98,6 +112,9 @@ _SPEC_ROLES = (
             "t_min",
             "separable_translation",
             "has_diagonal_kink",
+            "temporal_kind",
+            "omega",
+            "ou_cse",
         ),
     ),
 )
@@ -136,6 +153,10 @@ _SLOT_ROLES = (
 _MODULE_ROLES = (
     (specs, "_is_scalar_pair", "sft_wick.workflow.specs", "specs.py"),
     *(
+        (closed_forms, name, "sft_wick.workflow._stationary_c", "_stationary_c.py")
+        for name in ("gaussian_phi", "matern32_phi", "damped_cosine_phi")
+    ),
+    *(
         (closed_forms, name, "sft_wick.workflow.closed_forms", "closed_forms.py")
         for name in (
             "_psi",
@@ -143,6 +164,11 @@ _MODULE_ROLES = (
             "_phi_at_small_rates",
             "_phi_closed",
             "ou_exponential_phi",
+            "_ou_integrated_exp",
+            "_ou_cse_small_square",
+            "_ou_cse_square",
+            "_ou_cse_underflow",
+            "_ou_exponential_phi_cse",
             "ou_white_psi",
             "_resolve_positions",
             "_separation",
@@ -150,6 +176,7 @@ _MODULE_ROLES = (
         )
     ),
 )
+_PROTOCOL_MODULES = (specs, system_module, closed_forms, _stationary_c)
 _GENERATED_METHODS = frozenset(
     ("__init__", "__repr__", "__eq__", "__hash__", "__setattr__", "__delattr__")
 )
@@ -288,14 +315,14 @@ def _origins_native() -> bool:
     """Reject foreign replacements already present at the first lazy import."""
     if not all(
         native_protocol_unchanged(vars(module).get("_NATIVE_CALLABLE_PROTOCOL"))
-        for module in (specs, system_module, closed_forms)
+        for module in _PROTOCOL_MODULES
     ):
         return False
     base = Path(__file__).resolve().parent
     try:
         trees = {
             name: ast.parse((base / (name + ".py")).read_text())
-            for name in ("specs", "system", "closed_forms")
+            for name in ("specs", "system", "closed_forms", "_stationary_c")
         }
         for module, class_name, cls in _CLASS_ROLES:
             if type(cls) is not type:
@@ -493,7 +520,7 @@ def _protocols_unchanged() -> bool:
         return False
     if not all(
         native_protocol_unchanged(vars(module).get("_NATIVE_CALLABLE_PROTOCOL"))
-        for module in (specs, system_module, closed_forms)
+        for module in _PROTOCOL_MODULES
     ):
         return False
     if any(vars(module).get(name) is not value for module, name, value in _BINDINGS):
@@ -681,7 +708,7 @@ def native_closed_form_identity(c_fn: Any) -> tuple | None:
     """Identity for no form or a guarded native built-in resolved form.
 
     The caller must additionally require that the original request is
-    ``None`` or the exact native string ``'auto'``.  A user-provided
+    ``None`` or an exact native built-in setting. A user-provided
     ``ClosedFormC`` is still a callback choice rather than an inferred form.
     """
     if not _protocols_unchanged():

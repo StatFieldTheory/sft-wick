@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any, Callable
 
 from sft_wick.progress import env_flag
@@ -120,7 +121,15 @@ def load_or_compute(
 
     value = compute_fn()
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    _jdump({"key": key, "value": value}, file_path)
+    with NamedTemporaryFile(
+        dir=file_path.parent, prefix=f".{file_path.name}.", suffix=".joblib", delete=False,
+    ) as handle:
+        candidate = Path(handle.name)
+    try:
+        _jdump({"key": key, "value": value}, candidate)
+        candidate.replace(file_path)
+    finally:
+        candidate.unlink(missing_ok=True)
     return value
 
 

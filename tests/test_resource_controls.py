@@ -191,7 +191,7 @@ def test_dry_run_takes_the_run_arguments(tmp_path, monkeypatch):
         expand=replace(cfg.expand, orders=(0, 2)),
         system=replace(cfg.system, vertices=[{"name": "F", "coupling": [[[0.3]]]}]),
         propagators=replace(cfg.propagators, r_max=3.0, n_grid_r=5, n_grid_t=8,
-                            interp_method="cubic", c_closed_form=None),
+                            interp_method="cubic", c_closed_form=None, table_rtol=None),
         sweep=replace(cfg.sweep, method="gauss_legendre", n_gauss=3),
     )
     built = []

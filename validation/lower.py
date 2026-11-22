@@ -174,8 +174,10 @@ def propagators(system: sw.System, model: ModelSpec, t_max: float,
             t_max=t_max, c_closed_form="auto", c_closed_form_only=True,
             c_closed_form_vectorized=True, diag_C=diag_C, progress=False)
     if c_source == "table":
+        # The validation corpus compares a prescribed finite grid with the
+        # oracle and measures its interpolation error itself.
         return system.propagators(
-            t_max=t_max, n_grid_t=n_grid_t, c_closed_form=None,
+            t_max=t_max, n_grid_t=n_grid_t, c_closed_form=None, table_rtol=None,
             c_method="gauss_legendre", diag_C=diag_C, progress=False)
     raise ValueError(f"c_source must be one of {C_SOURCES}, got {c_source!r}")
 

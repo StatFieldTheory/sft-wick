@@ -151,6 +151,7 @@ print(f"order 2: {len(groups.get('F', []))} F + "
 props = system.propagators(
     t_max=15.0, n_grid_t=60,
     c_closed_form=_C_demo2_eff,
+    table_rtol=None,  # Match the fixed grid of the package comparisons.
 )
 
 

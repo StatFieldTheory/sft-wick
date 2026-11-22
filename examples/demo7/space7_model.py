@@ -189,9 +189,11 @@ class Config:
                 progress=False)
         if not self.diag_C:
             raise ValueError("the quadrature tables hold C_aa only")
+        # The hierarchy comparisons measure error at this fixed resolution.
         return system.propagators(
             t_max=t_max, n_grid_t=self.n_grid_t, c_closed_form=None,
-            c_method=self.c_method, c_n_gauss=self.c_n_gauss, progress=False)
+            c_method=self.c_method, c_n_gauss=self.c_n_gauss,
+            table_rtol=None, progress=False)
 
     # -- reference side -----------------------------------------------------
 

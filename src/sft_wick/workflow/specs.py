@@ -697,6 +697,48 @@ class GaussianTemporal:
 
 
 @dataclass(frozen=True)
+class Matern32Temporal:
+    """Temporal covariance ``λ (1 + z) exp(−z)``, where ``z = √3 |Δt| / σ_t``."""
+
+    lam: float
+    sigma_t: float
+    is_even: bool = True
+    has_diagonal_cusp: bool = False
+
+    def __post_init__(self) -> None:
+        _require_width(self, "sigma_t")
+        if not np.isfinite(3.0 ** 0.5 / float(self.sigma_t)):
+            raise ValueError("sigma_t must give a finite Matérn decay rate.")
+
+    def __call__(self, dt: float) -> float:
+        z = (3.0 ** 0.5 / float(self.sigma_t)) * abs(dt)
+        if np.isinf(z):
+            return 0.0
+        return self.lam * ((1.0 + z) * float(np.exp(-z)))
+
+
+@dataclass(frozen=True)
+class DampedCosineTemporal:
+    """Temporal covariance ``λ exp(−|Δt| / σ_t) cos(ω Δt)``."""
+
+    lam: float
+    sigma_t: float
+    omega: float
+    is_even: bool = True
+    has_diagonal_cusp: bool = True
+
+    def __post_init__(self) -> None:
+        _require_width(self, "sigma_t")
+        if not np.isfinite(1.0 / float(self.sigma_t)):
+            raise ValueError("sigma_t must give a finite cosine decay rate.")
+        if not np.isfinite(float(self.omega)):
+            raise ValueError("omega must be a finite angular frequency.")
+
+    def __call__(self, dt: float) -> float:
+        return self.lam * float(np.exp(-abs(dt) / self.sigma_t) * np.cos(self.omega * dt))
+
+
+@dataclass(frozen=True)
 class ExponentialSpatial:
     """``κ²_x(|Δx|) = exp(−|Δx|/σ_x)`` (exponential spatial envelope)."""
 
@@ -1501,6 +1543,7 @@ _NATIVE_CALLABLE_PROTOCOL = _capture_native_protocol(
     (
         "FieldSpec", "DiagonalA", "GaussianNoise", "SeparableTranslation",
         "SeparableRotation", "ExponentialTemporal", "GaussianTemporal",
+        "Matern32Temporal", "DampedCosineTemporal",
         "ExponentialSpatial", "GaussianSpatial", "LegendreAngular", "ConstantImpulse",
         "LinearOp", "Kappa2", "Sigma2", "_StaticIsoR", "_StaticMatR",
         "_SeparableTranslationKappa2", "_SeparableRotationKappa2",

@@ -14,9 +14,20 @@ from sft_wick.evaluate import (
     HOMOGENEITIES,
     PropagatorCache,
 )
+from sft_wick._c_table_certificate import (
+    C_TABLE_CERTIFICATE_VERSION,
+    DEFAULT_TABLE_RTOL,
+    validate_table_rtol,
+)
 
 from ._messages import shown
 from .specs import _flag
+
+_BUILTIN_C_OPTIONS = ("auto", "ou_cse")
+
+
+class _UnavailableClosedForm(ValueError):
+    """The requested built-in C does not support this model."""
 
 
 @dataclass(frozen=True)
@@ -66,11 +77,12 @@ class Propagators:
         c_closed_form: Callable | str | None = "auto",
         cache_path: Any = None,
         interp_method: str = "linear",
-        c_closed_form_only: bool = False,
+        c_closed_form_only: bool | None = None,
         c_closed_form_vectorized: bool = False,
         c_method: str = "auto",
         c_n_gauss: int = DEFAULT_C_N_GAUSS,
         diag_C: bool = True,
+        table_rtol: float | None = DEFAULT_TABLE_RTOL,
     ) -> "Propagators":
         """Construct a ``Propagators`` for ``system``.
         :meth:`System.propagators` is the usual route; this method holds
@@ -86,14 +98,16 @@ class Propagators:
                   with an exponential temporal kernel, optionally a
                   constant white-noise impulse), and fall through to
                   quadrature (``c_method``) otherwise.
+                - ``'ou_cse'``: use the optimized OU closed form for
+                  diagonal constant drift and separable exponential noise.
                 - ``None``: never use the built-in form; always run
                   quadrature.
                 - a callable ``(n1, t1, n2, t2) -> (N, N)`` returning the
                   full C matrix at that spacetime pair (the signature of
                   :meth:`PropagatorCache._C_value_direct`): a user
                   closed form, which takes precedence over the built-in
-                  one.  Under ``c_closed_form_only=True`` it may also
-                  be batched (``(n,)`` times → ``(n, N, N)``); the
+                  one.  Direct lookup also supports batched callables
+                  (``(n,)`` times → ``(n, N, N)``); the
                   built-in form supports both contracts.  A
                   ``has_diagonal_kink`` attribute says whether it has a
                   derivative jump on ``t1 = t2``; without one the
@@ -101,21 +115,16 @@ class Propagators:
 
                 Either closed form cuts the spline-table build from
                 minutes (``dblquad`` on a fine grid) to milliseconds.
-            c_closed_form_only: when True (and ``c_closed_form`` is
-                provided), skip the spline interpolator entirely.
-                ``cache.C_at_batch`` then routes every lookup
-                straight through the user's c_fn, giving machine-precision
-                agreement with the analytical C and no truncation
-                error from grid spacing or spline order. Use this
-                when the closed form is fast and the spline error
-                would dominate over QMC noise (e.g. demo1's OU
-                kernel where ``sigma_t = 0.3`` requires ``dt < 0.1``
-                for sub-percent spline accuracy).
-            c_closed_form_vectorized: only meaningful when
-                ``c_closed_form_only=True``. When True, the user's
-                c_fn must accept batched ``(t1, t2, x1, x2)`` arrays
-                of shape ``(n,)`` and return a ``(n, N, N)`` tensor
-                in a single call. When False, the cache falls back
+            c_closed_form_only: ``True`` uses the closed form directly,
+                ``False`` builds a table. The default ``None`` uses direct
+                lookup for a built-in or explicitly vectorised user closed
+                form when no complete spatial grid is requested.
+            c_closed_form_vectorized: required for automatic direct lookup
+                of a user closed form. When True, the user's
+                c_fn must accept batched ``(x1, t1, x2, t2)`` arrays
+                and return a ``(n, N, N)`` tensor in a single call.
+                Times have shape ``(n,)`` and positions have shape
+                ``(n,)`` or ``(n, d)``. When False, the cache falls back
                 to a Python per-sample loop (slow; useful only for
                 small point evaluations or when migrating an
                 existing scalar c_fn).
@@ -176,6 +185,10 @@ class Propagators:
                 ``c_method='gauss_legendre'``; under ``'auto'`` only the
                 count the refinement starts from (default 20).  Cost scales as
                 ``c_n_gauss²`` per sub-region.
+            table_rtol: Maximum sampled C-table error in units of component
+                covariance. A full table is checked on build, and a lazy
+                table as each spatial key is built. None allows a deliberate
+                unchecked interpolation. Direct closed forms use no table.
             diag_C: ``True`` (default): the tables hold ``C_aa`` and C
                 lookups return ``(n, N)`` diagonals, and every read of a
                 closed form takes its diagonal.  ``False``: every
@@ -197,9 +210,6 @@ class Propagators:
         """
         diag_C = _flag(diag_C, "diag_C", "Propagators.build")
         system._require_buildable(t_max, diag_C)
-        c_fn, c_fn_source = _resolve_closed_form_flags(
-            system, c_closed_form, c_closed_form_only, c_closed_form_vectorized
-        )
         from .cache import load_or_compute
 
         hom = homogeneity if homogeneity is not None else system.homogeneity
@@ -208,8 +218,18 @@ class Propagators:
                 f"homogeneity must be one of 'translation', 'rotation', "
                 f"'general'; got {shown(hom)}."
             )
+        spatial_axes = {
+            "translation": (r_max, n_grid_r),
+            "rotation": (n_grid_cos,),
+            "general": (x_max, n_grid_x),
+        }[hom]
+        c_fn, c_fn_source, c_closed_form_only = _resolve_closed_form_flags(
+            system, c_closed_form, c_closed_form_only, c_closed_form_vectorized,
+            full_spatial_grid=all(axis is not None for axis in spatial_axes),
+        )
 
         _check_c_method(c_method)
+        table_rtol = validate_table_rtol(table_rtol)
 
         system_identity = closed_identity = None
         if cache_path is not None:
@@ -219,8 +239,7 @@ class Propagators:
             closed_identity = native_closed_form_identity(c_fn)
         native_selection = (
             c_closed_form is None
-            or type(c_closed_form) is str
-            and c_closed_form == "auto"
+            or type(c_closed_form) is str and c_closed_form in _BUILTIN_C_OPTIONS
         )
         shared_cache_path = (
             cache_path
@@ -249,26 +268,23 @@ class Propagators:
             "c_n_gauss": int(c_n_gauss),
             "diag_C": bool(diag_C),
         }
+        if not c_closed_form_only:
+            spec_key["table_certificate"] = (C_TABLE_CERTIFICATE_VERSION, table_rtol)
 
         def _build() -> "Propagators":
             model = system.build_propagator_model(diag_C=diag_C)
-            if c_fn is not None:
-                cache = PropagatorCache(
-                    model=model,
-                    homogeneity=hom,
-                    c_value_fn=c_fn,
-                    interp_method=interp_method,
-                    c_method=c_method,
-                    n_gauss=int(c_n_gauss),
-                )
-            else:
-                cache = PropagatorCache(
-                    model=model,
-                    homogeneity=hom,
-                    interp_method=interp_method,
-                    c_method=c_method,
-                    n_gauss=int(c_n_gauss),
-                )
+            cache = PropagatorCache(
+                model=model,
+                homogeneity=hom,
+                c_value_fn=c_fn,
+                interp_method=interp_method,
+                c_method=c_method,
+                n_gauss=int(c_n_gauss),
+                table_rtol=None if c_closed_form_only else table_rtol,
+            )
+            cache._closed_form_vectorized = (
+                c_closed_form_vectorized or c_fn_source == "closed_form:builtin"
+            )
 
             if c_closed_form_only:
                 # Skip every spline build. C_at_batch uses
@@ -277,9 +293,6 @@ class Propagators:
                 # built-in form takes arrays whatever the flag says, and the
                 # per-sample loop costs it a factor of about 50.
                 cache._closed_form_only = True
-                cache._closed_form_vectorized = (
-                    c_closed_form_vectorized or c_fn_source == "closed_form:builtin"
-                )
                 return cls(
                     cache=cache, homogeneity=hom, is_lazy=False, c_source=c_fn_source
                 )
@@ -352,15 +365,35 @@ class Propagators:
 
 
 def _resolve_closed_form_flags(
-    system, c_closed_form, c_closed_form_only, c_closed_form_vectorized
+    system, c_closed_form, c_closed_form_only, c_closed_form_vectorized,
+    *, full_spatial_grid=False,
 ):
-    """:func:`_resolve_closed_form`, refusing a ``c_closed_form_only`` that
-    leaves no lookup function and a vectorised contract without it."""
+    """Return the C source and choose a direct lookup or a table.
+
+    A complete spatial grid explicitly asks for tabulation. In the absence
+    of a grid, the default is direct for a built-in formula or an
+    explicitly vectorised user formula. True and False explicitly select
+    direct and table lookup, respectively.
+    """
+    if c_closed_form_only is not None:
+        c_closed_form_only = _flag(
+            c_closed_form_only, "c_closed_form_only", "Propagators.build",
+        )
+    c_closed_form_vectorized = _flag(
+        c_closed_form_vectorized, "c_closed_form_vectorized", "Propagators.build",
+    )
     if c_closed_form_only and c_closed_form is None:
         raise ValueError(
             "c_closed_form_only=True requires c_closed_form to be "
             "set (the no-spline path needs a closed-form callable "
             "to use as the lookup function)."
+        )
+    c_fn, source = _resolve_closed_form(system, c_closed_form)
+    if c_closed_form_only is None:
+        c_closed_form_only = not full_spatial_grid and (
+            source == "closed_form:builtin" or (
+                source == "closed_form:user" and c_closed_form_vectorized
+            )
         )
     if c_closed_form_vectorized and not c_closed_form_only:
         raise ValueError(
@@ -368,7 +401,6 @@ def _resolve_closed_form_flags(
             "c_closed_form_only=True; the vectorised contract is "
             "specific to the no-spline lookup path."
         )
-    c_fn, source = _resolve_closed_form(system, c_closed_form)
     if c_closed_form_only and c_fn is None:
         raise ValueError(
             "c_closed_form_only=True requires a closed form, but "
@@ -376,7 +408,7 @@ def _resolve_closed_form_flags(
             "family has no built-in one (see "
             "sft_wick.workflow.closed_forms)."
         )
-    return c_fn, source
+    return c_fn, source, c_closed_form_only
 
 
 def _resolve_closed_form(system, c_closed_form):
@@ -384,21 +416,29 @@ def _resolve_closed_form(system, c_closed_form):
     if c_closed_form is None:
         return None, None
     if isinstance(c_closed_form, str):
-        if c_closed_form != "auto":
+        if c_closed_form not in _BUILTIN_C_OPTIONS:
             raise ValueError(
-                f"c_closed_form must be 'auto', None or a callable; "
+                f"c_closed_form must be 'auto', 'ou_cse', None or a callable; "
                 f"got {shown(c_closed_form)}."
             )
         from .closed_forms import builtin_closed_form_for
 
-        cf = builtin_closed_form_for(system)
+        if c_closed_form == "ou_cse":
+            cf = builtin_closed_form_for(system, ou_cse=True)
+            if cf is None:
+                raise _UnavailableClosedForm(
+                    "c_closed_form='ou_cse' requires the built-in exponential "
+                    "closed form with constant diagonal drift."
+                )
+        else:
+            cf = builtin_closed_form_for(system)
         if cf is None:
             return None, None
         return cf, "closed_form:builtin"
     if callable(c_closed_form):
         return c_closed_form, "closed_form:user"
     raise TypeError(
-        f"c_closed_form must be 'auto', None or a callable; "
+        f"c_closed_form must be 'auto', 'ou_cse', None or a callable; "
         f"got {type(c_closed_form).__name__}."
     )
 

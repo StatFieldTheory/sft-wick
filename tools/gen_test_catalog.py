@@ -573,6 +573,12 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "per-r full build; dblquad",
         "1e-12 / 1e-6",
     ),
+    "tests/test_c_table_certificate.py": (
+        "Propagator numerics",
+        "C-table time, space and node probes with atomic memory and disk publication",
+        "analytic covariances; independent refined quadrature; failure injection",
+        "declared threshold and rollback invariants",
+    ),
     "tests/test_evaluate_interpolation_accuracy.py": (
         "Propagator numerics",
         "linear vs cubic C-table interpolation on steep tails",
@@ -1888,6 +1894,7 @@ REFERENCE_KIND: dict[str, str] = {
     "tests/test_perturbation.py": "exact_analytic",
     "tests/test_propagator_cache_identity.py": "self_consistency",
     "tests/test_propagator_dispatch.py": "exact_analytic",
+    "tests/test_c_table_certificate.py": "exact_analytic",
     "tests/test_propagator_lookup_cache.py": "none",
     "tests/test_propagators.py": "none",
     "tests/test_qmc_coupling_chunks.py": "exact_analytic",

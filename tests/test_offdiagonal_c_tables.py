@@ -261,6 +261,7 @@ def _table(system, n_grid_t=41, n_gauss=12, diag_C=False, **kw):
     return system.propagators(
         t_max=T_MIN + SPAN, n_grid_t=n_grid_t, c_closed_form=None,
         diag_C=diag_C, c_method="gauss_legendre", c_n_gauss=n_gauss,
+        table_rtol=None,  # These comparisons measure the chosen grid's error.
         progress=False, **kw)
 
 
@@ -464,7 +465,7 @@ def test_full_grid_builders_hold_every_entry(mode):
     props = make().propagators(
         t_max=T_MIN + SPAN, n_grid_t=n_t, homogeneity=mode,
         c_closed_form=None, diag_C=False, c_method="gauss_legendre",
-        c_n_gauss=12, progress=False, **grid)
+        c_n_gauss=12, table_rtol=None, progress=False, **grid)
     cache = props.cache
     ts = np.linspace(T_MIN, T_MIN + SPAN, n_t)
     if mode == "translation":

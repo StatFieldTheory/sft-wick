@@ -80,7 +80,7 @@ def test_DD1_expansion_evaluate_accepts_3d_positions() -> None:
     # Single propagator cache shared between both runs (the cache
     # itself is dimension-agnostic on the translation-mode path).
     props = system.propagators(
-        t_max=2.0, n_grid_t=12, c_closed_form=_load_demo1_C_fn(),
+        t_max=2.0, n_grid_t=12, c_closed_form=_load_demo1_C_fn(), table_rtol=None,
     )
 
     # 1-D run: scalar positions, r encoded as the scalar separation.
@@ -135,7 +135,7 @@ def test_DD2_expansion_evaluate_3d_separation_is_distance_only() -> None:
         ("phi_a(x)", "phi_b(y)"), orders=[0, 2],
     )
     props = system.propagators(
-        t_max=2.0, n_grid_t=12, c_closed_form=_load_demo1_C_fn(),
+        t_max=2.0, n_grid_t=12, c_closed_form=_load_demo1_C_fn(), table_rtol=None,
     )
 
     common = dict(

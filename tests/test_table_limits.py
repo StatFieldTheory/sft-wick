@@ -197,6 +197,7 @@ def _built(kind: str):
         c_closed_form=None,
         c_method="gauss_legendre",
         c_n_gauss=24,
+        table_rtol=None,
         **options,
     )
     return expansion, props
@@ -670,7 +671,10 @@ def test_TL7_clear_cache_keeps_the_limits_of_a_spatial_table(options):
     range must stay for as long as that table can be read."""
     system = _translation()
     expansion = system.expand(("phi_a(x)", "phi_a(y)"), orders=[0])
-    props = system.propagators(t_max=T_MAX, n_grid_t=N_GRID_T, **options)
+    props = system.propagators(
+        t_max=T_MAX, n_grid_t=N_GRID_T, c_closed_form_only=False,
+        table_rtol=None, **options,
+    )
     before = _value(expansion, props, (0.0, 0.5), T_NODE)
     rule = props.cache.c_method_resolved
     props.cache.clear_cache()
@@ -774,6 +778,7 @@ def _doc() -> dict:
             "n_grid_t": N_GRID_T,
             "r_max": R_MAX,
             "n_grid_r": N_GRID_R,
+            "table_rtol": None,
         },
         "sweep": {
             "positions_grid": {"x": [0.0], "y": [0.0, _MID_R]},
@@ -845,7 +850,8 @@ REFUSALS = {
         "t_min",
     ),
     "t_final-lazy": (
-        _with(_lazy_doc(), sweep__t_final_grid=[5.0]),
+        _with(_lazy_doc(), propagators__c_closed_form_only=False,
+              sweep__t_final_grid=[5.0]),
         "sweep.t_final_grid[0]",
         "t_max",
     ),

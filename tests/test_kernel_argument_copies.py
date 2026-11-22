@@ -183,7 +183,7 @@ def test_KC2_L1_order_zero_with_a_writing_kappa(c_method):
         system = _system(write)
         props = system.propagators(t_max=2.4, n_grid_t=10, c_closed_form=None,
                                    c_method=c_method, diag_C=False,
-                                   progress=False)
+                                   table_rtol=None, progress=False)
         exp_ = system.expand(("phi_a(p)", "phi_b(q)"), orders=0, diag_C=False,
                              progress=False)
         px, py = x.copy(), y.copy()
@@ -522,7 +522,8 @@ def test_KC8_gl_c_quadrature_keeps_its_own_first_response(sigma2):
                            linear=sw.ExplicitR(R_time=R, iso_R=False),
                            noise=noise, t_min=0.2)
         props = system.propagators(t_max=2.0, n_grid_t=8, diag_C=False,
-                                   c_method="gauss_legendre", progress=False)
+                                   c_method="gauss_legendre", table_rtol=None,
+                                   progress=False)
         values.append(np.asarray(props.cache.C_value(
             np.array(0.0), 1.7, np.array(0.5), 1.1)))
     assert np.all(values[0] != 0.0)

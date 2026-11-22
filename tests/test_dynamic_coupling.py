@@ -242,7 +242,7 @@ def dc1_setup():
     dyn_igs = _order4_fk_integrands(dyn_sys, fixed_indices)
 
     props = static_sys.propagators(
-        t_max=2.0, n_grid_t=8, c_closed_form=_load_demo1_C_fn(),
+        t_max=2.0, n_grid_t=8, c_closed_form=_load_demo1_C_fn(), table_rtol=None,
     )
     return SimpleNamespace(
         static_igs=static_igs, dyn_igs=dyn_igs, cache=props.cache,
