@@ -1167,6 +1167,13 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "exact Itô moment hierarchy; the pairs by construction",
         "exact / 1e-12",
     ),
+    "tests/test_exact_ou_integrator.py": (
+        "Integrators",
+        "ordered exponential integrals, finite-start cancellation in the OU mean, "
+        "the stationary scalar mean, and covariance eligibility",
+        "analytic ordered exponentials and the stationary OU mean; GL with direct covariance",
+        "1e-13 relative; explicit refusal",
+    ),
     "tests/test_kink_split_external_time.py": (
         "Integrators",
         "a kink between an integration time and an external point pinned "
@@ -1878,6 +1885,7 @@ REFERENCE_KIND: dict[str, str] = {
     "tests/test_iso_c_value.py": "self_consistency",
     "tests/test_ito_moments_reference.py": "exact_analytic",
     "tests/test_kernel_argument_copies.py": "independent_code",
+    "tests/test_exact_ou_integrator.py": "exact_analytic",
     "tests/test_kink_split_external_time.py": "exact_analytic",
     "tests/test_kink_split_nquad_couplings.py": "exact_analytic",
     "tests/test_l1_structure_guards.py": "exact_analytic",
