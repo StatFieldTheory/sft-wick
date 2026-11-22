@@ -250,6 +250,8 @@ def _estimate(cfg, bench_seconds, report_preflight) -> CostEstimate:
     # Resolve the C path as the run would.
     pc = cfg.propagators
     few_nodes = _few_nodes(propagators_kwargs(cfg, _load_c_closed_form(pc)))
+    # Timing uses a deliberately coarse table instead of the requested grid.
+    few_nodes["table_rtol"] = None
     props = system.propagators(**few_nodes)
     # Likewise the reading of the noise under diag_C: made here once for
     # the grid, as the sweep makes it, and not by the benchmark, whose one
@@ -263,6 +265,11 @@ def _estimate(cfg, bench_seconds, report_preflight) -> CostEstimate:
     )
     notes: list[str] = []
     cache = props.cache
+    if pc.table_rtol is not None and not cache._closed_form_only:
+        notes.append(
+            f"the actual table is checked at table_rtol={pc.table_rtol:g}; "
+            "these timings exclude the acceptance probes"
+        )
     if props.c_source.startswith("closed_form") or pc.c_closed_form_only:
         n_c_calls, t_c = 0, None
     else:

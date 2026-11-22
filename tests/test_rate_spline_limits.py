@@ -446,7 +446,7 @@ def test_RS5_nothing_reads_R_at_a_time_of_its_own(linear, t_min, t_max, method):
     )
     expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0, 2])
     got = expansion.evaluate(
-        system.propagators(t_max=t_max, n_grid_t=5),
+        system.propagators(t_max=t_max, n_grid_t=5, table_rtol=None),
         positions={"x": 0.0, "y": 0.3},
         t_final=t_max,
         component_pair=(0, 1),

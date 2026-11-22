@@ -99,7 +99,7 @@ def _doc() -> dict:
     """The quick start at order 0, small enough to run in a test."""
     doc = yaml.safe_load((ROOT / "examples" / "quickstart.yaml").read_text())
     doc["expand"]["orders"] = [0]
-    doc["propagators"].update(t_max=3.0, n_grid_t=6)
+    doc["propagators"].update(t_max=3.0, n_grid_t=6, table_rtol=None)
     doc["sweep"].update(n_samples=16, t_final_grid=[1.0, 2.0],
                         positions_grid={"x": [0.0], "y": [0.0, 0.5]})
     doc["output"] = []
@@ -194,14 +194,18 @@ _ONE_POSITION = _set("sweep", "positions_grid", {"x": [0.0], "y": [0.0]})
 
 #: name -> (change to the config, code, dotted path)
 REFUSED = {
-    "t_final_past_the_table": (_set("sweep", "t_final_grid", [1.0, 4.0]),
-                               "invalid_value", "sweep.t_final_grid[1]"),
+    "t_final_past_the_table": (
+        _all(_set("propagators", "c_closed_form_only", False),
+             _set("sweep", "t_final_grid", [1.0, 4.0])),
+        "invalid_value", "sweep.t_final_grid[1]"),
     "t_final_below_the_table": (
-        _all(_set("system", "t_min", 0.5),
+        _all(_set("propagators", "c_closed_form_only", False),
+             _set("system", "t_min", 0.5),
              _set("sweep", "t_final_grid", [0.25, 1.0])),
         "invalid_value", "sweep.t_final_grid[0]"),
     "pinned_time_past_the_table": (
-        _set("sweep", "external_times_grid", {"x": [4.0], "y": [1.0]}),
+        _all(_set("propagators", "c_closed_form_only", False),
+             _set("sweep", "external_times_grid", {"x": [4.0], "y": [1.0]})),
         "invalid_value", "sweep.external_times_grid.x[0]"),
     "separation_past_the_table": (
         _all(_set("propagators", "r_max", 0.25),
@@ -298,15 +302,22 @@ REFUSED = {
         _all(_set("propagators", "c_closed_form", None),
              _set("propagators", "c_closed_form_only", True)),
         "invalid_value", "propagators.c_closed_form_only"),
-    "c_closed_form_vectorized_alone": (
-        _set("propagators", "c_closed_form_vectorized", True),
+    "c_closed_form_vectorized_with_table": (
+        _all(_set("propagators", "c_closed_form_only", False),
+             _set("propagators", "c_closed_form_vectorized", True)),
         "invalid_value", "propagators.c_closed_form_vectorized"),
-    "t_max_at_t_min": (_set("propagators", "t_max", 0.0),
-                       "invalid_value", "propagators.t_max"),
-    "t_max_below_t_min": (_set("propagators", "t_max", -1.0),
-                          "invalid_value", "propagators.t_max"),
-    "lazy_table_of_three_time_nodes": (_set("propagators", "n_grid_t", 3),
-                                       "invalid_value", "propagators.n_grid_t"),
+    "t_max_at_t_min": (
+        _all(_set("propagators", "c_closed_form_only", False),
+             _set("propagators", "t_max", 0.0)),
+        "invalid_value", "propagators.t_max"),
+    "t_max_below_t_min": (
+        _all(_set("propagators", "c_closed_form_only", False),
+             _set("propagators", "t_max", -1.0)),
+        "invalid_value", "propagators.t_max"),
+    "lazy_table_of_three_time_nodes": (
+        _all(_set("propagators", "c_closed_form_only", False),
+             _set("propagators", "n_grid_t", 3)),
+        "invalid_value", "propagators.n_grid_t"),
     "number_next_to_a_vector_on_one_axis": (
         _set("sweep", "positions_grid", "y", [0.0, [0.5, 0.5]]),
         "invalid_value", "sweep.positions_grid.y[1]"),

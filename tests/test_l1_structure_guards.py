@@ -518,7 +518,9 @@ def test_a_kernel_diagonal_on_the_window_is_evaluated_under_diag_C(case):
 
     system = system_of(kernel)
     exp = system_of(own[0] if own else kernel).expand(OBS, orders=[0])
-    props = system.propagators(t_max=T, n_grid_t=5, progress=False)
+    # The comparison samples table endpoints. The apart-only kernel also
+    # leaves the coincident-position variance used for certification undefined.
+    props = system.propagators(t_max=T, n_grid_t=5, table_rtol=None, progress=False)
     half = dblquad(lambda s2, s1: np.exp(-g * (2 * T - s1 - s2) - (s1 - s2)),
                    t_min, T, t_min, lambda s1: s1,
                    epsabs=1e-14, epsrel=1e-13)[0]

@@ -981,18 +981,18 @@ prints the same keys as a JSON Schema; see `Checking a config`_.
      n_grid_x:           null
 
      # closed-form C hook (machine precision; bypasses the cache)
-     # 'auto': built-in closed form when the kernel family has one
-     # (diagonal constant drift + separable exponential-temporal noise,
-     # optional constant white noise); null forces quadrature
+     # 'auto': built-in closed form for eligible stationary kernels
+     # with diagonal constant drift and optional constant white noise
      c_closed_form:           auto
      c_closed_form_module:    null   # ./c_closed_form.py
      c_closed_form_attr:      C_fn   # callable name in the module
-     c_closed_form_only:      false  # skip spline cache entirely
-     c_closed_form_vectorized: false # c_fn accepts (n,) arrays, returns (n, N, N)
+     c_closed_form_only:      null   # automatic selection (true = direct, false = table)
+     c_closed_form_vectorized: false # batched c_fn returns (n, N, N)
 
      # quadrature for the inner ∫ R κ² R when no closed form is given
      c_method:           auto         # 'auto' | 'dblquad' | 'gauss_legendre'
      c_n_gauss:          20           # GL nodes/dim under 'gauss_legendre'; start under 'auto'
+     table_rtol:         1.0e-6       # sampled C-table tolerance; null allows unchecked interpolation
 
      diag_C:             true         # false: tabulate every C_ab, for a C with
                                       # off-diagonal entries (dense R, mixing
@@ -1141,7 +1141,7 @@ Section reference: ``system``
    * - ``noise.kappa2.temporal``
      - block
      - **required** (separable variants)
-     - ``{type: exponential|gaussian, lam, sigma_t}``, or ``{type: custom, module: ./kernels.py, attr: temporal}`` for any callable ``κ(Δt) → float`` (lowered to :class:`~sft_wick.workflow.CustomKernel`); see :doc:`expressions`
+     - ``{type: exponential|gaussian|matern32, lam, sigma_t}`` or ``{type: damped_cosine, lam, sigma_t, omega}``. Use ``{type: custom, module: ./kernels.py, attr: temporal}`` for a callable ``κ(Δt) → float``. See :doc:`expressions`.
    * - ``noise.kappa2.spatial``
      - block
      - **required** (``separable_translation``)
@@ -1386,7 +1386,7 @@ Section reference: ``propagators``
    * - ``c_closed_form``
      - ``str``
      - ``"auto"``
-     - How C is obtained without quadrature. ``"auto"`` (default) uses the built-in closed form when the kernel family has one (diagonal constant drift + separable exponential-temporal noise, optionally a constant white-noise impulse) and falls through to ``c_method`` otherwise; ``null`` forces quadrature. A ``c_closed_form_module`` supplies your own closed form and takes precedence over both. See :ref:`integrator-choice` below
+     - ``"auto"`` (default) selects a built-in C when available and otherwise uses ``c_method``. ``null`` selects quadrature. A ``c_closed_form_module`` supplies your own form and takes precedence over both. See :ref:`integrator-choice`.
    * - ``c_closed_form_module``
      - ``str``
      - ``null``
@@ -1396,13 +1396,13 @@ Section reference: ``propagators``
      - ``"C_fn"``
      - Attribute name in the module
    * - ``c_closed_form_only``
-     - ``bool``
-     - ``false``
-     - Skip the spline cache entirely; route every C lookup through ``C_fn`` for machine precision
+     - ``bool | null``
+     - ``null``
+     - Use a built-in or explicitly vectorised user closed form directly when no complete spatial grid is requested. Set ``true`` for direct lookup or ``false`` for a table
    * - ``c_closed_form_vectorized``
      - ``bool``
      - ``false``
-     - ``C_fn`` accepts ``(n,)``-shaped time/position arrays and returns ``(n, N, N)`` (only with ``c_closed_form_only: true``)
+     - ``C_fn`` returns ``(n, N, N)`` on the direct path. Times have shape ``(n,)`` and positions have shape ``(n,)`` or ``(n, d)``
    * - ``c_method``
      - ``str``
      - ``"auto"``
@@ -1411,6 +1411,10 @@ Section reference: ``propagators``
      - ``int``
      - ``20``
      - GL nodes per dimension when ``c_method: gauss_legendre`` (cost ``c_n_gauss²`` per sub-region); under ``auto`` the count the refinement starts from, tested at least once however large, and the table uses the converged count that ``c_source`` and ``--dry-run`` report
+   * - ``table_rtol``
+     - positive ``float`` or ``null``
+     - ``1e-6``
+     - Sampled C-table acceptance tolerance in units of component covariance. Full tables are checked on build and lazy tables are checked per spatial key. Direct closed forms use no table. Set ``null`` for deliberate unchecked interpolation
    * - ``diag_C``
      - ``bool``
      - ``true``
@@ -1451,6 +1455,24 @@ full spatial grid also limits positions:
    * - Lazy translation or general
      - None; a table is built for each position asked for
 
+Workflow tables are checked before they can serve a correlator. The check
+samples off-grid times in both time orders, physical grid knots and, for a
+full spatial table, offsets along the spatial axes and inside sampled
+space-time cells. It compares
+the candidate with closed-form C when available, or with a refined rule
+using different quadrature nodes. Each component is scaled by the
+geometric mean of its two collocated variances, sampled at five equal-time
+anchors across the interval. The reported estimate is 1.25 times the
+largest sampled residual in these units.
+
+An error names the worst sampled times, positions and component. Time
+grid refinement, spatial grid refinement and node quadrature refinement
+address the corresponding categories. A lazy recipe has no measurements
+before its first lookup. Successful measurements are available from
+``props.cache.table_certificates`` and failed measurements from
+``CTableAccuracyError.certificate``. The low-level
+``PropagatorCache(table_rtol=...)`` enables the same check on demand.
+
 Past these limits a lazy table would clamp to its edge and a full-grid table
 would extrapolate, so a request outside them is refused.  ``sft-wick validate``
 and ``sft-wick run`` stop before the expansion, with exit status 2 and one
@@ -1469,9 +1491,12 @@ A value within rounding of a limit is read at the limit, so ``t_final`` equal
 to ``t_max`` is valid.  ``t_final`` is compared only when a point of the
 observable is left free, and a point in ``integrate_over`` counts as free:
 with every point pinned by ``external_times_grid`` it is not read, and it can
-be anything.  With ``c_closed_form_only: true`` no table is built and none of
+be anything.  With direct closed-form lookup no table is built and none of
 these limits applies; a time before ``t_min`` is then neither refused nor
 given a meaning, and a response operator pinned there reads R of that time.
+
+On the direct path, ``PropagatorCache.C_value`` can return a read-only cached
+matrix. Call ``.copy()`` on that matrix before modifying it in place.
 
 A callable ``gamma`` puts a second limit on time, which holds with or without
 a table: R reads a spline that covers ``t_min_cache`` to ``t_max_cache``, and
@@ -1915,10 +1940,15 @@ Two layers in the pipeline run numerical quadrature:
 1. **C-propagator construction** (``propagators.c_method``): the
    inner :math:`\int_0^{t_1}\!\int_0^{t_2} R(t_1,\lambda_1)\,
    \kappa^2(\lambda_1,\lambda_2)\,R(t_2,\lambda_2)\,d\lambda` for
-   each :math:`(t_1, t_2, n_1, n_2)` cache cell. Skipped entirely
-   when a closed form applies: the built-in one under
-   ``c_closed_form: auto`` (the default), or your own via
-   ``c_closed_form_module``.
+   each :math:`(t_1, t_2, n_1, n_2)` cache cell. An available closed
+   form evaluates C directly under ``c_closed_form: auto`` or via a
+   user-supplied ``c_closed_form_module``.
+
+   Set ``c_closed_form: ou_cse`` for constant diagonal drift and
+   separable exponential-temporal noise. In Python, pass
+   ``c_closed_form="ou_cse"`` to ``System.propagators``. The formula
+   reuses exponentials at each fixed component rate and uses a
+   short-time series near ``t_min``.
 2. **Diagram evaluation** (``sweep.method``): the outer
    :math:`d`-dimensional time integral over the causal simplex,
    one evaluation per ``(positions, t_final, component_pair)``
@@ -1972,11 +2002,13 @@ Decision matrix:
      - Trade-off
    * - ``propagators.c_closed_form``
      - ``auto`` (default)
-     - Diagonal constant drift + separable exponential-temporal noise
-       (the demo1 / demo2 family), optional constant white noise
-     - **No quadrature at all**: the built-in closed form fills the
-       table in milliseconds.  ``null`` forces quadrature; a
-       ``c_closed_form_module`` supplies your own.
+     - Diagonal constant drift with separable translation noise and an
+       exponential, Gaussian, Matérn-3/2 or damped-cosine temporal kernel.
+       Constant white noise can be added.
+     - The Gaussian uses an erfcx expression and a short-interval
+       lag integral when stationary subtraction loses precision.
+       With ``matern32``, the decay rate is :math:`\sqrt{3}/\sigma_t`.
+       With ``damped_cosine``, ``omega`` is the angular frequency.
    * - ``propagators.c_method``
      - ``auto`` (default)
      - Any κ² when no closed form applies, a user callable included

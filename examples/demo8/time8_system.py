@@ -138,10 +138,10 @@ def exact_C(p, *, n: int = 32, has_diagonal_kink: bool | None = None):
 
 def table_propagators(system: sw.System, t_max: float, n_grid_t: int, *,
                       c_method: str = "auto", c_n_gauss: int = 20):
-    """The package's own C: quadrature table, spline lookup."""
+    """A fixed-resolution quadrature table for comparison with the reference."""
     return system.propagators(t_max=t_max, n_grid_t=n_grid_t,
                               c_closed_form=None, c_method=c_method,
-                              c_n_gauss=c_n_gauss, progress=False)
+                              c_n_gauss=c_n_gauss, table_rtol=None, progress=False)
 
 
 def exact_propagators(system: sw.System, c_fn, t_max: float):

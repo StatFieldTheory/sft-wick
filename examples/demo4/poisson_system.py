@@ -183,10 +183,11 @@ def quadrature_propagators_for(system: sw.System, p: nz.Params, t_max: float,
     ordered pair of points.  Accuracy is the table's: at ``n_grid_t=21``
     (white) and 17 (exponential) the level-B channels land within 2.0e-07
     and 3.4e-03 (white, order 0 and FF) and 2.4e-07 and 1.2e-05
-    (exponential) of the hierarchy.  Reached by
+    (exponential) of the hierarchy. The comparison deliberately keeps
+    that resolution and uses its channel tolerances. Reached by
     ``level_b.py --c-quadrature``.
     """
     return system.propagators(
         t_max=t_max, n_grid_t=n_grid_t, c_closed_form=None, diag_C=False,
         homogeneity="translation", c_method="gauss_legendre",
-        c_n_gauss=n_gauss, progress=False)
+        c_n_gauss=n_gauss, table_rtol=None, progress=False)

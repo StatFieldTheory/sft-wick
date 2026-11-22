@@ -10,10 +10,12 @@ Provides the 4-step workflow:
 from __future__ import annotations
 
 from collections import OrderedDict, defaultdict
+from copy import copy
 from dataclasses import dataclass, field
 from contextlib import contextmanager
-from functools import cached_property, lru_cache
+from functools import cached_property, lru_cache, wraps
 from math import fsum, isfinite
+from threading import RLock
 from types import MethodType, SimpleNamespace
 from typing import Any, Callable, Iterable, NamedTuple
 
@@ -36,6 +38,12 @@ from ._qmc_diagnostics import (
 from .expressions import Propagator
 from .indices import is_literal_component, literal_component, pinned_component
 from .wick import r_vanishes
+from ._c_table_certificate import (
+    CTableAccuracyError,
+    measure_table,
+    spatial_probes,
+    validate_table_rtol,
+)
 from ._propagator_lookup import (
     _PropagatorLookupCache,
     validate_cache_options,
@@ -1642,6 +1650,7 @@ class _LazyTimeSplineCache:
         #: diagonal running through the cells.
         self.us = np.linspace(0.0, t_max - parent.model.t_min, n_grid_t)
         self._splines_by_key: dict = {}
+        self._certificates: dict = {}
         #: Separable-translation shortcut (see :meth:`_build`): the
         #: ``(L, E)`` grids at zero separation divided by ``κ_x(0)``, built
         #: once and rescaled by ``κ_x(r)`` for every later ``r``.
@@ -1662,11 +1671,30 @@ class _LazyTimeSplineCache:
         """Return the list of per-component 2-D splines for this
         (x1, x2) pair.  Builds and memoizes on first call."""
         key = self._make_key(x1_val, x2_val)
-        if key not in self._splines_by_key:
+        with self.parent._table_lock:
+            if key in self._splines_by_key:
+                return self._splines_by_key[key]
+            parent = self.parent._table_candidate()
+            candidate = copy(self)
+            candidate.parent = parent
             if self.mode == "translation":
-                self.parent._require_even_separation([(x1_val, x2_val)])
-            self._splines_by_key[key] = self._build(x1_val, x2_val)
-        return self._splines_by_key[key]
+                parent._require_even_separation([(x1_val, x2_val)])
+            try:
+                splines = candidate._build(x1_val, x2_val)
+                certificate = parent._certify_table(
+                    self.ts,
+                    [(x1_val, x2_val, lambda t1, t2: np.column_stack(
+                        [spline(t1, t2, grid=False) for spline in splines]
+                    ))],
+                )
+            finally:
+                self.n_grid_builds = candidate.n_grid_builds
+            self.parent._publish_table_rules(parent)
+            self._base_grids = candidate._base_grids
+            if certificate is not None:
+                self._certificates[key] = certificate
+            self._splines_by_key[key] = splines
+            return splines
 
     def _make_key(self, x1_val, x2_val):
         """Derive the memoization key.  In translation mode the key is the
@@ -3868,6 +3896,38 @@ def _unique_time_pairs(tl: np.ndarray, tr: np.ndarray) -> tuple[np.ndarray, np.n
     return uniq, np.asarray(inverse).reshape(-1)
 
 
+_LAZY_TABLE_ATTRS = ("_lazy_translation", "_lazy_rotation", "_lazy_general")
+
+
+def _with_c_table_lock(*, bypass_direct=False):
+    def lock(method):
+        @wraps(method)
+        def locked(self, *args, **kwargs):
+            if bypass_direct and self._closed_form_only:
+                return method(self, *args, **kwargs)
+            with self._table_lock:
+                return method(self, *args, **kwargs)
+        return locked
+    return lock
+
+
+def _stage_c_table(build):
+    """Give a builder isolated state until its table can be published."""
+    @_with_c_table_lock()
+    @wraps(build)
+    def staged(self, *args, **kwargs):
+        candidate = self._table_candidate(copy_lazy=True)
+        build(candidate, *args, **kwargs)
+        for name in _LAZY_TABLE_ATTRS:
+            lazy = getattr(candidate, name)
+            if lazy is not None:
+                lazy.parent = self
+        # Publish all selectors, rules and their corresponding interpolators
+        # while the lookup lock is held.
+        self.__dict__.update(PropagatorCache.__getstate__(candidate))
+    return staged
+
+
 class PropagatorCache:
     """Evaluates and caches propagator values.
 
@@ -3889,6 +3949,7 @@ class PropagatorCache:
         c_method: str = "auto",
         n_gauss: int = DEFAULT_C_N_GAUSS,
         c_value_fn: Callable | None = None,
+        table_rtol: float | None = None,
     ):
         """Initialise the propagator cache.
 
@@ -3898,6 +3959,9 @@ class PropagatorCache:
                 :data:`_QUAD_TOLERANCES`.  An entry of C that cancels to 0
                 cannot meet a relative tolerance, so scipy warns on it unless
                 ``epsabs`` is given.
+            table_rtol: Positive tolerance in units of component covariance
+                for deterministic C-table probes. None keeps the low-level
+                approximation path without checking a certificate.
             c_value_fn: Optional ``(n1, t1, n2, t2) -> (N, N)`` callable that
                 **replaces** the quadrature construction of C entirely.
 
@@ -4021,6 +4085,9 @@ class PropagatorCache:
         self.interp_method = interp_method
         self.c_method = c_method
         self.n_gauss = int(n_gauss)
+        self.table_rtol = validate_table_rtol(table_rtol)
+        self._table_certificate = None
+        self._table_lock = RLock()
         #: Rules of :meth:`_c_rule`, by pair of positions and horizon.
         self._c_rules: dict = {}
         #: The error that ended a search of those that ended in one, as text.
@@ -4064,6 +4131,7 @@ class PropagatorCache:
         #: construction and cannot represent the diagonal kink.
         self._c_diag_splines: list | None = None
         self._c_table_range: tuple[float, float] | None = None
+        self._c_legacy_table_range: tuple[float, float] | None = None
 
         # Full N-D spatial splines, populated by precompute_C_table_*
         # with an explicit parameter grid:
@@ -4134,6 +4202,7 @@ class PropagatorCache:
             result *= float(self.R_time(t_l, t_r))
         return result
 
+    @_with_c_table_lock()
     def C_value(
         self,
         n1: Any,
@@ -4282,6 +4351,7 @@ class PropagatorCache:
                 self._c_cache.popitem(last=False)
         return C_mat
 
+    @_with_c_table_lock()
     def C_diagonal(
         self,
         n: Any,
@@ -4332,6 +4402,7 @@ class PropagatorCache:
         """
         state = self.__dict__.copy()
         state["_c_cache"] = OrderedDict()
+        state.pop("_table_lock", None)
         return state
 
     def __setstate__(self, state: dict) -> None:
@@ -4345,7 +4416,45 @@ class PropagatorCache:
             )
         self.__dict__.update(state)
         self.__dict__.setdefault("_c_rule_raised", {})
+        self.__dict__.setdefault("table_rtol", None)
+        self.__dict__.setdefault("_table_certificate", None)
+        self.__dict__.setdefault("_c_legacy_table_range", state.get("_c_table_range"))
+        self._table_lock = RLock()
 
+    def _table_candidate(self, *, copy_lazy=False):
+        candidate = copy(self)
+        for name in ("_table_rules", "_c_rules", "_c_rule_raised", "_c_rule_warnings"):
+            setattr(candidate, name, getattr(self, name).copy())
+        if copy_lazy:
+            for name in _LAZY_TABLE_ATTRS:
+                lazy = getattr(self, name)
+                if lazy is not None:
+                    staged = copy(lazy)
+                    staged.parent = candidate
+                    staged._splines_by_key = lazy._splines_by_key.copy()
+                    staged._certificates = getattr(lazy, "_certificates", {}).copy()
+                    setattr(candidate, name, staged)
+        return candidate
+
+    def _publish_table_rules(self, candidate):
+        self._table_rules = candidate._table_rules
+        self._c_rules = candidate._c_rules
+        self._c_rule_raised = candidate._c_rule_raised
+        self._c_rule_warnings = candidate._c_rule_warnings
+
+    @property
+    def table_certificates(self) -> dict:
+        """Successful measurements, by lazy spatial key or None for a full table."""
+        with self._table_lock:
+            for name in _LAZY_TABLE_ATTRS:
+                lazy = getattr(self, name)
+                if lazy is not None:
+                    return getattr(lazy, "_certificates", {}).copy()
+            if self._table_certificate is not None:
+                return {None: self._table_certificate}
+            return {}
+
+    @_with_c_table_lock()
     def clear_cache(self) -> None:
         """Clear the C value cache and spline table, and the rules of that
         table.  A spatial table stays, with its range and rules."""
@@ -4353,11 +4462,14 @@ class PropagatorCache:
         self._c_splines = None
         self._c_splines_entries = None
         self._c_diag_splines = None
+        self._c_legacy_table_range = None
         if not _cache_has_spatial_table(self):
             self._c_table_range = None
             self._table_rules = {}
             self._table_horizon = None
+            self._table_certificate = None
 
+    @_stage_c_table
     def precompute_C_table(
         self,
         t_max: float,
@@ -4392,7 +4504,9 @@ class PropagatorCache:
         t_min = m.t_min
         ts = np.linspace(t_min, t_max, n_grid)
         entries = self._c_table_entries()
-        self._resolve_build_method(None, None, t_max, [(direction, direction)])
+        spatial_table = _cache_has_spatial_table(self)
+        if not spatial_table:
+            self._resolve_build_method(None, None, t_max, [(direction, direction)])
 
         # One grid per stored entry: C_aa, or every C_ab under diag_C=False.
         grids = [np.zeros((n_grid, n_grid)) for _ in entries]
@@ -4424,8 +4538,24 @@ class PropagatorCache:
         # Along the diagonal itself ``t -> C(t,t)`` is smooth, so a 1-D cubic
         # spline restores O(h^4).
         self._c_diag_splines = [_diag_line_interp(ts, np.diag(g)) for g in grids]
-        self._c_table_range = (t_min, t_max)
+        self._c_legacy_table_range = (t_min, t_max)
+        if not spatial_table:
+            self._c_table_range = self._c_legacy_table_range
         self._c_table_direction = direction
+        if self.table_rtol is not None:
+            a, b = np.array(entries).T
+
+            def legacy_lookup(times1, times2):
+                return np.array([
+                    self._C_value_from_table(t1, t2)[a, b]
+                    for t1, t2 in zip(times1, times2)
+                ])
+
+            certificate = self._certify_table(
+                ts, [(direction, direction, legacy_lookup)]
+            )
+            if not spatial_table:
+                self._table_certificate = certificate
 
     @property
     def has_table(self) -> bool:
@@ -4438,7 +4568,7 @@ class PropagatorCache:
         The tolerance is a fraction of the table's span, so it does not move
         with the origin of time, or rounding of the times where that is larger.
         """
-        lo, hi = self._c_table_range
+        lo, hi = self._c_legacy_table_range or self._c_table_range
         rounding = _DIAG_ROUNDING * max(abs(lo), abs(hi))
         tol = max(_DIAG_TOL * (hi - lo), rounding)
         return np.abs(np.asarray(t1) - np.asarray(t2)) <= tol
@@ -4520,15 +4650,18 @@ class PropagatorCache:
 
     # --- Vectorized methods for batch evaluation ---
 
-    def _refuse_times_past_table(self, t1: np.ndarray, t2: np.ndarray) -> None:
+    def _refuse_times_past_table(self, t1: np.ndarray, t2: np.ndarray, *, legacy=False) -> None:
         """Raise if a time is outside ``_c_table_range``, if there is one."""
-        if self._c_table_range is None:
+        limits = (self._c_legacy_table_range or self._c_table_range
+                  if legacy else self._c_table_range)
+        if limits is None:
             return
-        lo, hi = self._c_table_range
+        lo, hi = limits
         remedy = "Rebuild the propagators with a t_max that covers it."
         _refuse_past_table("t1", t1, lo, hi, remedy)
         _refuse_past_table("t2", t2, lo, hi, remedy)
 
+    @_with_c_table_lock()
     def C_diagonal_batch(
         self,
         t1: np.ndarray,
@@ -4555,7 +4688,7 @@ class PropagatorCache:
         # (see _read_only_view).
         t1 = _read_only_view(np.asarray(t1))
         t2 = _read_only_view(np.asarray(t2))
-        self._refuse_times_past_table(t1, t2)
+        self._refuse_times_past_table(t1, t2, legacy=True)
         n = len(t1)
         N = self.model.n_components
         ks = self._legacy_diag_ks()
@@ -4575,6 +4708,7 @@ class PropagatorCache:
                     result[on_diag, a] = _diag_line_eval(self._c_diag_splines[k], td)
         return result
 
+    @_with_c_table_lock()
     def C_matrix_batch(
         self,
         t1: np.ndarray,
@@ -4593,7 +4727,7 @@ class PropagatorCache:
         # Read-only views for _on_diagonal (see _read_only_view).
         t1a = _read_only_view(np.atleast_1d(np.asarray(t1, dtype=float)))
         t2a = _read_only_view(np.atleast_1d(np.asarray(t2, dtype=float)))
-        self._refuse_times_past_table(t1a, t2a)
+        self._refuse_times_past_table(t1a, t2a, legacy=True)
         n = len(t1a)
         N = self.model.n_components
         result = np.zeros((n, N, N))
@@ -5287,6 +5421,72 @@ class PropagatorCache:
         """
         return mode == "general" or not self._c_time_symmetric()
 
+    def _certificate_reference(self, x1, t1, x2, t2):
+        c_fn = _closed_form_c(self)
+        if c_fn is not None and self._closed_form_vectorized:
+            left, right = np.asarray(x1), np.asarray(x2)
+            return np.asarray(c_fn(
+                np.broadcast_to(left, (len(t1), *left.shape)).copy(), t1.copy(),
+                np.broadcast_to(right, (len(t2), *right.shape)).copy(), t2.copy(),
+            ), dtype=float)
+        if c_fn is not None or self._direct_is_overridden():
+            return np.stack([
+                np.array(_C_value_direct_on_copies(self, x1, a, x2, b), copy=True)
+                for a, b in zip(t1, t2)
+            ])
+
+        # Distinct nodes from those used to fill the table. In particular,
+        # re-running the construction at its own knots would miss quadrature
+        # error exactly, even when the table interpolates each knot correctly.
+        method, count = self._reported_rule()
+        if method == "gauss_legendre":
+            reference_rule = {"n_gauss": max(32, 2 * int(count or self.n_gauss))}
+        else:
+            levels = int(count or _GRADED_LEVELS[0])
+            reference_rule = {"graded_levels": levels + 2,
+                              "graded_nodes": _GRADED_CHECK_NODES}
+        return np.stack([
+            _C_value_direct_gl(
+                self.model, _own_copy(x1), a, _own_copy(x2), b, **reference_rule,
+            )
+            for a, b in zip(t1, t2)
+        ])
+
+    def _certify_table(self, ts, knots, off_knots=(), joint=()):
+        if self.table_rtol is None:
+            return None
+        certificate = measure_table(
+            self.table_rtol,
+            ts,
+            self._c_table_entries(),
+            self._certificate_reference,
+            (knots, off_knots, joint),
+        )
+        if certificate.estimate > certificate.tolerance:
+            raise CTableAccuracyError(certificate)
+        return certificate
+
+    def _certify_full_table(self, t_max, n_grid_t, axes, positions, splines):
+        if self.table_rtol is None:
+            return None
+
+        def sample(coordinates):
+            x1, x2 = positions(coordinates)
+
+            def lookup(t1, t2):
+                spatial_columns = np.broadcast_to(coordinates, (len(t1), len(axes)))
+                points = np.column_stack((t1, t2, spatial_columns))
+                return np.column_stack([interp(points) for interp in splines])
+
+            return x1, x2, lookup
+
+        ts = np.linspace(self.model.t_min, t_max, n_grid_t)
+        knots, off_knots, joint = spatial_probes(axes)
+        return self._certify_table(
+            ts, [sample(p) for p in knots], [sample(p) for p in off_knots],
+            [sample(p) for p in joint],
+        )
+
     def _tabulate(
         self,
         shape: tuple,
@@ -5306,6 +5506,28 @@ class PropagatorCache:
         from .progress import progress_map
 
         entries = self._c_table_entries()
+        c_fn = _closed_form_c(self)
+
+        if c_fn is not None and self._closed_form_vectorized and not self._direct_is_overridden():
+            def batch(points):
+                indices, x1, t1, x2, t2 = zip(*points)
+                values = np.array(c_fn(
+                    np.array(x1), np.array(t1), np.array(x2), np.array(t2),
+                ), dtype=float, copy=True)
+                count = self.model.n_components
+                if values.shape != (len(indices), count, count):
+                    raise ValueError(
+                        "a vectorized closed-form C must return (n, N, N) "
+                        "on a batch of table knots"
+                    )
+                return tuple(np.asarray(indices, dtype=int).T), values
+
+            batches = [cells[start:start + 4096] for start in range(0, len(cells), 4096)]
+            grids = [np.zeros(shape) for _ in entries]
+            for target, values in progress_map(batch, batches, desc, n_jobs=n_jobs, unit="batch"):
+                for grid, (a, b) in zip(grids, entries):
+                    grid[target] = values[:, a, b]
+            return grids
 
         def _point(args):
             idx, x1, t1, x2, t2 = args
@@ -5415,6 +5637,7 @@ class PropagatorCache:
     # Spatial-aware extension: (t, x) coordinates via homogeneity modes
     # ------------------------------------------------------------------ #
 
+    @_stage_c_table
     def precompute_C_table_translation(
         self,
         t_max: float,
@@ -5501,6 +5724,10 @@ class PropagatorCache:
         m = self.model
         t_min = m.t_min
         self._c_table_range = (t_min, t_max)
+        self._c_translation_splines = None
+        self._c_translation_r_range = None
+        self._lazy_translation = None
+        self._table_certificate = None
         if r_max is not None and n_grid_r is not None:
             self._require_even_separation(
                 [(0.0, r) for r in np.linspace(0.0, float(r_max), n_grid_r)]
@@ -5542,7 +5769,12 @@ class PropagatorCache:
             n_jobs,
         )
         self._c_translation_r_range = (0.0, r_max)
+        self._table_certificate = self._certify_full_table(
+            t_max, n_grid_t, (rs,), lambda p: (np.asarray(0.0), np.asarray(p[0])),
+            self._c_translation_splines,
+        )
 
+    @_stage_c_table
     def precompute_C_table_rotation(
         self,
         t_max: float,
@@ -5607,6 +5839,9 @@ class PropagatorCache:
         m = self.model
         t_min = m.t_min
         self._c_table_range = (t_min, t_max)
+        self._c_rotation_splines = None
+        self._lazy_rotation = None
+        self._table_certificate = None
 
         def _rep_vectors(cos_val):
             """Return a pair of unit vectors with dot product cos_val.
@@ -5653,7 +5888,12 @@ class PropagatorCache:
             "cos",
             n_jobs,
         )
+        self._table_certificate = self._certify_full_table(
+            t_max, n_grid_t, (coses,), lambda p: _rep_vectors(p[0]),
+            self._c_rotation_splines,
+        )
 
+    @_stage_c_table
     def precompute_C_table_general(
         self,
         t_max: float,
@@ -5704,6 +5944,10 @@ class PropagatorCache:
         m = self.model
         t_min = m.t_min
         self._c_table_range = (t_min, t_max)
+        self._c_general_interpolators = None
+        self._c_general_axes = None
+        self._lazy_general = None
+        self._table_certificate = None
         self._resolve_build_method(
             c_method,
             n_gauss,
@@ -5745,6 +5989,10 @@ class PropagatorCache:
             xs,
             xs,
         )
+        self._table_certificate = self._certify_full_table(
+            t_max, n_grid_t, (xs, xs), lambda p: (np.asarray(p[0]), np.asarray(p[1])),
+            self._c_general_interpolators,
+        )
 
     def _C_value_direct(
         self,
@@ -5785,6 +6033,12 @@ class PropagatorCache:
         c_fn = _closed_form_c(self)
         if c_fn is not None:
             # User-supplied C replaces the whole quadrature construction.
+            if self._closed_form_vectorized and np.ndim(t1) == np.ndim(t2) == 0:
+                value = c_fn(
+                    _positions_per_sample(n1, 1), np.atleast_1d(t1),
+                    _positions_per_sample(n2, 1), np.atleast_1d(t2),
+                )
+                return _closed_form_value(value, t1, t2)
             return _closed_form_value(c_fn(n1, t1, n2, t2), t1, t2)
 
         m = self.model
@@ -5960,6 +6214,7 @@ class PropagatorCache:
 
         return C_mat
 
+    @_with_c_table_lock(bypass_direct=True)
     def C_at_batch(
         self,
         t1: np.ndarray,

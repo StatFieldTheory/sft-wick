@@ -53,9 +53,11 @@ from sft_wick.evaluate import (
     _validate_gl_error,
     _validate_qmc_replicas,
 )
+from sft_wick._c_table_certificate import DEFAULT_TABLE_RTOL, validate_table_rtol
 from sft_wick.progress import _FALSY, _TRUTHY, env_flag
 
 from ._messages import MAX_INT_BITS, shown, text_of
+from .propagators import _BUILTIN_C_OPTIONS
 
 # =========================================================================
 # Internal dataclasses: a thin typed mirror of the L1 ``System`` spec
@@ -122,7 +124,7 @@ class PropagatorsConfig:
     c_closed_form: Any = "auto"
     c_closed_form_module: Any = None
     c_closed_form_attr: str = "C_fn"
-    c_closed_form_only: bool = False
+    c_closed_form_only: bool | None = None
     c_closed_form_vectorized: bool = False
     cache_path: Any = None
     interp_method: str = "linear"
@@ -130,6 +132,7 @@ class PropagatorsConfig:
     #: dblquad with a warning) | 'gauss_legendre' | 'dblquad'
     c_method: str = "auto"
     c_n_gauss: int = DEFAULT_C_N_GAUSS  # nodes per dim under c_method='gauss_legendre'
+    table_rtol: float | None = DEFAULT_TABLE_RTOL
     diag_C: bool = True  # set False to preserve off-diagonal C entries
     #                       (e.g. lensing kappa-gamma_+ cross, a dense R,
     #                       a mixing noise); the C tables then hold every
@@ -1126,6 +1129,7 @@ _PROPAGATORS_KEYS = frozenset(
         "interp_method",
         "c_method",
         "c_n_gauss",
+        "table_rtol",
         "diag_C",
     }
 )
@@ -2367,17 +2371,17 @@ def _parse_expand(d: dict) -> ExpandConfig:
 
 
 def _closed_form_setting(value: Any) -> str | None:
-    """``propagators.c_closed_form``: ``"auto"`` or ``None``."""
+    """Normalize the built-in closed-form choice and accept explicit off."""
     if isinstance(value, (bool, np.bool_)):
         return "auto" if value else None
     if value is None or value in _CLOSED_FORM_OFF:
         return None
-    if isinstance(value, str) and value.lower() == "auto":
-        return "auto"
+    if isinstance(value, str) and value.lower() in _BUILTIN_C_OPTIONS:
+        return value.lower()
     raise ConfigError(
         "invalid_value",
         "propagators.c_closed_form",
-        f"must be 'auto' or null/false; got {shown(value)}.  To supply your "
+        f"must be 'auto', 'ou_cse' or null/false; got {shown(value)}.  To supply your "
         f"own closed form use c_closed_form_module / c_closed_form_attr",
     )
 
@@ -2393,9 +2397,9 @@ def _parse_propagators(d: dict, base_dir: Path, t_min: float) -> PropagatorsConf
         )
 
     # c_closed_form_only builds no table, so it reads neither of these.
-    only = _flag(
-        d, "c_closed_form_only", PropagatorsConfig.c_closed_form_only, "propagators"
-    )
+    only = d.get("c_closed_form_only", PropagatorsConfig.c_closed_form_only)
+    if only is not None:
+        only = _as_bool(only, "propagators.c_closed_form_only")
     t_max = _number(d["t_max"], "propagators.t_max", finite=not only)
     dt = d.get("dt")
     if dt is not None:
@@ -2447,6 +2451,10 @@ def _parse_propagators(d: dict, base_dir: Path, t_min: float) -> PropagatorsConf
             f"must be one of {_or_list(_INTERP_METHODS)}; got {shown(interp_method)}",
             _nearest(interp_method, _INTERP_METHODS),
         )
+    table_rtol = d.get("table_rtol", PropagatorsConfig.table_rtol)
+    if table_rtol is not None:
+        with _refused_at("propagators.table_rtol"):
+            table_rtol = validate_table_rtol(_number(table_rtol, "propagators.table_rtol"))
 
     return PropagatorsConfig(
         t_max=t_max,
@@ -2476,6 +2484,7 @@ def _parse_propagators(d: dict, base_dir: Path, t_min: float) -> PropagatorsConf
         cache_path=_cache_path(d.get("cache_path"), "propagators.cache_path"),
         interp_method=interp_method,
         c_method=c_method,
+        table_rtol=table_rtol,
         c_n_gauss=_size(
             d.get("c_n_gauss", PropagatorsConfig.c_n_gauss),
             "propagators.c_n_gauss",
@@ -3014,6 +3023,8 @@ def _sigma2_amplitude(raw: Any, n_components: int | None, where: str):
 _KERNEL_PARAMS = {
     ("time", "exponential"): ("lam", "sigma_t"),
     ("time", "gaussian"): ("lam", "sigma_t"),
+    ("time", "matern32"): ("lam", "sigma_t"),
+    ("time", "damped_cosine"): ("lam", "sigma_t", "omega"),
     ("space", "exponential"): ("sigma_x",),
     ("space", "gaussian"): ("sigma_x",),
     ("angular", "legendre"): ("coeffs",),
@@ -3185,10 +3196,13 @@ def _build_kernel(d: dict, axis: str, base_dir: Path | None = None):
     cls = {
         ("time", "exponential"): sp.ExponentialTemporal,
         ("time", "gaussian"): sp.GaussianTemporal,
+        ("time", "matern32"): sp.Matern32Temporal,
+        ("time", "damped_cosine"): sp.DampedCosineTemporal,
         ("space", "exponential"): sp.ExponentialSpatial,
         ("space", "gaussian"): sp.GaussianSpatial,
     }[(axis, kt)]
-    with _refused_at(f"{where}.{params[-1]}"):
+    width = "sigma_t" if axis == "time" else "sigma_x"
+    with _refused_at(f"{where}.{width}"):
         return cls(**vals)
 
 
@@ -3390,6 +3404,7 @@ def propagators_kwargs(cfg: WorkflowConfig, c_closed_form: Any) -> dict:
         c_closed_form_vectorized=p.c_closed_form_vectorized,
         c_method=p.c_method,
         c_n_gauss=p.c_n_gauss,
+        table_rtol=p.table_rtol,
         diag_C=p.diag_C,
     )
 

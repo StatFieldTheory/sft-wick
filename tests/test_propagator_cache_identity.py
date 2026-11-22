@@ -54,6 +54,10 @@ def _props(system, cache_path):
             sw.ExponentialTemporal(1.0, 1.0), sw.ExponentialSpatial(1.0)
         ),
         sw.SeparableTranslation(sw.GaussianTemporal(1.0, 1.0), sw.GaussianSpatial(1.0)),
+        sw.SeparableTranslation(sw.Matern32Temporal(1.0, 1.0), sw.GaussianSpatial(1.0)),
+        sw.SeparableTranslation(
+            sw.DampedCosineTemporal(1.0, 1.0, omega=2.0), sw.ExponentialSpatial(1.0),
+        ),
         sw.SeparableRotation(
             sw.ExponentialTemporal(1.0, 1.0), sw.LegendreAngular([1.0, 0.2])
         ),

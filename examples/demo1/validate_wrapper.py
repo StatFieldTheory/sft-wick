@@ -116,6 +116,7 @@ t0 = time.perf_counter()
 propagators = system.propagators(
     t_max=15.0, n_grid_t=60,
     c_closed_form=_C_demo1,    # bypass dblquad → sub-second builds
+    table_rtol=None,          # Reproduce the stored fixed-grid comparison.
 )
 print(f"\n[2/3] system.propagators(fast)  : "
       f"{time.perf_counter() - t0:.2f}s  "

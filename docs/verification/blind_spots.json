@@ -27,7 +27,8 @@
    "demo": "demo1",
    "heavy": false,
    "source": "examples/demo1/L2/INTEGRATION_ERROR.md: at t = 1 QMC is exact to 5 digits and GL is converged; floor on each order's largest value",
-   "inputs_sha256": "66223abd92197aac73be4759b744f7b34d8e3eb3a04bb26afd3e14f4491b2322"
+   "inputs_sha256": "2a11d0fac5b0fcc898262806757b230f19257bfa3c58efe7b3110aa6b53c3a5b",
+   "replayed_head_src_sha256": "23997dec5276efd5236b6bb2251ab36003947b5f5a8d0c2626e873e96226a6af"
   },
   {
    "id": "demo1/L2/config.yaml",
@@ -52,7 +53,8 @@
    "demo": "demo1",
    "heavy": false,
    "source": "examples/demo1/L2/INTEGRATION_ERROR.md: at t = 1 QMC is exact to 5 digits and GL is converged; floor on each order's largest value",
-   "inputs_sha256": "71c57879ffc40cc5af125f4d5da6a70f317a5448a42f4d32653892014f17a8d9"
+   "inputs_sha256": "f2a41b8f040d667f1129075a0771cd5dd3658cec89b254212e694a62ac46f421",
+   "replayed_head_src_sha256": "23997dec5276efd5236b6bb2251ab36003947b5f5a8d0c2626e873e96226a6af"
   },
   {
    "id": "demo2_config.yaml",
@@ -74,7 +76,8 @@
    "demo": "demo2",
    "heavy": false,
    "source": "examples/demo2/INTERPRETATION.md: relative acceptance target 1e-4 of the refined channels, the tightest figure the notes give, applied to these order-0 and order-2 channels; floor on each order's largest value",
-   "inputs_sha256": "6955df5472fcba438a961c32a099bc256373d11d7ac04c557eedf08bd842c07e"
+   "inputs_sha256": "c5f1bdfda10371f3f4a0fd7efc829409a7529a789868db71667cb7eeba9761fe",
+   "replayed_head_src_sha256": "23997dec5276efd5236b6bb2251ab36003947b5f5a8d0c2626e873e96226a6af"
   },
   {
    "id": "demo2/L2/config_FF.yaml",
@@ -99,7 +102,8 @@
    "demo": "demo2",
    "heavy": false,
    "source": "examples/demo2/INTERPRETATION.md: relative acceptance target 1e-4 of the refined channels, the tightest figure the notes give, applied to these order-0 and order-2 channels; floor on each order's largest value",
-   "inputs_sha256": "66b6e38c966bdf904ccb602a9474870661e29a8b957bee903ea5d4b74d671fe3"
+   "inputs_sha256": "0f81d973d30c7dc6b5c76df10d8c12d02e0fb6d5d987b089a73031eacad53591",
+   "replayed_head_src_sha256": "23997dec5276efd5236b6bb2251ab36003947b5f5a8d0c2626e873e96226a6af"
   },
   {
    "id": "demo2/L2/config_FK.yaml",
@@ -124,7 +128,8 @@
    "demo": "demo2",
    "heavy": false,
    "source": "examples/demo2/INTERPRETATION.md: relative acceptance target 1e-4 of the refined channels, the tightest figure the notes give, applied to these order-0 and order-2 channels; floor on each order's largest value",
-   "inputs_sha256": "66b6e38c966bdf904ccb602a9474870661e29a8b957bee903ea5d4b74d671fe3"
+   "inputs_sha256": "0f81d973d30c7dc6b5c76df10d8c12d02e0fb6d5d987b089a73031eacad53591",
+   "replayed_head_src_sha256": "23997dec5276efd5236b6bb2251ab36003947b5f5a8d0c2626e873e96226a6af"
   },
   {
    "id": "demo3/config_FK.yaml",
@@ -181,7 +186,8 @@
    "demo": "demo4",
    "heavy": false,
    "source": "validation/compare.py: Gauss-Legendre with an exact C, rel 1e-10 and floor 1e-12 of the largest value; tests/test_demo4_asymmetric_noise.py asserts 1e-12",
-   "inputs_sha256": "d7a27541e10580cb5ee1a3400976db7bed933b71fa184cbabcb62e8de4559a4d"
+   "inputs_sha256": "9a2b008acf3c55c6c0ca120192408220c392577b27dbcf0e81a6982589d34506",
+   "replayed_head_src_sha256": "23997dec5276efd5236b6bb2251ab36003947b5f5a8d0c2626e873e96226a6af"
   },
   {
    "id": "demo4/config_level_a_4pt.yaml",
@@ -194,7 +200,8 @@
    "demo": "demo4",
    "heavy": false,
    "source": "validation/compare.py: Gauss-Legendre with an exact C, rel 1e-10 and floor 1e-12 of the largest value; tests/test_demo4_asymmetric_noise.py asserts 1e-12",
-   "inputs_sha256": "d7a27541e10580cb5ee1a3400976db7bed933b71fa184cbabcb62e8de4559a4d"
+   "inputs_sha256": "9a2b008acf3c55c6c0ca120192408220c392577b27dbcf0e81a6982589d34506",
+   "replayed_head_src_sha256": "23997dec5276efd5236b6bb2251ab36003947b5f5a8d0c2626e873e96226a6af"
   },
   {
    "id": "validation/demo_package_cases.py:demo4",
@@ -207,8 +214,8 @@
    "demo": "demo4",
    "heavy": false,
    "source": "validation/compare.py: Gauss-Legendre with an exact C, rel 1e-10 and floor 1e-12 of the largest value; tests/test_demo4_asymmetric_noise.py asserts 1e-12",
-   "inputs_sha256": "769b613a6eba510c256c2419f3e4cc245219c7f99393994836789b457dc9cd1f",
-   "replayed_head_src_sha256": "0138c4b47f7bd2eb775dd9ffe4dee9ddb7abeba4c8ddb9a4e68b0a84cbdd9785"
+   "inputs_sha256": "3cbe8144053d3925601944a6c030ef8a63f7f734f17652c14830b49d155c32d3",
+   "replayed_head_src_sha256": "37caded7b25442156594e269baccb904c0741bc5756beb2011082a238868741c"
   },
   {
    "id": "validation/demo_package_cases.py:demo4 order 4",
@@ -221,8 +228,8 @@
    "demo": "demo4",
    "heavy": true,
    "source": "validation/compare.py: Gauss-Legendre with an exact C, rel 1e-10 and floor 1e-12 of the largest value; tests/test_demo4_asymmetric_noise.py asserts 1e-12",
-   "inputs_sha256": "769b613a6eba510c256c2419f3e4cc245219c7f99393994836789b457dc9cd1f",
-   "replayed_head_src_sha256": "0138c4b47f7bd2eb775dd9ffe4dee9ddb7abeba4c8ddb9a4e68b0a84cbdd9785"
+   "inputs_sha256": "3cbe8144053d3925601944a6c030ef8a63f7f734f17652c14830b49d155c32d3",
+   "replayed_head_src_sha256": "37caded7b25442156594e269baccb904c0741bc5756beb2011082a238868741c"
   }
  ],
  "mutants": [
@@ -346,56 +353,56 @@
    "rows": {
     "a=0|b=0|order=0|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00531801167191589,
-     "mutant": 0.00531801167191589,
+     "head": 0.005318191152148332,
+     "mutant": 0.005318191152148332,
      "abs_diff": 0.0,
-     "tolerance": 1.0636023343831781e-07,
-     "scale": 0.00531801167191589,
+     "tolerance": 1.0636382304296665e-07,
+     "scale": 0.005318191152148332,
      "condition": false
     },
     "a=0|b=0|order=2|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 3.07972030555504e-05,
-     "mutant": 3.07972030555504e-05,
+     "head": 3.081326574111757e-05,
+     "mutant": 3.081326574111757e-05,
      "abs_diff": 0.0,
-     "tolerance": 6.15944061111008e-10,
-     "scale": 3.07972030555504e-05,
+     "tolerance": 6.162653148223515e-10,
+     "scale": 3.081326574111757e-05,
      "condition": false
     },
     "a=0|b=0|order=4|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 2.362049335323206e-07,
-     "mutant": 2.362049335323206e-07,
+     "head": 2.3666494670559125e-07,
+     "mutant": 2.3666494670559125e-07,
      "abs_diff": 0.0,
-     "tolerance": 4.72677898235403e-12,
-     "scale": 2.364729647030824e-07,
+     "tolerance": 4.736776232772257e-12,
+     "scale": 2.3701267657163437e-07,
      "condition": false
     },
     "a=1|b=1|order=0|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00531801167191589,
-     "mutant": 0.00531801167191589,
+     "head": 0.005318191152148332,
+     "mutant": 0.005318191152148332,
      "abs_diff": 0.0,
-     "tolerance": 1.0636023343831781e-07,
-     "scale": 0.00531801167191589,
+     "tolerance": 1.0636382304296665e-07,
+     "scale": 0.005318191152148332,
      "condition": false
     },
     "a=1|b=1|order=2|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 3.065551545532203e-05,
-     "mutant": 3.065551545532203e-05,
+     "head": 3.068971468085947e-05,
+     "mutant": 3.068971468085947e-05,
      "abs_diff": 0.0,
-     "tolerance": 6.145271851087243e-10,
-     "scale": 3.07972030555504e-05,
+     "tolerance": 6.150298042197705e-10,
+     "scale": 3.081326574111757e-05,
      "condition": false
     },
     "a=1|b=1|order=4|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 2.364729647030824e-07,
-     "mutant": 2.364729647030824e-07,
+     "head": 2.3701267657163437e-07,
+     "mutant": 2.3701267657163437e-07,
      "abs_diff": 0.0,
-     "tolerance": 4.7294592940616485e-12,
-     "scale": 2.364729647030824e-07,
+     "tolerance": 4.740253531432688e-12,
+     "scale": 2.3701267657163437e-07,
      "condition": false
     }
    }
@@ -498,11 +505,11 @@
    "rows": {
     "a=0|b=0|order=2|t_final=3.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00023747628182654206,
-     "mutant": 0.00023747628182654206,
+     "head": 0.00023757769014544233,
+     "mutant": 0.00023757769014544233,
      "abs_diff": 0.0,
-     "tolerance": 4.7495256365308414e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.7515538029088466e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     },
     "a=0|b=1|order=2|t_final=3.0|x=0.0|y=0.5": {
@@ -510,17 +517,17 @@
      "head": 0.0001797159011193686,
      "mutant": 0.0001797159011193686,
      "abs_diff": 0.0,
-     "tolerance": 4.171921829459107e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.17293591264811e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     },
     "a=1|b=1|order=2|t_final=3.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00022757379433812683,
-     "mutant": 0.00022757379433812683,
+     "head": 0.000227720679622412,
+     "mutant": 0.000227720679622412,
      "abs_diff": 0.0,
-     "tolerance": 4.650500761646689e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.652983697678543e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     }
    }
@@ -1245,56 +1252,56 @@
    "rows": {
     "a=0|b=0|order=0|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00531801167191589,
-     "mutant": 0.00531801167191589,
+     "head": 0.005318191152148332,
+     "mutant": 0.005318191152148332,
      "abs_diff": 0.0,
-     "tolerance": 1.0636023343831781e-07,
-     "scale": 0.00531801167191589,
+     "tolerance": 1.0636382304296665e-07,
+     "scale": 0.005318191152148332,
      "condition": false
     },
     "a=0|b=0|order=2|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 3.07972030555504e-05,
-     "mutant": 3.07972030555504e-05,
+     "head": 3.081326574111757e-05,
+     "mutant": 3.081326574111757e-05,
      "abs_diff": 0.0,
-     "tolerance": 6.15944061111008e-10,
-     "scale": 3.07972030555504e-05,
+     "tolerance": 6.162653148223515e-10,
+     "scale": 3.081326574111757e-05,
      "condition": false
     },
     "a=0|b=0|order=4|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 2.362049335323206e-07,
-     "mutant": 2.362049335323206e-07,
+     "head": 2.3666494670559125e-07,
+     "mutant": 2.3666494670559125e-07,
      "abs_diff": 0.0,
-     "tolerance": 4.72677898235403e-12,
-     "scale": 2.364729647030824e-07,
+     "tolerance": 4.736776232772257e-12,
+     "scale": 2.3701267657163437e-07,
      "condition": false
     },
     "a=1|b=1|order=0|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00531801167191589,
-     "mutant": 0.00531801167191589,
+     "head": 0.005318191152148332,
+     "mutant": 0.005318191152148332,
      "abs_diff": 0.0,
-     "tolerance": 1.0636023343831781e-07,
-     "scale": 0.00531801167191589,
+     "tolerance": 1.0636382304296665e-07,
+     "scale": 0.005318191152148332,
      "condition": false
     },
     "a=1|b=1|order=2|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 3.065551545532203e-05,
-     "mutant": 3.065551545532203e-05,
+     "head": 3.068971468085947e-05,
+     "mutant": 3.068971468085947e-05,
      "abs_diff": 0.0,
-     "tolerance": 6.145271851087243e-10,
-     "scale": 3.07972030555504e-05,
+     "tolerance": 6.150298042197705e-10,
+     "scale": 3.081326574111757e-05,
      "condition": false
     },
     "a=1|b=1|order=4|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 2.364729647030824e-07,
-     "mutant": 2.364729647030824e-07,
+     "head": 2.3701267657163437e-07,
+     "mutant": 2.3701267657163437e-07,
      "abs_diff": 0.0,
-     "tolerance": 4.7294592940616485e-12,
-     "scale": 2.364729647030824e-07,
+     "tolerance": 4.740253531432688e-12,
+     "scale": 2.3701267657163437e-07,
      "condition": false
     }
    }
@@ -1397,11 +1404,11 @@
    "rows": {
     "a=0|b=0|order=2|t_final=3.0|x=0.0|y=0.5": {
      "state": "exercised, blind",
-     "head": 0.00023747628182654206,
-     "mutant": 0.00023747628182654206,
+     "head": 0.00023757769014544233,
+     "mutant": 0.00023757769014544233,
      "abs_diff": 0.0,
-     "tolerance": 4.7495256365308414e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.7515538029088466e-08,
+     "scale": 0.00023757769014544233,
      "condition": true
     },
     "a=0|b=1|order=2|t_final=3.0|x=0.0|y=0.5": {
@@ -1409,17 +1416,17 @@
      "head": 0.0001797159011193686,
      "mutant": 0.0001797159011193686,
      "abs_diff": 0.0,
-     "tolerance": 4.171921829459107e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.17293591264811e-08,
+     "scale": 0.00023757769014544233,
      "condition": true
     },
     "a=1|b=1|order=2|t_final=3.0|x=0.0|y=0.5": {
      "state": "exercised, blind",
-     "head": 0.00022757379433812683,
-     "mutant": 0.00022757379433812683,
+     "head": 0.000227720679622412,
+     "mutant": 0.000227720679622412,
      "abs_diff": 0.0,
-     "tolerance": 4.650500761646689e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.652983697678543e-08,
+     "scale": 0.00023757769014544233,
      "condition": true
     }
    }
@@ -2144,56 +2151,56 @@
    "rows": {
     "a=0|b=0|order=0|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00531801167191589,
-     "mutant": 0.00531801167191589,
+     "head": 0.005318191152148332,
+     "mutant": 0.005318191152148332,
      "abs_diff": 0.0,
-     "tolerance": 1.0636023343831781e-07,
-     "scale": 0.00531801167191589,
+     "tolerance": 1.0636382304296665e-07,
+     "scale": 0.005318191152148332,
      "condition": false
     },
     "a=0|b=0|order=2|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 3.07972030555504e-05,
-     "mutant": 3.07972030555504e-05,
+     "head": 3.081326574111757e-05,
+     "mutant": 3.081326574111757e-05,
      "abs_diff": 0.0,
-     "tolerance": 6.15944061111008e-10,
-     "scale": 3.07972030555504e-05,
+     "tolerance": 6.162653148223515e-10,
+     "scale": 3.081326574111757e-05,
      "condition": false
     },
     "a=0|b=0|order=4|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 2.362049335323206e-07,
-     "mutant": 2.362049335323206e-07,
+     "head": 2.3666494670559125e-07,
+     "mutant": 2.3666494670559125e-07,
      "abs_diff": 0.0,
-     "tolerance": 4.72677898235403e-12,
-     "scale": 2.364729647030824e-07,
+     "tolerance": 4.736776232772257e-12,
+     "scale": 2.3701267657163437e-07,
      "condition": false
     },
     "a=1|b=1|order=0|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00531801167191589,
-     "mutant": 0.00531801167191589,
+     "head": 0.005318191152148332,
+     "mutant": 0.005318191152148332,
      "abs_diff": 0.0,
-     "tolerance": 1.0636023343831781e-07,
-     "scale": 0.00531801167191589,
+     "tolerance": 1.0636382304296665e-07,
+     "scale": 0.005318191152148332,
      "condition": false
     },
     "a=1|b=1|order=2|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 3.065551545532203e-05,
-     "mutant": 3.065551545532203e-05,
+     "head": 3.068971468085947e-05,
+     "mutant": 3.068971468085947e-05,
      "abs_diff": 0.0,
-     "tolerance": 6.145271851087243e-10,
-     "scale": 3.07972030555504e-05,
+     "tolerance": 6.150298042197705e-10,
+     "scale": 3.081326574111757e-05,
      "condition": false
     },
     "a=1|b=1|order=4|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 2.364729647030824e-07,
-     "mutant": 2.364729647030824e-07,
+     "head": 2.3701267657163437e-07,
+     "mutant": 2.3701267657163437e-07,
      "abs_diff": 0.0,
-     "tolerance": 4.7294592940616485e-12,
-     "scale": 2.364729647030824e-07,
+     "tolerance": 4.740253531432688e-12,
+     "scale": 2.3701267657163437e-07,
      "condition": false
     }
    }
@@ -2296,11 +2303,11 @@
    "rows": {
     "a=0|b=0|order=2|t_final=3.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00023747628182654206,
-     "mutant": 0.00023747628182654206,
+     "head": 0.00023757769014544233,
+     "mutant": 0.00023757769014544233,
      "abs_diff": 0.0,
-     "tolerance": 4.7495256365308414e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.7515538029088466e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     },
     "a=0|b=1|order=2|t_final=3.0|x=0.0|y=0.5": {
@@ -2308,17 +2315,17 @@
      "head": 0.0001797159011193686,
      "mutant": 0.0001797159011193686,
      "abs_diff": 0.0,
-     "tolerance": 4.171921829459107e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.17293591264811e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     },
     "a=1|b=1|order=2|t_final=3.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00022757379433812683,
-     "mutant": 0.00022757379433812683,
+     "head": 0.000227720679622412,
+     "mutant": 0.000227720679622412,
      "abs_diff": 0.0,
-     "tolerance": 4.650500761646689e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.652983697678543e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     }
    }
@@ -3043,56 +3050,56 @@
    "rows": {
     "a=0|b=0|order=0|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00531801167191589,
-     "mutant": 0.00531801167191589,
+     "head": 0.005318191152148332,
+     "mutant": 0.005318191152148332,
      "abs_diff": 0.0,
-     "tolerance": 1.0636023343831781e-07,
-     "scale": 0.00531801167191589,
+     "tolerance": 1.0636382304296665e-07,
+     "scale": 0.005318191152148332,
      "condition": false
     },
     "a=0|b=0|order=2|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 3.07972030555504e-05,
-     "mutant": 3.07972030555504e-05,
+     "head": 3.081326574111757e-05,
+     "mutant": 3.081326574111757e-05,
      "abs_diff": 0.0,
-     "tolerance": 6.15944061111008e-10,
-     "scale": 3.07972030555504e-05,
+     "tolerance": 6.162653148223515e-10,
+     "scale": 3.081326574111757e-05,
      "condition": false
     },
     "a=0|b=0|order=4|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 2.362049335323206e-07,
-     "mutant": 2.362049335323206e-07,
+     "head": 2.3666494670559125e-07,
+     "mutant": 2.3666494670559125e-07,
      "abs_diff": 0.0,
-     "tolerance": 4.72677898235403e-12,
-     "scale": 2.364729647030824e-07,
+     "tolerance": 4.736776232772257e-12,
+     "scale": 2.3701267657163437e-07,
      "condition": false
     },
     "a=1|b=1|order=0|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00531801167191589,
-     "mutant": 0.00531801167191589,
+     "head": 0.005318191152148332,
+     "mutant": 0.005318191152148332,
      "abs_diff": 0.0,
-     "tolerance": 1.0636023343831781e-07,
-     "scale": 0.00531801167191589,
+     "tolerance": 1.0636382304296665e-07,
+     "scale": 0.005318191152148332,
      "condition": false
     },
     "a=1|b=1|order=2|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 3.065551545532203e-05,
-     "mutant": 3.065551545532203e-05,
+     "head": 3.068971468085947e-05,
+     "mutant": 3.068971468085947e-05,
      "abs_diff": 0.0,
-     "tolerance": 6.145271851087243e-10,
-     "scale": 3.07972030555504e-05,
+     "tolerance": 6.150298042197705e-10,
+     "scale": 3.081326574111757e-05,
      "condition": false
     },
     "a=1|b=1|order=4|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 2.364729647030824e-07,
-     "mutant": 2.364729647030824e-07,
+     "head": 2.3701267657163437e-07,
+     "mutant": 2.3701267657163437e-07,
      "abs_diff": 0.0,
-     "tolerance": 4.7294592940616485e-12,
-     "scale": 2.364729647030824e-07,
+     "tolerance": 4.740253531432688e-12,
+     "scale": 2.3701267657163437e-07,
      "condition": false
     }
    }
@@ -3195,11 +3202,11 @@
    "rows": {
     "a=0|b=0|order=2|t_final=3.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00023747628182654206,
-     "mutant": 0.00023747628182654206,
+     "head": 0.00023757769014544233,
+     "mutant": 0.00023757769014544233,
      "abs_diff": 0.0,
-     "tolerance": 4.7495256365308414e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.7515538029088466e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     },
     "a=0|b=1|order=2|t_final=3.0|x=0.0|y=0.5": {
@@ -3207,17 +3214,17 @@
      "head": 0.0001797159011193686,
      "mutant": 0.0001797159011193686,
      "abs_diff": 0.0,
-     "tolerance": 4.171921829459107e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.17293591264811e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     },
     "a=1|b=1|order=2|t_final=3.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00022757379433812683,
-     "mutant": 0.00022757379433812683,
+     "head": 0.000227720679622412,
+     "mutant": 0.000227720679622412,
      "abs_diff": 0.0,
-     "tolerance": 4.650500761646689e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.652983697678543e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     }
    }
@@ -3942,56 +3949,56 @@
    "rows": {
     "a=0|b=0|order=0|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00531801167191589,
-     "mutant": 0.00531801167191589,
+     "head": 0.005318191152148332,
+     "mutant": 0.005318191152148332,
      "abs_diff": 0.0,
-     "tolerance": 1.0636023343831781e-07,
-     "scale": 0.00531801167191589,
+     "tolerance": 1.0636382304296665e-07,
+     "scale": 0.005318191152148332,
      "condition": false
     },
     "a=0|b=0|order=2|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 3.07972030555504e-05,
-     "mutant": 3.07972030555504e-05,
+     "head": 3.081326574111757e-05,
+     "mutant": 3.081326574111757e-05,
      "abs_diff": 0.0,
-     "tolerance": 6.15944061111008e-10,
-     "scale": 3.07972030555504e-05,
+     "tolerance": 6.162653148223515e-10,
+     "scale": 3.081326574111757e-05,
      "condition": false
     },
     "a=0|b=0|order=4|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 2.362049335323206e-07,
-     "mutant": 2.362049335323206e-07,
+     "head": 2.3666494670559125e-07,
+     "mutant": 2.3666494670559125e-07,
      "abs_diff": 0.0,
-     "tolerance": 4.72677898235403e-12,
-     "scale": 2.364729647030824e-07,
+     "tolerance": 4.736776232772257e-12,
+     "scale": 2.3701267657163437e-07,
      "condition": false
     },
     "a=1|b=1|order=0|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00531801167191589,
-     "mutant": 0.00531801167191589,
+     "head": 0.005318191152148332,
+     "mutant": 0.005318191152148332,
      "abs_diff": 0.0,
-     "tolerance": 1.0636023343831781e-07,
-     "scale": 0.00531801167191589,
+     "tolerance": 1.0636382304296665e-07,
+     "scale": 0.005318191152148332,
      "condition": false
     },
     "a=1|b=1|order=2|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 3.065551545532203e-05,
-     "mutant": 3.065551545532203e-05,
+     "head": 3.068971468085947e-05,
+     "mutant": 3.068971468085947e-05,
      "abs_diff": 0.0,
-     "tolerance": 6.145271851087243e-10,
-     "scale": 3.07972030555504e-05,
+     "tolerance": 6.150298042197705e-10,
+     "scale": 3.081326574111757e-05,
      "condition": false
     },
     "a=1|b=1|order=4|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 2.364729647030824e-07,
-     "mutant": 2.364729647030824e-07,
+     "head": 2.3701267657163437e-07,
+     "mutant": 2.3701267657163437e-07,
      "abs_diff": 0.0,
-     "tolerance": 4.7294592940616485e-12,
-     "scale": 2.364729647030824e-07,
+     "tolerance": 4.740253531432688e-12,
+     "scale": 2.3701267657163437e-07,
      "condition": false
     }
    }
@@ -4094,11 +4101,11 @@
    "rows": {
     "a=0|b=0|order=2|t_final=3.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00023747628182654206,
-     "mutant": 0.00023747628182654206,
+     "head": 0.00023757769014544233,
+     "mutant": 0.00023757769014544233,
      "abs_diff": 0.0,
-     "tolerance": 4.7495256365308414e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.7515538029088466e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     },
     "a=0|b=1|order=2|t_final=3.0|x=0.0|y=0.5": {
@@ -4106,17 +4113,17 @@
      "head": 0.0001797159011193686,
      "mutant": 0.0001797159011193686,
      "abs_diff": 0.0,
-     "tolerance": 4.171921829459107e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.17293591264811e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     },
     "a=1|b=1|order=2|t_final=3.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00022757379433812683,
-     "mutant": 0.00022757379433812683,
+     "head": 0.000227720679622412,
+     "mutant": 0.000227720679622412,
      "abs_diff": 0.0,
-     "tolerance": 4.650500761646689e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.652983697678543e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     }
    }
@@ -4841,56 +4848,56 @@
    "rows": {
     "a=0|b=0|order=0|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00531801167191589,
-     "mutant": 0.00531801167191589,
+     "head": 0.005318191152148332,
+     "mutant": 0.005318191152148332,
      "abs_diff": 0.0,
-     "tolerance": 1.0636023343831781e-07,
-     "scale": 0.00531801167191589,
+     "tolerance": 1.0636382304296665e-07,
+     "scale": 0.005318191152148332,
      "condition": false
     },
     "a=0|b=0|order=2|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 3.07972030555504e-05,
-     "mutant": 3.07972030555504e-05,
+     "head": 3.081326574111757e-05,
+     "mutant": 3.081326574111757e-05,
      "abs_diff": 0.0,
-     "tolerance": 6.15944061111008e-10,
-     "scale": 3.07972030555504e-05,
+     "tolerance": 6.162653148223515e-10,
+     "scale": 3.081326574111757e-05,
      "condition": false
     },
     "a=0|b=0|order=4|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 2.362049335323206e-07,
-     "mutant": 2.362049335323206e-07,
+     "head": 2.3666494670559125e-07,
+     "mutant": 2.3666494670559125e-07,
      "abs_diff": 0.0,
-     "tolerance": 4.72677898235403e-12,
-     "scale": 2.364729647030824e-07,
+     "tolerance": 4.736776232772257e-12,
+     "scale": 2.3701267657163437e-07,
      "condition": false
     },
     "a=1|b=1|order=0|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00531801167191589,
-     "mutant": 0.00531801167191589,
+     "head": 0.005318191152148332,
+     "mutant": 0.005318191152148332,
      "abs_diff": 0.0,
-     "tolerance": 1.0636023343831781e-07,
-     "scale": 0.00531801167191589,
+     "tolerance": 1.0636382304296665e-07,
+     "scale": 0.005318191152148332,
      "condition": false
     },
     "a=1|b=1|order=2|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 3.065551545532203e-05,
-     "mutant": 3.065551545532203e-05,
+     "head": 3.068971468085947e-05,
+     "mutant": 3.068971468085947e-05,
      "abs_diff": 0.0,
-     "tolerance": 6.145271851087243e-10,
-     "scale": 3.07972030555504e-05,
+     "tolerance": 6.150298042197705e-10,
+     "scale": 3.081326574111757e-05,
      "condition": false
     },
     "a=1|b=1|order=4|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 2.364729647030824e-07,
-     "mutant": 2.364729647030824e-07,
+     "head": 2.3701267657163437e-07,
+     "mutant": 2.3701267657163437e-07,
      "abs_diff": 0.0,
-     "tolerance": 4.7294592940616485e-12,
-     "scale": 2.364729647030824e-07,
+     "tolerance": 4.740253531432688e-12,
+     "scale": 2.3701267657163437e-07,
      "condition": false
     }
    }
@@ -4993,11 +5000,11 @@
    "rows": {
     "a=0|b=0|order=2|t_final=3.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00023747628182654206,
-     "mutant": 0.00023747628182654206,
+     "head": 0.00023757769014544233,
+     "mutant": 0.00023757769014544233,
      "abs_diff": 0.0,
-     "tolerance": 4.7495256365308414e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.7515538029088466e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     },
     "a=0|b=1|order=2|t_final=3.0|x=0.0|y=0.5": {
@@ -5005,17 +5012,17 @@
      "head": 0.0001797159011193686,
      "mutant": 0.0001797159011193686,
      "abs_diff": 0.0,
-     "tolerance": 4.171921829459107e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.17293591264811e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     },
     "a=1|b=1|order=2|t_final=3.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00022757379433812683,
-     "mutant": 0.00022757379433812683,
+     "head": 0.000227720679622412,
+     "mutant": 0.000227720679622412,
      "abs_diff": 0.0,
-     "tolerance": 4.650500761646689e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.652983697678543e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     }
    }
@@ -5740,56 +5747,56 @@
    "rows": {
     "a=0|b=0|order=0|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00531801167191589,
-     "mutant": 0.00531801167191589,
+     "head": 0.005318191152148332,
+     "mutant": 0.005318191152148332,
      "abs_diff": 0.0,
-     "tolerance": 1.0636023343831781e-07,
-     "scale": 0.00531801167191589,
+     "tolerance": 1.0636382304296665e-07,
+     "scale": 0.005318191152148332,
      "condition": false
     },
     "a=0|b=0|order=2|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 3.07972030555504e-05,
-     "mutant": 3.07972030555504e-05,
+     "head": 3.081326574111757e-05,
+     "mutant": 3.081326574111757e-05,
      "abs_diff": 0.0,
-     "tolerance": 6.15944061111008e-10,
-     "scale": 3.07972030555504e-05,
+     "tolerance": 6.162653148223515e-10,
+     "scale": 3.081326574111757e-05,
      "condition": false
     },
     "a=0|b=0|order=4|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 2.362049335323206e-07,
-     "mutant": 2.362049335323206e-07,
+     "head": 2.3666494670559125e-07,
+     "mutant": 2.3666494670559125e-07,
      "abs_diff": 0.0,
-     "tolerance": 4.72677898235403e-12,
-     "scale": 2.364729647030824e-07,
+     "tolerance": 4.736776232772257e-12,
+     "scale": 2.3701267657163437e-07,
      "condition": false
     },
     "a=1|b=1|order=0|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00531801167191589,
-     "mutant": 0.00531801167191589,
+     "head": 0.005318191152148332,
+     "mutant": 0.005318191152148332,
      "abs_diff": 0.0,
-     "tolerance": 1.0636023343831781e-07,
-     "scale": 0.00531801167191589,
+     "tolerance": 1.0636382304296665e-07,
+     "scale": 0.005318191152148332,
      "condition": false
     },
     "a=1|b=1|order=2|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 3.065551545532203e-05,
-     "mutant": 3.065551545532203e-05,
+     "head": 3.068971468085947e-05,
+     "mutant": 3.068971468085947e-05,
      "abs_diff": 0.0,
-     "tolerance": 6.145271851087243e-10,
-     "scale": 3.07972030555504e-05,
+     "tolerance": 6.150298042197705e-10,
+     "scale": 3.081326574111757e-05,
      "condition": false
     },
     "a=1|b=1|order=4|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 2.364729647030824e-07,
-     "mutant": 2.364729647030824e-07,
+     "head": 2.3701267657163437e-07,
+     "mutant": 2.3701267657163437e-07,
      "abs_diff": 0.0,
-     "tolerance": 4.7294592940616485e-12,
-     "scale": 2.364729647030824e-07,
+     "tolerance": 4.740253531432688e-12,
+     "scale": 2.3701267657163437e-07,
      "condition": false
     }
    }
@@ -5892,11 +5899,11 @@
    "rows": {
     "a=0|b=0|order=2|t_final=3.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00023747628182654206,
-     "mutant": 0.00023747628182654206,
+     "head": 0.00023757769014544233,
+     "mutant": 0.00023757769014544233,
      "abs_diff": 0.0,
-     "tolerance": 4.7495256365308414e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.7515538029088466e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     },
     "a=0|b=1|order=2|t_final=3.0|x=0.0|y=0.5": {
@@ -5904,17 +5911,17 @@
      "head": 0.0001797159011193686,
      "mutant": 0.0001797159011193686,
      "abs_diff": 0.0,
-     "tolerance": 4.171921829459107e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.17293591264811e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     },
     "a=1|b=1|order=2|t_final=3.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00022757379433812683,
-     "mutant": 0.00022757379433812683,
+     "head": 0.000227720679622412,
+     "mutant": 0.000227720679622412,
      "abs_diff": 0.0,
-     "tolerance": 4.650500761646689e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.652983697678543e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     }
    }
@@ -6639,56 +6646,56 @@
    "rows": {
     "a=0|b=0|order=0|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00531801167191589,
-     "mutant": 0.00531801167191589,
+     "head": 0.005318191152148332,
+     "mutant": 0.005318191152148332,
      "abs_diff": 0.0,
-     "tolerance": 1.0636023343831781e-07,
-     "scale": 0.00531801167191589,
+     "tolerance": 1.0636382304296665e-07,
+     "scale": 0.005318191152148332,
      "condition": false
     },
     "a=0|b=0|order=2|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 3.07972030555504e-05,
-     "mutant": 3.07972030555504e-05,
+     "head": 3.081326574111757e-05,
+     "mutant": 3.081326574111757e-05,
      "abs_diff": 0.0,
-     "tolerance": 6.15944061111008e-10,
-     "scale": 3.07972030555504e-05,
+     "tolerance": 6.162653148223515e-10,
+     "scale": 3.081326574111757e-05,
      "condition": false
     },
     "a=0|b=0|order=4|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 2.362049335323206e-07,
-     "mutant": 2.362049335323206e-07,
+     "head": 2.3666494670559125e-07,
+     "mutant": 2.3666494670559125e-07,
      "abs_diff": 0.0,
-     "tolerance": 4.72677898235403e-12,
-     "scale": 2.364729647030824e-07,
+     "tolerance": 4.736776232772257e-12,
+     "scale": 2.3701267657163437e-07,
      "condition": false
     },
     "a=1|b=1|order=0|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00531801167191589,
-     "mutant": 0.00531801167191589,
+     "head": 0.005318191152148332,
+     "mutant": 0.005318191152148332,
      "abs_diff": 0.0,
-     "tolerance": 1.0636023343831781e-07,
-     "scale": 0.00531801167191589,
+     "tolerance": 1.0636382304296665e-07,
+     "scale": 0.005318191152148332,
      "condition": false
     },
     "a=1|b=1|order=2|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 3.065551545532203e-05,
-     "mutant": 3.065551545532203e-05,
+     "head": 3.068971468085947e-05,
+     "mutant": 3.068971468085947e-05,
      "abs_diff": 0.0,
-     "tolerance": 6.145271851087243e-10,
-     "scale": 3.07972030555504e-05,
+     "tolerance": 6.150298042197705e-10,
+     "scale": 3.081326574111757e-05,
      "condition": false
     },
     "a=1|b=1|order=4|t_final=1.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 2.364729647030824e-07,
-     "mutant": 2.364729647030824e-07,
+     "head": 2.3701267657163437e-07,
+     "mutant": 2.3701267657163437e-07,
      "abs_diff": 0.0,
-     "tolerance": 4.7294592940616485e-12,
-     "scale": 2.364729647030824e-07,
+     "tolerance": 4.740253531432688e-12,
+     "scale": 2.3701267657163437e-07,
      "condition": false
     }
    }
@@ -6791,11 +6798,11 @@
    "rows": {
     "a=0|b=0|order=2|t_final=3.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00023747628182654206,
-     "mutant": 0.00023747628182654206,
+     "head": 0.00023757769014544233,
+     "mutant": 0.00023757769014544233,
      "abs_diff": 0.0,
-     "tolerance": 4.7495256365308414e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.7515538029088466e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     },
     "a=0|b=1|order=2|t_final=3.0|x=0.0|y=0.5": {
@@ -6803,17 +6810,17 @@
      "head": 0.0001797159011193686,
      "mutant": 0.0001797159011193686,
      "abs_diff": 0.0,
-     "tolerance": 4.171921829459107e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.17293591264811e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     },
     "a=1|b=1|order=2|t_final=3.0|x=0.0|y=0.5": {
      "state": "not exercised",
-     "head": 0.00022757379433812683,
-     "mutant": 0.00022757379433812683,
+     "head": 0.000227720679622412,
+     "mutant": 0.000227720679622412,
      "abs_diff": 0.0,
-     "tolerance": 4.650500761646689e-08,
-     "scale": 0.00023747628182654206,
+     "tolerance": 4.652983697678543e-08,
+     "scale": 0.00023757769014544233,
      "condition": false
     }
    }

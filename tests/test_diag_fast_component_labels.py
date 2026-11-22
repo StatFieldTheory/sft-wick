@@ -119,7 +119,8 @@ def _build_system():
 @pytest.fixture(scope="module")
 def setup():
     system = _build_system()
-    props = system.propagators(t_max=2.0, n_grid_t=16)
+    # The recorded values use this fixed 16-node table.
+    props = system.propagators(t_max=2.0, n_grid_t=16, table_rtol=None)
     expansion = system.expand(("phi_a(x)", "phi_b(y)"), orders=[2])
     return {
         "system": system,

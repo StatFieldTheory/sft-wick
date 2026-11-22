@@ -127,9 +127,11 @@ def quadrature_propagators_for(system: sw.System, p: Params, t_max: float,
     The accuracy is then the table's, not machine precision: with
     ``n_grid_t=31`` the mixing variant lands within 1.2e-08 (order 0),
     8.8e-08 (order 1) and 2.1e-05 / 1.1e-03 (order 2, the two component
-    pairs) of the hierarchy.  Reached by ``run.py --c-quadrature``.
+    pairs) of the hierarchy. The comparison deliberately keeps that
+    resolution and uses its channel tolerances. Reached by
+    ``run.py --c-quadrature``.
     """
     return system.propagators(
         t_max=t_max, n_grid_t=n_grid_t, c_closed_form=None,
         diag_C=(p.variant != "mixing"), c_method="gauss_legendre",
-        c_n_gauss=n_gauss, progress=False)
+        c_n_gauss=n_gauss, table_rtol=None, progress=False)

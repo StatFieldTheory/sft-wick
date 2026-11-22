@@ -21,6 +21,7 @@ from sft_wick.evaluate import (
     PropagatorModel,
     _table_slack,
 )
+from sft_wick._c_table_certificate import DEFAULT_TABLE_RTOL
 from sft_wick.fields import Field, FieldOperator
 from sft_wick.indices import (
     is_generated_name,
@@ -969,12 +970,13 @@ class System:
         c_closed_form: Callable | str | None = "auto",
         cache_path: Any = None,
         interp_method: str = "linear",
-        c_closed_form_only: bool = False,
+        c_closed_form_only: bool | None = None,
         c_closed_form_vectorized: bool = False,
         c_method: str = "auto",
         c_n_gauss: int = DEFAULT_C_N_GAUSS,
         diag_C: bool = True,
         progress: Any = None,
+        table_rtol: float | None = DEFAULT_TABLE_RTOL,
     ) -> "Propagators":
         """Build a :class:`Propagators` object with a precomputed
         spatial table matching ``self.homogeneity``.
@@ -995,6 +997,9 @@ class System:
         Args:
             t_max: upper time bound.
             n_grid_t: number of time grid points.
+            table_rtol: Measured variance-scaled table tolerance (default
+                ``1e-6``). None allows unchecked interpolation. The
+                setting has no effect on a direct closed form.
             homogeneity: override the inferred homogeneity
                 (``'translation' | 'rotation' | 'general'``).
                 ``'translation'`` keys C on ``|x1 − x2|`` and refuses noise
@@ -1009,7 +1014,8 @@ class System:
             n_jobs: parallel workers for grid build (``-1`` = all
                 cores, via joblib).
             c_closed_form: ``'auto'`` (default: the built-in closed form
-                when one applies), ``None`` (force quadrature), or a
+                when one applies), ``'ou_cse'`` (optimized exponential OU
+                closed form), ``None`` (force quadrature), or a
                 callable ``(n1, t1, n2, t2) -> (N, N)`` returning the
                 full C matrix directly (a user closed form; wins over
                 the built-in one).  See :meth:`Propagators.build`.
@@ -1019,14 +1025,13 @@ class System:
                 full-grid C tables. ``'linear'`` (default) is monotone
                 and safe for steep tails; ``'cubic'`` gives O(h⁴) on
                 smooth grids. Forwarded to :class:`PropagatorCache`.
-            c_closed_form_only: when True (with ``c_closed_form`` set),
-                skip every spline and route C lookups directly through
-                the user's c_fn, for machine-precision agreement with
-                the analytical form. Forwarded to
-                :meth:`Propagators.build`.
+            c_closed_form_only: ``True`` selects direct lookup and
+                ``False`` builds a table. The default ``None`` selects
+                direct lookup when a built-in or explicitly vectorised
+                user closed form is available and no complete spatial
+                grid is requested. Forwarded to :meth:`Propagators.build`.
             c_closed_form_vectorized: c_fn accepts batched arrays and
-                returns ``(n, N, N)`` (only meaningful with
-                ``c_closed_form_only=True``).
+                returns ``(n, N, N)`` on the direct path.
             c_method: Quadrature method for the inner C-propagator
                 ``∫ R κ² R`` integral when no closed form applies.
 
@@ -1086,7 +1091,8 @@ class System:
         from .propagators import Propagators
 
         where = "System.propagators"
-        c_closed_form_only = _flag(c_closed_form_only, "c_closed_form_only", where)
+        if c_closed_form_only is not None:
+            c_closed_form_only = _flag(c_closed_form_only, "c_closed_form_only", where)
         c_closed_form_vectorized = _flag(
             c_closed_form_vectorized, "c_closed_form_vectorized", where
         )
@@ -1112,6 +1118,7 @@ class System:
                 c_method=c_method,
                 c_n_gauss=c_n_gauss,
                 diag_C=diag_C,
+                table_rtol=table_rtol,
             )
 
 

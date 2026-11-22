@@ -157,7 +157,7 @@ def _base_config(**overrides) -> dict:
                 "spatial": {"type": "gaussian", "sigma_x": 0.8}}},
         },
         "expand": {"observable": ["phi_a(x)", "phi_b(y)"], "orders": [0]},
-        "propagators": {"t_max": T_FINAL, "n_grid_t": 8},
+        "propagators": {"t_max": T_FINAL, "n_grid_t": 8, "table_rtol": None},
         "sweep": {"positions_grid": {"x": [0.0], "y": [0.45]},
                   "t_final_grid": [T_FINAL],
                   "component_tuples": [[0, 0], [0, 1], [1, 1]],
@@ -224,7 +224,7 @@ def test_YC1_custom_temporal_kernel_matches_L1_and_quadrature(tmp_path):
             temporal=sp.CustomKernel(fn=kernel),
             spatial=sw.GaussianSpatial(sigma_x=0.8))))
     exp = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0])
-    props = system.propagators(t_max=T_FINAL, n_grid_t=8, progress=False)
+    props = system.propagators(t_max=T_FINAL, n_grid_t=8, table_rtol=None, progress=False)
     l1 = exp.sweep(props, positions_grid={"x": [0.0], "y": [0.45]},
                    t_final_grid=[T_FINAL],
                    component_tuples=[[0, 0], [0, 1], [1, 1]],
@@ -396,7 +396,7 @@ def test_YC3_custom_angular_kernel_matches_legendre_and_L1(tmp_path):
             temporal=sw.ExponentialTemporal(lam=0.25, sigma_t=0.45),
             angular=sp.CustomKernel(fn=kernel))))
     exp = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0])
-    props = system.propagators(t_max=T_FINAL, n_grid_t=8, progress=False)
+    props = system.propagators(t_max=T_FINAL, n_grid_t=8, table_rtol=None, progress=False)
     l1 = exp.sweep(props, positions_grid=_DIRECTIONS,
                    t_final_grid=[T_FINAL], component_tuples=[[0, 0], [1, 1]],
                    method="gauss_legendre", n_gauss=4).totals()
@@ -1098,7 +1098,16 @@ def test_YC13_a_flag_reads_the_words_true_and_false(tmp_path, block, key):
         loaded = load_workflow_config(_write(tmp_path, "c.yaml",
                                              yaml.safe_dump(cfg)))
         assert getattr(getattr(loaded, block), key) is read, (raw, read)
-    for raw in ["maybe", 2, None]:
+    rejected = ["maybe", 2]
+    if key == "c_closed_form_only":
+        cfg = _base_config()
+        cfg[block][key] = None
+        loaded = load_workflow_config(_write(tmp_path, "c.yaml",
+                                             yaml.safe_dump(cfg)))
+        assert loaded.propagators.c_closed_form_only is None
+    else:
+        rejected.append(None)
+    for raw in rejected:
         cfg = _base_config()
         cfg[block][key] = raw
         with pytest.raises(ValueError, match=f"{block}.{key}: must be true "
@@ -1694,7 +1703,7 @@ def test_dt_gives_a_table_that_reproduces_the_closed_form(tmp_path):
     system = build_system(cfg.system)
     table = system.propagators(
         t_max=0.0, n_grid_t=cfg.propagators.n_grid_t, r_max=3.0, n_grid_r=4,
-        interp_method="cubic", c_closed_form=None, progress=False).cache
+        interp_method="cubic", c_closed_form=None, table_rtol=None, progress=False).cache
     exact = builtin_closed_form_for(system)
     x1, x2 = np.array([0.0]), np.array([1.0])  # a node of the r grid
     t = np.array([-1.03])

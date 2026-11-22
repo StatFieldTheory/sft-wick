@@ -207,7 +207,7 @@ def test_WF4_end_to_end_matches_validate_phase5(demo1_expansion, demo1_system):
     exp = demo1_expansion
     props = demo1_system.propagators(
         t_max=15.0, n_grid_t=60,
-        c_closed_form=_C_demo1,
+        c_closed_form=_C_demo1, table_rtol=None,
     )
 
     # Re-pinned twice, each time against the current value rather than by
@@ -365,7 +365,7 @@ def test_WF5_sweep_totals_schema(demo1_system):
         ("phi_a(x)", "phi_b(y)"), orders=[0, 2],
     )
     props = demo1_system.propagators(
-        t_max=3.0, n_grid_t=40, c_closed_form=_C_demo1,
+        t_max=3.0, n_grid_t=40, c_closed_form=_C_demo1, table_rtol=None,
     )
     sweep = exp.sweep(
         props,
@@ -411,7 +411,7 @@ _WF11_GAMMA = 1.0
 
 def _wf11_props(demo1_system, t_max=6.0, n_grid_t=30):
     return demo1_system.propagators(
-        t_max=t_max, n_grid_t=n_grid_t, c_closed_form=_C_demo1,
+        t_max=t_max, n_grid_t=n_grid_t, c_closed_form=_C_demo1, table_rtol=None,
     )
 
 

@@ -127,6 +127,7 @@ t0 = time.perf_counter()
 propagators = system.propagators(
     t_max=15.0, n_grid_t=60,
     c_closed_form=C_closed_form,
+    table_rtol=None,  # Use the fixed interpolation grid in this example.
 )
 print(f"    {time.perf_counter() - t0:.2f}s "
       f"(homogeneity={propagators.homogeneity}, "

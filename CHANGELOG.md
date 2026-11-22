@@ -24,6 +24,35 @@ of the weighted samples. A flagged estimate is retained with
 `error_kind="heavy_tail"` and an unavailable standard error, including
 in any summed group that contains it.
 
+### Added: sampled C-table acceptance checks
+
+Workflow C tables have a default `table_rtol=1e-6` in units of component
+covariance. Time and spatial interpolation and node integrals are sampled
+before publication, including for a new lazy spatial key. A failed build
+preserves a previously published table. Set `table_rtol=None` to use a
+deliberate unchecked interpolation.
+
+### Changed: direct lookup for built-in closed-form C
+
+With no complete spatial grid, the default evaluates a built-in closed
+form directly. An explicitly vectorised user closed form also takes
+this path. Set `c_closed_form_only: false` for interpolation or
+`c_closed_form_only: true` to request direct lookup explicitly.
+
+For the demo 1 OU kernel with a 60-node table up to time 100, the
+equal-time C at time 0.35 and separation 0.5 moves from
+`2.2088860152049005e-3` to `1.8606266862828099e-3`, in agreement with
+independent quadrature. At the same point the fixed GL8 second-order
+coefficient moves from `7.857338855609384e-7` to `4.5383741417108423e-7`.
+
+### Added: stationary temporal C kernels
+
+Eligible Gaussian, Matérn-3/2 and damped-cosine temporal kernels use a
+built-in C for constant diagonal drift and separable translation noise.
+Gaussian values can shift where the previous default interpolated a
+table. Set `c_closed_form: ou_cse` to opt into the fixed-rate exponential
+OU kernel.
+
 ### Added: opt-in multiplicity routing
 
 Set `routing="multiplicity"` on the expansion APIs or `expand.routing`

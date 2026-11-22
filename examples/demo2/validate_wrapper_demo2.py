@@ -269,6 +269,7 @@ t0 = time.perf_counter()
 props_eff = system.propagators(
     t_max=15.0, n_grid_t=60,
     c_closed_form=_C_demo2_eff,
+    table_rtol=None,  # Match the fixed grid used for the reported comparisons.
 )
 print(f"  built in {time.perf_counter() - t0:.2f}s")
 
@@ -319,6 +320,7 @@ system_bare = sw.System(
 )
 props_bare = system_bare.propagators(
     t_max=15.0, n_grid_t=60, c_closed_form=_C_demo2_bare,
+    table_rtol=None,
 )
 expansion_bare = system_bare.expand(
     ("phi_a(x)", "phi_b(y)"), orders=[0],

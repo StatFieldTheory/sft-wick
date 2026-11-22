@@ -110,6 +110,7 @@ t0 = time.perf_counter()
 props_A = system_A.propagators(
     t_max=T_MAX, n_grid_t=N_GRID_T,
     c_closed_form=_C_analytic,  # fast: bypasses dblquad
+    table_rtol=None,  # Both derivations use this fixed interpolation grid.
 )
 print(f"    built in {time.perf_counter() - t0:.2f}s")
 
@@ -119,6 +120,7 @@ props_B = system_B.propagators(
     t_max=T_MAX, n_grid_t=N_GRID_T,
     c_closed_form=None,
     c_method="dblquad",
+    table_rtol=None,
     # Explicitly disable automatic closed forms for this independent path.
     # Lazy C tables build serially on the first lookup of each new r.
     # n_jobs applies to eager table preparation; lazy mode uses one worker.

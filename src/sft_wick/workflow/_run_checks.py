@@ -528,7 +528,7 @@ def _check_output_path(path: Any, where: str, directory: bool = False) -> None:
 def _check_propagators(cfg: WorkflowConfig, system) -> None:
     """What :meth:`System.propagators` refuses before it builds a table,
     with the closed-form C module imported as the run imports it."""
-    from .propagators import _resolve_closed_form_flags
+    from .propagators import _UnavailableClosedForm, _resolve_closed_form_flags
 
     props = cfg.propagators
     with _refused_at("propagators.t_max"):
@@ -538,7 +538,15 @@ def _check_propagators(cfg: WorkflowConfig, system) -> None:
     only, vectorized = props.c_closed_form_only, props.c_closed_form_vectorized
     flag = "vectorized" if vectorized and not only else "only"
     with _refused_at(f"propagators.c_closed_form_{flag}"):
-        _resolve_closed_form_flags(system, c_fn, only, vectorized)
+        try:
+            _, _, only = _resolve_closed_form_flags(
+                system, c_fn, only, vectorized,
+                full_spatial_grid=_full_table(cfg, system) is not None,
+            )
+        except _UnavailableClosedForm as exc:
+            raise ConfigError(
+                "invalid_value", "propagators.c_closed_form", str(exc),
+            ) from None
     if not only:
         _check_table(cfg, system)
         _check_table_times(cfg, system)

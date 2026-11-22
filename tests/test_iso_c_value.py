@@ -91,7 +91,9 @@ class UnequalDiagonal:
 
 def test_a_non_isotropic_C_is_refused_under_iso_C():
     system = _system(GeneralKappa2(fn=UnequalDiagonal()))
-    props = system.propagators(t_max=2.0, n_grid_t=12, progress=False)
+    props = system.propagators(
+        t_max=2.0, n_grid_t=12, table_rtol=None, progress=False,
+    )
     exp = system.expand(("phi_a(x)", "phi_b(y)"), orders=[0], iso_C=True)
     with pytest.raises(ValueError, match="iso_C"):
         exp.evaluate(props, positions=POS, t_final=T_FINAL,

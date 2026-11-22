@@ -181,7 +181,8 @@ def rate_totals():
     out = {}
     for name, rate in (("fresh", _FreshRate()), ("buffer", _BufferRate())):
         system = _rate_system(rate)
-        props = system.propagators(t_max=T_MAX, n_grid_t=N_GRID_T, progress=False)
+        props = system.propagators(t_max=T_MAX, n_grid_t=N_GRID_T,
+                                   table_rtol=None, progress=False)
         out[name] = _totals(system, props)
     return out
 
@@ -382,7 +383,7 @@ def test_SW5_shared_kernel_buffer_gives_the_fresh_totals(path):
     for shared in (False, True):
         system = _separable_system(kind, shared)
         props = system.propagators(t_max=T_MAX, n_grid_t=N_GRID_T,
-                                   progress=False, **kw)
+                                   table_rtol=None, progress=False, **kw)
         totals[shared] = _totals(system, props, positions=positions)
     fresh = totals[False]
     assert all(v != 0.0 for v in fresh[2])

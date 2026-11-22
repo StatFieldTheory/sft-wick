@@ -220,6 +220,10 @@ _LOCATIONS = {
         (("system", "noise", "kappa2", "temporal"), None),
     "system.noise.kappa2<separable_translation>.temporal<gaussian>":
         (("system", "noise", "kappa2", "temporal"), None),
+    "system.noise.kappa2<separable_translation>.temporal<matern32>":
+        (("system", "noise", "kappa2", "temporal"), None),
+    "system.noise.kappa2<separable_translation>.temporal<damped_cosine>":
+        (("system", "noise", "kappa2", "temporal"), None),
     "system.noise.kappa2<separable_translation>.temporal<custom>":
         (("system", "noise", "kappa2", "temporal"), None),
     "system.noise.kappa2<separable_translation>.spatial<exponential>":
@@ -231,6 +235,10 @@ _LOCATIONS = {
     "system.noise.kappa2<separable_rotation>.temporal<exponential>":
         (("system", "noise", "kappa2", "temporal"), _rotation),
     "system.noise.kappa2<separable_rotation>.temporal<gaussian>":
+        (("system", "noise", "kappa2", "temporal"), _rotation),
+    "system.noise.kappa2<separable_rotation>.temporal<matern32>":
+        (("system", "noise", "kappa2", "temporal"), _rotation),
+    "system.noise.kappa2<separable_rotation>.temporal<damped_cosine>":
         (("system", "noise", "kappa2", "temporal"), _rotation),
     "system.noise.kappa2<separable_rotation>.temporal<custom>":
         (("system", "noise", "kappa2", "temporal"), _rotation),

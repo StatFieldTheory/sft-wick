@@ -140,8 +140,10 @@ def test_T4_time_dependent_gamma_end_to_end(tmp_path) -> None:
 
     exp_c = system_callable.expand(("phi(x)", "phi(y)"), orders=[0])
     exp_s = system_static.expand(("phi(x)", "phi(y)"), orders=[0])
-    props_c = system_callable.propagators(t_max=1.5, n_grid_t=10)
-    props_s = system_static.propagators(t_max=1.5, n_grid_t=10)
+    props_c = system_callable.propagators(t_max=1.5, n_grid_t=10, table_rtol=None)
+    props_s = system_static.propagators(
+        t_max=1.5, n_grid_t=10, c_closed_form_only=False, table_rtol=None,
+    )
 
     res_c = exp_c.evaluate(
         props_c, positions={"x": 0.0, "y": 0.5},
