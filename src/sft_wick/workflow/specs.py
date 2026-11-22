@@ -22,10 +22,12 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from functools import cached_property
+from numbers import Real
 from typing import Any, Callable
 
 import numpy as np
 
+from .._contraction_admission import DEFAULT_CONTRACTION_MAX_BYTES
 from .._util import require_bool
 from ..evaluate import _departs_relative, _separation, _table_slack
 from ..expressions import i_power
@@ -1012,7 +1014,8 @@ class MultiplicativeVertex:
             covariance ``D(φ)``, or of the noise-induced drift).
         msr_factor: ``1/2`` (``−i²/2!``) for the two-ψ vertices of
             ``D(φ)``; ``−i`` for the one-ψ vertices of the drift.
-        g1_power: the power of ``g1`` that ``coupling`` carries.
+        g1_power: the power of ``ε`` in the coupling when ``g1`` scales
+            as ``ε g1`` and ``g2`` as ``ε² g2``.
     """
 
     name: str
@@ -1029,41 +1032,42 @@ class MultiplicativeVertex:
 
 @dataclass(frozen=True)
 class MultiplicativeImpulse(Sigma2):
-    r"""Gaussian white noise whose amplitude depends linearly on φ.
+    r"""Gaussian white noise with an affine or quadratic amplitude in φ.
 
     .. math::
 
         dφ_a = \dots + g_{ak}(φ)\,dW_k ,\qquad
-        g_{ak}(φ) = g^{(0)}_{ak} + g^{(1)}_{akb}\,φ_b ,\qquad
+        g_{ak}(φ) = g^{(0)}_{ak} + g^{(1)}_{akb}\,φ_b
+                    + g^{(2)}_{akbc}\,φ_bφ_c ,\qquad
         ⟨dW_k\,dW_l⟩ = δ_{kl}\,dt ,
 
-    read in the Itô or the Stratonovich sense (``interpretation``).  The
-    noise covariance ``D(φ) = g(φ) g(φ)ᵀ`` is a quadratic polynomial in φ:
+    The noise covariance ``D(φ) = g(φ) g(φ)ᵀ`` is a polynomial of degree
+    up to four:
 
     * ``D0 = g0 g0ᵀ`` (φ-independent) is the white noise of C, exactly as
       a ``ConstantImpulse(D0)`` would be (:attr:`amplitude`);
     * ``D1_abc = g0_ak g1_bkc + g1_akc g0_bk`` becomes a local vertex with
       two ψ legs and one φ leg (default name ``"G"``);
-    * ``D2_abce = g1_akc g1_bke`` becomes a local vertex with two ψ legs
-      and two φ legs (``"H"``).
+    * ``D2`` combines ``g1 g1ᵀ``, ``g0 g2ᵀ`` and ``g2 g0ᵀ`` and gives the
+      local vertex ``"H"`` with two ψ and two φ legs.
+    * With ``g2`` supplied, ``D3`` and ``D4`` can add local vertices
+      ``"I"`` and ``"J"`` with two ψ and three or four φ legs.
 
-    The MSR action carries ``½ ψ_a ψ_b D_ab(φ)``, so both vertices take the
+    The MSR action carries ``½ ψ_a ψ_b D_ab(φ)``, so these vertices take the
     factor ``−i²/2! = ½``, applied by :meth:`System.build_coupling_values`
     like the ``−i`` of a :class:`LocalVertex`.
 
-    ``interpretation='stratonovich'`` converts the SDE to its Itô form,
-    whose drift has the extra term
-    ``½ Σ_jk g_jk ∂_j g_ik = b_i + L_ic φ_c`` with
-    ``b_i = ½ g1_ikj g0_jk`` and ``L_ic = ½ g1_ikj g1_jkc``.  Both become
-    drift vertices with the factor ``−i``: a source with one ψ leg and no
-    φ leg (``"B"``) and a linear vertex with one ψ leg and one φ leg
-    (``"L"``).  R and C stay those of the Itô part, so every integrator
-    that runs the Itô model runs the Stratonovich one.  Folding ``L`` into
-    the linear operator would resum it, but a generic ``L`` is not
-    diagonal, and a dense R has no built-in closed-form C.
+    The Itô drift correction is ``α Σ_jk g_jk ∂_j g_ik``. By default
+    ``interpretation='ito'`` uses ``α=0`` and ``'stratonovich'`` uses
+    ``α=1/2``. An explicit numeric ``alpha`` selects the convention.
+    Each nonzero coefficient becomes a drift vertex with one ψ leg and
+    factor ``−i``. The constant and linear terms are ``"B"`` and ``"L"``.
+    Quadratic ``g`` can also contribute quadratic and cubic drift terms
+    ``"Q"`` and ``"P"``. All these terms stay perturbative in the action.
 
-    **Orders count vertices.**  Each vertex is one order, whatever power
-    of ``g1`` it carries:
+    **Orders count vertices.** Each vertex contributes one order. The
+    following powers apply in the affine case or under ``g1 → ε g1``
+    and ``g2 → ε² g2``:
 
     ======  ========  =====================  ============  ============
     vertex  legs      bare coupling          MSR factor    power of g1
@@ -1092,19 +1096,24 @@ class MultiplicativeImpulse(Sigma2):
     any system, this noise included
     (``evaluate.py::_require_one_position_per_group``).
 
-    A quadratic term in ``g`` is not supported: it would add vertices with
-    two ψ legs and three and four φ legs, and a quadratic and a cubic
-    noise-induced drift.
-
     Args:
         g0: ``(N, M)`` amplitude at ``φ = 0``; ``M`` is the number of
             independent Wiener processes.  Additive white noise is a
-            column of ``g0`` whose ``g1`` column is zero (for a covariance
+            column of ``g0`` whose ``g1`` and ``g2`` columns are zero (for a covariance
             ``S`` use any factor ``S = s sᵀ``).
         g1: ``(N, M, N)``, ``g1[a, k, b] = ∂g_ak/∂φ_b``.
-        interpretation: ``'ito'`` (default) or ``'stratonovich'``.
-        vertex_names: names of the ``ψψφ`` and ``ψψφφ`` vertices.
-        drift_names: names of the Stratonovich ``ψ`` and ``ψφ`` vertices.
+        interpretation: ``'ito'`` (default) or ``'stratonovich'``, used
+            to obtain the convention when ``alpha`` is omitted.
+        vertex_names: names of the two-ψ vertices in increasing φ degree
+            from one. With ``g2``, two names are extended with ``I``, ``J``
+            or supply four names.
+        drift_names: names of the one-ψ drift vertices in increasing φ
+            degree from zero. With ``g2``, two names are extended with
+            ``Q``, ``P`` or supply four names.
+        g2: optional ``(N, M, N, N)`` tensor for the quadratic amplitude
+            ``Σ_bc g2[a,k,b,c] φ_b φ_c``. Its dense quartic diffusion tensor
+            must fit the package tensor budget.
+        alpha: optional explicit convention in ``[0, 1]``.
     """
 
     g0: Any
@@ -1112,6 +1121,8 @@ class MultiplicativeImpulse(Sigma2):
     interpretation: str = "ito"
     vertex_names: tuple = ("G", "H")
     drift_names: tuple = ("B", "L")
+    g2: Any = None
+    alpha: float | None = None
 
     def __post_init__(self) -> None:
         g0 = _real_array(self.g0, "g0")
@@ -1125,23 +1136,52 @@ class MultiplicativeImpulse(Sigma2):
             raise ValueError(
                 f"MultiplicativeImpulse: g1 must have shape (N, M, N) = "
                 f"{(n, m, n)} to match g0 {g0.shape}; got {g1.shape}.")
+        g2 = None if self.g2 is None else _real_array(self.g2, "g2")
+        if g2 is not None and g2.shape != (n, m, n, n):
+            raise ValueError(
+                f"MultiplicativeImpulse: g2 must have shape (N, M, N, N) = "
+                f"{(n, m, n, n)} to match g0 {g0.shape}; got {g2.shape}.")
+        quartic_bytes = n ** 6 * np.dtype(float).itemsize
+        if g2 is not None and quartic_bytes > DEFAULT_CONTRACTION_MAX_BYTES and np.any(g2):
+            raise ValueError(
+                f"MultiplicativeImpulse: the dense quartic diffusion tensor for "
+                f"{n} components alone would require {quartic_bytes} bytes, above "
+                f"the {DEFAULT_CONTRACTION_MAX_BYTES}-byte tensor budget."
+            )
         if self.interpretation not in ("ito", "stratonovich"):
             raise ValueError(
                 f"MultiplicativeImpulse: interpretation must be 'ito' or "
                 f"'stratonovich'; got {shown(self.interpretation)}.")
-        vnames, dnames = tuple(self.vertex_names), tuple(self.drift_names)
+        if self.alpha is not None:
+            if (isinstance(self.alpha, (bool, np.bool_))
+                    or not isinstance(self.alpha, Real)
+                    or not 0.0 <= self.alpha <= 1.0):
+                raise ValueError("MultiplicativeImpulse: alpha must be in [0, 1].")
+            object.__setattr__(self, "alpha", float(self.alpha))
+        object.__setattr__(self, "vertex_names", tuple(self.vertex_names))
+        object.__setattr__(self, "drift_names", tuple(self.drift_names))
+        vnames, dnames = self._resolved_names()
+        name_count = 2 if g2 is None else 4
         names = vnames + dnames
-        if (len(vnames) != 2 or len(dnames) != 2
+        if (len(vnames) != name_count or len(dnames) != name_count
                 or not all(isinstance(s, str) and s for s in names)
-                or len(set(names)) != 4):
+                or len(set(names)) != 2 * name_count):
             raise ValueError(
                 f"MultiplicativeImpulse: vertex_names and drift_names must be "
-                f"two non-empty strings each, all four distinct; got "
+                f"{name_count} non-empty strings each, all distinct; got "
                 f"{shown(vnames)} and {shown(dnames)}.")
         object.__setattr__(self, "g0", _nested_tuple(g0))
         object.__setattr__(self, "g1", _nested_tuple(g1))
-        object.__setattr__(self, "vertex_names", vnames)
-        object.__setattr__(self, "drift_names", dnames)
+        object.__setattr__(self, "g2", None if g2 is None else _nested_tuple(g2))
+
+    def _resolved_names(self) -> tuple[tuple, tuple]:
+        vnames, dnames = self.vertex_names, self.drift_names
+        if self.g2 is not None:
+            if len(vnames) == 2:
+                vnames += ("I", "J")
+            if len(dnames) == 2:
+                dnames += ("Q", "P")
+        return vnames, dnames
 
     # The noise covariance D(φ) = g(φ) g(φ)ᵀ -----------------------------
 
@@ -1152,6 +1192,17 @@ class MultiplicativeImpulse(Sigma2):
     @property
     def g1_array(self) -> np.ndarray:
         return np.array(self.g1, dtype=float)
+
+    @property
+    def g2_array(self) -> np.ndarray | None:
+        return None if self.g2 is None else np.array(self.g2, dtype=float)
+
+    @property
+    def effective_alpha(self) -> float:
+        """The convention used to convert this noise to Itô form."""
+        if self.alpha is not None:
+            return self.alpha
+        return 0.5 if self.interpretation == "stratonovich" else 0.0
 
     @property
     def n_components(self) -> int:
@@ -1173,36 +1224,61 @@ class MultiplicativeImpulse(Sigma2):
 
     @property
     def D2(self) -> np.ndarray:
-        """``D2_abce = g1_akc g1_bke`` (``D ⊃ D2_abce φ_c φ_e``)."""
+        """The quadratic coefficient of ``D(φ)``."""
         g1 = self.g1_array
-        return np.einsum("akc,bke->abce", g1, g1)
+        coefficient = np.einsum("akc,bke->abce", g1, g1)
+        g2 = self.g2_array
+        if g2 is not None:
+            g0 = self.g0_array
+            coefficient += np.einsum("ak,bkce->abce", g0, g2)
+            coefficient += np.einsum("akce,bk->abce", g2, g0)
+        return coefficient
 
     @property
     def noise_induced_drift(self) -> tuple[np.ndarray, np.ndarray]:
-        """``(b, L)`` of the Itô form's extra drift ``b + L φ``: zero for
-        ``'ito'``; ``b_i = ½ g1_ikj g0_jk``, ``L_ic = ½ g1_ikj g1_jkc`` for
-        ``'stratonovich'``."""
+        """Constant and linear coefficients ``(b, L)`` of the Itô drift
+        correction. For a quadratic amplitude, the higher coefficients
+        are available through :meth:`vertices`."""
         g0, g1 = self.g0_array, self.g1_array
         n = g0.shape[0]
-        if self.interpretation == "ito":
+        alpha = self.effective_alpha
+        if not alpha:
             return np.zeros(n), np.zeros((n, n))
-        return (0.5 * np.einsum("ikj,jk->i", g1, g0),
-                0.5 * np.einsum("ikj,jkc->ic", g1, g1))
+        linear = np.einsum("ikj,jkc->ic", g1, g1)
+        g2 = self.g2_array
+        if g2 is not None:
+            derivative = g2 + g2.swapaxes(-1, -2)
+            linear += np.einsum("ikjc,jk->ic", derivative, g0)
+        return alpha * np.einsum("ikj,jk->i", g1, g0), alpha * linear
 
     def vertices(self) -> tuple[MultiplicativeVertex, ...]:
         """The local vertices this noise lowers to; see the class docstring.
         Vertices with an identically zero coupling are omitted."""
-        g_name, h_name = self.vertex_names
-        out = [
-            MultiplicativeVertex(g_name, 2, self.D1, _msr_factor(2), 1),
-            MultiplicativeVertex(h_name, 2, self.D2, _msr_factor(2), 2),
-        ]
-        if self.interpretation == "stratonovich":
-            b, L = self.noise_induced_drift
-            b_name, l_name = self.drift_names
-            out += [MultiplicativeVertex(b_name, 1, b, _msr_factor(1), 1),
-                    MultiplicativeVertex(l_name, 1, L, _msr_factor(1), 2)]
-        return tuple(v for v in out if np.any(np.asarray(v.coupling) != 0.0))
+        diffusion: tuple[np.ndarray, ...] = (self.D1, self.D2)
+        alpha = self.effective_alpha
+        drift: tuple[np.ndarray, ...] = self.noise_induced_drift if alpha else ()
+        g2 = self.g2_array
+        if g2 is not None and np.any(g2):
+            g1 = self.g1_array
+            diffusion += (
+                np.einsum("akc,bkef->abcef", g1, g2)
+                + np.einsum("akce,bkf->abcef", g2, g1),
+                np.einsum("akce,bkfg->abcefg", g2, g2),
+            )
+            if alpha:
+                derivative = g2 + g2.swapaxes(-1, -2)
+                drift += (
+                    alpha * (np.einsum("ikj,jkce->ice", g1, g2)
+                             + np.einsum("ikjc,jke->ice", derivative, g1)),
+                    alpha * np.einsum("ikjc,jkef->icef", derivative, g2),
+                )
+        vnames, dnames = self._resolved_names()
+        return tuple(
+            MultiplicativeVertex(name, n_psi, coefficient, _msr_factor(n_psi), power)
+            for n_psi, names, coefficients in ((2, vnames, diffusion), (1, dnames, drift))
+            for power, (name, coefficient) in enumerate(zip(names, coefficients), start=1)
+            if np.any(coefficient != 0.0)
+        )
 
     def build_callable(self, n_components: int) -> Callable:
         if int(n_components) != self.n_components:

@@ -25,10 +25,12 @@ from __future__ import annotations
 import itertools
 import sys
 import textwrap
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
 import pytest
+from scipy.integrate import quad
 
 import sft_wick as sw
 
@@ -86,6 +88,11 @@ def test_MN1_stratonovich_drift_is_the_vector_field_derivative(seed):
     (dict(g0=m5c.G0, g1=m5c.G1, vertex_names=("G", "G")), "distinct"),
     (dict(g0=m5c.G0, g1=m5c.G1, drift_names=("B", "G")), "distinct"),
     (dict(g0=m5c.G0 * 1j, g1=m5c.G1), "real"),
+    (dict(g0=m5c.G0, g1=m5c.G1, g2=m5c.G1), "g2 must have shape"),
+    (dict(g0=m5c.G0, g1=m5c.G1, alpha=True), "alpha"),
+    (dict(g0=m5c.G0, g1=m5c.G1, alpha=-0.1), "alpha"),
+    (dict(g0=m5c.G0, g1=m5c.G1, alpha=1.1), "alpha"),
+    (dict(g0=m5c.G0, g1=m5c.G1, alpha=float("nan")), "alpha"),
 ])
 def test_MN1_rejects_malformed_specs(kwargs, match):
     with pytest.raises(ValueError, match=match):
@@ -157,6 +164,96 @@ def test_MN2_a_zero_g1_generates_no_vertices():
     imp = sw.MultiplicativeImpulse(g0=m5c.G0, g1=np.zeros_like(m5c.G1),
                                    interpretation="stratonovich")
     assert imp.vertices() == ()
+
+
+def test_quadratic_noise_can_return_to_affine_with_default_names():
+    affine = sw.MultiplicativeImpulse(m5c.G0, m5c.G1, interpretation="stratonovich")
+    g2 = np.ones(m5c.G1.shape + (m5c.N,))
+    quadratic = replace(affine, g2=g2)
+    assert {v.name for v in quadratic.vertices()} >= {"I", "J", "Q", "P"}
+    assert replace(quadratic, g2=None) == affine
+
+
+def test_quadratic_noise_checks_dense_quartic_tensor_size_before_lowering():
+    n = 32
+    g0, g1, g2 = np.zeros((n, 1)), np.zeros((n, 1, n)), np.zeros((n, 1, n, n))
+    assert sw.MultiplicativeImpulse(g0, g1, g2=g2).vertices() == ()
+    g2[0, 0, 0, 0] = 0.01
+    with pytest.raises(ValueError, match="dense quartic diffusion tensor.*tensor budget"):
+        sw.MultiplicativeImpulse(g0, g1, g2=g2)
+
+
+@pytest.mark.parametrize("alpha", [0.0, 0.3, 1.0])
+def test_quadratic_noise_lowering_matches_g_and_its_jacobian(alpha):
+    rng = np.random.default_rng(14)
+    g2 = 0.2 * rng.normal(size=m5c.G1.shape + (m5c.N,))
+    phi = rng.normal(size=m5c.N)
+    impulse = sw.MultiplicativeImpulse(m5c.G0, m5c.G1, g2=g2, alpha=alpha)
+
+    def g(x):
+        return _g(x) + np.einsum("akbc,b,c->ak", g2, x, x)
+
+    covariance = impulse.amplitude
+    drift = np.zeros(m5c.N)
+    names = {}
+    for vertex in impulse.vertices():
+        coefficient = vertex.coupling
+        degree = coefficient.ndim - vertex.n_psi
+        names[vertex.name] = (vertex.n_psi, degree, vertex.g1_power)
+        for _ in range(degree):
+            coefficient = coefficient @ phi
+        if vertex.n_psi == 1:
+            drift += coefficient
+        else:
+            covariance += coefficient
+    np.testing.assert_allclose(covariance, g(phi) @ g(phi).T, rtol=2e-14, atol=1e-15)
+
+    noise_drift = np.zeros(m5c.N)
+    for component, unit in enumerate(np.eye(m5c.N)):
+        derivative = g(phi + 1e-20j * unit).imag / 1e-20
+        noise_drift += alpha * derivative @ g(phi)[component]
+    np.testing.assert_allclose(drift, noise_drift, rtol=2e-14, atol=1e-15)
+    assert names == ({"G": (2, 1, 1), "H": (2, 2, 2), "I": (2, 3, 3), "J": (2, 4, 4)}
+                     | ({"B": (1, 0, 1), "L": (1, 1, 2), "Q": (1, 2, 3), "P": (1, 3, 4)}
+                        if alpha else {}))
+    b, linear = impulse.noise_induced_drift
+    assert len(b.shape) == 1 and len(linear.shape) == 2
+
+
+def test_quadratic_noise_alpha_half_changes_the_first_order_mean():
+    """Independent mean correction from the additive OU variance."""
+    gamma, t_min, time = 0.8, 0.3, 1.1
+    a, b, c = 0.7, -0.22, 0.29
+
+    def mean(alpha, n_gauss):
+        system = sw.System(
+            field=sw.FieldSpec("phi", 1), linear=sw.DiagonalA(gamma=[gamma]),
+            noise=sw.GaussianNoise(
+                kappa2=sw.SeparableTranslation(
+                    temporal=sw.ExponentialTemporal(lam=0.0, sigma_t=1.0),
+                    spatial=sw.ExponentialSpatial(sigma_x=1.0)),
+                sigma2=sw.MultiplicativeImpulse(
+                    [[a]], [[[b]]], g2=[[[[c]]]], alpha=alpha)),
+            t_min=t_min)
+        props = system.propagators(t_max=time, c_closed_form_only=True, progress=False)
+        expansion = system.expand(["phi(x)"], orders=1)
+        return expansion.evaluate(props, positions={"x": 0.0}, t_final=time,
+                                  component_pair=(0,), method="gauss_legendre",
+                                  n_gauss=n_gauss).total
+
+    duration = time - t_min
+
+    def integrand(t):
+        variance = a ** 2 * (-np.expm1(-2 * gamma * t)) / (2 * gamma)
+        drift = 0.5 * (a * b + 3 * b * c * variance)
+        return np.exp(-gamma * (duration - t)) * drift
+
+    exact, _ = quad(integrand, 0, duration)
+    for n_gauss in (12, 20, 28):
+        assert mean(0.5, n_gauss) == pytest.approx(exact, rel=1e-12, abs=0.0)
+    dropped = mean(0.0, 28)
+    assert dropped == 0.0
+    assert abs(dropped - exact) > 0.01
 
 
 # --------------------------------------------------------------------------

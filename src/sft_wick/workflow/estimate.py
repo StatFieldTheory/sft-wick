@@ -160,20 +160,34 @@ def estimate_cost(
 def _expansion_preflight(system, expand) -> str:
     from sft_wick._routing_count import _preflight_counts
 
+    from ._run_checks import _observable_subsets
     from .system import _parse_observable
 
     observable, _ = _parse_observable(expand.observable, system, max(expand.orders))
+    action = system.build_action()
+    pairings = dict.fromkeys(expand.orders, 0)
+    weighted = dict.fromkeys(expand.orders, 0)
+    classes = dict.fromkeys(expand.orders, 0)
+    for kept, _ in _observable_subsets(system, observable, expand.target):
+        if not kept:
+            if 0 in pairings:
+                pairings[0] += 1
+                weighted[0] += 1
+            continue
+        for block in _preflight_counts(
+            kept, action, expand.orders, expand.target, routing=expand.routing,
+        ):
+            pairings[block.order] += block.pairings
+            weighted[block.order] += block.weighted_pairings
+            classes[block.order] += sum(
+                row.classes for row in block.sequences if row.classes is not None
+            )
     lines = [f"[sft-wick] expansion preflight ({expand.target}, before sweep filters)"]
-    for block in _preflight_counts(
-        observable, system.build_action(), expand.orders, expand.target, routing=expand.routing,
-    ):
-        classes = (
-            sum(row.classes for row in block.sequences if row.classes is not None)
-            if block.order else "n/a"
-        )
+    for order in expand.orders:
+        typed = classes[order] if order else "n/a"
         lines.append(
-            f"[sft-wick]   order {block.order}: pairings={block.pairings}, "
-            f"weighted pairings={block.weighted_pairings}, typed classes={classes}"
+            f"[sft-wick]   order {order}: pairings={pairings[order]}, "
+            f"weighted pairings={weighted[order]}, typed classes={typed}"
         )
     return "\n".join(lines)
 
@@ -205,6 +219,7 @@ def _estimate(cfg, bench_seconds, report_preflight) -> CostEstimate:
     from .resources import grid_points
 
     system = build_system(cfg.system)
+    system._check_initial_mean_method(cfg.sweep.method)
     if report_preflight is not None:
         report_preflight(_expansion_preflight(system, cfg.expand))
     expansion = system.expand(**expand_kwargs(cfg))
@@ -225,7 +240,7 @@ def _estimate(cfg, bench_seconds, report_preflight) -> CostEstimate:
         None,
         sw.component_tuples,
         expansion.observable_repr,
-        system.n_components,
+        system._observable_components,
         "sweep.component_tuples",
     )
     n_grid = grid_points(sw)

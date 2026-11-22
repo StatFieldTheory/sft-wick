@@ -275,9 +275,10 @@ def _request_reads_R(system, orders, names) -> bool:
     with two legs) therefore counts.
     """
     vertices = (
-        system.vertices or system.nonlocal_vertices or system.multiplicative_vertices
+        system.vertices or system._all_nonlocal_vertices or system.multiplicative_vertices
+        or system.km_vertices
     )
-    return system.field.response_name in names or (
+    return system._has_initial_mean or system.field.response_name in names or (
         bool(vertices) and any(order > 0 for order in orders)
     )
 
@@ -402,7 +403,8 @@ def _guard_point_names(expansion, propagators, diagram_terms, positions, label):
         return
     system = expansion.system
     if not _cache_has_spatial_table(getattr(propagators, "cache", None)) and not any(
-        callable(v.coupling) for v in (*system.vertices, *system.nonlocal_vertices)
+        callable(v.coupling)
+        for v in (*system.vertices, *system.nonlocal_vertices, *system.km_vertices)
     ):
         return
     free = [
@@ -544,6 +546,7 @@ class Expansion:
     target: str = "moment"
     # Likewise for expansions pickled before the flag was recorded.
     diag_C: bool | None = None
+    _vertex_aliases: dict[str, str | None] | None = None
 
     @property
     def certificate(self) -> Any:
@@ -813,6 +816,7 @@ class Expansion:
             _validate_qmc_replicas,
         )
 
+        self.system._check_initial_mean_method(method)
         qmc_replicas = _validate_qmc_replicas(qmc_replicas, n_samples, method)
         qmc_heavy_tail = _validate_qmc_heavy_tail(qmc_heavy_tail, qmc_replicas)
         gl_error = _validate_gl_error(gl_error, method, n_gauss)
@@ -860,7 +864,7 @@ class Expansion:
         component_pair = _component_tuple(
             component_pair,
             self.observable_repr,
-            self.system.n_components,
+            self.system._observable_components,
             "Expansion.evaluate",
         )
         fi = _component_indices(component_pair, self.observable_repr)
@@ -1152,6 +1156,7 @@ class Expansion:
             _execution_options, _read_integrate_over_once, _validate_gl_error,
         )
 
+        self.system._check_initial_mean_method(method)
         qmc_heavy_tail = _validate_qmc_heavy_tail(qmc_heavy_tail, qmc_replicas)
         gl_error = _validate_gl_error(gl_error, method, n_gauss)
         execution = _execution_options(
@@ -1321,7 +1326,7 @@ class Expansion:
             component_pairs,
             component_tuples,
             self.observable_repr,
-            self.system.n_components,
+            self.system._observable_components,
             "Expansion.sweep",
         )
         comp_cols = component_columns(len(self.observable_repr))
@@ -1660,7 +1665,7 @@ class Expansion:
         """Every label a diagram at one of ``orders`` could carry: ``''`` at
         order 0, else the sorted, joined names of at most ``max(orders)``
         distinct vertices (each vertex is one order)."""
-        names = sorted(self.system.build_coupling_values())
+        names = sorted(self._original_vertex_names(self.system.build_coupling_values()))
         out = {""} if 0 in orders else set()
         for k in range(1, min(max(orders, default=0), len(names)) + 1):
             out.update(
@@ -1707,15 +1712,24 @@ class Expansion:
             prepared[comp] = _PreparedSweepPoint(tasks, cv, integrands, cross_counts)
         return prepared
 
-    @staticmethod
-    def _vertex_type_label(dt) -> str:
+    def _original_vertex_names(self, names) -> set[str]:
+        aliases = self._vertex_aliases
+        if aliases is None:
+            return set(names)
+        result = {aliases.get(name, name) for name in names}
+        result.discard(None)
+        return result
+
+    def _vertex_type_label(self, dt) -> str:
         """Extract the sorted unique coupling-symbol names from
         ``dt.coupling_sum`` and join them into a single string
         (matches demo2's convention: ``{'F'}`` → ``"F"``,
         ``{'F', 'K'}`` → ``"FK"``).  :class:`System` refuses vertex
         names for which two sets would get one label (``F``, ``K`` and
         ``FK``), so the label names one set of vertices."""
-        return vertex_type_label(_collect_symbol_names(dt.coupling_sum))
+        return vertex_type_label(
+            self._original_vertex_names(_collect_symbol_names(dt.coupling_sum))
+        )
 
 
 # =========================================================================

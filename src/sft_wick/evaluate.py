@@ -1536,6 +1536,9 @@ class PropagatorModel:
     # the white-noise term is automatically absorbed into every
     # homogeneity-mode spline with no caller-side changes.
     sigma2: Callable | None = None
+    # Exact propagated covariance of the initial state, separate from the
+    # integral of the driving noise and any closed form supplied for it.
+    c_initial: Callable | None = None
 
 
 def _polynomial_weights(x: np.ndarray, nodes: np.ndarray) -> np.ndarray:
@@ -5310,7 +5313,7 @@ class PropagatorCache:
         term of either adds an ``r``-independent term that would break the
         scaling.  Any other C is opaque.
         """
-        if self._direct_is_overridden():
+        if self._direct_is_overridden() or self.model.c_initial is not None:
             return None
         c_fn = _closed_form_c(self)
         if c_fn is not None:
@@ -5425,10 +5428,11 @@ class PropagatorCache:
         c_fn = _closed_form_c(self)
         if c_fn is not None and self._closed_form_vectorized:
             left, right = np.asarray(x1), np.asarray(x2)
-            return np.asarray(c_fn(
+            driven = np.asarray(c_fn(
                 np.broadcast_to(left, (len(t1), *left.shape)).copy(), t1.copy(),
                 np.broadcast_to(right, (len(t2), *right.shape)).copy(), t2.copy(),
             ), dtype=float)
+            return self._with_initial_covariance(driven, t1, t2)
         if c_fn is not None or self._direct_is_overridden():
             return np.stack([
                 np.array(_C_value_direct_on_copies(self, x1, a, x2, b), copy=True)
@@ -5445,12 +5449,13 @@ class PropagatorCache:
             levels = int(count or _GRADED_LEVELS[0])
             reference_rule = {"graded_levels": levels + 2,
                               "graded_nodes": _GRADED_CHECK_NODES}
-        return np.stack([
+        driven = np.stack([
             _C_value_direct_gl(
                 self.model, _own_copy(x1), a, _own_copy(x2), b, **reference_rule,
             )
             for a, b in zip(t1, t2)
         ])
+        return self._with_initial_covariance(driven, t1, t2)
 
     def _certify_table(self, ts, knots, off_knots=(), joint=()):
         if self.table_rtol is None:
@@ -5520,7 +5525,10 @@ class PropagatorCache:
                         "a vectorized closed-form C must return (n, N, N) "
                         "on a batch of table knots"
                     )
-                return tuple(np.asarray(indices, dtype=int).T), values
+                return (
+                    tuple(np.asarray(indices, dtype=int).T),
+                    self._with_initial_covariance(values, t1, t2),
+                )
 
             batches = [cells[start:start + 4096] for start in range(0, len(cells), 4096)]
             grids = [np.zeros(shape) for _ in entries]
@@ -5995,6 +6003,36 @@ class PropagatorCache:
         )
 
     def _C_value_direct(
+        self,
+        n1: Any,
+        t1: float,
+        n2: Any,
+        t2: float,
+        method: str | None = None,
+        n_gauss: int | None = None,
+    ) -> np.ndarray:
+        """Direct C from the driven and, when specified, boundary terms."""
+        initial = self.model.c_initial
+        boundary = None if initial is None else initial(t1, t2)
+        driven = self._C_driver_value_direct(n1, t1, n2, t2, method, n_gauss)
+        return driven if boundary is None else self._add_initial_covariance(driven, boundary)
+
+    def _with_initial_covariance(self, driven, t1, t2):
+        initial = self.model.c_initial
+        return driven if initial is None else self._add_initial_covariance(
+            driven, initial(t1, t2)
+        )
+
+    @staticmethod
+    def _add_initial_covariance(driven, boundary):
+        if driven.shape != boundary.shape:
+            raise ValueError(
+                f"the driven covariance must return shape {boundary.shape} "
+                f"with an initial covariance; got {driven.shape}"
+            )
+        return driven + boundary
+
+    def _C_driver_value_direct(
         self,
         n1: Any,
         t1: float,

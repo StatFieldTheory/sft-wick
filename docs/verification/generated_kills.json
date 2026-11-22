@@ -1,6 +1,6 @@
 {
  "rule": "value: the unmutated tree passes against the oracle and the mutant fails; refusal: the unmutated tree refuses with the text of the refusal the entry removes and the mutant returns a value the oracle rejects; a forced case counts only when its admissible control passes under both trees",
- "oracle_sha256": "e85b53d7afbde63100b8b0131a64c97c95f04c43f6b6cd2050fe2a233b446758",
+ "oracle_sha256": "649619116ceea5fe1e0b81e573570f1fe6d74a71b56e4291a4d3022922d022a1",
  "corpus_sha256": "26e372bab7d8a1b853ba811d0bc758bd9e691c3ddb85d78e0be2dd926983e232",
  "entries": [
   {

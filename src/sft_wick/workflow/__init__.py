@@ -66,6 +66,9 @@ from .specs import (
     Sigma2,
 )
 from .system import System
+from ._initial_state import InitialState
+from ._kramers_moyal import KramersMoyalVertex
+from ._markov_embedding import EmbeddedProcess, ErlangDelay, PronyMemory, embed_system
 
 __all__ = [
     "propagators_from_cache",
@@ -93,6 +96,12 @@ __all__ = [
     "Matern32Temporal",
     "MultiplicativeImpulse",
     "NonLocalVertex",
+    "InitialState",
+    "KramersMoyalVertex",
+    "EmbeddedProcess",
+    "ErlangDelay",
+    "PronyMemory",
+    "embed_system",
     "Propagators",
     "Result",
     "SeparableRotation",

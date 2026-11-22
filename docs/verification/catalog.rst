@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **9337 tests** in 165 files (parametrised
+The suite has **9407 tests** in 169 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -395,7 +395,7 @@ Propagator numerics
 Integrators
 -----------
 
-*2901 tests in 68 files.*
+*2905 tests in 68 files.*
 
 .. list-table::
    :header-rows: 1
@@ -700,7 +700,7 @@ Integrators
      - closed forms; Campbell's theorem; Lyapunov equation
      - exact analytic
      - 1e-13
-     - 8
+     - 12
      - 0
    * - ``test_kink_split_external_time.py``
      - a kink between an integration time and an external point pinned at a fixed time is cut, not paired: the variable's range is cut at that time, the cut is carried to the variables ordered against it and to the parents whose min() bound it enters, and no cut is made when every external sits at one time; an external swept by integrate_over pairs like an integration variable instead, and two swept ones pair too, unless the full causal closure (a chain through a fixed external included) orders them; a swept external below a carried lower cut is cut; the pairs, the cuts and the values do not depend on PYTHONHASHSEED
@@ -888,7 +888,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*2589 tests in 41 files.*
+*2655 tests in 45 files.*
 
 .. list-table::
    :header-rows: 1
@@ -985,6 +985,20 @@ Workflow and YAML
      - the tolerance of validation/compare.py stated per kill
      - 5
      - 0
+   * - ``test_initial_state.py``
+     - initial covariance and higher cumulants with a dense response and unequal times, including the initial time
+     - explicit contraction of a matrix exponential on every initial leg
+     - exact analytic
+     - 1e-15
+     - 16
+     - 0
+   * - ``test_kramers_moyal_vertices.py``
+     - third and fourth Itô generator terms with polynomial coefficients
+     - unequal-time OU response integrated independently, with a factorial witness
+     - exact analytic
+     - 1e-14
+     - 4
+     - 1
    * - ``test_l1_structure_guards.py``
      - callable-γ scalar/matrix R decided on the whole spline grid; the Γ spline reaches a negative t_min; t_max beyond t_max_cache refused; diag_R / diag_C refused when R or C has off-diagonal entries (dense R, mixing κ² or σ², a mixing κ² that raises at some probe points, a mixing κ² or σ² of vector positions read at the positions of evaluate and sweep), diagonal structures accepted
      - scipy quad of the rate; Lyapunov equation of the Markov embedding; scipy dblquad of R κ² R
@@ -999,12 +1013,26 @@ Workflow and YAML
      - 1e-12 (GL) / 1e-10 (nquad) / 1e-4 (QMC)
      - 102
      - 9
+   * - ``test_markov_embedding.py``
+     - finite colored forcing, Prony memory and Erlang delay at unequal times
+     - independent polynomial moments, conditional Gaussian integration and matrix ODEs
+     - independent code
+     - 1e-10
+     - 23
+     - 0
+   * - ``test_mean_observables.py``
+     - deterministic external factors for raw and connected moments and integrated times
+     - closed form for deterministic linear response with a tagged source
+     - exact analytic
+     - 1e-15
+     - 4
+     - 0
    * - ``test_multiplicative_noise_l1.py``
      - multiplicative white noise at L1 (MultiplicativeImpulse): D = g gᵀ and the noise-induced drift, the vertices and their MSR factors, ⟨φ_a⟩ and ⟨φ_a φ_b⟩ per bookkeeping tag at vertex orders 0-3 (Itô and Stratonovich, scalar and matrix R, two times), the YAML route, the one-site refusal
      - exact moment hierarchy in Hörmander form (no noise-induced drift formed); finite differences of g
      - exact analytic
      - 1e-9 (GL) / 2e-3 (qmc_scalar)
-     - 32
+     - 43
      - 9
    * - ``test_mutant_fuzz.py``
      - the kill rule of tools/mutant_fuzz.py: records joined by seed, mode, route and integrator; a mutant fail over an unmutated pass kills, over an unmutated fail does not; an unmutated refusal with the fix's text and a rejected mutant value kills, another refusal (a guard of Expansion.evaluate the entry does not change among them), an error, an accepted value or a fail of non-finite values only does not; the forced draw modes change only what they name, refuse a case outside their precondition, and leave the default draw unchanged; each forced case has an admissible control; a case shared by entries runs once under the unmutated tree; the oracle cache lies outside the tree and reuses a lost row only under limits no larger; the joined row keeps both trees' values at the mutant's worst tag; a saved case file is read back as the cases ran; the driver files import no sft_wick
@@ -1165,7 +1193,7 @@ Workflow and YAML
      - config dataclass field sets; the parser's own key check and value checks; the jsonschema reference validator
      - none
      - exact
-     - 85
+     - 93
      - 0
    * - ``test_yaml_alias_expansion.py``
      - alias diamonds at keys nothing reads, shared tensors, depths from the limit to 300, both sides of the value and nesting limits, shipped configs, validate, --print-resolved, run and compare-resources
@@ -1411,9 +1439,9 @@ Where a file holds checks of several kinds:
    * - Kind
      - Files
    * - exact analytic
-     - 80
+     - 83
    * - independent code
-     - 36
+     - 37
    * - simulation
      - 0
    * - self consistency
@@ -1502,7 +1530,7 @@ The local default suite killed 30 of the 30 mutants of
 ``tools/mutations/``; the *Killed mutants* column above counts, per
 file, the mutants under which one of its tests failed.  The sweep and
 the classification of survivors are described in :doc:`mutation`.
-The rows were swept against the 8478 to 8480 tests the fast suite collected then;
+The rows were swept against the 8478 to 9307 tests the fast suite collected then;
 a test added since has no kills until the next sweep.
 
 Surviving mutants

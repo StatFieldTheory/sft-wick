@@ -422,7 +422,10 @@ def _resolve_closed_form(system, c_closed_form):
                 f"got {shown(c_closed_form)}."
             )
         from .closed_forms import builtin_closed_form_for
+        from ._markov_embedding import _EmbeddedR
 
+        if c_closed_form == "auto" and isinstance(system.linear, _EmbeddedR):
+            return system.linear.compiled.driven_covariance(system.t_min), "closed_form:builtin"
         if c_closed_form == "ou_cse":
             cf = builtin_closed_form_for(system, ou_cse=True)
             if cf is None:

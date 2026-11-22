@@ -52,8 +52,8 @@ ENTRIES: list[tuple[str, str, str, str, str, str, str]] = [
     (
         "operator-stratonovich-drift-doubled",
         "workflow/specs.py",
-        "        return (0.5 * np.einsum(\"ikj,jk->i\", g1, g0),\n",
-        "        return (1.0 * np.einsum(\"ikj,jk->i\", g1, g0),\n",
+        '        return alpha * np.einsum("ikj,jk->i", g1, g0), alpha * linear\n',
+        '        return 2.0 * alpha * np.einsum("ikj,jk->i", g1, g0), alpha * linear\n',
         "tests/test_multiplicative_noise_l1.py",
         "The constant part of the noise-induced Stratonovich drift is "
         "g1 g0 instead of g1 g0 / 2.",
