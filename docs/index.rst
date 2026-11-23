@@ -177,6 +177,7 @@ pairings, canonical forms, custom simplification), see
    examples/index
    verification/index
    verification/oracle
+   verification/diagram_hierarchy
    verification/mutation
    verification/parent_gate
    verification/catalog
