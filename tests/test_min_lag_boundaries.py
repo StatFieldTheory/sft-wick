@@ -240,7 +240,8 @@ def _lazy_props(temporal, spatial):
             spatial=sw.CustomKernel(fn=spatial))))
     return system.propagators(
         t_max=3.0, n_grid_t=33, diag_C=False, c_closed_form=None,
-        c_method="gauss_legendre", c_n_gauss=24, progress=False)
+        c_method="gauss_legendre", c_n_gauss=24, table_rtol=None,
+        progress=False)
 
 
 def _reference_C00(temporal, t1, t2):
