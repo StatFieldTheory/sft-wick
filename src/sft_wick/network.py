@@ -468,7 +468,15 @@ class NetworkSystem:
             c_closed_form_vectorized=True,
         )
 
-    def expand(self, observable, orders, *, routing="multiplicity", target="moment"):
+    def expand(
+        self,
+        observable,
+        orders,
+        *,
+        routing="multiplicity",
+        target="moment",
+        progress=False,
+    ):
         """Expand using the node shared by the legs of each local vertex."""
         expansion = self.system.expand(
             observable,
@@ -477,6 +485,7 @@ class NetworkSystem:
             target=target,
             diag_R=False,
             diag_C=False,
+            progress=progress,
         )
         diagrams = {
             order: [_site_indices(term) for term in terms]

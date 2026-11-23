@@ -35,6 +35,10 @@ The remaining helpers are imported from their own module:
    propagators
    spectral
    quadratic
+   campbell
+   disorder
+   hawkes
+   network
    white_cumulant
    selfconsistency
    perturbation

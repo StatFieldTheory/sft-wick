@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### Added: grouped vertex times, fixed delays and coloured multiplicative noise
+
+`GroupedVertex` groups ordered field legs at shared spacetime points or
+shared times with distinct spatial labels, and supports fixed time lags with
+zero prehistory via `group_lags` and `_shifted_times`.
+`ColouredMultiplicativeNoise` averages a zero-mean Gaussian rate with an
+arbitrary covariance kernel into a four-leg grouped vertex. WickIR records
+containing grouped or lagged vertices serialize under `wickir/v1.1` while
+ordinary records remain `wickir/v1`.
+
+### Added: linear marked Hawkes count cumulants
+
+`sft_wick.hawkes.LinearHawkes` computes one-, two- and three-window joint
+count cumulants for exponential marked Hawkes networks with empty initial
+history, alongside a centred Wick `System` with affine Kramers-Moyal jump
+vertices. Extended-range matrix-exponential flows and gated third-cumulant
+quadrature preserve accuracy across extreme decay rates, baseline scalings,
+weak multi-generation cascades and mark-unit rescalings.
+
+### Added: Campbell Poisson free theory, quenched disorder and network components
+
+- `sft_wick.campbell.CampbellDriver` computes exact characteristic functions,
+  mixed cumulants, positive saturating readouts and first-order quadratic
+  drift insertions for marked Poisson event measures, with log-domain range
+  guards for large phases and wide response scales.
+- `sft_wick.disorder.RandomCoupling` computes finite-N perturbative
+  coefficients for quenched iid tensors and GOE matrices shared across thermal
+  replicas, and provides a `GroupedVertex` for general Wick systems.
+- `sft_wick.network.NetworkSystem` models finite-graph reaction-diffusion
+  processes with node-local polynomial drift, supporting zero and stationary
+  initial states, directed or weak-bridge Laplacians and signed PSD noise.
+
 ### Added: Gauss-Legendre convergence differences
 
 Set `gl_error` on Gauss-Legendre evaluation, sweeps or workflow YAML to

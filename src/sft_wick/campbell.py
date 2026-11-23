@@ -50,7 +50,7 @@ def _sum_products(weights, columns, moment):
 
 @lru_cache(maxsize=3)
 def _two_pi(precision):
-    # Gauss--Legendre doubles the number of correct digits each iteration.
+    # Gauss-Legendre doubles the number of correct digits each iteration.
     with localcontext(Context(prec=precision + 12)):
         a = Decimal(1)
         b = (a / 2).sqrt()
