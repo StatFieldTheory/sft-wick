@@ -361,3 +361,49 @@ def test_random_rate_detects_wrong_matern_diffusion_and_omitted_hidden_initial_s
                   replace(model, initial_covariance=np.zeros_like(model.initial_covariance))):
         result = _existing_workflow(wrong, [2], [28])[0][2]
         assert abs(result - ref) > 1e-4
+
+
+def test_shared_random_rate_matrix_compiles_without_transposing():
+    coupling = np.array([[0.3, -0.41], [0.19, 0.2]])
+    process = EmbeddedProcess(ExponentialTemporal(2.5, 0.2), mode="random_rate",
+                              start="stationary", coupling=coupling)
+    model = compile_markov_embedding(-np.eye(2), np.eye(2), process)
+    x = np.array([0.79, -0.16, 1.4])
+    force = np.einsum("abc,b,c->a", model.vertex.coupling, x, x)
+    np.testing.assert_allclose(force[:2], x[-1] * (coupling @ x[:2]))
+    assert force[-1] == 0
+    assert model.initial_covariance[-1, -1] == 2.5
+
+
+def test_matrix_rate_refuses_ambiguous_or_incompatible_inputs():
+    kw = dict(kernel=ExponentialTemporal(1.0, 0.3), coupling=[[1.0, 0.1], [0.4, 1.0]])
+    for extra in ({}, {"mode": "random_rate", "target": 1}):
+        with pytest.raises(ValueError, match="matrix coupling"):
+            EmbeddedProcess(**kw, **extra)
+    with pytest.raises(ValueError, match="physical"):
+        compile_markov_embedding([[-1.0]], [[1.0]], EmbeddedProcess(**kw, mode="random_rate"))
+    for bad in ([[0.2, 1.0]], [[True]], [[np.inf]], [["0.1"]]):
+        with pytest.raises(ValueError, match="matrix coupling"):
+            EmbeddedProcess(ExponentialTemporal(1.0, 0.3), coupling=bad, mode="random_rate")
+
+def test_colored_rate_example_covariance_matches_conditioned_gaussian():
+    import jsonschema
+
+    from sft_wick.workflow.schema import workflow_json_schema
+
+    path = Path(__file__).resolve().parents[1] / "examples" / "demo5" / "colored_rate.yaml"
+    jsonschema.validate(yaml.safe_load(path.read_text()), workflow_json_schema())
+    _, table = run_workflow(load_workflow_config(path))
+    # At fixed OU history the additive impulse propagates by
+    # exp(-gamma*u) exp(G * integral_0^u eta). Gaussian averaging yields
+    # V(u)/2 * (G. + .G^T)^2 Q as the order-two integrand.
+    g = np.array([[0.35, -0.42], [0.27, 0.18]])
+    q = np.array([[0.72, 0.16], [0.16, 0.43]])
+    kernel = quad(lambda u: np.exp(-1.2 * u) * (u + 0.2 * np.expm1(-u / 0.2)),
+                  0, 1.5)[0]
+    first = g @ q + q @ g.T
+    expected = 0.5 * kernel * (g @ first + first @ g.T)
+    values = table.loc[table["order"] == 2]
+    assert len(values) == 3
+    for row in values.itertuples():
+        assert row.value == pytest.approx(expected[row.a, row.b], rel=1e-9, abs=0)

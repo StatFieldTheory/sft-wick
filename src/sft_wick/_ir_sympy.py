@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from .expressions import (
     DiracDelta,
+    TimeDelta,
     Expr,
     ImaginaryUnit,
     IntegralOver,
@@ -44,6 +45,7 @@ def _integrand(term: DiagramTerm) -> Expr:
     if phase % 2:
         factors.append(ImaginaryUnit())
     factors.append(term.coupling_sum)
+    factors.extend(term._time_deltas())
     absorbed = set(term.r_absorbed_pairs)
     factors.extend(
         p for p in term.propagators
@@ -62,14 +64,16 @@ def to_sympy(
 
     For a diagram, export the raw component-summed integrand, before any
     time integration, with its rational prefactor and numerical MSR phase.
-    A response factor absorbed into the coupling is omitted. Couplings
-    stand for the MSR-scaled values accepted by ``evaluate_coupling``.
+    The integrand includes time deltas for grouped clocks and fixed delays.
+    An absorbed response and its time alias are omitted. Couplings stand
+    for the MSR-scaled values accepted by ``evaluate_coupling``.
 
     ``WickLocal`` and ``WickNonlocal`` hold the coupling name, component
     tuple and spatial tuple. ``R`` and ``C`` each take two endpoint tuples
     ``(component, point)``, in the propagator's original order. An empty
     tuple stands for an absent component. The ``index:``, ``point:`` and
     ``coupling:`` namespaces keep equal labels in different roles distinct.
+    Symbols in the ``time:`` namespace denote the times of the named points.
 
     Component symbols retain their exact label spelling by default. Pass
     ``fixed_indices`` to bind free component labels to zero-based values.
@@ -109,6 +113,10 @@ def to_sympy(
                                         sp.Tuple(component(right, bound), point(q)))
             case KroneckerDelta(a, b):
                 return sp.KroneckerDelta(component(a, bound), component(b, bound), evaluate=False)
+            case TimeDelta(a, b, lag):
+                ta, tb = sp.Symbol("time:" + a), sp.Symbol("time:" + b)
+                shift = (sp.Rational(lag),) if lag else ()
+                return sp.DiracDelta(sp.Add(ta, -tb, *shift, evaluate=False), evaluate=False)
             case DiracDelta(a, b):
                 difference = sp.Add(point(a), -point(b), evaluate=False)
                 return sp.DiracDelta(difference, evaluate=False)
@@ -174,6 +182,13 @@ def from_sympy(value: SymPyExpr) -> Expr:
             return KroneckerDelta(*map(index, expr.args))
         if expr.func == sp.DiracDelta and len(expr.args) == 1:
             terms = expr.args[0].args
+            if len(terms) in (2, 3):
+                a, minus_b, *shift = terms
+                if (isinstance(a, sp.Symbol) and a.name.startswith("time:")
+                        and isinstance(minus_b, sp.Mul) and minus_b.args[0] == -1
+                        and (not shift or isinstance(shift[0], sp.Rational))):
+                    return TimeDelta(label(a, "time:"), label(-minus_b, "time:"),
+                                     float(shift[0]) if shift else 0.0)
             if len(terms) == 2:
                 a, minus_b = terms
                 if isinstance(minus_b, sp.Mul) and minus_b.args[0] == -1:

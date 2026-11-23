@@ -229,7 +229,16 @@ def counter_inputs(observable: Sequence[Any], vertices: Sequence[Any]) -> dict:
     base = len(observable)
     for i, vertex in enumerate(vertices):
         fields = tuple(vertex.fields)
-        if vertex.local or not fields:
+        if vertex.leg_groups:
+            # Count using the clocks shared by the field slots. Spatial
+            # positions and component labels play no role in the Itô rule.
+            roots = {g: (root, d) for g, root, d in vertex.group_lags}
+            clocks = {}
+            for group, f in zip(vertex.leg_groups, fields, strict=True):
+                key = roots.get(group, (group, 0.0))
+                index = clocks.setdefault(key, len(clocks))
+                add(_VertexPoint(i, index), (f,), base + i)
+        elif vertex.local or not fields:
             add(_VertexPoint(i, 0), fields, base + i)
         else:
             for leg, f in enumerate(fields):

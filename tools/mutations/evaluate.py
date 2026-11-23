@@ -133,13 +133,14 @@ ENTRIES: list[tuple[str, str, str, str, str, str, str]] = [
     (
         "historical-gauss-legendre-not-split-at-c-kinks",
         "evaluate.py",
-        "        c_kink = self._c_kink_at(cache, t_min, t_ceiling, positions, "
-        "direction)\n"
-        "        split = self._sum_kink_pieces(\n"
-        "            lambda orderings, cuts: self.integrate_moment_gauss_legendre(\n",
+        "        c_kink = _shifted_panel is None and self._c_kink_at(\n"
+        "            cache, t_min, t_ceiling, positions, direction\n"
+        "        )\n"
+        "        split = None if _shifted_panel is not None else self._sum_kink_pieces(\n"
+        "            lambda orderings, cuts, **panel: self.integrate_moment_gauss_legendre(\n",
         "        c_kink = False\n"
-        "        split = self._sum_kink_pieces(\n"
-        "            lambda orderings, cuts: self.integrate_moment_gauss_legendre(\n",
+        "        split = None if _shifted_panel is not None else self._sum_kink_pieces(\n"
+        "            lambda orderings, cuts, **panel: self.integrate_moment_gauss_legendre(\n",
         "tests/test_gl_white_noise_kinks.py",
         'Gauss-Legendre takes no C propagator between two unordered times as '
         'a kink pair, so a white-noise C is integrated across its time '

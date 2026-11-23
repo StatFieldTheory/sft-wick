@@ -405,6 +405,19 @@ class DiracDelta(Expr):
         return hash((DiracDelta, frozenset({self.arg1, self.arg2})))
 
 
+@dataclass(frozen=True)
+class TimeDelta(Expr):
+    """A delta on the times of two spacetime points: t_a - t_b + lag = 0."""
+
+    point: str
+    anchor: str
+    lag: float = 0.0
+
+    def to_latex(self) -> str:
+        shift = f" + {self.lag}" if self.lag else ""
+        return rf"\delta\!\left(t_{{{self.point}}} - t_{{{self.anchor}}}{shift}\right)"
+
+
 # ---------------------------------------------------------------------------
 # Imaginary unit
 # ---------------------------------------------------------------------------

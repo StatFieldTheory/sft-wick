@@ -36,6 +36,7 @@ from ._initial_mean import (
     translated_vertex_names,
 )
 from ._kramers_moyal import KramersMoyalVertex
+from ._grouped import GroupedVertex
 from ._markov_embedding import _EmbeddedR
 from .specs import (
     _flag,
@@ -294,6 +295,8 @@ class System:
             interactions.  May be empty (linear theory).
         nonlocal_vertices: list of :class:`NonLocalVertex`, κ^(m) for
             m ≥ 3 non-Gaussian driving contributions.  May be empty.
+        grouped_vertices: ordered mixed interactions with shared spacetime
+            points or shared times and optional fixed delays.
         t_min: lower time bound of the propagator integrals and of every
             diagram time integral;
             :meth:`~sft_wick.workflow.Expansion.evaluate` (and so
@@ -317,6 +320,7 @@ class System:
     explicit_R: Callable | None = None
     initial_state: InitialState | None = None
     km_vertices: tuple[KramersMoyalVertex, ...] = ()
+    grouped_vertices: tuple[GroupedVertex, ...] = ()
 
     def __post_init__(self):
         # Normalise list → tuple for hashability.
@@ -328,10 +332,16 @@ class System:
             object.__setattr__(self, "km_vertices", tuple(self.km_vertices))
         if any(not isinstance(vertex, KramersMoyalVertex) for vertex in self.km_vertices):
             raise TypeError("km_vertices must contain KramersMoyalVertex objects")
+        if isinstance(self.grouped_vertices, list):
+            object.__setattr__(self, "grouped_vertices", tuple(self.grouped_vertices))
+        if any(not isinstance(v, GroupedVertex) for v in self.grouped_vertices):
+            raise TypeError("grouped_vertices must contain GroupedVertex objects")
         if self.initial_state is not None:
             if not isinstance(self.initial_state, InitialState):
                 raise TypeError("initial_state must be an InitialState")
             self.initial_state._check_components(self.n_components)
+            if self._has_initial_mean and any("phi" in v.fields for v in self.grouped_vertices):
+                raise ValueError("Grouped physical slots do not yet support a nonzero initial mean.")
         sigma2 = self.noise.sigma2
         if isinstance(sigma2, MultiplicativeImpulse):
             if sigma2.n_components != self.n_components:
@@ -339,7 +349,7 @@ class System:
                     f"MultiplicativeImpulse has N = {sigma2.n_components} "
                     f"components but the field has {self.n_components}."
                 )
-            taken = {v.name for v in (*self.vertices, *self.nonlocal_vertices, *self.km_vertices)}
+            taken = {v.name for v in (*self.vertices, *self.nonlocal_vertices, *self.km_vertices, *self.grouped_vertices)}
             if self.initial_state is not None:
                 taken.update(name for name, _ in self.initial_state._named_cumulants)
             clash = sorted(taken & {v.name for v in sigma2.vertices()})
@@ -363,9 +373,9 @@ class System:
         equal rates of any number, which lower to one scalar R.
         """
         n = self.n_components
-        for v in (*self.vertices, *self.nonlocal_vertices, *self.km_vertices):
+        for v in (*self.vertices, *self.nonlocal_vertices, *self.km_vertices, *self.grouped_vertices):
             problem = v.shape_problem(n)
-            if problem and not (n == 1 and np.ndim(v.coupling) == 0):
+            if problem and not (n == 1 and not callable(v.coupling) and np.ndim(v.coupling) == 0):
                 raise ValueError(f"vertex {shown(v.name)}: {problem}.")
         sigma2 = self.noise.sigma2
         if isinstance(sigma2, ConstantImpulse):
@@ -411,6 +421,7 @@ class System:
         for kind, names in (
             ("local", (v.name for v in self.vertices)),
             ("non-local", (v.name for v in self.nonlocal_vertices)),
+            ("grouped", (v.name for v in self.grouped_vertices)),
             ("Kramers–Moyal", (v.name for v in self.km_vertices)),
             ("initial", (
                 () if self.initial_state is None
@@ -704,7 +715,7 @@ class System:
             (v.name, v.n_psi, np.ndim(v.coupling)) for v in self.multiplicative_vertices
         )
         taken = {name for name, _, _ in shapes}
-        taken.update(v.name for v in self.nonlocal_vertices)
+        taken.update(v.name for v in (*self.nonlocal_vertices, *self.grouped_vertices))
         taken.update(name for name, _ in self.initial_state._named_cumulants)
         return translated_vertex_names(shapes, taken)
 
@@ -801,7 +812,8 @@ class System:
             fields = [psi] * mv.n_psi + [phi] * (rank - mv.n_psi)
             raw_vertices.append(Vertex(fields=fields, coupling=mv.name, local=True))
 
-        raw_vertices.extend(vertex.build_vertex(phi, psi) for vertex in self.km_vertices)
+        raw_vertices.extend(vertex.build_vertex(phi, psi)
+                            for vertex in (*self.km_vertices, *self.grouped_vertices))
         if self._has_initial_mean:
             _, translated = self._mean_layout()
             raw_vertices.extend(
@@ -837,7 +849,7 @@ class System:
             cv[nv.name] = nv.msr_coupling
         for mv in self.multiplicative_vertices:
             cv[mv.name] = mv.msr_coupling
-        for v in self.km_vertices:
+        for v in (*self.km_vertices, *self.grouped_vertices):
             cv[v.name] = v.build_msr_coupling(self.n_components)
         if self._has_initial_mean:
             mean, translated = self._mean_layout()

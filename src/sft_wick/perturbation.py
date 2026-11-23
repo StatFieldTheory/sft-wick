@@ -46,6 +46,7 @@ from .expressions import (
     Sum,
     SumOverIndex,
     Symbol,
+    TimeDelta,
     apply_response_phase,
     canonical_edge,
     count_r,
@@ -395,6 +396,11 @@ class DiagramTerm:
     vertex_types: tuple[tuple[tuple[str, ...], tuple], ...] = field(
         default=(), compare=False, repr=False,
     )
+    # (point, anchor, lag) means t_point = t_anchor - lag.
+    time_lags: tuple[tuple[str, str, float], ...] = ()
+    # Template identity and ordered coordinates for each grouped occurrence.
+    group_templates: tuple[tuple[str, tuple[str, ...], tuple[str, ...],
+                                 tuple[int, ...], str], ...] = ()
 
     @cached_property
     def _coupling_execution_plan(self):
@@ -845,6 +851,13 @@ class DiagramTerm:
             summation_indices=new_sum_indices,
         )
 
+    def _time_deltas(self):
+        """The time measure of the explicit grouped occurrences."""
+        labels = {p for _, points, _, _, _ in self.group_templates for p in points}
+        return tuple(TimeDelta(a, b) for a, b in self.equal_time_aliases if a in labels) + tuple(
+            TimeDelta(a, b, d) for a, b, d in self.time_lags
+        )
+
     def to_latex(self) -> str:
         r"""Full LaTeX representation including summations, integrals, and phase.
 
@@ -867,6 +880,7 @@ class DiagramTerm:
             body_parts.append(coeff_latex)
 
         body_parts.append(f"({self.coupling_sum.to_latex()})")
+        body_parts.extend(delta.to_latex() for delta in self._time_deltas())
         for p in self.propagators:
             body_parts.append(p.to_latex())
         body = " ".join(body_parts)
@@ -907,7 +921,7 @@ class DiagramTerm:
         prop_idx = self.propagator_indices
 
         # Format propagators
-        prop_latex = " ".join(p.to_latex() for p in self.propagators)
+        prop_latex = " ".join(p.to_latex() for p in (*self._time_deltas(), *self.propagators))
 
         # Wrap with integrals
         int_wrap = ""
@@ -1285,7 +1299,7 @@ def _split_by_instance_structure(
     props: tuple[Propagator, ...],
     coupling: Expr,
     vertex_instances,
-) -> list[tuple[Expr, tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]]]:
+) -> list[tuple]:
     """Split a collected coupling sum by the leg structure of its terms.
 
     :func:`_collect_grouped_wick` merges pairings related by a relabelling of
@@ -1309,54 +1323,52 @@ def _split_by_instance_structure(
     since a flagged vertex and a plain one may share a name.
 
     Returns:
-        ``[(coupling_sum, equal_time_aliases, r_absorbed_pairs), ...]``, one
-        entry per distinct leg structure in first-seen order.
+        The coupling sum, aliases, absorbed pairs, lag relations, and ordered
+        grouped templates of each distinct measure, in first-seen order.
 
     Raises:
         RuntimeError: a term does not list one symbol per vertex instance,
             so its leg structure is undefined.
     """
-    vertices = [vi.vertex for vi in vertex_instances]
-    leg_rank = {
-        var: k
-        for k, var in enumerate(
-            var for vi in vertex_instances for var in vi.spatial_variables
-        )
-    }
+    leg_rank = {var: k for k, var in enumerate(
+        var for vi in vertex_instances for var in vi.spatial_variables
+    )}
     terms = coupling.terms if isinstance(coupling, Sum) else (coupling,)
-    groups: dict[tuple, list[Expr]] = {}
+    groups = {}
     for term in terms:
-        syms = _symbols_in(term)
-        if len(syms) != len(vertices):
+        symbols = _symbols_in(term)
+        if len(symbols) != len(vertex_instances):
             raise RuntimeError(
-                f"internal: a coupling-sum term lists {len(syms)} symbols "
-                f"where the diagram has {len(vertices)} vertex instances, so "
+                f"internal: a coupling-sum term lists {len(symbols)} symbols "
+                f"where the diagram has {len(vertex_instances)} vertex instances, so "
                 f"its leg structure is undefined: {term!r}"
             )
-        classes = frozenset(
-            frozenset(s.spatial_args)
-            for s, v in zip(syms, vertices)
-            if v.equal_time
-        )
-        absorbed = frozenset(
-            leg
-            for s, v in zip(syms, vertices)
-            if v.already_R_contracted
-            for leg in s.spatial_args
-        )
-        groups.setdefault((classes, absorbed), []).append(term)
+        structure = _instance_structure(props, symbols, vertex_instances, leg_rank)
+        groups.setdefault(structure, []).append(term)
 
-    out = []
-    for (classes, absorbed), group_terms in groups.items():
-        aliases = [
-            alias
-            for cls in classes
-            for alias in equal_time_aliases(sorted(cls, key=leg_rank.__getitem__))
-        ]
-        pairs, leg_aliases = _collect_r_absorbed_pairs(props, absorbed)
-        sub = group_terms[0] if len(group_terms) == 1 else Sum(tuple(group_terms))
-        out.append((sub, tuple(sorted({*aliases, *leg_aliases})), pairs))
-    return out
+    return [(_expression_sum(group_terms), *structure)
+            for structure, group_terms in groups.items()]
+
+
+def _instance_structure(props, symbols, instances, leg_rank=None):
+    aliases, shifts, templates, absorbed = [], [], [], set()
+    for symbol, instance in zip(symbols, instances, strict=True):
+        vertex = instance.vertex
+        points = symbol.spatial_args
+        if vertex.leg_groups:
+            same, lags = vertex.time_relations(points)
+            aliases.extend(same)
+            shifts.extend(lags)
+            roles = tuple(f.field_type.value for f in vertex.fields)
+            templates.append((vertex.coupling, points, roles, vertex.leg_groups, vertex.group_mode))
+        elif vertex.equal_time:
+            if leg_rank is not None:
+                points = sorted(points, key=leg_rank.__getitem__)
+            aliases.extend(equal_time_aliases(points))
+        elif vertex.already_R_contracted:
+            absorbed.update(points)
+    pairs, extra_aliases = _collect_r_absorbed_pairs(props, absorbed)
+    return tuple(sorted({*aliases, *extra_aliases})), pairs, tuple(sorted(shifts)), tuple(templates)
 
 
 def _collect_symbol_names(expr: Expr) -> set[str]:
@@ -1811,9 +1823,7 @@ def compute_moment(
                     classes = SequenceClassTap(tally, seq, observable)
             if collect_topology:
                 # --- Hybrid: spatial topology + component routing ---
-                spatial_results = wick_contract_spatial(seq.operators)
-                if seq.incidence is not None:
-                    spatial_results = seq.incidence.prune_topologies(spatial_results)
+                spatial_results = seq.spatial_topologies()
                 if not spatial_results:
                     continue
 
@@ -1847,7 +1857,7 @@ def compute_moment(
                 same_time_groups = tuple(
                     tuple(vi.spatial_variables)
                     for vi in seq.instances
-                    if vi.equal_time_aliases
+                    if vi.vertex.equal_time
                 )
                 inner = _collect_grouped_wick(
                     groups,
@@ -1866,21 +1876,32 @@ def compute_moment(
                 # already_R_contracted copies differently from term to
                 # term becomes one DiagramTerm per leg structure, each
                 # with its own measure (_split_by_instance_structure).
-                for dt_props, dt_coupling in _extract_diagram_records(inner):
-                    order_dterms.extend(
-                        _diagram_terms(
-                            seq, dt_props, dt_coupling, n_external, response_phase
-                        )
+                sequence_terms = [
+                    dt for props, coupling in _extract_diagram_records(inner)
+                    for dt in _diagram_terms(seq, props, coupling, n_external, response_phase)
+                ]
+                order_dterms.extend(sequence_terms)
+                if any(vi.vertex.leg_groups for vi in seq.instances):
+                    # Each relocated coupling monomial carries its own clock measure.
+                    term = _expression_sum(
+                        Product((dt.rational_prefactor, dt.coupling_sum, *dt._time_deltas(),
+                                 *dt.propagators)) for dt in sequence_terms
                     )
             else:
                 # --- Operator-level Wick contraction ---
-                wick_result, pairings = _wick_contract_target(
-                    seq.operators, seq.incidence
-                )
+                if seq.grouped_time_aliases:
+                    wick_result, pairings = wick_contract(seq.operators, keep=seq.keeps_pairing)
+                else:
+                    wick_result, pairings = _wick_contract_target(seq.operators, seq.incidence)
                 if _is_zero(wick_result):
                     continue
                 coupling_syms = [vi.coupling_symbol for vi in seq.instances]
-                term = Product((seq.prefactor, *coupling_syms, wick_result))
+                deltas = []
+                for vi in seq.instances:
+                    if vi.vertex.leg_groups:
+                        deltas.extend(TimeDelta(a, b) for a, b in vi.equal_time_aliases)
+                        deltas.extend(TimeDelta(*shift) for shift in vi.time_lags)
+                term = Product((seq.prefactor, *coupling_syms, *deltas, wick_result))
 
             # Wrap with integrals over internal spatial variables
             for vi in seq.instances:
@@ -1955,7 +1976,7 @@ def compute_moment(
             order_terms = diagrams_by_order = dt_by_order = None
             order_exprs = order_diagrams = order_dterms = spans = tally = None
             pairings = spatial_results = groups = routings = classes = None
-            sig = ref_props = rep_pairing = dt_props = dt_coupling = None
+            sig = ref_props = rep_pairing = sequence_terms = None
             wick_result = raw = simplified = term = inner = None
             raise error
 
@@ -2018,6 +2039,32 @@ class _VertexSequence(NamedTuple):
     #: Position in the ``(vertex_seq, multinomial)`` list of the order.
     index: int
 
+    grouped_time_aliases: dict[str, str]
+
+    def allows_r_edges(self, edges):
+        aliases = self.grouped_time_aliases
+        return not _wick.r_vanishes(
+            (aliases.get(a, a), aliases.get(b, b)) for a, b in edges
+        )
+
+    def spatial_topologies(self):
+        topologies = wick_contract_spatial(self.operators)
+        if self.grouped_time_aliases:
+            topologies = {sig: record for sig, record in topologies.items()
+                          if self.allows_r_edges((a, b) for kind, a, b in sig if kind == "R")}
+        if self.incidence is not None:
+            return self.incidence.prune_topologies(topologies)
+        return topologies
+
+    def keeps_pairing(self, pairing):
+        operators = self.operators
+        if self.incidence is not None and not self.incidence.is_connected(pairing):
+            return False
+        return self.allows_r_edges(
+            (operators[i].spatial_arg, operators[j].spatial_arg)
+            for i, j in pairing if operators[j].is_response
+        )
+
 
 def _vertex_sequences(
     observable: list[FieldOperator],
@@ -2070,9 +2117,11 @@ def _vertex_sequences(
                 if op.component_index is not None
             ),
             has_leg_structure=any(
-                v.equal_time or v.already_R_contracted for v in vertex_seq
+                v.equal_time or v.already_R_contracted or v.leg_groups for v in vertex_seq
             ),
             index=index,
+            grouped_time_aliases={a: b for vi in instances if vi.vertex.leg_groups
+                                  for a, b in vi.equal_time_aliases},
         )
 
 
@@ -2136,19 +2185,12 @@ def _diagram_terms(
     ``coupling`` (:func:`_split_by_instance_structure`)."""
     n_response = count_r(props)
     if seq.has_leg_structure and aligned_instances:
-        absorbed = {
-            label for vi in seq.instances if vi.vertex.already_R_contracted
-            for label in vi.spatial_variables
-        }
-        pairs, leg_aliases = _collect_r_absorbed_pairs(props, absorbed)
-        aliases = tuple(sorted(set(leg_aliases).union(
-            alias for vi in seq.instances for alias in vi.equal_time_aliases
-        )))
-        structures = ((coupling, aliases, pairs),)
+        symbols = (vi.coupling_symbol for vi in seq.instances)
+        structures = ((coupling, *_instance_structure(props, symbols, seq.instances)),)
     elif seq.has_leg_structure:
         structures = _split_by_instance_structure(props, coupling, seq.instances)
     else:
-        structures = ((coupling, (), ()),)
+        structures = ((coupling, (), (), (), ()),)
     return [
         _pin_absorbed_leg_indices(
             DiagramTerm(
@@ -2160,11 +2202,13 @@ def _diagram_terms(
                 n_response=n_response,
                 equal_time_aliases=aliases,
                 r_absorbed_pairs=absorbed,
+                time_lags=shifts,
+                group_templates=templates,
                 n_external_response=n_external_response,
                 response_phase=response_phase,
             )
         )
-        for sub_coupling, aliases, absorbed in structures
+        for sub_coupling, aliases, absorbed, shifts, templates in structures
     ]
 
 
@@ -2176,7 +2220,8 @@ def _expression_sum(terms: Iterable[Expr]) -> Expr:
 
 
 def _diagram_expression(term: DiagramTerm) -> Expr:
-    expr = Product((term.rational_prefactor, term.coupling_sum, *term.propagators))
+    expr = Product((term.rational_prefactor, term.coupling_sum, *term._time_deltas(),
+                    *term.propagators))
     if term.response_phase:
         expr = apply_response_phase(expr)
     for point in reversed(term.integration_vars):
@@ -2190,20 +2235,28 @@ def _symmetrized_symbol(instance: VertexInstance) -> Expr:
     """Average the bare coupling over independent phi and psi permutations."""
     vertex = instance.vertex
     symbol = instance.coupling_symbol
-    if not vertex.local and vertex.leg_symmetry != "symmetrize":
+    if not vertex.local and not vertex.leg_groups and vertex.leg_symmetry != "symmetrize":
         return symbol
     operators = instance.field_operators
     role_groups = [
         tuple(i for i, op in enumerate(operators) if op.field.is_physical == physical)
         for physical in (True, False)
     ]
+    if vertex.leg_groups:
+        # The topology counts all routings of the same field at one point.
+        # An ordered tensor needs the exact average over just those slots.
+        partition = (vertex.leg_groups if vertex.leg_symmetry == "symmetrize"
+                     else vertex.slot_points)
+        role_groups = [tuple(i for i in role if partition[i] == group)
+                       for group in sorted(set(partition)) for role in role_groups]
     groups = []
     for positions in role_groups:
         if len(positions) < 2:
             continue
         if len({operators[i].field.n_components for i in positions}) != 1:
             raise ValueError("symmetric legs of one field role must have the same dimension")
-        if not vertex.local or not operators[positions[0]].field.is_scalar:
+        if (not operators[positions[0]].field.is_scalar
+                or len({operators[i].spatial_arg for i in positions}) > 1):
             groups.append(positions)
     if not groups:
         return symbol
@@ -2225,7 +2278,8 @@ def _symmetrized_symbol(instance: VertexInstance) -> Expr:
         variants.append(Symbol(
             symbol.name,
             tuple(op.component_index for op in routed if op.component_index is not None),
-            symbol.spatial_args if vertex.local else tuple(op.spatial_arg for op in routed),
+            symbol.spatial_args if vertex.local or (vertex.leg_groups and vertex.group_mode == "spacetime")
+            else tuple(op.spatial_arg for op in routed),
             local=vertex.local,
         ))
     return Product((Rational(1, count), Sum(tuple(variants))))
@@ -2282,6 +2336,10 @@ def _multiplicity_expansion(
             for props, pairing, routes, copies in weighted_topologies(
                 seq.operators, layout, keyer, seq.incidence,
             ):
+                if seq.grouped_time_aliases and not seq.allows_r_edges(
+                    (p.spatial_left, p.spatial_right) for p in props if p.kind == "R"
+                ):
+                    continue
                 if coupling is None:
                     coupling = Product(tuple(_symmetrized_symbol(vi) for vi in seq.instances))
                 coefficient = Rational(seq.prefactor.numerator * routes * copies,
@@ -3311,9 +3369,7 @@ def compute_moment_numerical(
                 tally.add_r_classes(seq.index, *_r_class_census(seq.operators))
                 term_start = len(integrands)
             # Spatial topology enumeration
-            spatial_results = wick_contract_spatial(seq.operators)
-            if seq.incidence is not None:
-                spatial_results = seq.incidence.prune_topologies(spatial_results)
+            spatial_results = seq.spatial_topologies()
             if not spatial_results:
                 continue
 

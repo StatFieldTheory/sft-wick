@@ -9,49 +9,10 @@ import numpy as np
 from ..fields import Field
 from ..vertices import Vertex
 from ._messages import shown
-from .specs import _flag, _msr_factor, _MSRWrappedCoupling, _nested_tuple, _shape_problem
-
-
-def _tensor(value: Any, where: str) -> np.ndarray:
-    try:
-        array = np.asarray(value)
-        if array.dtype.kind in "fiu":
-            with np.errstate(over="ignore"):
-                array = np.asarray(array, dtype=float)
-            if np.all(np.isfinite(array)):
-                return array
-    except (TypeError, ValueError, OverflowError):
-        pass
-    raise ValueError(f"{where}: coupling must be a tensor of finite real numbers.")
-
-
-class _KMCoupling(_MSRWrappedCoupling):
-    """Sample a bare local coupling and check its axes before contraction."""
-
-    __slots__ = ("where", "rank", "n_components")
-
-    def __init__(self, spec: KramersMoyalVertex, n_components: int | None):
-        super().__init__(spec.msr_factor, spec.coupling, spec.coupling_vectorized)
-        self.where = f"KramersMoyalVertex(name={shown(spec.name)})"
-        self.rank = spec.n_legs
-        self.n_components = n_components
-
-    def __call__(self, positions, times):
-        array = _tensor(self.bare(positions, times), self.where)
-        batch = (np.shape(times)[-1],) if self.vectorized else ()
-        n = self.n_components
-        if n is None and array.ndim == len(batch) + self.rank:
-            n = array.shape[-1]
-        if not n or array.shape != batch + (n,) * self.rank:
-            wanted = (
-                f"{batch + (n,) * self.rank}" if n is not None
-                else f"{batch} followed by {self.rank} equal component axes"
-            )
-            raise ValueError(
-                f"{self.where}: callable coupling returned shape {array.shape}; "
-                f"expected {wanted}."
-            )
-        return self.factor * array
+from .specs import (
+    _flag, _msr_factor, _nested_tuple, _real_vertex_tensor, _shape_problem,
+    _VertexTensorCoupling as _KMCoupling,  # preserves the legacy pickle name
+)
 
 
 @dataclass(frozen=True)
@@ -114,7 +75,7 @@ class KramersMoyalVertex:
         else:
             if vectorized:
                 raise ValueError(f"{where}: coupling_vectorized requires a callable coupling.")
-            array = _tensor(self.coupling, where)
+            array = _real_vertex_tensor(self.coupling, where)
             if not array.size:
                 raise ValueError(f"{where}: coupling tensor axes must be nonempty.")
             if rank is not None and rank != array.ndim:

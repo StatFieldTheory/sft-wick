@@ -28,6 +28,9 @@ import warnings
 
 import numpy as np
 
+from ._shifted_times import (
+    ShiftedBounds, ShiftedDomain, delayed_times, normalize_lags, shifted_values,
+)
 from ._gl_error import _GLRefinement, _GLRoundoff
 from ._qmc_diagnostics import (
     _TailDiagnostics,
@@ -117,6 +120,9 @@ class SpatialStructure:
     #: partner's). The leg's time / direction collapse onto the
     #: partner's via the accompanying ``equal_time_aliases`` entries.
     r_absorbed_pairs: tuple[tuple[str, str], ...] = ()
+
+    #: Positive lags, normalized to (delayed label, independent anchor, lag).
+    time_lags: tuple[tuple[str, str, float], ...] = ()
 
 
 def _kept_r_propagators(
@@ -1191,6 +1197,11 @@ def analyze_spatial(dt: "DiagramTerm") -> SpatialStructure:
     for non_rep in equal_time_aliases:
         time_integration_set.discard(non_rep)
 
+    lags = getattr(dt, "time_lags", ())
+    if lags:
+        lags = normalize_lags(lags, equal_time_aliases, time_integration_set)
+        time_integration_set.difference_update(delayed for delayed, _, _ in lags)
+
     # Classify propagators
     r_props: list[tuple[str, str]] = []
     c_props: list[tuple[str, str, str | None, str | None]] = []
@@ -1292,6 +1303,7 @@ def analyze_spatial(dt: "DiagramTerm") -> SpatialStructure:
         external_points=external_points,
         equal_time_aliases=tuple(sorted(equal_time_aliases.items())),
         r_absorbed_pairs=tuple(getattr(dt, "r_absorbed_pairs", ()) or ()),
+        time_lags=lags,
     )
 
 
@@ -3182,7 +3194,7 @@ def _causal_bounds(
     t_min: float,
     orderings=None,
     cuts: tuple[dict, dict] = ({}, {}),
-) -> list[_TimeBound]:
+) -> list[_TimeBound] | ShiftedBounds:
     """The causal domain of a diagram: one :class:`_TimeBound` per variable,
     in draw order, the swept externals first.
 
@@ -3194,9 +3206,16 @@ def _causal_bounds(
     diagram's causal structure, and ``cuts`` holds the ``(upper, lower)``
     constant limits of :func:`_applied_cut_bounds`.
 
+    A fixed delay instead gives affine inequalities between the independent
+    times. Their projected bounds retain both the lag and zero prehistory.
+
     Every integrator reads the domain from here: the samplers through
     :func:`_causal_times`, ``nquad`` through :func:`_nquad_ranges`.
     """
+    if getattr(spatial, "time_lags", ()):
+        return ShiftedDomain(
+            spatial, internal, swept, fixed_times, lambda_f, t_ceiling, t_min
+        ).bounds()
     orderings = spatial.time_orderings if orderings is None else orderings
     cut_upper, cut_lower = cuts
     sampled = set(internal) | set(swept)
@@ -3246,7 +3265,7 @@ def _causal_bounds(
 
 
 def _causal_times(
-    bounds: list[_TimeBound], u: np.ndarray, columns: dict[str, int]
+    bounds: list[_TimeBound] | ShiftedBounds, u: np.ndarray, columns: dict[str, int]
 ) -> tuple[np.ndarray, np.ndarray]:
     """Map samples ``u`` of the unit cube onto the domain ``bounds``.
 
@@ -3254,6 +3273,8 @@ def _causal_times(
     jacobians)``.  A sample whose interval is empty sits at the lower limit
     with Jacobian 0.
     """
+    if isinstance(bounds, ShiftedBounds):
+        return bounds.sample(u, columns)
     times = np.empty_like(u)
     jacobians = np.ones(len(u))
     for var, lo, hi, lower, upper in bounds:
@@ -3275,6 +3296,7 @@ def _batch_time_reader(
     fixed_times: dict,
     fallback: float,
     equal_time_aliases,
+    time_lags=(),
 ) -> Callable[[str], np.ndarray]:
     """``label -> (n_samples,)`` times, read-only (:func:`_read_only_times`).
 
@@ -3295,10 +3317,23 @@ def _batch_time_reader(
         col = columns.get(label)
         return times[:, col] if col is not None else fixed.get(label, other)
 
+    if time_lags:
+        shifted = {
+            label: _read_only_times(values)
+            for label, values in shifted_values(time_of, time_lags).items()
+        }
+
+        def shifted_time_of(label):
+            root = alias.get(label, label)
+            if root in shifted:
+                return shifted[root]
+            return time_of(root)
+
+        return shifted_time_of
     return time_of
 
 
-def _nquad_ranges(bounds: list[_TimeBound], quad_vars: list[str]) -> list:
+def _nquad_ranges(bounds: list[_TimeBound] | ShiftedBounds, quad_vars: list[str]) -> list:
     """``ranges`` for ``scipy.integrate.nquad`` over ``quad_vars``, innermost
     first: ``(lo, hi)``, or a callable for a variable bounded by another.
 
@@ -3308,6 +3343,8 @@ def _nquad_ranges(bounds: list[_TimeBound], quad_vars: list[str]) -> list:
     returns ``(lo, lo)``: scipy would integrate ``hi < lo`` backwards and
     return a negative volume.
     """
+    if isinstance(bounds, ShiftedBounds):
+        return bounds.scipy_ranges(quad_vars)
     by_var = {b.var: b for b in bounds}
 
     def make_bound(bound: _TimeBound, cur_i: int) -> Callable:
@@ -6939,6 +6976,7 @@ class DiagramIntegrand:
         legs = sorted(legs)
         timed = set(spatial.external_points) | set(spatial.time_integration_vars)
         timed |= {non_rep for non_rep, _rep in spatial.equal_time_aliases}
+        timed.update(delayed for delayed, _, _ in spatial.time_lags)
         unknown = [label for label in legs if label not in timed]
         if unknown:
             raise ValueError(
@@ -7011,6 +7049,8 @@ class DiagramIntegrand:
             times: ``{spatial_point: time}`` of this sample.
             leg_positions: ``{leg: position}`` from :meth:`_leg_positions`.
         """
+        if self.spatial.time_lags:
+            times = delayed_times(times, self.spatial.time_lags)
         return self.dynamic_coupling.evaluate_at(
             self._leg_times(times.__getitem__), leg_positions
         )
@@ -7225,7 +7265,7 @@ class DiagramIntegrand:
 
     def _sum_kink_pieces(
         self,
-        integrate_piece: Callable[[tuple, tuple], tuple[float, float]],
+        integrate_piece: Callable[..., tuple[float, float]],
         c_kink: bool,
         time_orderings: list,
         fixed_times: dict,
@@ -7247,6 +7287,20 @@ class DiagramIntegrand:
         candidates are a property of the diagram.  So the recursion through
         ``integrate_piece(orderings, cuts)`` terminates.
         """
+        if getattr(self.spatial, "time_lags", ()):
+            domain = ShiftedDomain(
+                self.spatial, reversed(self.spatial.time_integration_vars), swept,
+                fixed_times, lambda_f, t_ceiling, t_min,
+            )
+            kinks = list(self._coupling_kink_pairs)
+            if c_kink:
+                kinks.extend((a, b) for a, b, _, _ in self.spatial.c_propagators)
+            total = error = 0.0
+            for panel in domain.panels(kinks):
+                value, estimate = integrate_piece((), (), _shifted_panel=panel)
+                total += value
+                error += estimate
+            return total, error
         pairs = self._kink_pairs_under(c_kink, time_orderings, swept=swept)
         if pairs:
             pieces = [
@@ -7410,6 +7464,11 @@ class DiagramIntegrand:
         # An aliased leg reads its representative, as on the batched paths
         # (_batch_time_reader); the propagator lookups below (``cache.R_product``,
         # ``times[sp_l]`` etc.) then need no branch of their own.
+        if spatial.time_lags:
+            times = delayed_times(times, spatial.time_lags)
+            origin = getattr(model, "t_min", None)
+            if origin is not None and any(times[label] < origin for label, _, _ in spatial.time_lags):
+                return 0j
         if spatial.equal_time_aliases:
             times = dict(times)
             for non_rep, rep in spatial.equal_time_aliases:
@@ -8256,7 +8315,7 @@ class DiagramIntegrand:
             return float(_real_or_raise(val, self._e_psi, where=" (zero-dimensional)"))
 
         time_of = _batch_time_reader(
-            np.empty((1, 0)), {}, fixed_times, lambda_f, spatial.equal_time_aliases
+            np.empty((1, 0)), {}, fixed_times, lambda_f, spatial.equal_time_aliases, spatial.time_lags
         )
         values = self._values_at(
             cache,
@@ -8340,7 +8399,8 @@ class DiagramIntegrand:
         int_vars = list(self.spatial.time_integration_vars)
         ceiling = max(external_times.values()) if external_times else 1.0
         bounds = _causal_bounds(
-            self.spatial, int_vars, (), external_times, ceiling, ceiling, t_min
+            self.spatial, list(reversed(int_vars)) if self.spatial.time_lags else int_vars,
+            (), external_times, ceiling, ceiling, t_min
         )
         return _nquad_ranges(bounds, int_vars)
 
@@ -8371,6 +8431,23 @@ class DiagramIntegrand:
                     parts.append(
                         rf"\text{{[all directions}} = \hat{{n}}_{{{_latex_index(rep)}}}]"
                     )
+
+        # Aliased labels still appear in R and C, although their clocks
+        # are absent from the integration measure.
+        clock_relations = [
+            rf"t_{{{_latex_index(label)}}}=t_{{{_latex_index(root)}}}"
+            for label, root in spatial.equal_time_aliases
+        ]
+        for label, root, lag in spatial.time_lags:
+            amount = str(lag)
+            if "e" in amount:
+                mantissa, exponent = amount.split("e")
+                amount = rf"{mantissa}\times 10^{{{int(exponent)}}}"
+            clock_relations.append(
+                rf"t_{{{_latex_index(label)}}}=t_{{{_latex_index(root)}}}-{amount}"
+            )
+        if clock_relations:
+            parts.append(r"\left[" + r",\; ".join(clock_relations) + r"\right]")
 
         # --- Time-ordered integrals ---
         body_parts: list[str] = []
@@ -8628,8 +8705,12 @@ class DiagramIntegrand:
             u,
             columns,
         )
+        if spatial.time_lags and not np.any(jacobians):
+            if _observe_weights is not None:
+                _observe_weights(np.zeros(n_samples))
+            return 0.0, 0.0
         time_of = _batch_time_reader(
-            times_arr, columns, fixed_times, lambda_f, spatial.equal_time_aliases
+            times_arr, columns, fixed_times, lambda_f, spatial.equal_time_aliases, spatial.time_lags
         )
 
         where = "DiagramIntegrand.integrate_moment_qmc_vectorized"
@@ -8677,6 +8758,7 @@ class DiagramIntegrand:
         gl_chunk_size: int | None = DEFAULT_GL_CHUNK_SIZE,
         *,
         _observe_gl_terms: Callable | None = None,
+        _shifted_panel: ShiftedBounds | None = None,
     ) -> tuple[float, float]:
         """Tensor-product Gauss-Legendre quadrature on the causal
         simplex.
@@ -8781,19 +8863,22 @@ class DiagramIntegrand:
             return (val, 0.0)
 
         time_orderings = list(spatial.time_orderings) + list(_extra_orderings)
-        c_kink = self._c_kink_at(cache, t_min, t_ceiling, positions, direction)
-        split = self._sum_kink_pieces(
-            lambda orderings, cuts: self.integrate_moment_gauss_legendre(
+        c_kink = _shifted_panel is None and self._c_kink_at(
+            cache, t_min, t_ceiling, positions, direction
+        )
+        split = None if _shifted_panel is not None else self._sum_kink_pieces(
+            lambda orderings, cuts, **panel: self.integrate_moment_gauss_legendre(
                 lambda_f,
                 cache,
                 t_min=t_min,
                 direction=direction,
                 n_gauss=n_gauss,
                 positions=positions,
-                integrate_over=integrate_over,
+                integrate_over=ext_integrated,
                 external_times=external_times,
                 _extra_orderings=orderings,
                 _extra_bounds=cuts,
+                **panel,
                 gl_chunk_size=gl_chunk_size,
                 **({} if _observe_gl_terms is None else {
                     "_observe_gl_terms": _observe_gl_terms,
@@ -8826,7 +8911,7 @@ class DiagramIntegrand:
 
         # The causal mapping of the QMC path, with this piece's orderings
         # and cuts.
-        bounds = _causal_bounds(
+        bounds = _shifted_panel or _causal_bounds(
             spatial,
             int_vars_pf,
             ext_integrated,
@@ -8859,7 +8944,7 @@ class DiagramIntegrand:
         def evaluate_nodes(u, node_weights):
             times_arr, jacobians = _causal_times(bounds, u, columns)
             time_of = _batch_time_reader(
-                times_arr, columns, fixed_times, lambda_f, spatial.equal_time_aliases
+                times_arr, columns, fixed_times, lambda_f, spatial.equal_time_aliases, spatial.time_lags
             )
             values = self._values_at(
                 cache,
@@ -8899,6 +8984,7 @@ class DiagramIntegrand:
         external_times: dict[str, float] | None = None,
         _extra_orderings: tuple = (),
         _extra_bounds: tuple = (),
+        _shifted_panel: ShiftedBounds | None = None,
     ) -> tuple[float, float]:
         """Integrate over time variables using nested adaptive
         quadrature.
@@ -8969,18 +9055,21 @@ class DiagramIntegrand:
         # earlier variable by the later one, so the internals are re-sorted
         # innermost-first under the orderings added so far.
         time_orderings = list(spatial.time_orderings) + list(_extra_orderings)
-        c_kink = self._c_kink_at(cache, t_min, t_ceiling, positions, direction)
-        split = self._sum_kink_pieces(
-            lambda orderings, cuts: self.integrate_moment_nquad(
+        c_kink = _shifted_panel is None and self._c_kink_at(
+            cache, t_min, t_ceiling, positions, direction
+        )
+        split = None if _shifted_panel is not None else self._sum_kink_pieces(
+            lambda orderings, cuts, **panel: self.integrate_moment_nquad(
                 lambda_f,
                 cache,
                 t_min=t_min,
                 direction=direction,
                 positions=positions,
-                integrate_over=integrate_over,
+                integrate_over=ext_integrated,
                 external_times=external_times,
                 _extra_orderings=orderings,
                 _extra_bounds=cuts,
+                **panel,
             ),
             c_kink,
             time_orderings,
@@ -8998,7 +9087,7 @@ class DiagramIntegrand:
             int_vars = _topological_sort_times(
                 tuple(spatial.time_integration_vars), time_orderings
             )
-        bounds = _causal_bounds(
+        bounds = _shifted_panel or _causal_bounds(
             spatial,
             int_vars,
             ext_integrated,
@@ -9017,11 +9106,14 @@ class DiagramIntegrand:
         # needs the EARLIER external placed last.  The bounds draw them
         # earliest-first; with no such ordering they stay in the caller's
         # order.
-        swept = bounds[: len(ext_integrated)]
-        ext_ordered = [b.var for b in swept]
-        if any(b.lower for b in swept):
-            ext_ordered.reverse()
-        all_vars = int_vars + ext_ordered
+        if _shifted_panel is not None:
+            all_vars = list(reversed(_shifted_panel.names))
+        else:
+            swept = bounds[: len(ext_integrated)]
+            ext_ordered = [b.var for b in swept]
+            if any(b.lower for b in swept):
+                ext_ordered.reverse()
+            all_vars = int_vars + ext_ordered
 
         def f(*args: float) -> float:
             times = dict(fixed_times)
@@ -9031,7 +9123,14 @@ class DiagramIntegrand:
             result = self.evaluate(times, directions, cache, coupling_array=ca)
             return _real_or_raise(result, self._e_psi, where=" (nquad)")
 
-        val, err = _nquad(f, _nquad_ranges(bounds, all_vars))
+        integrand = f
+        if isinstance(bounds, ShiftedBounds):
+            def shifted_f(*args: float) -> float:
+                bounds.check_scipy_sample(args)
+                return f(*args)
+
+            integrand = shifted_f
+        val, err = _nquad(integrand, _nquad_ranges(bounds, all_vars))
         return (val, err)
 
 
@@ -10495,9 +10594,11 @@ def integrate_two_point_qmc(
         t_s, jac = _causal_times(
             _causal_bounds(sp, ivs, (), ext_times, t_f, t_ceiling, t_min), u, columns
         )
+        if sp.time_lags and not np.any(jac):
+            continue
         values = ig._values_at(
             cache,
-            _batch_time_reader(t_s, columns, ext_times, t_f, sp.equal_time_aliases),
+            _batch_time_reader(t_s, columns, ext_times, t_f, sp.equal_time_aliases, sp.time_lags),
             jac,
             ig._c_lookup(cache, positions, 0.0, "integrate_two_point_qmc")
             if spatial_aware

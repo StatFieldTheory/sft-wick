@@ -24,6 +24,11 @@ class Slot(NamedTuple):
     width: int
     dimension: int
     absorbed: bool = False
+    clock: int | None = None
+
+    @property
+    def time_point(self):
+        return self.point if self.clock is None else self.clock
 
 
 class ValueLayoutError(ValueError):
@@ -40,7 +45,7 @@ def _matchings(slots, remaining):
         left, right = slots[a], slots[b]
         if left.response and right.response:
             continue
-        if left.response != right.response and left.point == right.point:
+        if left.response != right.response and left.time_point == right.time_point:
             continue
         for suffix in _matchings(slots, tail[:j] + tail[j + 1:]):
             yield ((a, b), *suffix)
@@ -133,7 +138,7 @@ def reference_value(slots, couplings, n_owners, connected, prefactor, matrix, di
                 if a.response:
                     a, b = b, a
                 if b.response:
-                    response_edges.append((a.point, b.point))
+                    response_edges.append((a.time_point, b.time_point))
                 propagators.append(("R" if b.response else "C", a, b))
             if not _acyclic(response_edges):
                 continue

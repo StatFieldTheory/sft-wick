@@ -243,6 +243,8 @@ def _type_identity(vertex: Any) -> tuple:
         tuple(fields),
     )
     symmetry = getattr(vertex, "leg_symmetry", "none")
+    if getattr(vertex, "leg_groups", ()):
+        return (*identity, symmetry, vertex.leg_groups, vertex.group_mode, vertex.group_lags)
     return identity if symmetry == "none" else (*identity, symmetry)
 
 
@@ -431,7 +433,10 @@ def _check_instances(
     for vertex, legs in instances:
         if vertex.local:
             raise ValueError(f"instance {legs!r} has a local vertex")
-        if len(legs) != len(vertex.fields):
+        if getattr(vertex, "leg_groups", ()):
+            if len(legs) != len(set(vertex.slot_points)):
+                raise ValueError(f"instance {legs!r} needs one label per grouped coordinate")
+        elif len(legs) != len(vertex.fields):
             raise ValueError(f"instance {legs!r} needs one leg per field of its vertex")
 
 

@@ -276,7 +276,7 @@ def _request_reads_R(system, orders, names) -> bool:
     """
     vertices = (
         system.vertices or system._all_nonlocal_vertices or system.multiplicative_vertices
-        or system.km_vertices
+        or system.km_vertices or system.grouped_vertices
     )
     return system._has_initial_mean or system.field.response_name in names or (
         bool(vertices) and any(order > 0 for order in orders)
@@ -404,7 +404,7 @@ def _guard_point_names(expansion, propagators, diagram_terms, positions, label):
     system = expansion.system
     if not _cache_has_spatial_table(getattr(propagators, "cache", None)) and not any(
         callable(v.coupling)
-        for v in (*system.vertices, *system.nonlocal_vertices, *system.km_vertices)
+        for v in (*system.vertices, *system.nonlocal_vertices, *system.km_vertices, *system.grouped_vertices)
     ):
         return
     free = [

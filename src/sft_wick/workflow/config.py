@@ -59,6 +59,7 @@ from sft_wick.progress import _FALSY, _TRUTHY, env_flag
 from ._messages import MAX_INT_BITS, shown, text_of
 from ._initial_state import InitialState
 from ._kramers_moyal import KramersMoyalVertex
+from ._grouped import GroupedVertex
 from ._markov_embedding import EmbeddedProcess, ErlangDelay, PronyMemory, embed_system
 from .propagators import _BUILTIN_C_OPTIONS
 
@@ -94,6 +95,7 @@ class SystemConfig:
     initial_state: InitialState | None = None
     km_vertices: tuple[dict, ...] = ()
     embedding: dict | None = None
+    grouped_vertices: tuple[dict, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1097,7 +1099,7 @@ def _refuse_nesting(data) -> None:
 _TOP_LEVEL_KEYS = ("system", "expand", "propagators", "sweep", "output")
 _SYSTEM_KEYS = (
     "field", "t_min", "linear", "noise", "vertices", "nonlocal_vertices", "initial_state",
-    "km_vertices", "embedding",
+    "km_vertices", "embedding", "grouped_vertices",
 )
 _EMBEDDING_KEYS = ("kernel", "target", "coupling", "mode", "start", "source", "name")
 _FIELD_KEYS = ("name", "n_components")
@@ -1423,7 +1425,7 @@ def _parse_system(
             f"{{name: phi, n_components: 2}}; got {shown(fld)}",
         )
     _reject_unknown_keys(fld, _FIELD_KEYS, "system.field")
-    for key in ("vertices", "nonlocal_vertices", "km_vertices"):
+    for key in ("vertices", "nonlocal_vertices", "km_vertices", "grouped_vertices"):
         blocks = d.get(key)
         if blocks is not None and not isinstance(blocks, list):
             raise ConfigError(
@@ -1475,7 +1477,11 @@ def _parse_system(
         _parse_vertex(v, base_dir, kind="km", index=i, n_components=nc)
         for i, v in enumerate(d.get("km_vertices", []) or [])
     ]
-    names = [v["name"] for v in vertices + nonlocal_vertices + km_vertices]
+    grouped_vertices = [
+        _parse_vertex(v, base_dir, kind="grouped", index=i, n_components=nc)
+        for i, v in enumerate(d.get("grouped_vertices", []) or [])
+    ]
+    names = [v["name"] for v in vertices + nonlocal_vertices + km_vertices + grouped_vertices]
     repeated = sorted({n for n in names if names.count(n) > 1})
     if repeated:
         raise ConfigError(
@@ -1483,7 +1489,7 @@ def _parse_system(
             "system.vertices",
             f"vertex name(s) {repeated} used more than once.  The coupling "
             f"values are keyed by vertex name, so names must be unique across "
-            f"vertices, nonlocal_vertices and km_vertices",
+            f"vertices, nonlocal_vertices, km_vertices and grouped_vertices",
         )
 
     embedding = d.get("embedding")
@@ -1500,6 +1506,7 @@ def _parse_system(
         base_dir=base_dir,
         initial_state=_parse_initial_state(d.get("initial_state"), nc),
         km_vertices=tuple(km_vertices),
+        grouped_vertices=tuple(grouped_vertices),
         embedding=embedding,
     )
 
@@ -1574,13 +1581,16 @@ def _build_embedding(value):
             spec = ErlangDelay(_number(kernel.get("mean_delay"), f"{path}.mean_delay"), stages)
     else:
         raise ConfigError("invalid_value", f"{path}.type", f"unsupported kernel {shown(kind)}")
+    coupling = value.get("coupling", 1)
+    if not isinstance(coupling, list):
+        coupling = _number(coupling, f"{where}.coupling")
     with _refused_at(where):
         return EmbeddedProcess(
             kernel=spec,
             target=_integer(value.get("target", 0), f"{where}.target"),
             source=(None if value.get("source") is None
                     else _integer(value["source"], f"{where}.source")),
-            coupling=_number(value.get("coupling", 1), f"{where}.coupling"),
+            coupling=coupling,
             mode=value.get("mode", "additive"),
             start=value.get("start", "zero"),
             name=value.get("name", "embedded"),
@@ -1760,6 +1770,7 @@ def _parse_vertex(
         "local": ("vertices", sp.LocalVertex),
         "nonlocal": ("nonlocal_vertices", sp.NonLocalVertex),
         "km": ("km_vertices", KramersMoyalVertex),
+        "grouped": ("grouped_vertices", GroupedVertex),
     }[kind]
     where = f"system.{block}[{index}]"
     if not isinstance(v, dict):
@@ -1843,7 +1854,7 @@ def _parse_vertex(
         del out["coupling_module"]
         out.pop("coupling_attr", None)
     if callable(out["coupling"]):
-        if kind == "km":
+        if kind in ("km", "grouped"):
             with _refused_at(where):
                 _build_vertex(cls, out)
         return out
@@ -1868,7 +1879,7 @@ def _parse_vertex(
         detail = f"the coupling of {label} must be a tensor of finite numbers"
         raise ConfigError("invalid_value", coupling, detail)
     out["coupling"] = arr
-    if kind == "km":
+    if kind in ("km", "grouped"):
         with _refused_at(where):
             vertex = _build_vertex(cls, out)
     else:
@@ -2922,6 +2933,7 @@ def build_system(cfg: SystemConfig):
         t_min=cfg.t_min,
         initial_state=cfg.initial_state,
         km_vertices=tuple(_build_vertex(KramersMoyalVertex, v) for v in cfg.km_vertices),
+        grouped_vertices=tuple(_build_vertex(GroupedVertex, v) for v in cfg.grouped_vertices),
     )
     if cfg.embedding is None:
         return system

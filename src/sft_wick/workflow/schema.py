@@ -44,6 +44,7 @@ from sft_wick.vertices import LEG_SYMMETRIES
 from . import config as cf
 from . import specs as sp
 from ._kramers_moyal import KramersMoyalVertex
+from ._grouped import GroupedVertex
 from ._messages import shown
 
 SCHEMA_DIALECT = "https://json-schema.org/draft/2020-12/schema"
@@ -357,6 +358,15 @@ def _vertex(cls) -> _Block:
         "rank": _null(_STRICT_INTEGER),
         "order": _ORDER,
         "n_psi": _ORDER,
+        "fields": {"type": "array", "items": _enum(("phi", "psi")), "minItems": 1},
+        "leg_groups": {"type": "array", "items": {"type": "integer", "minimum": 0}},
+        "group_mode": _enum(("spacetime", "time")),
+        "group_lags": {"type": "array", "items": {
+            "type": "array", "minItems": 3, "maxItems": 3,
+            "prefixItems": [{"type": "integer", "minimum": 0},
+                            {"type": "integer", "minimum": 0},
+                            {"type": "number", "minimum": 0}],
+        }},
         "leg_symmetry": _enum(LEG_SYMMETRIES),
     }
     keys = _dataclass_keys(cls, nodes, optional=("coupling",))
@@ -410,6 +420,7 @@ def _system() -> _Block:
         "nonlocal_vertices": _Key(
             _ListOf(_vertex(sp.NonLocalVertex)), nullable=True, default=[]
         ),
+        "grouped_vertices": _Key(_ListOf(_vertex(GroupedVertex)), nullable=True, default=[]),
         "initial_state": _Key(_Block({
             "covariance": _Key(_TENSOR, nullable=True),
             "cumulants": _Key(_ListOf(_TENSOR), default=[]),
@@ -421,7 +432,8 @@ def _system() -> _Block:
         "embedding": _Key(_Block({
             "kernel": _Key(_Tagged(embedding_kernels, default="exponential"), required=True),
             "target": _Key(_INTEGER, default=0),
-            "coupling": _Key(_NUMBER, default=1),
+            "coupling": _Key({"anyOf": [_NUMBER, {"type": "array", "items": _NUMBERS}]},
+                             default=1),
             "mode": _Key(_enum(("additive", "random_rate")), default="additive"),
             "start": _Key(_enum(("zero", "stationary")), default="zero"),
             "source": _Key(_INTEGER, nullable=True, default=None),
@@ -799,6 +811,10 @@ def resolved_config(cfg) -> dict:
     }
     if s.initial_state is not None:
         system["initial_state"] = _field_values(s.initial_state)
+    if s.grouped_vertices:
+        system["grouped_vertices"] = _with_defaults(
+            system_keys["grouped_vertices"].node, list(s.grouped_vertices)
+        )
     if s.km_vertices:
         system["km_vertices"] = _with_defaults(
             system_keys["km_vertices"].node, list(s.km_vertices)

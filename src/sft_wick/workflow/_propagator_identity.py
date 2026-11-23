@@ -662,7 +662,7 @@ def native_propagator_identity(system: Any) -> tuple | None:
         state = object.__getattribute__(system, "__dict__")
         if type(state) is not dict or any(type(key) is not str for key in state):
             return None
-        extra = set(state) - set(_SYSTEM_FIELDS) - {"initial_state", "km_vertices"}
+        extra = set(state) - set(_SYSTEM_FIELDS) - {"initial_state", "km_vertices", "grouped_vertices"}
         if extra not in (set(), {"_effective_linear"}):
             return None
         if any(name not in state for name in _SYSTEM_FIELDS):

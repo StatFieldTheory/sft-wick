@@ -14,8 +14,10 @@ from operator import index
 from typing import Any
 
 from ._ir_identity import diagram_ids
+from ._shifted_times import normalize_lags
 from ._ir_sympy import from_sympy, to_sympy
 from .evaluate import (
+    _alias_representatives,
     _conflicting_group_positions,
     _external_positions,
     _r_index_mismatch,
@@ -25,6 +27,7 @@ from .evaluate import (
 )
 from .expressions import (
     DiracDelta,
+    TimeDelta,
     Expr,
     ImaginaryUnit,
     IntegralOver,
@@ -41,6 +44,7 @@ from .perturbation import DiagramTerm
 __all__ = ["diagram_ids", "from_ir", "from_sympy", "ir_digest", "to_ir", "to_sympy"]
 
 SCHEMA = "wickir/v1"
+_GROUP_SCHEMA = "wickir/v1.1"
 
 # Field names, wire tags, and types are explicit so a dataclass refactor
 # cannot silently change the wire format. A list of fields in a descriptor
@@ -61,6 +65,7 @@ _NODES = {
     KroneckerDelta: ("kronecker_delta", {"index1": str, "index2": str}),
     DiracDelta: ("dirac_delta", {"arg1": str, "arg2": str}),
     ImaginaryUnit: ("imaginary_unit", {}),
+    TimeDelta: ("time_delta", {"point": str, "anchor": str, "lag": float}),
 }
 _TAGS = {tag: (cls, fields) for cls, (tag, fields) in _NODES.items()}
 _DIAGRAM = {
@@ -77,6 +82,21 @@ _DIAGRAM = {
     # name, local/equal-time/absorbed flags, ordered fields and leg symmetry.
     "vertex_types": ([(str,), [str, bool, bool, bool, ([str, str, int],), str]],),
 }
+
+
+_GROUP_DIAGRAM = {
+    **_DIAGRAM,
+    "time_lags": ([str, str, float],),
+    "group_templates": ([str, (str,), (str,), (int,), str],),
+}
+
+# Keep previously circulated v1 records and digests stable as the native
+# spatial analyzer gains fields used only by grouped or delayed measures.
+_V1_SPATIAL_FIELDS = (
+    "direction_groups", "direction_map", "time_orderings", "r_propagators",
+    "c_propagators", "time_integration_vars", "direction_integration_vars",
+    "external_points", "equal_time_aliases", "r_absorbed_pairs",
+)
 
 
 def _encode(value, kind):
@@ -141,6 +161,9 @@ def _decode(value, kind):
     if kind == (str | None):
         if value is None or isinstance(value, str):
             return value
+    elif kind is float:
+        if type(value) in (int, float) and isfinite(value):
+            return float(value)
     elif type(value) is kind:
         return value
     raise ValueError(f"invalid WickIR value {value!r} for {kind}")
@@ -238,6 +261,16 @@ def _spatial_check(term, positions, integrate_over, external_times, t_final):
     return check, None
 
 
+def _contains_time_delta(expr):
+    if isinstance(expr, Sum):
+        return any(_contains_time_delta(child) for child in expr.terms)
+    if isinstance(expr, Product):
+        return any(_contains_time_delta(child) for child in expr.factors)
+    if isinstance(expr, (IntegralOver, SumOverIndex)):
+        return _contains_time_delta(expr.body)
+    return isinstance(expr, TimeDelta)
+
+
 def to_ir(
     term: DiagramTerm,
     *,
@@ -251,7 +284,7 @@ def to_ir(
     t_final: float | None = None,
     n_components: int | None = None,
 ) -> dict[str, Any]:
-    """Encode a diagram and optional evaluation context in ``wickir/v1``.
+    """Encode a diagram and optional evaluation context in WickIR. Grouped or delayed measures use v1.1.
 
     Supply the originating expansion's target and isotropy flags when known,
     and the system's lower time bound. A raw term does not retain them.
@@ -278,6 +311,9 @@ def to_ir(
     if t_final is not None:
         t_final = _finite_float(t_final)
     spatial, rejection = _spatial_check(term, positions, integrate_over, external_times, t_final)
+    grouped = bool(term.time_lags or term.group_templates or _contains_time_delta(term.coupling_sum))
+    if spatial is not None and not grouped:
+        spatial = {key: spatial[key] for key in _V1_SPATIAL_FIELDS}
     evaluation = {
         "positions": positions,
         "external_times": external_times,
@@ -301,17 +337,38 @@ def to_ir(
             else:
                 evaluation["rejection"] = diagnostic
     record = {
-        "schema": SCHEMA,
+        "schema": _GROUP_SCHEMA if grouped else SCHEMA,
         "conventions": _conventions(
             term, target=target, iso_R=iso_R, iso_C=iso_C,
             t_min=_finite_float(t_min), integrate_over=integrate_over,
         ),
-        "diagram": _encode_fields(term, _DIAGRAM),
+        "diagram": _encode_fields(term, _GROUP_DIAGRAM if grouped else _DIAGRAM),
         "spatial_structure": spatial,
         "evaluation": evaluation,
     }
     # asdict preserves tuples; ensure callers receive only JSON types.
     return json.loads(_json_bytes(record))
+
+
+def _validate_group_measure(args):
+    points = set(args["integration_vars"])
+    aliases = _alias_representatives(args["equal_time_aliases"])
+    normalize_lags(args["time_lags"], aliases, points)
+    for name, coords, roles, groups, mode in args["group_templates"]:
+        if (not name or not roles or len(roles) != len(groups)
+                or not set(roles) <= {"physical", "response"}
+                or set(groups) != set(range(len(set(groups))))
+                or mode not in ("spacetime", "time")):
+            raise ValueError("invalid WickIR grouped vertex")
+        size = len(set(groups)) if mode == "spacetime" else len(roles)
+        if len(coords) != size or len(set(coords)) != size or not set(coords) <= points:
+            raise ValueError("invalid WickIR grouped vertex coordinates")
+        if mode == "time":
+            clocks = {}
+            for group, coord in zip(groups, coords, strict=True):
+                clock = aliases.get(coord, coord)
+                if clocks.setdefault(group, clock) != clock:
+                    raise ValueError("WickIR time-group slots must share one clock")
 
 
 def from_ir(record: dict[str, Any]) -> DiagramTerm:
@@ -320,14 +377,15 @@ def from_ir(record: dict[str, Any]) -> DiagramTerm:
     Context and cross-checks remain in the record. They are never used to
     reconstruct edges, coupling expressions, phases or integration labels.
     """
-    if not isinstance(record, dict) or record.get("schema") != SCHEMA:
+    if not isinstance(record, dict) or record.get("schema") not in (SCHEMA, _GROUP_SCHEMA):
         raise ValueError(f"expected WickIR schema {SCHEMA!r}")
     _require_keys(
         record, ("schema", "conventions", "diagram", "spatial_structure", "evaluation"),
         "record",
     )
     diagram = record["diagram"]
-    _require_keys(diagram, _DIAGRAM, "diagram")
+    fields = _GROUP_DIAGRAM if record["schema"] == _GROUP_SCHEMA else _DIAGRAM
+    _require_keys(diagram, fields, "diagram")
     conventions = record["conventions"]
     if not isinstance(conventions, dict) or type(conventions.get("response_phase")) is not bool:
         raise ValueError("WickIR conventions must specify a boolean response_phase")
@@ -335,7 +393,11 @@ def from_ir(record: dict[str, Any]) -> DiagramTerm:
         raise ValueError("WickIR v1 requires Itô with integer theta_at_zero=0")
     if conventions["theta_at_zero"] != 0:
         raise ValueError("WickIR v1 requires theta_at_zero=0")
-    args = _decode_fields(diagram, _DIAGRAM)
+    args = _decode_fields(diagram, fields)
+    if fields is _GROUP_DIAGRAM:
+        _validate_group_measure(args)
+    elif _contains_time_delta(args["coupling_sum"]):
+        raise ValueError("a time_delta expression requires WickIR v1.1")
     term = DiagramTerm(**args, response_phase=conventions["response_phase"])
     time = conventions.get("observable_time")
     if not isinstance(time, dict) or type(time.get("t_min")) not in (int, float):

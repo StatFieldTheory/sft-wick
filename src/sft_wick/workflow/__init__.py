@@ -67,6 +67,7 @@ from .specs import (
 )
 from .system import System
 from ._initial_state import InitialState
+from ._grouped import ColouredMultiplicativeNoise, GroupedVertex
 from ._kramers_moyal import KramersMoyalVertex
 from ._markov_embedding import EmbeddedProcess, ErlangDelay, PronyMemory, embed_system
 
@@ -96,6 +97,8 @@ __all__ = [
     "Matern32Temporal",
     "MultiplicativeImpulse",
     "NonLocalVertex",
+    "GroupedVertex",
+    "ColouredMultiplicativeNoise",
     "InitialState",
     "KramersMoyalVertex",
     "EmbeddedProcess",

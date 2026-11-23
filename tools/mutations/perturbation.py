@@ -49,28 +49,12 @@ ENTRIES: list[tuple[str, str, str, str, str, str, str]] = [
     (
         "historical-callable-copies-share-one-leg-structure",
         "perturbation.py",
-        "        classes = frozenset(\n"
-        "            frozenset(s.spatial_args)\n"
-        "            for s, v in zip(syms, vertices)\n"
-        "            if v.equal_time\n"
-        "        )\n"
-        "        absorbed = frozenset(\n"
-        "            leg\n"
-        "            for s, v in zip(syms, vertices)\n"
-        "            if v.already_R_contracted\n"
-        "            for leg in s.spatial_args\n"
-        "        )\n",
-        "        classes = frozenset(\n"
-        "            frozenset(vi.spatial_variables)\n"
-        "            for vi, v in zip(vertex_instances, vertices)\n"
-        "            if v.equal_time\n"
-        "        )\n"
-        "        absorbed = frozenset(\n"
-        "            leg\n"
-        "            for vi, v in zip(vertex_instances, vertices)\n"
-        "            if v.already_R_contracted\n"
-        "            for leg in vi.spatial_variables\n"
-        "        )\n",
+        "        points = symbol.spatial_args\n"
+        "        if vertex.leg_groups:\n",
+        "        points = (tuple(instance.spatial_variables)\n"
+        "                  if vertex.equal_time or vertex.already_R_contracted\n"
+        "                  else symbol.spatial_args)\n"
+        "        if vertex.leg_groups:\n",
         "tests/test_callable_vertex_copies.py",
         'The leg structure of the copies of an already_R_contracted vertex '
         'is read off the vertex instances, so every term of a coupling sum '

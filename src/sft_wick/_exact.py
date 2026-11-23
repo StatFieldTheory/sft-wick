@@ -542,6 +542,8 @@ def integrate_exact(
         )
 
     spatial = integrand.spatial
+    if spatial.time_lags:
+        raise ValueError("method='exact' does not integrate fixed time lags; use gauss_legendre")
     free = (*spatial.time_integration_vars, *swept)
     count = len(free)
     ends = {
