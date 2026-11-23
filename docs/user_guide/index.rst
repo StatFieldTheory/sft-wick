@@ -13,6 +13,7 @@ Detailed coverage of every feature in **sft-wick**, organised by topic.
    parallelism
    resources
    version_comparison
+   wickir
 
 .. toctree::
    :maxdepth: 2

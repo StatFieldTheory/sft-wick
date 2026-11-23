@@ -47,6 +47,7 @@ from sft_wick.evaluate import (
     integrate_moment,
     integrate_two_point_qmc,
 )
+from sft_wick.ir import from_ir, to_ir
 
 N = 3
 A = np.random.default_rng(20260911).normal(size=(N, N, N))
@@ -256,6 +257,7 @@ def test_absorbed_R_leg_takes_its_partners_index(r_type, method):
     returned ``A.sum()``."""
     terms = _terms(absorbed=True)
     for dt in terms:
+        assert to_ir(dt)["evaluation"]["rejection"] is None
         absorbed = set(dt.r_absorbed_pairs)
         assert len(absorbed) == 3
         for p in dt.propagators:
@@ -271,9 +273,21 @@ def test_absorbed_R_with_two_indices_raises(r_type, method, monkeypatch):
     by compute_moment before the change -- would sum the leg components
     (``A.sum()``: the absorbed R's factor is skipped and no delta replaces
     it), so it is refused with either cache."""
-    terms = _stale_absorbed_terms(monkeypatch)
-    with pytest.raises(ValueError, match="already_R_contracted"):
-        _integrate(terms, r_type, method)
+    term, = _stale_absorbed_terms(monkeypatch)
+    wire = to_ir(term, n_components=N)
+    with pytest.raises(ValueError, match="already_R_contracted") as error:
+        _integrate([from_ir(wire)], r_type, method)
+    rejection = {"code": "invalid_absorbed_r_indices", "message": str(error.value)}
+    assert wire["evaluation"]["n_components"] == N
+    assert wire["evaluation"]["rejection"] == rejection
+    assert "conditional_rejection" not in wire["evaluation"]
+
+    unspecified = to_ir(term)
+    assert unspecified["evaluation"]["rejection"] is None
+    assert unspecified["evaluation"]["conditional_rejection"] == {
+        **rejection, "min_n_components": 2,
+    }
+    assert from_ir(unspecified) == term
 
 
 @pytest.mark.parametrize("method", BACKENDS)

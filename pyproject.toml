@@ -55,9 +55,14 @@ progress = [
 nauty = [
     "pynauty>=2.8.8",
 ]
+cas = [
+    "sympy>=1.12",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov",
+    # Exercise the optional CAS exporter in the development suite.
+    "sympy>=1.12",
     # Runs the suite on several processes (pytest -n auto --dist worksteal).
     # 3.6 runs each test in the worker's main thread, which the SIGALRM
     # hang guards in the tests need.

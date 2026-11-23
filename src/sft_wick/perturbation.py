@@ -390,6 +390,11 @@ class DiagramTerm:
     #: the real axis; see :meth:`observable_phase_factor`.
     n_external_response: int = 0
     response_phase: bool = field(default=True, compare=False)
+    #: Ordered point labels and source template identity for multiplicity
+    #: terms. Legacy collected terms may have lost this assignment.
+    vertex_types: tuple[tuple[tuple[str, ...], tuple], ...] = field(
+        default=(), compare=False, repr=False,
+    )
 
     @cached_property
     def _coupling_execution_plan(self):
@@ -2231,7 +2236,7 @@ def _multiplicity_expansion(
     response_phase=True, *, keep_diagrams=False,
 ):
     """Construct one weighted term per typed orbit without component routing."""
-    from ._canonical import SequenceLayout, make_keyer, resolve_canonical_method
+    from ._canonical import SequenceLayout, _type_identity, make_keyer, resolve_canonical_method
     from ._multiplicity import weighted_topologies
 
     method = resolve_canonical_method(canonical, stacklevel=4)
@@ -2265,6 +2270,12 @@ def _multiplicity_expansion(
             start = len(terms)
             layout = SequenceLayout.from_sequence(seq, observable)
             keyer = make_keyer(layout, method)
+            vertex_types = tuple(
+                (tuple(instance.spatial_variables), (
+                    *_type_identity(instance.vertex)[:5], instance.vertex.leg_symmetry,
+                ))
+                for instance in seq.instances
+            )
             coupling = None
             if tally is not None:
                 tally.add_r_classes(seq.index, *_r_class_census(seq.operators))
@@ -2277,7 +2288,9 @@ def _multiplicity_expansion(
                                        seq.prefactor.denominator)
                 dt, = _diagram_terms(seq, tuple(props), coupling, n_external,
                                      response_phase, aligned_instances=True)
-                terms.append(replace(dt, rational_prefactor=coefficient))
+                terms.append(replace(
+                    dt, rational_prefactor=coefficient, vertex_types=vertex_types,
+                ))
                 if keep_diagrams:
                     infos.append(DiagramInfo(observable, seq.instances, pairing, coefficient, n))
                 if tally is not None:

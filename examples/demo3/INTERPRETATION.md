@@ -218,23 +218,11 @@ behaviour, so nothing needs editing at the rebase.
    as a `CustomKernel`.  The configs here still use the general
    `callable_module` hatch plus a closed-form `C`; the L1 API needs
    neither.
-6. **Plain functions in kernel spec fields silently defeat the caches.**
-   `_system_spec_key` builds the expansion key from `repr(noise.kappa2)`
-   and `repr(linear)` (and `_minimal_propagator_spec` likewise), and
-   `repr()` of *any* plain function embeds its memory address, so the key
-   changes on every process.  This affects every spec field that can hold
-   a function: `CustomKernel`, `GeneralKappa2`, `CustomImpulse`,
-   `ExplicitR`, and a callable `DiagonalA.gamma`.  A module-level `def` is
-   affected **exactly as much as a lambda**; the fix is a callable
-   *object* with a stable `repr`, i.e. a frozen dataclass with
-   `__call__`, which is what demo 3 uses (16.7 s → 1.5 s on the second
-   call).  Non-local **vertex couplings are not affected**: they enter
-   the key only as `(name, order, equal_time, already_R_contracted)`,
-   correctly, since the symbolic enumeration does not depend on coupling
-   values.  The failure is fail-safe: an unstable `repr` can only cause a
-   cache *miss*, never a wrong hit.  (Diagnosis and the cross-process
-   measurements are the `demo2-hardening` session's; this demo's own
-   speed-up came entirely from the `CustomKernel` change.)
+6. **Expansion reuse across parameter changes.**
+   The expansion cache key now comes from the action templates and
+   observable. Changes to the coupling values or kernel parameters can
+   reuse the expansion. The propagator cache uses a separate identity
+   tied to the numerical kernels and table settings.
 
 ## 5. The case for the paper
 

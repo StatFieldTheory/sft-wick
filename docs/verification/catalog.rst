@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **9407 tests** in 169 files (parametrised
+The suite has **9448 tests** in 170 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -57,7 +57,7 @@ this page is out of date.
 Symbolic engine
 ---------------
 
-*578 tests in 12 files.*
+*599 tests in 13 files.*
 
 .. list-table::
    :header-rows: 1
@@ -110,7 +110,7 @@ Symbolic engine
      - specification
      - exact analytic
      - exact
-     - 24
+     - 32
      - 0
    * - ``test_fields.py``
      - Field / FieldOperator construction, unique UIDs, component indices
@@ -154,11 +154,18 @@ Symbolic engine
      - exact
      - 46
      - 0
+   * - ``test_wick_ir.py``
+     - WickIR round trips, conventions, and structural refusals
+     - Quickstart expansion and explicit evaluator boundaries
+     - exact analytic
+     - exact
+     - 13
+     - 0
 
 Multiplicities and canonical forms
 ----------------------------------
 
-*558 tests in 9 files.*
+*576 tests in 9 files.*
 
 .. list-table::
    :header-rows: 1
@@ -225,7 +232,7 @@ Multiplicities and canonical forms
      - every relabelling tried by tests/brute_relabel.py (itertools only, no sft-wick imports); pynauty's group order of the dummy-node graph; the two methods against each other; the term order of the previous key
      - independent code
      - exact; coupling values within a class to 1e-12; 0.2 s per key, 30 s per child process
-     - 77
+     - 95
      - 0
    * - ``test_value_certificate.py``
      - synthetic values of emitted diagram terms, complex response phase, literal components, moment and connected targets, routing collapse with the count preserved, absorbed R on mixed vertex roles, and explicit reasons for count-only rows
@@ -888,7 +895,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*2655 tests in 45 files.*
+*2657 tests in 45 files.*
 
 .. list-table::
    :header-rows: 1
@@ -1165,7 +1172,7 @@ Workflow and YAML
      - raw L0 pipeline (validate_phase5); closed forms
      - exact analytic
      - 1e-6
-     - 49
+     - 51
      - 3
    * - ``test_workflow_cli.py``
      - sft-wick config errors: exit status 2 and one stderr line with code, dotted path and suggestion, malformed observables included; a line with a code and a reason for a file YAML cannot read; validate, schema and --print-resolved; overrides of keys the file leaves out; SFT_WICK_STRICT=0; the ConfigError / OverrideError types
@@ -1439,7 +1446,7 @@ Where a file holds checks of several kinds:
    * - Kind
      - Files
    * - exact analytic
-     - 83
+     - 84
    * - independent code
      - 37
    * - simulation

@@ -419,6 +419,12 @@ FILE_META: dict[str, tuple[str, str, str, str]] = {
         "specification",
         "exact",
     ),
+    "tests/test_wick_ir.py": (
+        "Symbolic engine",
+        "WickIR round trips, conventions, and structural refusals",
+        "Quickstart expansion and explicit evaluator boundaries",
+        "exact",
+    ),
     "tests/test_simplify.py": (
         "Symbolic engine",
         "simplification passes, diagonal / isotropic index collapse, "
@@ -1891,6 +1897,7 @@ REFERENCE_KIND: dict[str, str] = {
     "tests/test_evaluate_pipeline.py": "self_consistency",
     "tests/test_execution_controls.py": "self_consistency",
     "tests/test_expressions.py": "exact_analytic",
+    "tests/test_wick_ir.py": "exact_analytic",
     "tests/test_factorized_coupling.py": "independent_code",
     "tests/test_factorized_public.py": "self_consistency",
     "tests/test_fields.py": "none",
