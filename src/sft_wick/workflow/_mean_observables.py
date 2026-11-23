@@ -93,6 +93,13 @@ def _extend_term(term, labels, removed, mean_symbol):
             (points.get(left, left), points.get(right, right))
             for left, right in term.equal_time_aliases
         ) + tuple((leg, point) for point, leg in pairs),
+        group_templates=tuple(
+            (name, tuple(points.get(p, p) for p in coords), roles, groups, mode)
+            for name, coords, roles, groups, mode in term.group_templates
+        ),
+        time_lags=tuple(
+            (points.get(d, d), points.get(a, a), lag) for d, a, lag in term.time_lags
+        ),
         r_absorbed_pairs=tuple(
             (points.get(left, left), points.get(right, right))
             for left, right in term.r_absorbed_pairs
@@ -121,6 +128,9 @@ def _extend_info(info, observable, kept, removed, labels, mean_symbol):
                 coupling_symbol=_apply_index_sub(iv.coupling_symbol, names),
                 spatial_variables=[points.get(p, p) for p in iv.spatial_variables],
                 component_indices=[indices.get(i, i) for i in iv.component_indices],
+                time_lags=tuple(
+                    (points.get(d, d), points.get(a, a), lag) for d, a, lag in iv.time_lags
+                ),
                 equal_time_aliases=tuple(
                     (points.get(left, left), points.get(right, right))
                     for left, right in iv.equal_time_aliases

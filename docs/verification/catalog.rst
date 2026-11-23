@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **9448 tests** in 170 files (parametrised
+The suite has **9541 tests** in 175 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -57,7 +57,7 @@ this page is out of date.
 Symbolic engine
 ---------------
 
-*599 tests in 13 files.*
+*621 tests in 15 files.*
 
 .. list-table::
    :header-rows: 1
@@ -118,6 +118,20 @@ Symbolic engine
      - none
      - exact
      - 8
+     - 0
+   * - ``test_grouped_ir.py``
+     - transport of grouped coordinates, directed lags and time deltas
+     - lossless reconstruction, dummy relabelling and changed group/lag witnesses
+     - self consistency
+     - exact
+     - 6
+     - 0
+   * - ``test_grouped_vertices.py``
+     - ordered field slots, grouped coordinates, shifted clocks and equal-time response zeros
+     - explicit index assignments and independent pairing certificates
+     - exact analytic
+     - exact
+     - 16
      - 0
    * - ``test_perturbation.py``
      - compute_moment orders, DiagramTerm structure, coupling evaluation, response phase
@@ -402,7 +416,7 @@ Propagator numerics
 Integrators
 -----------
 
-*2905 tests in 68 files.*
+*2932 tests in 69 files.*
 
 .. list-table::
    :header-rows: 1
@@ -624,7 +638,7 @@ Integrators
      - exact analytic
      - 1e-13 relative; explicit refusal
      - 20
-     - 0
+     - 1
    * - ``test_factorized_coupling.py``
      - original static monomial snapshots, lazy true ndarray materialization, sign-agreeing and long sums, sums with opposite signs declined, underflow ranges, runtime layouts and refusals, budget failures, pickle boundaries
      - ordered DiagramTerm component evaluation; Fraction sum over monomials
@@ -807,6 +821,13 @@ Integrators
      - 1e-12
      - 90
      - 7
+   * - ``test_shifted_times.py``
+     - fixed delays with causal cuts, unequal and integrated external times
+     - retarded OU integrals and Gaussian pairings
+     - exact analytic
+     - method dependent
+     - 27
+     - 1
    * - ``test_time_variable_recipe.py``
      - the change of integration variable of the user guide: one system in t and the same system in u (t = u + 0.4 u², t_min = 0.3, two components, no index symmetry); C from κ² and white σ² with a time-dependent DiagonalA rate, cubic and quartic local vertices, raw, equal_time and already_R_contracted κ³, fixed and integrated externals; each rule with one factor of J wrong is detected; the Einstein-de Sitter lensing toy in λ and in χ
      - the same quantity posed in the other variable (closed-form map and kernels)
@@ -895,7 +916,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*2657 tests in 45 files.*
+*2701 tests in 47 files.*
 
 .. list-table::
    :header-rows: 1
@@ -992,6 +1013,13 @@ Workflow and YAML
      - the tolerance of validation/compare.py stated per kill
      - 5
      - 0
+   * - ``test_grouped_workflow.py``
+     - grouped drift, asymmetric rate tensors, time-only spatial kernels and YAML input
+     - bare tensor, MSR phase and closed unequal-time integral
+     - exact analytic
+     - 1e-12
+     - 5
+     - 1
    * - ``test_initial_state.py``
      - initial covariance and higher cumulants with a dense response and unequal times, including the initial time
      - explicit contraction of a matrix exponential on every initial leg
@@ -1013,6 +1041,13 @@ Workflow and YAML
      - 1e-5 (spline) / 1e-10 / 1e-9
      - 38
      - 1
+   * - ``test_linear_hawkes.py``
+     - marked count increments in overlapping or separated windows, plus jump tensor conventions
+     - independent Poisson-cluster branching and analytic Poisson increments
+     - independent code
+     - 1e-10 absolute for finite-window cumulants
+     - 27
+     - 1
    * - ``test_local_callable_coupling.py``
      - a callable local coupling at L1 and in YAML: the rank contract, the MSR factor, the argument shapes, and a drift F0 (1 + beta x) exp(-lambda t) at orders 1-2 with t_min = 0.5 on every integrator
      - exact Itô moment hierarchy of a Markov embedding with a deterministic state u = exp(-lambda t)
@@ -1021,12 +1056,12 @@ Workflow and YAML
      - 102
      - 9
    * - ``test_markov_embedding.py``
-     - finite colored forcing, Prony memory and Erlang delay at unequal times
+     - finite colored forcing, scalar and matrix random rates, Prony memory and Erlang delay
      - independent polynomial moments, conditional Gaussian integration and matrix ODEs
      - independent code
      - 1e-10
-     - 23
-     - 0
+     - 26
+     - 1
    * - ``test_mean_observables.py``
      - deterministic external factors for raw and connected moments and integrated times
      - closed form for deterministic linear response with a tagged source
@@ -1179,7 +1214,7 @@ Workflow and YAML
      - the parsed config; an edited copy of the file; a real subprocess for the exit status
      - none
      - exact
-     - 174
+     - 176
      - 0
    * - ``test_workflow_config.py``
      - YAML → System lowering, run_workflow, overrides, dt, parallel layers, closed-form-only path, explicit R, callable modules and by-value hook transport to an existing worker pool
@@ -1193,21 +1228,21 @@ Workflow and YAML
      - the parsed WorkflowConfig of the edited file, written out field by field; the jsonschema reference validator
      - none
      - exact
-     - 103
+     - 107
      - 0
    * - ``test_workflow_schema.py``
      - the workflow JSON Schema: a valid 2020-12 document; keys, defaults and required keys of each block against its config dataclass; the keys of every block and type variant against the parser in both directions; value enumerations; every shipped config validates; every pair of keys one edit apart listed with what refuses it
      - config dataclass field sets; the parser's own key check and value checks; the jsonschema reference validator
      - none
      - exact
-     - 93
+     - 95
      - 0
    * - ``test_yaml_alias_expansion.py``
      - alias diamonds at keys nothing reads, shared tensors, depths from the limit to 300, both sides of the value and nesting limits, shipped configs, validate, --print-resolved, run and compare-resources
      - recursive walk of the tree on 3000 random shared values; PyYAML reading of the same text
      - none
      - the count equals the walk; refused within 2 s, one line, a dotted path
-     - 44
+     - 45
      - 0
    * - ``test_yaml_merge_limit.py``
      - a file whose merges would stall PyYAML is refused before PyYAML lists them, in each shape of growth, with the dotted path of the merge key; both sides of the limit; the count matches the lists PyYAML builds on hand-written and random files, cycles included
@@ -1446,13 +1481,13 @@ Where a file holds checks of several kinds:
    * - Kind
      - Files
    * - exact analytic
-     - 84
+     - 87
    * - independent code
-     - 37
+     - 38
    * - simulation
      - 0
    * - self consistency
-     - 17
+     - 18
    * - none
      - 32
 
@@ -1537,7 +1572,7 @@ The local default suite killed 30 of the 30 mutants of
 ``tools/mutations/``; the *Killed mutants* column above counts, per
 file, the mutants under which one of its tests failed.  The sweep and
 the classification of survivors are described in :doc:`mutation`.
-The rows were swept against the 8478 to 9307 tests the fast suite collected then;
+The rows were swept against the 8478 to 9368 tests the fast suite collected then;
 a test added since has no kills until the next sweep.
 
 Surviving mutants

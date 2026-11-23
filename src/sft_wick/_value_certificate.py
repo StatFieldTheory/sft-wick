@@ -112,18 +112,32 @@ class ValueFixture:
                                    op.field.n_components))
         for owner, vertex in enumerate(vertices, len(observable)):
             role = self.vertex_roles.setdefault(vertex.coupling, len(self.roles))
-            point_count = 1 if vertex.local else len(vertex.fields)
+            if vertex.local:
+                positions = (0,) * len(vertex.fields)
+                point_count = 1
+            elif vertex.leg_groups and vertex.group_mode == "spacetime":
+                positions = vertex.leg_groups
+                point_count = len(set(positions))
+            else:
+                positions = tuple(range(len(vertex.fields)))
+                point_count = len(positions)
             points = tuple(range(len(self.roles), len(self.roles) + point_count))
             self.roles.extend([role] * point_count)
             self.vertex_points.append(points)
             indices, shape = [], []
+            roots = {g: (root, d) for g, root, d in vertex.group_lags}
+            clocks = {}
             for leg, field in enumerate(vertex.fields):
-                point = points[0 if vertex.local else leg]
+                point = points[positions[leg]]
+                clock = None
+                if vertex.leg_groups:
+                    group = vertex.leg_groups[leg]
+                    clock = clocks.setdefault(roots.get(group, (group, 0.0)), point)
                 axis = None if field.is_scalar else len(self.slots)
                 width = self._dimension(field.n_components)
                 self.slots.append(Slot(point, owner, field.is_response, axis,
                                        0 if axis is None else None, width,
-                                       field.n_components, vertex.already_R_contracted))
+                                       field.n_components, vertex.already_R_contracted, clock))
                 if axis is not None:
                     indices.append(axis)
                     shape.append(width)

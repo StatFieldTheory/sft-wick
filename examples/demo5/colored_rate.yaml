@@ -1,0 +1,35 @@
+# One stationary OU rate modulates both fields through an asymmetric matrix G.
+# The physical fields start at zero. Their additive white noise is
+# independent of the rate process and has covariance Q per unit time.
+system:
+  field: {name: phi, n_components: 2}
+  linear: {type: diagonal, gamma: [0.6, 0.6]}
+  t_min: 0.5
+  noise:
+    kappa2:
+      type: separable_translation
+      temporal: {type: exponential, lam: 0.0, sigma_t: 1.0}
+      spatial: {type: exponential, sigma_x: 1.0}
+    sigma2: {type: constant, amplitude: [[0.72, 0.16], [0.16, 0.43]]}
+  embedding:
+    mode: random_rate
+    start: stationary
+    # C_eta(t,s) = exp(-|t-s|/tau)/(2*tau), tau = 0.2.
+    kernel: {type: exponential, lam: 2.5, sigma_t: 0.2}
+    coupling: [[0.35, -0.42], [0.27, 0.18]]
+expand:
+  observable: ["phi_a(x)", "phi_b(y)"]
+  orders: [0, 2]
+  diag_R: true
+propagators:
+  t_max: 2.0
+  diag_C: false
+sweep:
+  positions_grid: {x: [0.0], y: [0.0]}
+  t_final_grid: [2.0]
+  component_pairs: [[0, 0], [0, 1], [1, 1]]
+  method: gauss_legendre
+  n_gauss: 16
+  contraction_backend: factorized
+output:
+  - {type: table, format: markdown}

@@ -33,7 +33,8 @@ bound by the caller.
 Format
 ------
 
-* ``schema`` is ``"wickir/v1"``.
+* ``schema`` is ``"wickir/v1"`` for ordinary terms and ``"wickir/v1.1"`` for
+  terms with grouped vertices, fixed delays or explicit time deltas.
 * ``diagram`` holds the inputs needed to reconstruct the term. The
   ``propagators`` list includes absorbed R edges and their component
   indices. Component labels are strings, with ``"1"`` denoting the first
@@ -108,6 +109,8 @@ An expression node's ``type`` key identifies its arguments.
      - ``variable``, ``body``
    * - ``kronecker_delta``, ``dirac_delta``
      - ``index1`` and ``index2``, or ``arg1`` and ``arg2``
+   * - ``time_delta`` (v1.1)
+     - ``point``, ``anchor``, ``lag``
    * - ``imaginary_unit``
      - None
 
@@ -142,8 +145,12 @@ SymPy
 
 With the ``sft-wick[cas]`` extra installed, ``to_sympy(diagram)`` emits
 the raw component-summed integrand. It includes the rational coefficient
-and response phase and omits absorbed R factors. It leaves causal time
-integration and the observable's final phase rotation to the caller.
+and response phase. Grouped clocks and fixed delays appear as Dirac deltas
+of the form :math:`\delta(t_\mathrm{point} - t_\mathrm{anchor} + \mathrm{lag})`,
+where the lag is zero for a time-only group. The ``time:`` symbols name
+the times of the corresponding ``point:`` labels. Absorbed R factors and
+their time aliases are omitted. The caller applies those aliases together
+with the causal time integration and the observable's final phase rotation.
 
 ``from_sympy`` translates the supported SymPy nodes back into a Wick
 expression. Both functions also work on individual expression trees.
@@ -156,3 +163,16 @@ and take precedence over the one-based literal interpretation of free
 numeric labels. An empty mapping applies just the literal defaults.
 Component sums keep their own bound indices. The JSON format carries the
 full diagram and its integration context.
+
+Grouped vertices and fixed delays
+---------------------------------
+
+A term with grouped field slots or a fixed delay uses ``wickir/v1.1``.
+The diagram includes ``group_templates`` in the form
+``[coupling_name, coordinate_labels, ordered_field_roles, group_ids, mode]``.
+For ``spacetime`` each group has one coordinate. For ``time`` the slots keep
+separate spatial coordinates and ``equal_time_aliases`` records the common
+clocks. Each ``time_lags`` entry ``[delayed, anchor, lag]`` states that the
+delayed point is evaluated at the anchor time minus the positive lag.
+Typed graph identities include this direction, the lag value and the ordered
+group incidence. Ordinary terms retain their v1 wire representation and IDs.

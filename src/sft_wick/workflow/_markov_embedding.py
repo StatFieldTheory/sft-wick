@@ -99,7 +99,9 @@ class EmbeddedProcess:
 
     For a noise kernel, coupling loads the kernel's scalar output ξ into
     the target drift. In random_rate mode the term is coupling * x_target
-    * ξ and carries the perturbative tag name. For a memory kernel the
+    * ξ and carries the perturbative tag name. A square matrix coupling G
+    gives ξ G x across all physical components with one shared noise.
+    For a memory kernel the
     output is the convolution of the source component with the kernel,
     including its initial memory. Source defaults to target.
 
@@ -110,7 +112,7 @@ class EmbeddedProcess:
 
     kernel: EmbeddingKernel
     target: int = 0
-    coupling: float = 1.0
+    coupling: float | tuple[tuple[float, ...], ...] = 1.0
     mode: Literal["additive", "random_rate"] = "additive"
     start: Literal["zero", "stationary"] = "zero"
     source: int | None = None
@@ -132,9 +134,26 @@ class EmbeddedProcess:
                 raise ValueError("A noise kernel cannot take a physical source component.")
             if _finite_real(self.kernel.lam, "EmbeddedProcess variance") < 0.0:
                 raise ValueError("EmbeddedProcess variance must be non-negative.")
-        object.__setattr__(
-            self, "coupling", _finite_real(self.coupling, "EmbeddedProcess coupling")
-        )
+        if isinstance(self.coupling, (list, tuple, np.ndarray)):
+            matrix = self.coupling
+            if self.mode != "random_rate" or self.target != 0:
+                raise ValueError("A matrix coupling requires random_rate and the default target.")
+            if isinstance(matrix, np.ndarray) and matrix.ndim != 2:
+                raise ValueError("The matrix coupling must have two axes.")
+            n = len(matrix)
+            if not 0 < n < _MAX_COMPONENTS:
+                raise ValueError("The matrix coupling must fit the physical components.")
+            rows = []
+            for row in matrix:
+                if (not isinstance(row, (list, tuple, np.ndarray))
+                        or (isinstance(row, np.ndarray) and row.ndim != 1)
+                        or len(row) != n):
+                    raise ValueError("The matrix coupling must have one entry per physical component in each row.")
+                rows.append(tuple(_finite_real(v, "matrix coupling") for v in row))
+            coupling = tuple(rows)
+        else:
+            coupling = _finite_real(self.coupling, "EmbeddedProcess coupling")
+        object.__setattr__(self, "coupling", coupling)
 
 
 def _noise_realization(kernel) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -300,12 +319,12 @@ def embed_system(system, process: EmbeddedProcess):
 
     if any(
         callable(v.coupling)
-        for v in (*system.vertices, *system.nonlocal_vertices, *system.km_vertices)
+        for v in (*system.vertices, *system.nonlocal_vertices, *system.km_vertices, *system.grouped_vertices)
     ):
         raise ValueError("Markov embedding requires static physical vertex tensors.")
     if any(v.already_R_contracted for v in system.nonlocal_vertices):
         raise ValueError("Markov embedding requires bare physical cumulant tensors.")
-    ranks = [v.n_legs for v in (*system.vertices, *system.km_vertices)]
+    ranks = [v.n_legs for v in (*system.vertices, *system.km_vertices, *system.grouped_vertices)]
     ranks.extend(v.order for v in system.nonlocal_vertices)
     if system.initial_state is not None:
         ranks.extend(tensor.ndim for tensor in system.initial_state.cumulants)
@@ -335,6 +354,7 @@ def embed_system(system, process: EmbeddedProcess):
         vertices=vertices,
         nonlocal_vertices=pad_vertices(system.nonlocal_vertices, lambda v: v.order),
         km_vertices=pad_vertices(system.km_vertices, lambda v: v.n_legs),
+        grouped_vertices=pad_vertices(system.grouped_vertices, lambda v: v.n_legs),
         initial_state=initial,
     )
 
@@ -439,7 +459,13 @@ def compile_markov_embedding(drift, diffusion, process: EmbeddedProcess) -> Comp
         augmented_drift[target, n] = process.coupling
     else:
         tensor = np.zeros((size, size, size))
-        tensor[target, target, n] = tensor[target, n, target] = 0.5 * process.coupling
+        if isinstance(process.coupling, tuple):
+            if len(process.coupling) != n:
+                raise ValueError("The matrix coupling must match the physical component count.")
+            half = 0.5 * np.asarray(process.coupling)
+            tensor[:n, :n, n] = tensor[:n, n, :n] = half
+        else:
+            tensor[target, target, n] = tensor[target, n, target] = 0.5 * process.coupling
         tensor.setflags(write=False)
         vertex = LocalVertex(process.name, tensor)
     if not np.all(np.isfinite(augmented_drift)) or not np.all(np.isfinite(augmented_diffusion)):

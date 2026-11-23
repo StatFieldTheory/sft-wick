@@ -498,6 +498,68 @@ tensor.
    gain a trailing axis, ``(m, d)`` and ``(m, n_samples, d)``; the
    shapes of ``t_list`` and ``t_2d`` do not change.
 
+Grouped interactions and fixed delays
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A :class:`~sft_wick.workflow.GroupedVertex` gives each ordered field slot
+a group ID. With ``group_mode="spacetime"``, the slots in a group share
+one position and one time. With ``group_mode="time"``, they share a time
+and keep their own positions. Without a lag between groups, each group
+has its own integration time.
+
+For the drift coefficient of :math:`b x(t-\tau)^2`, the response slot
+is at time :math:`t` and both physical slots are at :math:`t-\tau`.
+The following YAML uses :math:`b=1` and :math:`\tau=0.31`. All field
+times start at the system's ``t_min``, giving zero prehistory.
+
+.. code-block:: yaml
+
+   system:
+     # ... field, linear and noise specifications ...
+     grouped_vertices:
+       - name: F
+         fields: [psi, phi, phi]
+         coupling: [[[1.0]]]
+         leg_groups: [0, 1, 1]
+         group_lags: [[1, 0, 0.31]]
+
+The first two entries in a lag are the delayed and anchor group IDs.
+A coupling tensor has one component axis per field slot, in the given
+order. A callable loaded with ``coupling_module`` receives
+``(positions, times)`` in group-ID order for spacetime groups, or slot
+order for time-only groups. Its output follows the same component-axis
+order as a static tensor. The spec supplies the response phase and
+factorial.
+
+For a zero-mean Gaussian scalar rate multiplying :math:`Gx`,
+:func:`~sft_wick.workflow.ColouredMultiplicativeNoise` constructs two
+spacetime groups with field slots :math:`(\psi,\phi)(\psi,\phi)`.
+The covariance callable receives the positions and times of those two
+groups and returns one covariance. The example gives a Gaussian
+correlation time scale of 0.33 and a scalar amplitude of one.
+
+.. code-block:: python
+
+   import numpy as np
+   import sft_wick as sw
+
+   def covariance(positions, times):
+       return np.exp(-0.5 * ((times[0] - times[1]) / 0.33)**2)
+
+   rate = sw.ColouredMultiplicativeNoise(covariance, g=1.0)
+   system = sw.System(field=field, linear=linear, noise=noise, grouped_vertices=[rate])
+
+Each insertion carries the factor :math:`+\tfrac12 G\otimes G`.
+Orders zero, one and two in this vertex give the constant, quadratic and
+quartic coefficients in the amplitude. A square matrix ``g`` specifies
+one shared rate acting on several components. An expansion with grouped
+physical slots requires zero initial mean. Use ``method="gauss_legendre"``
+for a fixed delay or a callable coloured covariance. The exact backend
+requires unshifted integration times and static vertex couplings.
+Distinct lags must give distinguishable floating-point times over the
+integration interval. If two lagged times round to the same value,
+express the times relative to a nearby origin before converting them to floats.
+
 Equal-time (single-shell) cumulants
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -899,6 +961,17 @@ stationary memory law. In YAML use ``expand.diag_R: false`` and
 to the physical field. The temporal driving and initial law are shared
 across the positions of the embedded system.
 
+For a shared coloured random rate, set ``mode: random_rate`` and supply
+an ``N × N`` matrix ``coupling``. Entry ``[a][b]`` multiplies
+:math:`x_b(t)\eta(t)` in the equation for :math:`x_a`. The same scalar
+:math:`\eta` drives every entry. A scalar coupling retains the single
+``target`` component convention. An exponential kernel with
+``sigma_t = tau``, ``lam = 1/(2*tau)`` and a stationary start has unit
+integrated covariance on the real line. Its white limit gives the
+Stratonovich drift correction :math:`G^2 x/2` for rate matrix :math:`G`.
+Run ``sft-wick run examples/demo5/colored_rate.yaml`` for the equal-time
+second moments of two components with asymmetric :math:`G`.
+
 YAML configuration reference (L2)
 ---------------------------------
 
@@ -1002,6 +1075,7 @@ prints the same keys as a JSON Schema; see `Checking a config`_.
        # cumulants: []                   # symmetric tensors of distinct ranks >= 3
      km_vertices: []                     # local Itô generator terms
        # - {name: D3, n_psi: 3, coupling: [[[0.08]]]}
+     grouped_vertices: []                # ordered field slots at shared or delayed points
      embedding: null                     # finite state-space extension
        # kernel: {type: matern32, lam: 0.3, sigma_t: 0.8}
        # target: 0

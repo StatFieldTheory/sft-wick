@@ -260,6 +260,7 @@ _LOCATIONS = {
         (("system", "noise", "sigma2"), None),
     "system.vertices[]": (("system", "vertices", 0), None),
     "system.nonlocal_vertices[]": (("system", "nonlocal_vertices", 0), None),
+    "system.grouped_vertices[]": (("system", "grouped_vertices", 0), None),
     "system.km_vertices[]": (("system", "km_vertices", 0), None),
     "expand": (("expand",), None),
     "propagators": (("propagators",), None),
@@ -364,6 +365,7 @@ def test_SC3_schema_keys_are_the_parser_keys(schema, location):
     doc = _base()
     doc["system"].setdefault("nonlocal_vertices", [])
     doc["system"].setdefault("km_vertices", [])
+    doc["system"].setdefault("grouped_vertices", [])
     if location.startswith("system.embedding.kernel<"):
         doc["system"]["embedding"] = {}
     if prepare is not None:

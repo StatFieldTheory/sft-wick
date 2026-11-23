@@ -450,6 +450,48 @@ class _MSRWrappedCoupling:
         return self.factor * np.asarray(self.bare(*args, **kwargs))
 
 
+def _real_vertex_tensor(value: Any, where: str) -> np.ndarray:
+    try:
+        array = np.asarray(value)
+        if array.dtype.kind in "fiu":
+            with np.errstate(over="ignore"):
+                array = np.asarray(array, dtype=float)
+            if np.all(np.isfinite(array)):
+                return array
+    except (TypeError, ValueError, OverflowError):
+        pass
+    raise ValueError(f"{where}: coupling must be a tensor of finite real numbers.")
+
+
+class _VertexTensorCoupling(_MSRWrappedCoupling):
+    """Sample a bare vertex coupling and check its axes before contraction."""
+
+    __slots__ = ("where", "rank", "n_components")
+
+    def __init__(self, spec, n_components: int | None):
+        super().__init__(spec.msr_factor, spec.coupling, spec.coupling_vectorized)
+        self.where = f"{type(spec).__name__}(name={shown(spec.name)})"
+        self.rank = spec.n_legs
+        self.n_components = n_components
+
+    def __call__(self, positions, times):
+        array = _real_vertex_tensor(self.bare(positions, times), self.where)
+        batch = (np.shape(times)[-1],) if self.vectorized else ()
+        n = self.n_components
+        if n is None and array.ndim == len(batch) + self.rank:
+            n = array.shape[-1]
+        if not n or array.shape != batch + (n,) * self.rank:
+            wanted = (
+                f"{batch + (n,) * self.rank}" if n is not None
+                else f"{batch} followed by {self.rank} equal component axes"
+            )
+            raise ValueError(
+                f"{self.where}: callable coupling returned shape {array.shape}; "
+                f"expected {wanted}."
+            )
+        return self.factor * array
+
+
 # =========================================================================
 # Linear operator (defines R-propagator)
 # =========================================================================

@@ -488,6 +488,8 @@ def _print_summary(cfg) -> None:
     options = []
     if s.initial_state is not None:
         options.append("initial_state")
+    if s.grouped_vertices:
+        options.append(f"{len(s.grouped_vertices)} grouped vertices")
     if s.km_vertices:
         options.append(f"{len(s.km_vertices)} KM vertices")
     if s.embedding is not None:

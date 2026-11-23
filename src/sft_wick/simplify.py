@@ -22,6 +22,7 @@ from .expressions import (
     ZERO,
     ONE,
     DiracDelta,
+    TimeDelta,
     Expr,
     IntegralOver,
     KroneckerDelta,
@@ -491,6 +492,8 @@ def _rename_dummies(
     if isinstance(expr, KroneckerDelta):
         pair = (ix(expr.index1), ix(expr.index2))
         return expr if pair == (expr.index1, expr.index2) else KroneckerDelta(*pair)
+    if isinstance(expr, TimeDelta):
+        return TimeDelta(pt(expr.point), pt(expr.anchor), expr.lag)
     if isinstance(expr, DiracDelta):
         pair = (pt(expr.arg1), pt(expr.arg2))
         return expr if pair == (expr.arg1, expr.arg2) else DiracDelta(*pair)
@@ -1261,6 +1264,8 @@ def expr_labels(expr: Expr) -> set[str]:
             out.update(e.spatial_args)
         elif isinstance(e, KroneckerDelta):
             out.update((e.index1, e.index2))
+        elif isinstance(e, TimeDelta):
+            out.update((e.point, e.anchor))
         elif isinstance(e, DiracDelta):
             out.update((e.arg1, e.arg2))
         elif isinstance(e, SumOverIndex):
