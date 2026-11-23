@@ -231,13 +231,10 @@ so the wobble at `n_gauss=20` would shrink further.
 * **No partial contraction**: `already_R_contracted=True` absorbs
   ALL `m` ψ legs uniformly. Mixed schemes (e.g. legs 1+2 absorbed,
   leg 3 raw) are out of scope (confirmed 2026-05-20).
-* **Cache keys**: `_system_spec_key()` includes
-  `(name, order, equal_time, already_R_contracted)` per non-local
-  vertex (previously only `(name, order)`). Flipping `equal_time` or
-  `already_R_contracted` now correctly invalidates the expansion
-  cache. Existing on-disk caches will be re-keyed on next run; the
-  recomputed value is numerically identical when the flags' defaults
-  match the original config.
+* **Cache keys**: the versioned expansion key includes the non-local
+  vertex templates emitted by `System.build_action()`. Changing
+  `equal_time` or `already_R_contracted` changes the template and requires
+  a new expansion. Changing a kernel parameter can reuse the expansion.
 
 ## 6. Open follow-ups
 

@@ -27,6 +27,7 @@ import random
 import subprocess
 import sys
 from collections import Counter, defaultdict
+from dataclasses import replace
 from fractions import Fraction
 from math import factorial
 from pathlib import Path
@@ -45,7 +46,16 @@ from sft_wick._canonical import (
     make_keyer,
     resolve_canonical_method,
 )
-from sft_wick.perturbation import _vertex_sequences, compute_moment_numerical
+from sft_wick.ir import diagram_ids, from_ir, to_ir
+from sft_wick.expressions import Product, Propagator, Rational, Sum, Symbol
+from sft_wick.perturbation import (
+    DiagramTerm,
+    _diagram_terms,
+    _pure_coupling,
+    _vertex_sequences,
+    compute_moment,
+    compute_moment_numerical,
+)
 
 from . import _canonical_models as models
 from . import brute_relabel as brute
@@ -482,3 +492,111 @@ def test_engine_accepts_degenerate_vertices(canonical_method_name):
     assert {n: len(t) for n, t in runs["float"].items()} == {0: 1, 2: 30}
     assert runs["float"] == runs["int"]
     assert {n: len(t) for n, t in runs["fieldless"].items()} == {0: 1, 1: 1, 2: 31}
+
+
+@pytest.mark.parametrize("model,order,label", [
+    ("F_G", 2, "F,G"),
+    ("F_G", 4, "F,F,G,G"),
+    ("K_Keq", 2, "K,K[eq]"),
+    ("K_Kr", 2, "K,K[R]"),
+    ("F_Fn2", 2, "F,F[N2]"),
+])
+def test_ir_ids_match_the_brute_orbit_of_each_typed_topology(model, order, label):
+    case = models.engine_case(model, order, label)
+    coupling = _pure_coupling(case.seq.instances)
+    ids = [diagram_ids(term) for props in case.topologies
+           for term in _diagram_terms(case.seq, tuple(props), coupling, 0,
+                                      aligned_instances=True)]
+    assert len(ids) == len(case.topologies)
+    assert all(len(identities) == 1 for identities in ids)
+    _group, data = models.brute_orbits(case)
+    assert models.partition(ids) == models.partition([orbit for orbit, _size in data])
+    assert len(set(ids)) == CLASS_PINS[model, order, label]
+
+
+@pytest.mark.parametrize("spec", list(ENGINE_RUNS))
+def test_ir_ids_match_between_engines_and_backends(spec, canonical_method_name):
+    run = ENGINE_RUNS[spec]
+    obs = run.observable()
+    action = Action(list(run.vertices))
+    reference = compute_moment(obs, action, run.order, target=run.target,
+                               routing="multiplicity")
+    result = compute_moment_numerical(obs, action, run.order, target=run.target,
+                                     routing="multiplicity", canonical=canonical_method_name)
+    for order, terms in result.items():
+        assert Counter(map(diagram_ids, terms)) == Counter(
+            map(diagram_ids, reference.diagram_terms(order))
+        )
+
+
+def test_ir_ids_are_stable_under_uids_seed_and_action_order():
+    probe = """
+import json
+import sys
+from sft_wick import Action, Field, Vertex, compute_moment, reset_uid_counter
+from sft_wick.ir import diagram_ids
+
+phi = Field('phi', 'physical')
+psi = Field('psi', 'response')
+for _ in range(20):
+    phi('discard')
+if sys.argv[1] == 'reset':
+    reset_uid_counter()
+names = ('F', 'G') if sys.argv[2] == 'forward' else ('G', 'F')
+action = Action([Vertex([psi, phi, phi], name) for name in names])
+result = compute_moment([phi('x'), phi('y')], action, 2, routing='multiplicity')
+print(json.dumps(sorted(diagram_ids(term) for term in result.diagram_terms(2))))
+"""
+    src = Path(__file__).resolve().parents[1] / "src"
+    runs = [("0", "reset", "forward"), ("1", "skip", "forward"),
+            ("7", "reset", "reverse"), ("42", "skip", "reverse"),
+            ("113", "reset", "forward")]
+    results = [subprocess.run(
+        [sys.executable, "-c", probe, reset, orientation], text=True, check=True,
+        env={"PYTHONPATH": str(src), "PYTHONHASHSEED": seed},
+        capture_output=True, timeout=30,
+    ).stdout for seed, reset, orientation in runs]
+    assert results == [results[0]] * 5
+    assert len(set(map(tuple, json.loads(results[0])))) == 24
+
+
+def test_ir_ids_preserve_r_orientation_ordered_legs_and_time_constraints():
+    term = DiagramTerm(
+        (Propagator("R", None, None, "x", "u"), Propagator("R", None, None, "y", "v"),
+         Propagator("C", None, None, "x", "y")),
+        Symbol("K", (), ("u", "v")), Rational(1), ("u", "v"), (), 2,
+    )
+    (base,) = diagram_ids(term)
+    (reversed_c,) = diagram_ids(replace(term, propagators=(
+        *term.propagators[:2], Propagator("C", None, None, "y", "x"),
+    )))
+    assert reversed_c == base
+    assert diagram_ids(replace(term, propagators=(
+        Propagator("R", None, None, "u", "x"), *term.propagators[1:],
+    ))) != (base,)
+    reverse_legs = Symbol("K", (), ("v", "u"))
+    (swapped,) = diagram_ids(replace(term, coupling_sum=reverse_legs))
+    assert swapped != base
+    assert diagram_ids(replace(term, coupling_sum=Sum((
+        term.coupling_sum, Product((Rational(2), reverse_legs)), term.coupling_sum,
+    )))) == tuple(sorted((base, swapped)))
+    equal = diagram_ids(replace(term, equal_time_aliases=(("v", "u"),)))
+    assert equal != (base,)
+    assert equal == diagram_ids(replace(term, equal_time_aliases=(("u", "v"),)))
+    same_time = replace(term, equal_time_aliases=(("u", "x"),))
+    absorbed = replace(same_time, r_absorbed_pairs=(("x", "u"),))
+    assert diagram_ids(same_time) != diagram_ids(absorbed)
+    assert diagram_ids(replace(term, rational_prefactor=Rational(-7),
+                               response_phase=False)) == (base,)
+
+
+def test_ir_full_types_preserve_same_name_with_different_field_order():
+    phi = Field("phi", "physical", 2)
+    psi = Field("psi", "response", 2)
+    action = Action([Vertex([psi, phi, phi], "F"), Vertex([phi, psi, phi], "F")])
+    obs = [phi("x", "a"), phi("y", "b")]
+    result = compute_moment(obs, action, 2, routing="multiplicity")
+    typed = [diagram_ids(term) for term in result.diagram_terms(2)]
+    assert len(typed) == len(set(typed)) == 24
+    restored = [from_ir(to_ir(term)) for term in result.diagram_terms(2)]
+    assert [diagram_ids(term) for term in restored] == typed

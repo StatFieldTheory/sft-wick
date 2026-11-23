@@ -23,11 +23,7 @@ from sft_wick.evaluate import (
 )
 from sft_wick._c_table_certificate import DEFAULT_TABLE_RTOL
 from sft_wick.fields import Field, FieldOperator
-from sft_wick.indices import (
-    is_generated_name,
-    literal_component,
-    observable_labels,
-)
+from sft_wick.indices import literal_component
 from sft_wick.perturbation import check_distinct_external_labels
 from sft_wick.vertices import Vertex
 
@@ -66,6 +62,9 @@ from .specs import (
 _PROBE_TIME_PAIRS = ((0.37, 0.0), (1.3, 0.55), (2.9, 1.7), (0.8, 0.8), (4.1, 0.2))
 _PROBE_POSITION_PAIRS = ((0.0, 0.0), (0.0, 0.43), (1.1, -0.7), (0.9, 0.35))
 _OFFDIAG_RTOL = 1e-12
+
+# Bump when the meaning of the symbolic expansion cache payload changes.
+_EXPANSION_KEY_SCHEMA = "sft-wick-expansion/1"
 
 _DIAG_R_REFUSAL = (
     "R(t, t') of this system has off-diagonal component entries (a dense "
@@ -895,6 +894,8 @@ class System:
                 entry and an empty list raise.
             response_phase, collect_topology, iso_R, diag_R, diag_C, iso_C: forwarded to :func:`~sft_wick.perturbation.compute_moment`.  When ``iso_R`` is ``None`` the value is inferred from ``self.linear``.
             cache_path: directory (or file) for on-disk caching.
+                Runs with the same action templates, observable, orders and
+                expansion conventions share an entry across numeric parameters.
                 ``None`` disables caching (prints a one-shot
                 reminder).
             progress: progress-bar setting for the per-order expansion
@@ -947,6 +948,7 @@ class System:
             CertificateError: with ``certify=True``, when a check failed;
                 no cache entry is written.
         """
+        from sft_wick._canonical import _type_identity
         from sft_wick.perturbation import compute_moment, validate_routing
         from sft_wick.progress import progress as _progress_scope
 
@@ -995,9 +997,21 @@ class System:
 
         validate_target(target, obs_ops)
 
+        action = self.build_action()
+        aliases = self._mean_vertex_aliases()
+        mean_symbol = None if aliases is None else self._mean_layout()[0]
+        # Keep action and observable order because the cached raw result
+        # contains the engine's ordered terms and labelled DiagramInfos.
         spec_key = {
-            "system_hash": _system_spec_key(self),
-            "observable": obs_repr,
+            "schema": _EXPANSION_KEY_SCHEMA,
+            "vertices": tuple(_type_identity(vertex) for vertex in action.vertices),
+            "observable": tuple(
+                (
+                    name, op.field.field_type.value, int(op.field.n_components),
+                    component, position,
+                )
+                for op, (name, component, position) in zip(obs_ops, obs_repr, strict=True)
+            ),
             "orders": tuple(orders_list),
             "flags": (
                 response_phase,
@@ -1007,39 +1021,18 @@ class System:
                 diag_C,
                 iso_C,
             ),
+            "target": target,
+            "routing": routing,
+            "initial_mean_symbol": mean_symbol,
         }
-        if self.km_vertices:
-            spec_key["km_vertices"] = tuple(
-                (v.name, v.n_psi, v.n_legs) for v in self.km_vertices
-            )
-        aliases = self._mean_vertex_aliases()
-        mean_symbol = None
-        if aliases is not None:
-            mean_symbol, translated = self._mean_layout()
-            spec_key["initial_mean"] = (mean_symbol, translated)
 
         max_order = max(orders_list)
-        # A moment adds no field: the default target stays out of the key.
-        if target != "moment":
-            spec_key["target"] = target
-        if routing != "enumerate":
-            spec_key["routing"] = routing
-            spec_key["leg_symmetries"] = tuple(
-                v.leg_symmetry for v in self._all_nonlocal_vertices
-            )
-        # An observable label spelled like a generated name (``y_0``,
-        # ``i_1``) used to merge with a vertex point or index, so a cache
-        # entry written before the generators skipped such labels holds a
-        # wrong expansion.  Only these observables get a new key.
-        if any(is_generated_name(lab) for lab in observable_labels(obs_ops)):
-            spec_key["labels_reserved"] = True
 
         # An uncertified call passes no certify keyword, as before it existed.
         certify_kwargs = {"certify": True} if certify else {}
         routing_kwargs = {"routing": routing} if routing != "enumerate" else {}
 
         def _compute():
-            action = self.build_action()
             expand = compute_moment
             mean_kwargs = {}
             if mean_symbol is not None:
@@ -1408,40 +1401,6 @@ def _check_observable_operator(op: FieldOperator, system: System) -> None:
             f"use a letter label such as 'a', as in the string form "
             f"'{op.field.name}_a({op.spatial_arg})'."
         )
-
-
-def _system_spec_key(system: System) -> Any:
-    """Canonicalised representation of a ``System`` for caching.
-
-    Callables inside kernel helpers are captured by their ``repr()``
-    when the class is a frozen dataclass (joblib's content-hash
-    handles them), but we include a light summary string in case the
-    user passes raw ``lambda``s through escape hatches.
-    """
-    return {
-        "field": (system.field.name, system.field.n_components),
-        "linear": repr(system.linear),
-        "noise_kappa2_type": type(system.noise.kappa2).__name__,
-        "noise_kappa2_repr": repr(system.noise.kappa2),
-        "noise_sigma2_repr": repr(system.noise.sigma2),
-        "vertices": tuple(
-            (
-                (v.name, "callable", v.n_legs)
-                if callable(v.coupling)
-                else (
-                    v.name,
-                    np.asarray(v.coupling).shape,
-                    float(np.sum(np.abs(np.asarray(v.coupling)))),
-                )
-            )
-            for v in system.vertices
-        ),
-        "nonlocal_vertices": tuple(
-            (v.name, v.order, v.equal_time, v.already_R_contracted)
-            for v in system._all_nonlocal_vertices
-        ),
-        "t_min": system.t_min,
-    }
 
 
 # Preserve definitions before the lazy disk-cache identity helper is imported.

@@ -35,6 +35,7 @@ WF5        ``SweepResult.totals()`` returns a pandas DataFrame
 from __future__ import annotations
 
 import warnings
+from dataclasses import replace
 
 import numpy as np
 import pandas as pd
@@ -119,6 +120,56 @@ def test_WF1_expand_produces_expected_diagram_counts(demo1_expansion):
     )
     assert len(exp.diagrams(2)) == 6
     assert len(exp.diagrams(4)) == 64
+
+
+def test_expansion_cache_reuses_action_across_parameter_values(
+    demo1_system, tmp_path, monkeypatch,
+):
+    from sft_wick import perturbation
+
+    compute = perturbation.compute_moment
+    calls = []
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return compute(*args, **kwargs)
+
+    monkeypatch.setattr(perturbation, "compute_moment", counted)
+    obs = ("phi_a(x)", "phi_b(y)")
+    options = dict(orders=[0, 2], cache_path=tmp_path, progress=False)
+    original = demo1_system.expand(obs, **options)
+    modified = replace(
+        demo1_system,
+        linear=sw.DiagonalA(gamma=[0.7, 0.7]),
+        vertices=[sw.LocalVertex("F", coupling=np.ones((2, 2, 2)))],
+        t_min=0.3,
+    )
+    cached = modified.expand(obs, **options)
+    assert len(calls) == 1
+    assert cached.system is modified
+    assert cached.diagrams(2) == original.diagrams(2)
+
+    # A generated vertex is part of the lowered action even when the
+    # public LocalVertex list is unchanged.
+    with_cumulant = replace(
+        modified, initial_state=sw.InitialState(cumulants=(np.ones((2,) * 3),))
+    )
+    with_cumulant.expand(obs, **options)
+    assert len(calls) == 2
+
+
+def test_expansion_cache_hit_does_not_bypass_parameter_refusals(
+    demo1_system, tmp_path,
+):
+    obs = ("phi_a(x)", "phi_b(y)")
+    options = dict(orders=[0, 2], cache_path=tmp_path, progress=False)
+    demo1_system.expand(obs, **options)
+    mixing = replace(
+        demo1_system,
+        initial_state=sw.InitialState(covariance=[[1.0, 0.2], [0.2, 1.0]]),
+    )
+    with pytest.raises(ValueError, match="diag_C=True"):
+        mixing.expand(obs, **options)
 
 
 # =====================================================================

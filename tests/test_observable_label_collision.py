@@ -517,12 +517,10 @@ def test_LC11_generated_name_predicate(label, expected):
     assert indices.is_generated_name(label) is expected
 
 
-def test_LC12_cache_key_unchanged_unless_a_label_is_generated_form(
+def test_LC12_structural_cache_key_rejects_unversioned_generated_labels(
         system, tmp_path, monkeypatch):
-    """Only an observable with a y_k / i_k label gets a new expansion
-    cache key, so an entry written by an earlier version for such an
-    observable (which holds the merged, wrong expansion) is not read
-    back, and every other key is the one it was."""
+    """Older entries may merge external y_k / i_k labels with internal
+    labels. A structural expansion only reads an entry with its schema."""
     from sft_wick.workflow import cache as cache_mod
 
     seen = []
@@ -533,17 +531,13 @@ def test_LC12_cache_key_unchanged_unless_a_label_is_generated_form(
         return real(cache_path, spec_obj, compute_fn, **kw)
 
     monkeypatch.setattr(cache_mod, "load_or_compute", capture)
-    system.expand(("phi_a(x)", "phi_b(y)"), orders=[0, 2], progress=False)
-    assert "labels_reserved" not in seen[-1]
-    assert set(seen[-1]) == {"system_hash", "observable", "orders", "flags"}
-
-    # A stale entry under the key the observable had before the marker.
     obs = ("phi_a(y_0)", "phi_b(y_1)")
     system.expand(obs, orders=[0, 2], progress=False)
-    assert seen[-1].pop("labels_reserved") is True
+    assert seen[-1].pop("schema") == "sft-wick-expansion/1"
     stale = {"key": cache_mod.hash_spec(seen[-1]),
              "value": {"dts_by_order": {0: [], 2: []}, "raw_result": None}}
     from joblib import dump
-    dump(stale, tmp_path / f"expansion_{stale['key']}.joblib")
-    exp = system.expand(obs, orders=[0, 2], cache_path=tmp_path, progress=False)
+    path = tmp_path / "expansion.joblib"
+    dump(stale, path)
+    exp = system.expand(obs, orders=[0, 2], cache_path=path, progress=False)
     assert len(exp.diagrams(2)) == 6

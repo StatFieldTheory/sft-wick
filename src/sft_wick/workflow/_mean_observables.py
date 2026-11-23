@@ -85,6 +85,10 @@ def _extend_term(term, labels, removed, mean_symbol):
         integration_vars=tuple(points.get(v, v) for v in term.integration_vars) + tuple(legs),
         summation_indices=tuple((indices.get(i, i), n) for i, n in term.summation_indices),
         n_response=term.n_response + len(legs),
+        vertex_types=tuple(
+            (tuple(points.get(point, point) for point in labels), template)
+            for labels, template in term.vertex_types
+        ),
         equal_time_aliases=tuple(
             (points.get(left, left), points.get(right, right))
             for left, right in term.equal_time_aliases
