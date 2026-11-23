@@ -9,6 +9,9 @@ Detailed coverage of every feature in **sft-wick**, organised by topic.
 
    workflow
    linear_hawkes
+   campbell
+   quenched_disorder
+   network_components
    discretization
    time_variable
    parallelism

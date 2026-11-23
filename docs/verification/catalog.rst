@@ -3,7 +3,7 @@
 Validation catalogue
 ====================
 
-The suite has **9541 tests** in 175 files (parametrised
+The suite has **9615 tests** in 178 files (parametrised
 cases counted individually).  Each row names what is checked, the
 independent reference it is checked against, and the tolerance.
 Regenerate with ``python tools/gen_test_catalog.py`` (also run by
@@ -916,7 +916,7 @@ Integrators
 Workflow and YAML
 -----------------
 
-*2701 tests in 47 files.*
+*2775 tests in 50 files.*
 
 .. list-table::
    :header-rows: 1
@@ -936,6 +936,13 @@ Workflow and YAML
      - exact; 1e-12
      - 22
      - 4
+   * - ``test_campbell.py``
+     - joint compound-Poisson characteristics, compensation and quadratic insertions
+     - direct mark laws, atom probabilities and independent Poisson expectations
+     - independent code
+     - readout-specific floating-point tolerances
+     - 22
+     - 0
    * - ``test_catalog_current.py``
      - this catalogue matches the collected suite
      - tools/gen_test_catalog.py
@@ -1046,7 +1053,7 @@ Workflow and YAML
      - independent Poisson-cluster branching and analytic Poisson increments
      - independent code
      - 1e-10 absolute for finite-window cumulants
-     - 27
+     - 50
      - 1
    * - ``test_local_callable_coupling.py``
      - a callable local coupling at L1 and in YAML: the rank contract, the MSR factor, the argument shapes, and a drift F0 (1 + beta x) exp(-lambda t) at orders 1-2 with t_min = 0.5 on every integrator
@@ -1118,6 +1125,13 @@ Workflow and YAML
      - exact
      - 34
      - 0
+   * - ``test_network_components.py``
+     - directed and undirected network response, covariance and node-local drift
+     - matrix Ornstein–Uhlenbeck integrals and tagged Itô moment equations
+     - independent code
+     - readout-specific floating-point tolerances
+     - 20
+     - 0
    * - ``test_observable_operator_inputs.py``
      - FieldOperator observables in System.expand (order 0 at distinct times, the FK channel at order 2, the same expansion as the string spelling, one index per shared letter); literal labels and foreign fields refused; set and frozenset observables refused, a dict's keys view accepted in its insertion order, the keys view of another mapping (a ChainMap's included) refused; a physical field named psi refused; each record draws for operators the caller built or cached, each edge joins the operators of its pair, a drawing reads no uid, and no call moves the uids back
      - closed-form inner and scipy quad outer integral of the exponential covariance; the FK channel of a constant kappa^3 as a 1-D quad
@@ -1131,6 +1145,13 @@ Workflow and YAML
      - none
      - exact
      - 99
+     - 0
+   * - ``test_random_coupling.py``
+     - Gaussian disorder, grouped response times and shared disorder across noise copies
+     - Isserlis matrix-entry averages and conditional moment coefficients
+     - independent code
+     - 1e-10 absolute for finite-time matrix coefficients
+     - 9
      - 0
    * - ``test_repo_hygiene.py``
      - tracked files hold no agent working files, development records, local absolute paths or task IDs; file names and commit messages hold no task IDs
@@ -1483,7 +1504,7 @@ Where a file holds checks of several kinds:
    * - exact analytic
      - 87
    * - independent code
-     - 38
+     - 41
    * - simulation
      - 0
    * - self consistency
