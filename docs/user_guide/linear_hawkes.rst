@@ -44,13 +44,12 @@ these means. The solver uses a wider arithmetic range when time scales or
 event rates require it. This calculation also observes ``workspace_max_bytes``.
 
 The count calculation forms quadrature nodes in time elapsed since ``t_min``.
-The default third-order calculation refines the quadrature until all endpoint
-contributions converge. Pass ``n_gauss`` to select a fixed Gauss–Legendre
-rule. Long prehistories or fast decay rates may require more nodes.
+The default third-order calculation refines the Gauss–Legendre rule until
+the third cumulant converges. Pass ``n_gauss`` to select a fixed Gauss–Legendre
+rule. Long prehistories or rapid changes of intensity may require more nodes.
 For independent Poisson counters the joint cumulant is the rate times
-the length of the common time interval on one node. For a coupled process,
-a window so short and late that endpoint rounding swamps the difference
-raises an arithmetic error.
+the length of the common time interval on one node. A coupled one-window
+mean raises an arithmetic error if its endpoint subtraction is unresolved.
 
 Wick system and jump vertices
 -----------------------------
@@ -75,9 +74,24 @@ factorial and the Martin–Siggia–Rose phase.
 
 For this linear rate law the order-zero Wick diagrams give the exact
 second cumulant and the one-vertex diagrams give the exact third cumulant
-before numerical quadrature. The finite-window readout takes signed
-differences across all window endpoints and builds only the required jump
-orders. Accessing ``model.system`` builds all supplied orders. The dense
-joint jump tensors and matrix-exponential workspace grow with node count.
+before numerical quadrature. For two windows the solver propagates the
+covariance of two counters, each active only during its own window.
+This preserves small covariances of separated intervals, and a finite window
+variance can be returned even if the full cumulative variance exceeds the
+floating-point range.
+
+For third cumulants, the ordinary calculation combines the diagrams at the
+window endpoints. If their subtraction loses significant digits, or if a
+jump, response or covariance may leave binary64 range before multiplication
+by the event rate, the solver contracts the same one-event and event-rate
+terms in wider arithmetic. Adaptive quadrature
+then integrates the counters directly in their windows. A fixed rule keeps
+the panels for each cumulative endpoint unless the endpoint subtraction
+exhausts the available precision.
+
+Each count calculation builds only the required jump orders.
+Accessing ``model.system`` builds all supplied orders and requires each
+static jump coefficient to fit in binary64. The dense joint jump tensors
+and matrix-exponential workspace grow with node count.
 ``workspace_max_bytes`` sets the preflight budget for each construction,
 with a default of 64 MiB.

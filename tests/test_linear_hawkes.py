@@ -55,6 +55,93 @@ def test_poisson_count_checks_final_result_range():
         model.count_cumulant([(0, 0.0, 2.0)])
 
 
+@pytest.mark.parametrize(
+    ("n", "stop", "variance", "cross"),
+    [
+        (8, 2000.0, 2223.102739591411, 49.28421407156207),
+        (14, 3000.0, 3575.870882803650, 87.68808128931751),
+        (8, 1e12, 1111613380455.206, 24656858716.17005),
+    ],
+)
+def test_long_subcritical_network_covariance(n, stop, variance, cross):
+    model = LinearHawkes(np.ones(n), np.full((n, n), 0.01), 1.0, [1.0, 1.0])
+    # Martingale integral of the independent source responses
+    # H_ij(v) = delta_ij + .01 * (1 - exp(-k*v))/k, k = 1 - .01*n.
+    w = (0, 0.0, stop)
+    assert model.count_cumulant([w, w]) == pytest.approx(variance, rel=1e-12, abs=0.0)
+    assert model.count_cumulant([w, (1, 0.0, stop)]) == pytest.approx(
+        cross, rel=1e-12, abs=0.0
+    )
+    if n == 8:
+        block = model.propagators(stop).cache.C_value(0.0, stop, 0.0, stop)
+        np.testing.assert_allclose(block[n, n : n + 2], [variance, cross], rtol=1e-12)
+
+
+def test_long_network_with_late_count_windows():
+    model = LinearHawkes(np.ones(14), np.full((14, 14), 0.01), 1.0, [1.0, 1.0])
+    # Integral of the stationary cross-node density q * exp(-.86 * lag);
+    # the empty-history transient at 2900 contributes less than 1e-1000.
+    windows = [(0, 2900.0, 3000.0), (1, 2900.0, 3000.0)]
+    np.testing.assert_allclose(
+        model.count_cumulant(windows), 2.8902676698643765, rtol=1e-12
+    )
+
+
+def test_rare_late_descendants_of_a_closed_window():
+    model = LinearHawkes(1e300, 0.1, 1.0, [1.0, 1.0])
+    # The remaining response decays as exp(-.9*t), below binary64 at
+    # t=1500. The early immigrant population keeps its covariance finite.
+    windows = [(0, 0.0, 0.25), (0, 1500.0, 1500.25)]
+    np.testing.assert_allclose(
+        model.count_cumulant(windows), 3.237215422455588e-289, rtol=1e-12, atol=0
+    )
+
+
+def test_third_count_with_one_distant_window():
+    model = LinearHawkes(0.8, 0.2, 1.0)
+    pair = [(0, 0.0, 1.0)] * 2
+    early = model.count_cumulant([*pair, (0, 1.0, 2.0)])
+    # Conditional on the early history, only fluctuations of the rate at
+    # t=1 affect the later mean. Their response decays as exp(-.8*lag).
+    late = model.count_cumulant([*pair, (0, 50.0, 51.0)])
+    np.testing.assert_allclose(late, early * np.exp(-0.8 * 49), rtol=1e-11, atol=0)
+
+
+def test_stiff_subcritical_count_variance_and_public_covariance():
+    beta, stop = 3e15, 0.6
+    model = LinearHawkes(1.0, beta / 2, beta)
+    # Both the mean intensity and the count response are 2-exp(-beta*t/2).
+    # Integrating their martingale variance gives the following expression.
+    x = -beta * stop / 2
+    expected = 8 * stop + 4 * stop * np.exp(x) + 22 * np.expm1(x) / beta
+    pair = [(0, 0.0, stop)] * 2
+    assert model.count_cumulant(pair) == pytest.approx(expected, rel=1e-12, abs=0.0)
+    cache = model.propagators(stop).cache
+    assert cache.C_value(0.0, stop, 0.0, stop)[1, 1] == pytest.approx(
+        expected, rel=1e-12, abs=0.0
+    )
+
+
+def test_count_covariance_selects_the_window_before_float_conversion():
+    # Critical unit-jump process. Integrating the squared response of the
+    # window [24,25] against mu*(1+t) gives mu*371.25, although the
+    # cumulative variance at 25 is already too large for binary64.
+    model = LinearHawkes(1e304, 1.0, 1.0)
+    window = (0, 24.0, 25.0)
+    assert model.count_cumulant([window, window]) == pytest.approx(
+        3.7125e306, rel=1e-12, abs=0.0
+    )
+
+
+def test_count_covariance_scales_with_independent_immigration():
+    windows = [(0, 0.1, 0.8), (0, 0.2, 0.6)]
+    reference = LinearHawkes(0.61, 0.8, 1.0).count_cumulant(windows)
+    model = LinearHawkes(6.1e279, 0.8, 1.0)
+    assert model.count_cumulant(windows) == pytest.approx(
+        1e280 * reference, rel=1e-12, abs=0.0
+    )
+
+
 def test_supercritical_node_without_immigration_has_zero_count():
     model = LinearHawkes(0.0, 1.0, 0.1)
     window = (0, 0.0, 1000.0)
@@ -171,6 +258,147 @@ def test_high_order_jump_tensor_uses_marks_only_on_excitation_axes():
     assert constant[0, 0, 1, 0, 1] == pytest.approx(0.8 * 0.4**2 * 8)
 
 
+def test_count_cumulant_is_invariant_to_mark_units():
+    windows = [(0, 0.1, 0.8), (0, 0.2, 0.6), (0, 0.85, 1.4)]
+    expected = LinearHawkes(0.61, 0.8, 1).count_cumulant(windows)
+    shift = 345
+    model = LinearHawkes(
+        0.61, np.ldexp(0.8, shift), 1, np.exp2(-shift * np.arange(1, 4))
+    )
+    assert model.count_cumulant(windows) == pytest.approx(expected, rel=1e-12, abs=0.0)
+
+
+@pytest.mark.parametrize("shift", [-258, 255])
+def test_marked_cross_node_jump_tensors_across_unit_scales(shift):
+    # A single mark, zero or two with equal probability, drives both targets.
+    excitation = np.array([[0.5, 0.0], [2.0**-20, 0.25]])
+    orders = np.arange(1, 5)
+    raw_moments = np.exp2(orders - 1)
+    model = LinearHawkes(
+        [0.4, 0.7],
+        np.ldexp(excitation, -shift),
+        1,
+        np.ldexp(raw_moments, shift * orders),
+    )
+    vertices = {v.name: v for v in model.system.km_vertices}
+    for order in (2, 3, 4):
+        tensor = np.asarray(vertices[f"K{order}rate"].coupling)
+        for node in range(2):
+            expected = np.zeros((4,) * order)
+            for mark in (0, 2):
+                jump = np.r_[mark * excitation[:, node], np.eye(2)[node]]
+                product = jump
+                for _ in range(order - 1):
+                    product = np.multiply.outer(product, jump)
+                expected += 0.5 * product
+            np.testing.assert_array_equal(tensor[..., node], expected)
+
+
+def test_mean_jump_tensors_preserve_small_jumps_with_large_immigration():
+    impulse = LinearHawkes(1e300, 1e-200, 1, [1, 1]).system.noise.sigma2
+    assert impulse.fn(0.0, 0.0, 0.0)[0, 0] == pytest.approx(1e-100, rel=1e-14, abs=0.0)
+
+    model = LinearHawkes(1e290, 1e-130, 1)
+    vertex = next(v for v in model.system.km_vertices if v.name == "K3mean")
+    value = vertex.coupling([0.0], [np.array([0.0])])[0, 0, 0, 0]
+    assert value == pytest.approx(1e-100, rel=1e-14, abs=0.0)
+
+
+def test_rare_parent_rate_drives_a_finite_downstream_impulse():
+    # Node 0 is Poisson; at time t node 1's rate is 1e-400*(1-exp(-t)).
+    # Only node 1 can excite node 2, by 1e100 per event.
+    model = LinearHawkes(
+        [1e-240, 0, 0], [[0, 0, 0], [1e-160, 0, 0], [0, 1e100, 0]], 1, [1, 1]
+    )
+    times = np.array([0.0, 0.25, 0.5, 0.25])
+    impulse = model.system.noise.sigma2.fn(0.0, times, 0.0)
+    np.testing.assert_allclose(
+        impulse[:, 2, 2], 1e-200 * -np.expm1(-times), rtol=1e-14, atol=0.0
+    )
+
+
+@pytest.mark.parametrize(
+    "bounds, order",
+    [([(0, 1)] * 3, 4), ([(0.1, 0.8), (0.2, 0.6), (0.85, 1.4)], 1)],
+)
+def test_joint_third_count_retains_weak_daughter_pairs(bounds, order):
+    def fork(rate, edge):
+        model = LinearHawkes([rate, 0, 0], [[0.4, 0, 0], [edge, 0, 0], [edge, 0, 0]], 1)
+        windows = [(i, lo, hi) for i, (lo, hi) in enumerate(bounds)]
+        return model.count_cumulant(windows, n_gauss=order)
+
+    # Independent daughters of each parent cluster imply exact proportionality
+    # to immigration times the square of the daughter excitation.
+    assert fork(1e300, 1e-170) == pytest.approx(1e-40 * fork(1, 1), rel=1e-12, abs=0.0)
+
+
+def test_short_chain_preserves_the_parent_parent_grandchild_cumulant():
+    model = LinearHawkes([1e250, 0, 0], [[0, 0, 0], [1, 0, 0], [0, 1e-90, 0]], 1)
+    # Each cluster contains precisely one immigrant. Repeating the parent
+    # window twice leaves the joint cumulant equal to the grandchild mean.
+    t = 1e-120
+    expected = 1e-200 / 6  # mu*A10*A21*t^3/6, relative corrections O(t)
+    assert model.count_cumulant([(i, 0, t) for i in (0, 0, 2)]) == pytest.approx(
+        expected, rel=1e-12, abs=0.0
+    )
+
+
+def test_joint_third_count_retains_rare_parent_covariance():
+    a = np.zeros((4, 4))
+    a[1, 0] = 1e-100
+    a[2, 1] = a[3, 1] = 1e60
+    model = LinearHawkes([1e-240, 0, 0, 0], a, 1)
+    # At leading order in the rare 0->1 jump, the two independent daughters
+    # share one intermediate parent. Integrating its possible arrival times
+    # gives integral_0^1 dh integral_0^h du exp(-u)*(1-exp(-(h-u)))**2.
+    expected = 1e-220 * (-1.5 + 4 / np.e + np.exp(-2) / 2)
+    assert model.count_cumulant([(i, 0, 1) for i in (0, 2, 3)]) == pytest.approx(
+        expected, rel=1e-12, abs=0.0
+    )
+
+
+@pytest.mark.parametrize("edge_exp, rate_exp", [(195, 450), (-205, -470)])
+def test_third_critical_count_has_consistent_time_and_rate_units(edge_exp, rate_exp):
+    a, mu = 2.0**edge_exp, 2.0**rate_exp
+    model = LinearHawkes(mu, a, a)
+    # At criticality the first three moment equations are polynomials.
+    # Changing the clock to a*t leaves unit decay and immigration mu/a.
+    assert model.count_cumulant([(0, 0, 1 / a)] * 3) == pytest.approx(
+        (659 / 60) * (mu / a), rel=1e-12, abs=0.0
+    )
+
+
+@pytest.mark.parametrize(("edge", "decay", "t"), [(0.02, 1.0, 300.0), (1.0, 1e8, 1.0)])
+def test_stable_dense_network_keeps_the_fixed_rule_in_the_default_workspace(
+    edge, decay, t
+):
+    n = 11
+    offspring = n * edge / decay
+    model = LinearHawkes(np.ones(n), np.full((n, n), edge), decay)
+    # The all-to-all process is a single branching process with uniform
+    # labels. In the bulk the distinct-label cumulant is the immigrant
+    # rate times E[S(S-1)(S-2)]/n**3, for total progeny S. Both GL2 nodes
+    # are over 49 relaxation times from either boundary.
+    k = 1 - offspring
+    expected = t / n**2 * offspring**2 * (9 - 8 * offspring + 2 * offspring**2) / k**5
+    assert model.count_cumulant([(i, 0, t) for i in (0, 1, 2)], n_gauss=2) == (
+        pytest.approx(expected, rel=1e-10, abs=0.0)
+    )
+
+
+def test_strongly_damped_chain_retains_its_third_count():
+    model = LinearHawkes(
+        [1e240, 0, 0], [[0, 0, 0], [1, 0, 0], [0, 1, 0]], [1, 1e170, 1e170]
+    )
+    # A repeated Poisson parent leaves the cumulant equal to the expected
+    # number of grandchildren. At the GL1 midpoint both daughter kernels
+    # have integrated to their full mass 1/beta, within binary64 precision.
+    windows = [(i, 0, 1) for i in (0, 0, 2)]
+    assert model.count_cumulant(windows, n_gauss=1) == pytest.approx(
+        1e-100, rel=1e-12, abs=0.0
+    )
+
+
 def test_mean_against_marked_univariate_closed_form():
     # E[lambda(t)] solves l' = (a E[M] - beta) l + beta mu.
     mu, beta, a, mean_mark = 0.7, 1.1, 0.3, 2.0
@@ -277,6 +505,8 @@ def test_count_readout_only_builds_the_jump_orders_it_uses():
     assert model.count_cumulant(pair) == limited.count_cumulant(pair)
     with pytest.raises(ValueError, match="dense jump tensors"):
         _ = model.system
+    with pytest.raises(ValueError, match="quadrature"):
+        limited.count_cumulant([(0, 0.0, 1.0)] * 3, n_gauss=10000)
     with pytest.raises(ValueError, match="matrix-exponential state"):
         LinearHawkes(1.0, 0.1, 0.6, workspace_max_bytes=1).count_cumulant(pair[:1])
 
@@ -331,6 +561,12 @@ def test_late_short_poisson_windows_keep_their_width():
     for windows, width in [([a], 0.125), ([a, a], 0.125), ([a, b, a], 0.0625)]:
         assert model.count_cumulant(windows) == 1.23456 * width
     coupled = LinearHawkes(1.23456, 0.1, 1.0)
-    for rank in (1, 2):
-        with pytest.raises(ArithmeticError, match="precision"):
-            coupled.count_cumulant([a] * rank)
+    with pytest.raises(ArithmeticError, match="precision"):
+        coupled.count_cumulant([a])
+    # The covariance counts only the short interval. After this long past,
+    # the stationary covariance density away from zero is q*exp(-k*|lag|).
+    k, width = 0.9, 0.125
+    rate = 1.23456 / k
+    q = rate * 0.1 * (2.0 - 0.1) / (2 * k)
+    expected = rate * width + 2 * q * (width * k + np.expm1(-k * width)) / k**2
+    assert coupled.count_cumulant([a, a]) == pytest.approx(expected, rel=1e-12, abs=0.0)
