@@ -601,7 +601,7 @@ def test_a_kernel_that_vanishes_at_the_origin_is_probed_where_it_is_read():
     assert cache._kappa2_has_diagonal_cusp((1.0, 1.0))
     props = system.propagators(
         t_max=6.0, n_grid_t=121, c_method="gauss_legendre", c_closed_form=None,
-        progress=False)
+        table_rtol=None, progress=False)
     total = system.expand(("phi(x)", "phi(y)"), orders=[2]).evaluate(
         props, t_final=6.0, positions={"x": 1.0, "y": 1.0}, orders=[2],
         method="gauss_legendre", n_gauss=16).total

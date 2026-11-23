@@ -1033,7 +1033,8 @@ def test_dry_run_counts_both_time_orders_of_a_general_table(tmp_path, monkeypatc
         or tabulate(self, shape, found, *args))
     build_system(cfg.system).propagators(
         t_max=32.0, n_grid_t=8, n_grid_x=3, x_max=1.0, homogeneity="general",
-        c_closed_form=None, c_n_gauss=4, c_method="gauss_legendre")
+        c_closed_form=None, c_n_gauss=4, c_method="gauss_legendre",
+        table_rtol=None)
     assert len(cells) == 2
     assert estimated == pytest.approx(sum(cells), rel=0.2, abs=0.0)
 
@@ -1322,7 +1323,8 @@ def test_a_kernel_singular_at_the_origin_finds_its_rule_at_the_pair():
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         props = _singular_system(_Yukawa(), sigma_t).propagators(
-            t_max=t_end, n_grid_t=7, progress=False
+            t_max=t_end, n_grid_t=7, c_closed_form=None, table_rtol=None,
+            progress=False
         )
         got = props.cache._C_value_direct(0.0, t_end, 1.0, t_end)
     assert props.c_source == "quadrature:per_position"
@@ -1591,7 +1593,7 @@ def test_a_translation_table_takes_noise_even_in_the_separation(x, y):
         lambda s2, s1: math.exp(-0.6 * (5.0 - s1 - s2) - 0.5 * (x - y) ** 2),
         0.0, 2.0, 0.0, 3.0, epsabs=1e-10, epsrel=1e-10)[0]
     props = _moving_pattern(0.0).propagators(
-        4.0, 41, homogeneity="translation", progress=False)
+        4.0, 41, homogeneity="translation", table_rtol=None, progress=False)
     got = np.ravel(props.cache.C_at_batch(np.array([2.0]), np.array([3.0]), x, y))[0]
     assert got == pytest.approx(ref, rel=1e-5, abs=0.0)
 
